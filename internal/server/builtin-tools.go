@@ -291,13 +291,14 @@ var builtinTools = []builtinToolDef{
 			"description":   map[string]any{"type": "string", "description": "Description"},
 			"system_prompt": map[string]any{"type": "string", "description": "System prompt fragment"},
 			"tools":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Tool definitions (same shape as skill_create.tools)"},
+			"resources":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}, "media_type": map[string]any{"type": "string"}}, "required": []string{"path", "content"}}, "description": "Text resources bundled beside SKILL.md"},
 			"version":       map[string]any{"type": "string", "description": "Skill version declared by the author (semver recommended)"},
 			"author":        map[string]any{"type": "string", "description": "Author attribution"},
 			"license":       map[string]any{"type": "string", "description": "SPDX-style license identifier (e.g. MIT)"},
 		},
 		"required": []string{"name"},
 	}},
-	{Name: "skill_import_url", Description: "Fetch a skill from a URL and install it. Auto-detects JSON (skill_export format) and Anthropic SKILL.md (markdown with frontmatter) formats. Useful for installing skills from a Git raw URL or a marketplace.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"url": map[string]any{"type": "string", "description": "URL to a skill JSON or SKILL.md file"}}, "required": []string{"url"}}},
+	{Name: "skill_import_url", Description: "Import a single JSON/SKILL.md URL or one or more SKILL.md packages from any Git repository. Repository imports preserve bundled text references for on-demand reading.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"url": map[string]any{"type": "string", "description": "File URL or Git clone URL"}, "repository": map[string]any{"type": "boolean", "description": "Treat URL as a Git repository"}, "ref": map[string]any{"type": "string", "description": "Optional Git branch or tag"}, "path": map[string]any{"type": "string", "description": "Optional directory inside the repository"}, "import_all": map[string]any{"type": "boolean", "description": "Import every skill found under path"}, "credential_id": map[string]any{"type": "string", "description": "Optional encrypted Git SSH credential ID"}}, "required": []string{"url"}}},
 	{Name: "skill_import_skillmd", Description: "Import a skill by parsing raw Anthropic SKILL.md content. Frontmatter must contain at least `name` and `description`; the body becomes the skill's system_prompt.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"content": map[string]any{"type": "string", "description": "Raw SKILL.md content"}}, "required": []string{"content"}}},
 
 	// ─── MCP Server / MCP Set Management Tools ───

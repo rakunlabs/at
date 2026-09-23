@@ -39,7 +39,7 @@ const platformRoutes = [
   // Policy reads are workspace-admitted, but this configuration surface is
   // only useful to installation administrators who can change the policy.
   '/settings/execution',
-  '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system',
+  '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system', '/settings/git-credentials',
   '/skills', '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers', '/mcps',
 ];
@@ -79,6 +79,7 @@ export const configurationLinks = [
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
   { path: '/settings/media', label: 'Media storage', description: 'Where image attachments in Chats are stored' },
   { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
+  { path: '/settings/git-credentials', label: 'Git credentials', description: 'Deploy keys for private skill repositories' },
   { path: '/providers', label: 'Model providers', description: 'Model connections and credentials' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },

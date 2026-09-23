@@ -38,6 +38,7 @@
   } from '@/lib/api/marketplace';
   import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText } from 'lucide-svelte';
   import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
+  import { listGitCredentials, type GitCredential } from '@/lib/api/git-credentials';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -403,21 +404,49 @@
 
   let showImportURL = $state(false);
   let importURL = $state('');
+  let importRepository = $state(false);
+  let importRef = $state('');
+  let importPath = $state('');
+  let importAll = $state(false);
+  let importCredentialID = $state('');
+  let gitCredentials = $state<GitCredential[]>([]);
+  let gitCredentialsLoaded = $state(false);
+  let importingURL = $state(false);
 
   async function handleImportURL() {
     if (!importURL.trim()) {
       addToast('URL is required', 'warn');
       return;
     }
+    importingURL = true;
     try {
-      await importSkillFromURL(importURL.trim());
-      addToast('Skill imported from URL');
+      const result = await importSkillFromURL(importURL.trim(), importRepository ? {
+        repository: true,
+        ref: importRef.trim() || undefined,
+        path: importPath.trim() || undefined,
+        import_all: importAll,
+        credential_id: importCredentialID || undefined,
+      } : {});
+      const count = 'skills' in result ? result.skills.length : 1;
+      addToast(count === 1 ? 'Skill imported' : `${count} skills imported`);
       importURL = '';
+      importRef = '';
+      importPath = '';
+      importAll = false;
+      importCredentialID = '';
       showImportURL = false;
       await load();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to import skill from URL', 'alert');
+    } finally {
+      importingURL = false;
     }
+  }
+
+  async function loadGitCredentials() {
+    if (gitCredentialsLoaded) return;
+    try { gitCredentials = await listGitCredentials(); gitCredentialsLoaded = true; }
+    catch (e: any) { addToast(e?.response?.data?.message || 'Failed to load Git credentials', 'alert'); }
   }
 
   // ─── Import Raw SKILL.md ───
@@ -673,26 +702,62 @@
 
       <!-- Import from URL -->
       {#if showImportURL}
-        <div class="flex items-center gap-2 mb-4 p-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-          <input
-            type="text"
-            bind:value={importURL}
-            placeholder="Supports JSON and SKILL.md formats"
-            class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
-          />
-          <button
-            onclick={handleImportURL}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
-          >
-            <Upload size={12} />
-            Import
-          </button>
-          <button
-            onclick={() => { showImportURL = false; }}
-            class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
-          >
-            <X size={14} />
-          </button>
+        <div class="mb-4 p-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-xs font-medium text-gray-800 dark:text-dark-text">Import a skill source</div>
+              <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">Use a raw JSON/SKILL.md URL or clone a Git repository package with bundled references.</p>
+            </div>
+            <button type="button" aria-label="Close import form" onclick={() => { showImportURL = false; }} class="p-1.5 shrink-0 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary">
+              <X size={14} />
+            </button>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-dark-text-secondary">
+            <input type="checkbox" bind:checked={importRepository} onchange={() => { if (importRepository) void loadGitCredentials(); }} class="size-3.5" />
+            Git repository
+          </label>
+          <div class="grid grid-cols-1 gap-2 {importRepository ? 'md:grid-cols-[minmax(0,2fr)_minmax(8rem,0.7fr)_minmax(0,1fr)]' : ''}">
+            <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              {importRepository ? 'Clone URL' : 'File URL'}
+              <input type="text" bind:value={importURL} placeholder={importRepository ? 'https://git.example.com/team/skills.git' : 'https://example.com/SKILL.md'} class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+            </label>
+            {#if importRepository}
+              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                Branch or tag
+                <input type="text" bind:value={importRef} placeholder="default branch" class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+              </label>
+              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                Path inside repository
+                <input type="text" bind:value={importPath} placeholder="skills/my-skill" class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+              </label>
+            {/if}
+          </div>
+          {#if importRepository}
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                SSH credential
+                <select bind:value={importCredentialID} class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text">
+                  <option value="">Server SSH configuration</option>
+                  {#each gitCredentials as credential}<option value={credential.id}>{credential.name} — {credential.host}</option>{/each}
+                </select>
+              </label>
+              <a href="#/settings/git-credentials" class="inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Manage deploy keys</a>
+            </div>
+          {/if}
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {#if importRepository}
+              <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-dark-text-secondary">
+                <input type="checkbox" bind:checked={importAll} class="size-3.5" />
+                Import every skill found under this path
+              </label>
+            {:else}
+              <span></span>
+            {/if}
+            <button onclick={handleImportURL} disabled={importingURL} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50">
+              <Upload size={12} />
+              {importingURL ? (importRepository ? 'Cloning...' : 'Importing...') : 'Import'}
+            </button>
+          </div>
         </div>
       {/if}
 
@@ -841,7 +906,7 @@
                       <button
                         type="button"
                         onclick={() => removeTool(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
                         title="Remove tool"
                       >
                         <X size={12} />
@@ -988,7 +1053,7 @@
                   </button>
                   <button
                     onclick={() => openEditWithAI(skill)}
-                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text "
+                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text dark:hover:text-accent-text "
                     title="Edit with AI"
                   >
                     <Bot size={14} />
@@ -1016,7 +1081,7 @@
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = skill.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1303,7 +1368,7 @@
                   {#if !src.id.startsWith('default-')}
                     <button
                       onclick={() => handleDeleteSource(src.id)}
-                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
                       title="Delete source"
                     >
                       <Trash2 size={14} />

@@ -149,6 +149,9 @@ func (s *Server) ListConnectionsAPI(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]connectionResponse, 0, len(items))
 	for _, c := range items {
+		if c.Provider == service.GitSSHCredentialProvider {
+			continue
+		}
 		resp := toConnectionResponse(c, false)
 		resp.UsedByAgents = usage[c.ID]
 		out = append(out, resp)
@@ -177,6 +180,10 @@ func (s *Server) GetConnectionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rec == nil {
+		httpResponse(w, fmt.Sprintf("connection %q not found", id), http.StatusNotFound)
+		return
+	}
+	if rec.Provider == service.GitSSHCredentialProvider {
 		httpResponse(w, fmt.Sprintf("connection %q not found", id), http.StatusNotFound)
 		return
 	}
@@ -259,6 +266,10 @@ func (s *Server) CreateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "provider is required", http.StatusBadRequest)
 		return
 	}
+	if req.Provider == service.GitSSHCredentialProvider {
+		httpResponse(w, "Git SSH credentials must be managed through Git credentials settings", http.StatusBadRequest)
+		return
+	}
 	if req.Name == "" {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
@@ -316,6 +327,10 @@ func (s *Server) UpdateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("connection %q not found", id), http.StatusNotFound)
 		return
 	}
+	if existing.Provider == service.GitSSHCredentialProvider {
+		httpResponse(w, fmt.Sprintf("connection %q not found", id), http.StatusNotFound)
+		return
+	}
 
 	var req connectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -353,6 +368,10 @@ func (s *Server) UpdateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	provider := req.Provider
 	if provider == "" {
 		provider = existing.Provider
+	}
+	if provider == service.GitSSHCredentialProvider {
+		httpResponse(w, "Git SSH credentials must be managed through Git credentials settings", http.StatusBadRequest)
+		return
 	}
 	name := req.Name
 	if name == "" {
@@ -411,6 +430,15 @@ func (s *Server) DeleteConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "connection id is required", http.StatusBadRequest)
+		return
+	}
+	existing, err := s.connectionStore.GetConnection(r.Context(), id)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to load connection: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if existing == nil || existing.Provider == service.GitSSHCredentialProvider {
+		httpResponse(w, fmt.Sprintf("connection %q not found", id), http.StatusNotFound)
 		return
 	}
 

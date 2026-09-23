@@ -15,6 +15,12 @@ export interface SkillTool {
   handler_type?: string; // "js" (default) or "bash"
 }
 
+export interface SkillResource {
+  path: string;
+  content: string;
+  media_type?: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -23,11 +29,16 @@ export interface Skill {
   tags?: string[];
   system_prompt: string;
   tools: SkillTool[];
+  resources?: SkillResource[];
   // Sharing / provenance metadata
   version?: string;
   author?: string;
   license?: string;
   source_url?: string; // set when imported from a remote source
+  source_type?: 'url' | 'git';
+  source_ref?: string;
+  source_path?: string;
+  source_credential_id?: string;
   source_checksum?: string; // SHA-256 of the imported payload
   created_at: string;
   updated_at: string;
@@ -114,8 +125,20 @@ export async function exportSkillMD(id: string): Promise<string> {
   return res.data;
 }
 
-export async function importSkillFromURL(url: string): Promise<Skill> {
-  const res = await api.post<Skill>('/skills/import-url', { url });
+export interface SkillImportOptions {
+  repository?: boolean;
+  ref?: string;
+  path?: string;
+  import_all?: boolean;
+  credential_id?: string;
+}
+
+export interface MultiSkillImportResult {
+  skills: Skill[];
+}
+
+export async function importSkillFromURL(url: string, options: SkillImportOptions = {}): Promise<Skill | MultiSkillImportResult> {
+  const res = await api.post<Skill | MultiSkillImportResult>('/skills/import-url', { url, ...options });
   return res.data;
 }
 

@@ -225,6 +225,42 @@ func TestSkillRuntime_HandleLoadSkill_MissingArg(t *testing.T) {
 	}
 }
 
+func TestSkillRuntime_ReadBundledResource(t *testing.T) {
+	skill := &service.Skill{
+		ID: "skill_docs", Name: "docs", SystemPrompt: "Use the guide.",
+		Resources: []service.SkillResource{{Path: "references/guide.md", Content: "Detailed guide"}},
+	}
+	rt, err := NewSkillRuntime(executiontest.Context(t), func(name string) (*service.Skill, error) {
+		return skill, nil
+	}, []service.SkillRef{{ID: skill.ID}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rt.HasResources() {
+		t.Fatal("HasResources = false")
+	}
+	if _, err := rt.HandleReadSkillResource(map[string]any{"skill_name": "docs", "path": "references/guide.md"}); err == nil {
+		t.Fatal("read before load should fail")
+	}
+	loaded, err := rt.HandleLoadSkill(map[string]any{"skill_name": "docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded, "references/guide.md") {
+		t.Fatalf("load result does not list resource: %q", loaded)
+	}
+	got, err := rt.HandleReadSkillResource(map[string]any{"skill_name": "docs", "path": "references/guide.md"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Detailed guide" {
+		t.Fatalf("resource = %q", got)
+	}
+	if _, err := rt.HandleReadSkillResource(map[string]any{"skill_name": "docs", "path": "../secret"}); err == nil {
+		t.Fatal("expected traversal error")
+	}
+}
+
 func TestSkillRuntime_HandlerFor_OnlyLoadedSkillsVisible(t *testing.T) {
 	yt := &service.Skill{
 		ID: "skill_yt", Name: "youtube",

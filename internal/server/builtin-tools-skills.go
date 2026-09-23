@@ -226,6 +226,21 @@ func decodeStringSlice(raw any) ([]string, error) {
 	return out, nil
 }
 
+func decodeSkillResources(raw any) ([]service.SkillResource, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var resources []service.SkillResource
+	if err := json.Unmarshal(data, &resources); err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
 // execSkillCreate creates a new custom skill from the agent's spec.
 func (s *Server) execSkillCreate(ctx context.Context, args map[string]any) (string, error) {
 	if s.skillStore == nil {
@@ -241,6 +256,10 @@ func (s *Server) execSkillCreate(ctx context.Context, args map[string]any) (stri
 	if err != nil {
 		return "", fmt.Errorf("tools: %w", err)
 	}
+	resources, err := decodeSkillResources(args["resources"])
+	if err != nil {
+		return "", fmt.Errorf("resources: %w", err)
+	}
 
 	tags, err := decodeStringSlice(args["tags"])
 	if err != nil {
@@ -254,6 +273,7 @@ func (s *Server) execSkillCreate(ctx context.Context, args map[string]any) (stri
 		Tags:         tags,
 		SystemPrompt: stringArg(args, "system_prompt"),
 		Tools:        tools,
+		Resources:    resources,
 		CreatedBy:    "mcp",
 		UpdatedBy:    "mcp",
 	}
@@ -325,7 +345,12 @@ func (s *Server) execSkillUpdate(ctx context.Context, args map[string]any) (stri
 			skill.License = existing.License
 		}
 		skill.SourceURL = existing.SourceURL
+		skill.SourceType = existing.SourceType
+		skill.SourceRef = existing.SourceRef
+		skill.SourcePath = existing.SourcePath
+		skill.SourceCredentialID = existing.SourceCredentialID
 		skill.SourceChecksum = existing.SourceChecksum
+		skill.Resources = existing.Resources
 	}
 
 	record, err := s.skillStore.UpdateSkill(ctx, id, skill)
@@ -472,12 +497,17 @@ func (s *Server) execSkillImport(ctx context.Context, args map[string]any) (stri
 	if err != nil {
 		return "", fmt.Errorf("tools: %w", err)
 	}
+	resources, err := decodeSkillResources(args["resources"])
+	if err != nil {
+		return "", fmt.Errorf("resources: %w", err)
+	}
 
 	skill := service.Skill{
 		Name:         name,
 		Description:  stringArg(args, "description"),
 		SystemPrompt: stringArg(args, "system_prompt"),
 		Tools:        tools,
+		Resources:    resources,
 		Version:      stringArg(args, "version"),
 		Author:       stringArg(args, "author"),
 		License:      stringArg(args, "license"),
@@ -506,22 +536,47 @@ func (s *Server) execSkillImportURL(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("url is required")
 	}
 
-	parsed, checksum, err := s.fetchAndParseSkillURL(ctx, url)
+	source := skillImportSource{
+		URL:          url,
+		Repository:   boolArg(args, "repository"),
+		Ref:          stringArg(args, "ref"),
+		Path:         stringArg(args, "path"),
+		ImportAll:    boolArg(args, "import_all"),
+		CredentialID: stringArg(args, "credential_id"),
+	}
+	packages, err := s.fetchSkillPackages(ctx, source)
 	if err != nil {
 		return "", fmt.Errorf("fetch/parse skill: %w", err)
 	}
-	if parsed.Name == "" {
-		return "", fmt.Errorf("imported skill has no name")
+	if err := s.validateSkillPackagesForImport(ctx, packages); err != nil {
+		return "", err
 	}
-
-	skill := skillFromExportData(parsed, "mcp")
-	skill.SourceURL = url
-	skill.SourceChecksum = checksum
-	record, err := s.skillStore.CreateSkill(ctx, skill)
-	if err != nil {
-		return "", fmt.Errorf("create skill: %w", err)
+	records := make([]service.Skill, 0, len(packages))
+	for _, pkg := range packages {
+		if pkg.Export.Name == "" {
+			return "", fmt.Errorf("imported skill at %q has no name", pkg.Path)
+		}
+		skill := skillFromExportData(pkg.Export, "mcp")
+		skill.SourceURL = url
+		skill.SourceType = "url"
+		if source.Repository {
+			skill.SourceType = "git"
+			skill.SourceRef = source.Ref
+			skill.SourcePath = pkg.Path
+			skill.SourceCredentialID = source.CredentialID
+		}
+		skill.SourceChecksum = pkg.Checksum
+		record, createErr := s.skillStore.CreateSkill(ctx, skill)
+		if createErr != nil {
+			return "", fmt.Errorf("create skill %q: %w", pkg.Export.Name, createErr)
+		}
+		records = append(records, *record)
 	}
-	out, err := json.MarshalIndent(record, "", "  ")
+	var result any = records[0]
+	if len(records) > 1 {
+		result = map[string]any{"skills": records}
+	}
+	out, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal skill: %w", err)
 	}

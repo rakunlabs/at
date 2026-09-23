@@ -6,6 +6,10 @@ import (
 	"github.com/rakunlabs/query"
 )
 
+// GitSSHCredentialProvider is reserved for AT-managed deploy-key records. These
+// connections are never exposed through the generic Connections API.
+const GitSSHCredentialProvider = "__at_git_ssh_credential"
+
 // ─── Connection Management ───
 //
 // A Connection represents a named, reusable set of credentials for an external

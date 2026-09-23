@@ -1170,6 +1170,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/connections/{id}", s.UpdateConnectionAPI)
 	apiGroup.DELETE("/v1/connections/{id}", s.DeleteConnectionAPI)
 
+	apiGroup.GET("/v1/git-credentials", s.ListGitCredentialsAPI)
+	apiGroup.POST("/v1/git-credentials/scan-host", s.ScanGitHostAPI)
+	apiGroup.POST("/v1/git-credentials", s.CreateGitCredentialAPI)
+	apiGroup.POST("/v1/git-credentials/{id}/rotate", s.RotateGitCredentialAPI)
+	apiGroup.POST("/v1/git-credentials/{id}/test", s.TestGitCredentialAPI)
+	apiGroup.DELETE("/v1/git-credentials/{id}", s.DeleteGitCredentialAPI)
+
 	// Connectors (data-driven external-service connection types).
 	apiGroup.GET("/v1/connectors", s.ListConnectorsAPI)
 	apiGroup.POST("/v1/connectors", s.CreateConnectorAPI)

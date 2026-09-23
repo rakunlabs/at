@@ -631,6 +631,9 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 	if err := p.rotateAuthExternalSecrets(ctx, tx, p.encKey, newKey); err != nil {
 		return fmt.Errorf("rotate external identity secrets: %w", err)
 	}
+	if err := p.rotateConnectionCredentialsKey(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate connection credentials: %w", err)
+	}
 	// The media settings blob carries the S3 secret access key; leaving it
 	// behind would orphan it under the previous key.
 	if err := p.rotateMediaSettingsKey(ctx, tx, p.encKey, newKey); err != nil {
@@ -659,4 +662,11 @@ func (p *Postgres) SetEncryptionKey(newKey []byte) {
 	p.encKeyMu.Lock()
 	p.encKey = newKey
 	p.encKeyMu.Unlock()
+}
+
+// EncryptionEnabled reports whether newly written secret records are encrypted.
+func (p *Postgres) EncryptionEnabled() bool {
+	p.encKeyMu.RLock()
+	defer p.encKeyMu.RUnlock()
+	return len(p.encKey) > 0
 }

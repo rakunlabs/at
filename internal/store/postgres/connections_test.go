@@ -63,6 +63,43 @@ func TestConnection_EncryptionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGitConnection_RotatesEncryptionKeyAndPreventsPlaintext(t *testing.T) {
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
+	key1, err := atcrypto.DeriveKey("git-key-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key2, err := atcrypto.DeriveKey("git-key-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, key1)
+	created, err := store.CreateConnection(ctx, service.Connection{
+		Provider: service.GitSSHCredentialProvider,
+		Name:     "private skills",
+		Credentials: service.ConnectionCredentials{Extra: map[string]string{
+			"private_key": "private-material",
+			"known_hosts": "host-key",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RotateEncryptionKey(ctx, key2); err != nil {
+		t.Fatalf("rotate encryption key: %v", err)
+	}
+	fetched, err := store.GetConnection(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched == nil || fetched.Credentials.Extra["private_key"] != "private-material" {
+		t.Fatalf("credential after rotation = %+v", fetched)
+	}
+	if err := store.RotateEncryptionKey(ctx, nil); err == nil {
+		t.Fatal("expected disabling encryption to fail while Git SSH credential exists")
+	}
+}
+
 func TestConnection_UniqueProviderName(t *testing.T) {
 	// Installation-scope tests act as the platform operator on the legacy workspace.
 	ctx := service.WithLegacyWorkspaceAccess(context.Background())

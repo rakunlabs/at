@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	pathpkg "path"
 	"sort"
 	"strings"
 	"sync"
@@ -40,6 +41,9 @@ import (
 
 // LoadSkillToolName is the meta-tool name the LLM calls to activate a skill.
 const LoadSkillToolName = "load_skill"
+
+// ReadSkillResourceToolName reads a text resource bundled with a loaded skill.
+const ReadSkillResourceToolName = "read_skill_resource"
 
 // SkillCatalogEntry is a single row in the catalog presented to the LLM.
 type SkillCatalogEntry struct {
@@ -209,6 +213,16 @@ func (r *SkillRuntime) HasSkills() bool {
 	return len(r.catalog) > 0
 }
 
+// HasResources reports whether any attached skill contains package resources.
+func (r *SkillRuntime) HasResources() bool {
+	for _, skill := range r.registry {
+		if skill != nil && len(skill.Resources) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Catalog returns the (read-only) list of catalog entries — useful for
 // tests and logging. Callers must not mutate the returned slice.
 func (r *SkillRuntime) Catalog() []SkillCatalogEntry {
@@ -260,6 +274,32 @@ func (r *SkillRuntime) LoadSkillToolDef() service.Tool {
 				},
 			},
 			"required": []string{"skill_name"},
+		},
+	}
+}
+
+// ReadSkillResourceToolDef returns the on-demand package resource reader.
+func (r *SkillRuntime) ReadSkillResourceToolDef() service.Tool {
+	enum := make([]string, 0, len(r.catalog))
+	seen := map[string]bool{}
+	for _, entry := range r.catalog {
+		skill := r.registry[entry.Name]
+		if skill == nil || len(skill.Resources) == 0 || seen[entry.Name] {
+			continue
+		}
+		seen[entry.Name] = true
+		enum = append(enum, entry.Name)
+	}
+	return service.Tool{
+		Name:        ReadSkillResourceToolName,
+		Description: "Read one text file bundled with an already loaded skill. Use the exact relative path listed when the skill was activated.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"skill_name": map[string]any{"type": "string", "enum": enum},
+				"path":       map[string]any{"type": "string", "description": "Resource path relative to SKILL.md"},
+			},
+			"required": []string{"skill_name", "path"},
 		},
 	}
 }
@@ -323,8 +363,59 @@ func (r *SkillRuntime) HandleLoadSkill(args map[string]any) (resultText string, 
 		b.WriteString(skill.SystemPrompt)
 		b.WriteString("\n=== End Skill Instructions ===")
 	}
+	if len(skill.Resources) > 0 {
+		paths := make([]string, 0, len(skill.Resources))
+		for _, resource := range skill.Resources {
+			paths = append(paths, resource.Path)
+		}
+		sort.Strings(paths)
+		b.WriteString("\n\n=== Bundled Resources ===\n")
+		b.WriteString("Read these only when needed with `")
+		b.WriteString(ReadSkillResourceToolName)
+		b.WriteString("`: ")
+		b.WriteString(strings.Join(paths, ", "))
+		b.WriteString("\n=== End Bundled Resources ===")
+	}
 
 	return b.String(), nil
+}
+
+// HandleReadSkillResource returns one resource from an already activated skill.
+func (r *SkillRuntime) HandleReadSkillResource(args map[string]any) (string, error) {
+	name, _ := args["skill_name"].(string)
+	name = strings.TrimSpace(name)
+	requested, _ := args["path"].(string)
+	requested = strings.TrimSpace(strings.ReplaceAll(requested, "\\", "/"))
+	if name == "" || requested == "" {
+		return "", fmt.Errorf("%s: skill_name and path are required", ReadSkillResourceToolName)
+	}
+	clean := pathpkg.Clean(requested)
+	if clean == ".." || strings.HasPrefix(clean, "../") || pathpkg.IsAbs(clean) {
+		return "", fmt.Errorf("%s: path must stay inside the skill package", ReadSkillResourceToolName)
+	}
+	skill := r.registry[name]
+	if skill == nil {
+		return "", fmt.Errorf("%s: skill %q is not attached", ReadSkillResourceToolName, name)
+	}
+	canonical := skill.Name
+	if canonical == "" {
+		canonical = skill.ID
+	}
+	r.mu.Lock()
+	loaded := r.loadedSkills[canonical]
+	r.mu.Unlock()
+	if !loaded {
+		return "", fmt.Errorf("%s: load skill %q first", ReadSkillResourceToolName, canonical)
+	}
+	if err := service.CheckExecution(r.ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
+		return "", err
+	}
+	for _, resource := range skill.Resources {
+		if resource.Path == clean {
+			return resource.Content, nil
+		}
+	}
+	return "", fmt.Errorf("%s: resource %q not found in skill %q", ReadSkillResourceToolName, clean, canonical)
 }
 
 // IsSkillLoaded reports whether a skill (by canonical name or any registry

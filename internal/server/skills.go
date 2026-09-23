@@ -156,7 +156,12 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		req.SourceURL = existing.SourceURL
+		req.SourceType = existing.SourceType
+		req.SourceRef = existing.SourceRef
+		req.SourcePath = existing.SourcePath
+		req.SourceCredentialID = existing.SourceCredentialID
 		req.SourceChecksum = existing.SourceChecksum
+		req.Resources = existing.Resources
 	}
 
 	record, err := s.skillStore.UpdateSkill(r.Context(), id, req)
@@ -202,15 +207,16 @@ func (s *Server) DeleteSkillAPI(w http.ResponseWriter, r *http.Request) {
 // Version, author and license round-trip so attribution survives sharing
 // between AT instances and other agent platforms.
 type skillExportData struct {
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	Category     string         `json:"category,omitempty"`
-	Tags         []string       `json:"tags,omitempty"`
-	Version      string         `json:"version,omitempty"`
-	Author       string         `json:"author,omitempty"`
-	License      string         `json:"license,omitempty"`
-	SystemPrompt string         `json:"system_prompt"`
-	Tools        []service.Tool `json:"tools"`
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description"`
+	Category     string                  `json:"category,omitempty"`
+	Tags         []string                `json:"tags,omitempty"`
+	Version      string                  `json:"version,omitempty"`
+	Author       string                  `json:"author,omitempty"`
+	License      string                  `json:"license,omitempty"`
+	SystemPrompt string                  `json:"system_prompt"`
+	Tools        []service.Tool          `json:"tools"`
+	Resources    []service.SkillResource `json:"resources,omitempty"`
 }
 
 // skillFromExportData converts a portable export document into a Skill record.
@@ -225,6 +231,7 @@ func skillFromExportData(export *skillExportData, by string) service.Skill {
 		License:      export.License,
 		SystemPrompt: export.SystemPrompt,
 		Tools:        export.Tools,
+		Resources:    export.Resources,
 		CreatedBy:    by,
 		UpdatedBy:    by,
 	}
@@ -241,6 +248,7 @@ func skillToExportData(skill *service.Skill) skillExportData {
 		License:      skill.License,
 		SystemPrompt: skill.SystemPrompt,
 		Tools:        skill.Tools,
+		Resources:    skill.Resources,
 	}
 }
 
@@ -383,9 +391,7 @@ func (s *Server) ImportSkillFromURLAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		URL string `json:"url"`
-	}
+	var body skillImportSource
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
@@ -395,37 +401,74 @@ func (s *Server) ImportSkillFromURLAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsed, checksum, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
+	packages, err := s.fetchSkillPackages(r.Context(), body)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
 		return
 	}
-
-	if parsed.Name == "" {
-		httpResponse(w, "imported skill has no name", http.StatusBadRequest)
+	if err := s.validateSkillPackagesForImport(r.Context(), packages); err != nil {
+		httpResponse(w, err.Error(), http.StatusConflict)
 		return
 	}
 
-	skill := skillFromExportData(parsed, s.getUserEmail(r))
-	skill.SourceURL = body.URL
-	skill.SourceChecksum = checksum
+	records := make([]service.Skill, 0, len(packages))
+	for _, pkg := range packages {
+		if pkg.Export.Name == "" {
+			httpResponse(w, fmt.Sprintf("imported skill at %q has no name", pkg.Path), http.StatusBadRequest)
+			return
+		}
+		skill := skillFromExportData(pkg.Export, s.getUserEmail(r))
+		skill.SourceURL = body.URL
+		skill.SourceType = "url"
+		if body.Repository {
+			skill.SourceType = "git"
+			skill.SourceRef = body.Ref
+			skill.SourcePath = pkg.Path
+			skill.SourceCredentialID = body.CredentialID
+		}
+		skill.SourceChecksum = pkg.Checksum
 
-	record, err := s.skillStore.CreateSkill(r.Context(), skill)
-	if err != nil {
-		slog.Error("import skill from URL failed", "url", body.URL, "error", err)
-		httpResponse(w, fmt.Sprintf("failed to import skill: %v", err), http.StatusInternalServerError)
+		record, createErr := s.skillStore.CreateSkill(r.Context(), skill)
+		if createErr != nil {
+			slog.Error("import skill from URL failed", "url", body.URL, "path", pkg.Path, "error", createErr)
+			httpResponse(w, fmt.Sprintf("failed to import skill %q: %v", pkg.Export.Name, createErr), http.StatusInternalServerError)
+			return
+		}
+		records = append(records, *record)
+	}
+	if len(records) == 1 {
+		httpResponseJSON(w, records[0], http.StatusCreated)
 		return
 	}
+	httpResponseJSON(w, map[string]any{"skills": records}, http.StatusCreated)
+}
 
-	httpResponseJSON(w, record, http.StatusCreated)
+func (s *Server) validateSkillPackagesForImport(ctx context.Context, packages []fetchedSkillPackage) error {
+	seen := map[string]bool{}
+	for _, pkg := range packages {
+		name := strings.TrimSpace(pkg.Export.Name)
+		if name == "" {
+			return fmt.Errorf("imported skill at %q has no name", pkg.Path)
+		}
+		if seen[name] {
+			return fmt.Errorf("repository contains more than one skill named %q", name)
+		}
+		seen[name] = true
+		existing, err := s.skillStore.GetSkillByName(ctx, name)
+		if err != nil {
+			return fmt.Errorf("check existing skill %q: %w", name, err)
+		}
+		if existing != nil {
+			return fmt.Errorf("skill %q already exists", name)
+		}
+	}
+	return nil
 }
 
 // PreviewImportURLAPI handles POST /api/v1/skills/import-url/preview.
 // Fetches and parses a skill URL without persisting.
 func (s *Server) PreviewImportURLAPI(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		URL string `json:"url"`
-	}
+	var body skillImportSource
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
@@ -435,13 +478,21 @@ func (s *Server) PreviewImportURLAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parsed, _, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
+	packages, err := s.fetchSkillPackages(r.Context(), body)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	httpResponseJSON(w, parsed, http.StatusOK)
+	if len(packages) == 1 {
+		httpResponseJSON(w, packages[0].Export, http.StatusOK)
+		return
+	}
+	previews := make([]map[string]any, 0, len(packages))
+	for _, pkg := range packages {
+		previews = append(previews, map[string]any{"path": pkg.Path, "skill": pkg.Export})
+	}
+	httpResponseJSON(w, map[string]any{"skills": previews}, http.StatusOK)
 }
 
 // ImportSkillMDAPI handles POST /api/v1/skills/import-skillmd.
@@ -587,6 +638,7 @@ func skillExportFromSkillMD(data []byte) (*skillExportData, error) {
 		License:      parsed.License,
 		SystemPrompt: parsed.Body,
 		Tools:        tools,
+		Resources:    nil,
 	}, nil
 }
 
@@ -632,11 +684,12 @@ func (s *Server) CheckSkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	remote, checksum, err := s.fetchAndParseSkillURL(r.Context(), record.SourceURL)
+	packages, err := s.fetchSkillPackages(r.Context(), skillImportSource{URL: record.SourceURL, Repository: record.SourceType == "git", Ref: record.SourceRef, Path: record.SourcePath, CredentialID: record.SourceCredentialID})
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch source: %v", err), http.StatusBadGateway)
 		return
 	}
+	remote, checksum := packages[0].Export, packages[0].Checksum
 
 	httpResponseJSON(w, skillUpdateCheckResponse{
 		SourceURL:       record.SourceURL,
@@ -678,11 +731,12 @@ func (s *Server) ApplySkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	remote, checksum, err := s.fetchAndParseSkillURL(r.Context(), record.SourceURL)
+	packages, err := s.fetchSkillPackages(r.Context(), skillImportSource{URL: record.SourceURL, Repository: record.SourceType == "git", Ref: record.SourceRef, Path: record.SourcePath, CredentialID: record.SourceCredentialID})
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch source: %v", err), http.StatusBadGateway)
 		return
 	}
+	remote, checksum := packages[0].Export, packages[0].Checksum
 	if remote.Name == "" {
 		httpResponse(w, "remote skill has no name", http.StatusBadRequest)
 		return
@@ -690,6 +744,10 @@ func (s *Server) ApplySkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 
 	updated := skillFromExportData(remote, s.getUserEmail(r))
 	updated.SourceURL = record.SourceURL
+	updated.SourceType = record.SourceType
+	updated.SourceRef = record.SourceRef
+	updated.SourcePath = record.SourcePath
+	updated.SourceCredentialID = record.SourceCredentialID
 	updated.SourceChecksum = checksum
 	updated.CreatedBy = record.CreatedBy
 

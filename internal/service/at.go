@@ -136,28 +136,41 @@ type MarketplaceStorer interface {
 // and a set of tools. Skills can be attached to agent_call workflow nodes
 // to provide the agent with domain-specific capabilities.
 type Skill struct {
-	WorkspaceID  string   `json:"workspace_id"`
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Category     string   `json:"category,omitempty"`
-	Tags         []string `json:"tags,omitempty"`
-	SystemPrompt string   `json:"system_prompt"` // Prompt fragment appended to the agent's system prompt
-	Tools        []Tool   `json:"tools"`         // Built-in tool definitions (may include JS handlers)
+	WorkspaceID  string          `json:"workspace_id"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	Category     string          `json:"category,omitempty"`
+	Tags         []string        `json:"tags,omitempty"`
+	SystemPrompt string          `json:"system_prompt"`       // Prompt fragment appended to the agent's system prompt
+	Tools        []Tool          `json:"tools"`               // Built-in tool definitions (may include JS handlers)
+	Resources    []SkillResource `json:"resources,omitempty"` // Text files bundled beside SKILL.md
 
 	// Sharing / provenance metadata. Round-trips through export/import so
 	// other agent platforms (Claude Code plugins, agentskills consumers,
 	// other AT instances) keep attribution and can detect updates.
-	Version        string `json:"version,omitempty"`         // Semver-ish version string declared by the author
-	Author         string `json:"author,omitempty"`          // Attribution carried through export/import
-	License        string `json:"license,omitempty"`         // SPDX-style license identifier
-	SourceURL      string `json:"source_url,omitempty"`      // Imported source or reserved built-in template identity (empty for local skills)
-	SourceChecksum string `json:"source_checksum,omitempty"` // SHA-256 of imported source or last applied template-managed payload
+	Version            string `json:"version,omitempty"`              // Semver-ish version string declared by the author
+	Author             string `json:"author,omitempty"`               // Attribution carried through export/import
+	License            string `json:"license,omitempty"`              // SPDX-style license identifier
+	SourceURL          string `json:"source_url,omitempty"`           // Imported source or reserved built-in template identity (empty for local skills)
+	SourceType         string `json:"source_type,omitempty"`          // "url" for one file, "git" for a repository package
+	SourceRef          string `json:"source_ref,omitempty"`           // Git branch or tag used for repository imports
+	SourcePath         string `json:"source_path,omitempty"`          // Skill directory inside a repository
+	SourceCredentialID string `json:"source_credential_id,omitempty"` // Encrypted Git credential used for updates
+	SourceChecksum     string `json:"source_checksum,omitempty"`      // SHA-256 of imported source or last applied template-managed payload
 
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 	CreatedBy string `json:"created_by"`
 	UpdatedBy string `json:"updated_by"`
+}
+
+// SkillResource is a UTF-8 text file bundled with a SKILL.md package. Paths
+// are slash-separated and relative to the directory containing SKILL.md.
+type SkillResource struct {
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	MediaType string `json:"media_type,omitempty"`
 }
 
 // SkillStorer defines CRUD operations for skill definitions.

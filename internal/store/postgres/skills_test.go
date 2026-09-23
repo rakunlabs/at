@@ -13,19 +13,24 @@ func TestSkill_ProvenanceRoundTrip(t *testing.T) {
 	store := newTestStore(t, nil)
 
 	in := service.Skill{
-		Name:           "prov-skill",
-		Description:    "Skill with provenance",
-		Category:       "Utilities",
-		Tags:           []string{"share"},
-		SystemPrompt:   "Do things.",
-		Tools:          []service.Tool{{Name: "t1", Description: "d", InputSchema: map[string]any{"type": "object"}}},
-		Version:        "1.0.0",
-		Author:         "Jane Doe",
-		License:        "MIT",
-		SourceURL:      "https://example.com/skill.json",
-		SourceChecksum: "abc123",
-		CreatedBy:      "tester",
-		UpdatedBy:      "tester",
+		Name:               "prov-skill",
+		Description:        "Skill with provenance",
+		Category:           "Utilities",
+		Tags:               []string{"share"},
+		SystemPrompt:       "Do things.",
+		Tools:              []service.Tool{{Name: "t1", Description: "d", InputSchema: map[string]any{"type": "object"}}},
+		Resources:          []service.SkillResource{{Path: "references/guide.md", Content: "guide", MediaType: "text/markdown"}},
+		Version:            "1.0.0",
+		Author:             "Jane Doe",
+		License:            "MIT",
+		SourceURL:          "https://example.com/skill.json",
+		SourceType:         "git",
+		SourceRef:          "main",
+		SourcePath:         "skills/prov-skill",
+		SourceCredentialID: "git-credential-1",
+		SourceChecksum:     "abc123",
+		CreatedBy:          "tester",
+		UpdatedBy:          "tester",
 	}
 
 	created, err := store.CreateSkill(ctx, in)
@@ -49,6 +54,15 @@ func TestSkill_ProvenanceRoundTrip(t *testing.T) {
 	}
 	if got.SourceChecksum != "abc123" {
 		t.Errorf("source_checksum = %q", got.SourceChecksum)
+	}
+	if got.SourceType != "git" || got.SourceRef != "main" || got.SourcePath != "skills/prov-skill" {
+		t.Fatalf("source package metadata = %q/%q/%q", got.SourceType, got.SourceRef, got.SourcePath)
+	}
+	if got.SourceCredentialID != "git-credential-1" {
+		t.Fatalf("source credential = %q", got.SourceCredentialID)
+	}
+	if len(got.Resources) != 1 || got.Resources[0].Content != "guide" {
+		t.Fatalf("resources = %+v", got.Resources)
 	}
 
 	// Update keeps provenance when caller passes it through.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/oklog/ulid/v2"
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
@@ -400,6 +401,51 @@ func decryptConnectionCredentials(stored string, encKey []byte) (service.Connect
 		return creds, fmt.Errorf("unmarshal connection credentials: %w", err)
 	}
 	return creds, nil
+}
+
+func (p *Postgres) rotateConnectionCredentialsKey(ctx context.Context, tx *sql.Tx, oldKey, newKey []byte) error {
+	query, _, err := p.goqu.From(p.tableConnections).Select("id", "provider", "credentials").ForUpdate(exp.Wait).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build connection rotation query: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("list connections for rotation: %w", err)
+	}
+	type encryptedConnection struct{ id, provider, credentials string }
+	var records []encryptedConnection
+	for rows.Next() {
+		var record encryptedConnection
+		if err := rows.Scan(&record.id, &record.provider, &record.credentials); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan connection for rotation: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, record := range records {
+		if record.provider == service.GitSSHCredentialProvider && len(newKey) == 0 {
+			return fmt.Errorf("cannot disable encryption while Git SSH credentials exist")
+		}
+		credentials, err := decryptConnectionCredentials(record.credentials, oldKey)
+		if err != nil {
+			return fmt.Errorf("decrypt connection %q for rotation: %w", record.id, err)
+		}
+		sealed, err := encryptConnectionCredentials(credentials, newKey)
+		if err != nil {
+			return fmt.Errorf("encrypt connection %q for rotation: %w", record.id, err)
+		}
+		update, _, err := p.goqu.Update(p.tableConnections).Set(goqu.Record{"credentials": sealed}).Where(goqu.I("id").Eq(record.id)).ToSQL()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, update); err != nil {
+			return fmt.Errorf("update connection %q during rotation: %w", record.id, err)
+		}
+	}
+	return nil
 }
 
 func connectionRowToRecord(row connectionRow, encKey []byte) (*service.Connection, error) {

@@ -27,6 +27,7 @@ import Permissions from '@/pages/Permissions.svelte';
 import ExecutionSettings from '@/pages/ExecutionSettings.svelte';
 import MediaSettings from '@/pages/MediaSettings.svelte';
 import TraceExportSettings from '@/pages/TraceExportSettings.svelte';
+import GitCredentials from '@/pages/GitCredentials.svelte';
 import Organizations from '@/pages/Organizations.svelte';
 import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
 import Tasks from '@/pages/Tasks.svelte';
@@ -123,6 +124,7 @@ export default {
   '/settings/execution': guarded(ExecutionSettings, '/settings/execution', adminOnly),
   '/settings/media': MediaSettings,
   '/settings/trace-export': TraceExportSettings,
+  '/settings/git-credentials': GitCredentials,
   '/settings/users': Users,
   '/settings/features': Features,
   '/settings/tokens': guarded(Tokens, '/settings/tokens'),

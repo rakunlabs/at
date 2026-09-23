@@ -620,6 +620,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 	if skillRuntime.HasSkills() {
 		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
+		if skillRuntime.HasResources() {
+			baseLLMTools = append(baseLLMTools, skillRuntime.ReadSkillResourceToolDef())
+		}
 	}
 
 	// Trace identity: one agent_call node run is one trace. The Registry
@@ -760,6 +763,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				// sequencing for Anthropic/OpenAI providers. Subsequent
 				// iterations expose the skill's tools via ActiveSkillTools.
 				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+			} else if tc.Name == workflow.ReadSkillResourceToolName {
+				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
 			} else if mcpToolNames[tc.Name] {
 				// Dispatch to MCP client.
 				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)

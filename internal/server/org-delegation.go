@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -305,6 +307,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	skillToolMap := make(map[string]skillToolHandler)
 	var skillTools []service.Tool
+	skillResources := map[string]*service.Skill{}
 	var skillPromptFragments []string
 
 	// skillConnOverrides maps skill ID to per-skill connection bindings
@@ -340,6 +343,22 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					continue
 				}
 				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
+			}
+			if len(skill.Resources) > 0 {
+				canonical := skill.Name
+				if canonical == "" {
+					canonical = skill.ID
+				}
+				skillResources[canonical] = skill
+				if skill.ID != "" {
+					skillResources[skill.ID] = skill
+				}
+				paths := make([]string, 0, len(skill.Resources))
+				for _, resource := range skill.Resources {
+					paths = append(paths, resource.Path)
+				}
+				sort.Strings(paths)
+				skillPromptFragments = append(skillPromptFragments, fmt.Sprintf("Bundled resources for skill %q are available on demand through `%s`: %s", canonical, workflow.ReadSkillResourceToolName, strings.Join(paths, ", ")))
 			}
 			for _, t := range skill.Tools {
 				if t.Handler != "" {
@@ -780,6 +799,33 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		})
 	}
 	llmTools = append(llmTools, builtinToolDefs...)
+	if len(skillResources) > 0 {
+		names := make([]string, 0, len(skillResources))
+		seen := map[string]bool{}
+		for _, skill := range skillResources {
+			name := skill.Name
+			if name == "" {
+				name = skill.ID
+			}
+			if name != "" && !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+		sort.Strings(names)
+		llmTools = append(llmTools, service.Tool{
+			Name:        workflow.ReadSkillResourceToolName,
+			Description: "Read one text file bundled with an attached skill. Use an exact path listed in the skill instructions.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"skill_name": map[string]any{"type": "string", "enum": names},
+					"path":       map[string]any{"type": "string"},
+				},
+				"required": []string{"skill_name", "path"},
+			},
+		})
+	}
 	if consultTool != nil {
 		llmTools = append(llmTools, *consultTool)
 	}
@@ -1070,7 +1116,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			slog.Debug("org-delegation: tool call",
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
 
-			if tc.Name == consultAgentTool && consultTool != nil {
+			if tc.Name == workflow.ReadSkillResourceToolName && len(skillResources) > 0 {
+				result, callErr := readDelegationSkillResource(ctx, skillResources, tc.Arguments)
+				if callErr != nil {
+					result = fmt.Sprintf("Error: %v", callErr)
+				}
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
+				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+			} else if tc.Name == consultAgentTool && consultTool != nil {
 				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
 				result, callErr := s.consultOrgAgent(toolCtx, org, task, agentID, tc.Arguments, observationContext, genObsID)
 				cancel()
@@ -1416,6 +1469,33 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		"task_id", task.ID, "agent_id", agentID, "depth", depth, "status", completionStatus)
 
 	return nil
+}
+
+func readDelegationSkillResource(ctx context.Context, skills map[string]*service.Skill, args map[string]any) (string, error) {
+	name, _ := args["skill_name"].(string)
+	requested, _ := args["path"].(string)
+	name = strings.TrimSpace(name)
+	requested = strings.TrimSpace(strings.ReplaceAll(requested, "\\", "/"))
+	clean := pathpkg.Clean(requested)
+	if name == "" || requested == "" {
+		return "", fmt.Errorf("skill_name and path are required")
+	}
+	if clean == ".." || strings.HasPrefix(clean, "../") || pathpkg.IsAbs(clean) {
+		return "", fmt.Errorf("resource path must stay inside the skill package")
+	}
+	skill := skills[name]
+	if skill == nil {
+		return "", fmt.Errorf("skill %q has no bundled resources", name)
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
+		return "", err
+	}
+	for _, resource := range skill.Resources {
+		if resource.Path == clean {
+			return resource.Content, nil
+		}
+	}
+	return "", fmt.Errorf("resource %q not found in skill %q", clean, name)
 }
 
 func isOutputLimitFinishReason(reason string) bool {

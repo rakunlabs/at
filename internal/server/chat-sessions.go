@@ -894,6 +894,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 	if skillRuntime.HasSkills() {
 		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
+		if skillRuntime.HasResources() {
+			baseLLMTools = append(baseLLMTools, skillRuntime.ReadSkillResourceToolDef())
+		}
 	}
 
 	// Resolve max iterations and tool timeout.
@@ -1268,6 +1271,8 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				// turn — preserving correct assistant→user tool-call
 				// sequencing for Anthropic/OpenAI providers.
 				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+			} else if tc.Name == workflow.ReadSkillResourceToolName {
+				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// Direct MCPSet tool — no HTTP round-trip.
 				callErr = workflow.AuthorizeMCPSetTool(ctx, setName, tc.Name)
