@@ -186,7 +186,7 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 	if len(c.MCPs) > 0 && !w.actor.PlatformAdmin {
 		return service.ErrAccessDenied
 	}
-	if err := p.businessProviderReference(ctx, w, c.Provider); err != nil {
+	if err := p.businessProviderReference(ctx, w, c.Provider, personal); err != nil {
 		return err
 	}
 	for _, skill := range c.Skills {
@@ -229,7 +229,7 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 	return nil
 }
 
-func (p *Postgres) businessProviderReference(ctx context.Context, w *businessWrite, key string) error {
+func (p *Postgres) businessProviderReference(ctx context.Context, w *businessWrite, key string, ownerVisible bool) error {
 	if key == "" {
 		return nil
 	}
@@ -239,12 +239,13 @@ func (p *Postgres) businessProviderReference(ctx context.Context, w *businessWri
 	var err error
 	if personal {
 		grants := p.workspaceTable("personal_provider_grants")
+		visibility := exp.Expression(goqu.C("id").In(w.tx.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(w.actor.WorkspaceID)))))
+		if ownerVisible {
+			visibility = goqu.Or(goqu.C("owner_user_id").Eq(w.actor.UserID), visibility)
+		}
 		found, err = w.tx.From(p.tableProviders).Select("id").Where(
 			goqu.Ex{"id": personalID, "workspace_id": nil},
-			goqu.Or(
-				goqu.C("owner_user_id").Eq(w.actor.UserID),
-				goqu.C("id").In(w.tx.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(w.actor.WorkspaceID)))),
-			),
+			visibility,
 		).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
 	} else {
 		found, err = w.tx.From(p.tableProviders).Select("id").Where(goqu.C("owner_user_id").Eq(""), goqu.C("key").Eq(key), goqu.Or(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.And(goqu.C("workspace_id").Eq("legacy-default"), goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(w.tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID})))))).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
@@ -294,7 +295,7 @@ func (p *Postgres) workflowReferences(ctx context.Context, w *businessWrite, g s
 			if !ok {
 				return service.ErrAccessDenied
 			}
-			if err := p.businessProviderReference(ctx, w, key); err != nil {
+			if err := p.businessProviderReference(ctx, w, key, true); err != nil {
 				return err
 			}
 		}

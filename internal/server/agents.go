@@ -263,6 +263,25 @@ func (s *Server) DeleteAgentAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponse(w, "deleted", http.StatusOK)
 }
 
+// PublishAgentAPI handles POST /api/v1/agents/{id}/publish. Publication copies
+// a personal agent; it does not transfer or mutate the caller's source record.
+func (s *Server) PublishAgentAPI(w http.ResponseWriter, r *http.Request) {
+	publisher, ok := s.agentStore.(service.AgentPublisher)
+	if !ok {
+		httpResponse(w, "agent publishing is not supported", http.StatusServiceUnavailable)
+		return
+	}
+	record, err := publisher.PublishAgentToWorkspace(r.Context(), r.PathValue("id"), s.getUserEmail(r))
+	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to publish agent: %v", err), http.StatusConflict)
+		return
+	}
+	httpResponseJSON(w, record, http.StatusCreated)
+}
+
 // ─── Agent Import / Export API ───
 
 // agentToMD converts an Agent to its portable markdown representation.
@@ -411,6 +430,22 @@ func (s *Server) ImportAgentAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent := mdToAgent(parsed)
+	principal, hasPrincipal := service.AccessPrincipalFromContext(r.Context())
+	switch r.URL.Query().Get("scope") {
+	case "", service.AgentScopeWorkspace:
+		agent.OwnerUserID = ""
+	case service.AgentScopePersonal:
+		if !hasPrincipal || principal.UserID == "" {
+			httpResponse(w, "personal agents require a signed-in account", http.StatusBadRequest)
+			return
+		}
+		agent.OwnerUserID = principal.UserID
+	case service.AgentScopeGlobal:
+		agent.Config.SharedWithAllWorkspaces = true
+	default:
+		httpResponse(w, "invalid scope (expected workspace, personal or global)", http.StatusBadRequest)
+		return
+	}
 	if err := s.validateAgentReasoningConfig(r.Context(), agent.Config); err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return

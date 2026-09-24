@@ -77,6 +77,31 @@ func TestAgentOwnershipTiersPostgres(t *testing.T) {
 	if updated, err := p.UpdateAgent(aliceCtx, personal.ID, service.Agent{Name: "alice-renamed"}); err != nil || updated == nil || updated.Name != "alice-renamed" {
 		t.Fatalf("owner update: %+v %v", updated, err)
 	}
+	published, err := p.PublishAgentToWorkspace(aliceCtx, personal.ID, "alice@example.test")
+	if err != nil {
+		t.Fatalf("publish personal agent: %v", err)
+	}
+	if published.Scope != service.AgentScopeWorkspace || published.OwnerUserID != "" || published.ID == personal.ID || published.Name != "alice-renamed" {
+		t.Fatalf("published agent is not an independent workspace copy: %+v", published)
+	}
+	if source, err := p.GetAgent(aliceCtx, personal.ID); err != nil || source == nil || source.Scope != service.AgentScopePersonal {
+		t.Fatalf("publishing changed personal source: %+v %v", source, err)
+	}
+
+	// Read-only workspace members can manage their own personal agents, but
+	// cannot create or publish workspace-owned records.
+	viewer := workspaceUser(t, p, "agent-owner-viewer")
+	viewerCtx := workspaceMember(t, p, ctx, w.ID, viewer, "viewer")
+	viewerAgent, err := p.CreateAgent(viewerCtx, service.Agent{Name: "viewer-personal", OwnerUserID: viewer.ID})
+	if err != nil || viewerAgent == nil || viewerAgent.Scope != service.AgentScopePersonal {
+		t.Fatalf("viewer personal create: %+v %v", viewerAgent, err)
+	}
+	if _, err := p.CreateAgent(viewerCtx, service.Agent{Name: "viewer-workspace"}); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("viewer workspace create: %v", err)
+	}
+	if _, err := p.PublishAgentToWorkspace(viewerCtx, viewerAgent.ID, "viewer@example.test"); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("viewer publish: %v", err)
+	}
 
 	// Global tier: only a platform administrator in the Default workspace.
 	if _, err := p.CreateAgent(bobCtx, service.Agent{Name: "member-global", Config: service.AgentConfig{SharedWithAllWorkspaces: true}}); !errors.Is(err, service.ErrAccessDenied) {

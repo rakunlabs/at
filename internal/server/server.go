@@ -971,6 +971,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
 	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
 	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
+	apiGroup.POST("/v1/agents/{id}/publish", s.PublishAgentAPI)
 	apiGroup.GET("/v1/agents/{id}/export", s.ExportAgentAPI)
 	apiGroup.GET("/v1/agents/{id}/export-json", s.ExportAgentJSONAPI)
 

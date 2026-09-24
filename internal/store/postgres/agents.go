@@ -153,7 +153,7 @@ func (p *Postgres) GetAgent(ctx context.Context, id string) (*service.Agent, err
 }
 
 func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*service.Agent, error) {
-	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.write", "")
+	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.read", "")
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +163,9 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 	}
 	if err := agentOwnershipWriteGuard(w.actor, agent.OwnerUserID, agent.Config); err != nil {
 		return nil, err
+	}
+	if agent.OwnerUserID == "" && !w.actor.Allows("agents.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+		return nil, service.ErrAccessDenied
 	}
 	if err = p.agentReferences(ctx, w, agent.Config, agent.OwnerUserID != ""); err != nil {
 		return nil, err
@@ -263,7 +266,7 @@ func (p *Postgres) lockAgentForWrite(ctx context.Context, w *businessWrite, tabl
 }
 
 func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Agent) (*service.Agent, error) {
-	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.write", id)
+	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.read", id)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +280,9 @@ func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Age
 	}
 	if !found {
 		return nil, nil
+	}
+	if currentOwner == "" && !w.actor.Allows("agents.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
+		return nil, service.ErrAccessDenied
 	}
 	// The incoming config decides the *new* shared flag; owner_user_id is
 	// never rewritten (there is no tier conversion), so the incoming config
@@ -326,17 +332,20 @@ func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Age
 }
 
 func (p *Postgres) DeleteAgent(ctx context.Context, id string) error {
-	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.write", id)
+	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.read", id)
 	if err != nil {
 		return err
 	}
 	defer w.tx.Rollback()
-	_, found, err := p.lockAgentForWrite(ctx, w, p.tableAgents, id)
+	currentOwner, found, err := p.lockAgentForWrite(ctx, w, p.tableAgents, id)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return w.tx.Commit()
+	}
+	if currentOwner == "" && !w.actor.Allows("agents.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
+		return service.ErrAccessDenied
 	}
 	query, _, err := w.tx.Delete(p.tableAgents).
 		Where(w.predicate, goqu.I("id").Eq(id)).
@@ -351,6 +360,60 @@ func (p *Postgres) DeleteAgent(ctx context.Context, id string) error {
 	}
 
 	return w.tx.Commit()
+}
+
+// PublishAgentToWorkspace creates an independent workspace-owned copy of the
+// caller's personal agent. References are revalidated in workspace scope so a
+// personal provider, skill or MCP set cannot be leaked through publication.
+func (p *Postgres) PublishAgentToWorkspace(ctx context.Context, id, by string) (*service.Agent, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableAgents, "agents.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+
+	var row agentRow
+	found, err := w.tx.From(p.tableAgents).
+		Select("id", "workspace_id", "owner_user_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Where(
+			goqu.C("workspace_id").Eq(w.actor.WorkspaceID),
+			goqu.C("id").Eq(id),
+			goqu.C("owner_user_id").Eq(w.actor.UserID),
+		).
+		ForShare(goqu.Wait).
+		ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("load personal agent for publish: %w", err)
+	}
+	if !found {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	record, err := agentRowToRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	record.Config.SharedWithAllWorkspaces = false
+	if err = p.agentReferences(ctx, w, record.Config, false); err != nil {
+		return nil, err
+	}
+	configJSON, err := json.Marshal(record.Config)
+	if err != nil {
+		return nil, fmt.Errorf("marshal published agent config: %w", err)
+	}
+
+	newID := ulid.Make().String()
+	now := time.Now().UTC()
+	if _, err = w.tx.Insert(p.tableAgents).Rows(goqu.Record{
+		"id": newID, "workspace_id": w.actor.WorkspaceID, "owner_user_id": "",
+		"name": row.Name, "config": types.RawJSON(configJSON),
+		"created_at": now, "updated_at": now, "created_by": by, "updated_by": by,
+	}).Executor().ExecContext(ctx); err != nil {
+		return nil, fmt.Errorf("publish agent %q: %w", row.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit agent publish: %w", err)
+	}
+	return p.GetAgent(ctx, newID)
 }
 
 func agentRowToRecord(row agentRow) (*service.Agent, error) {

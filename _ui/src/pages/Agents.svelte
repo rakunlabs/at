@@ -4,11 +4,11 @@
   import { onMount, untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent, type AgentScope } from '@/lib/api/agents';
-  import { isNativeAdmin } from '@/lib/store/auth.svelte';
+  import { createAgent, updateAgent, deleteAgent, publishAgent, exportAgent, importAgent, type Agent, type AgentScope } from '@/lib/api/agents';
+  import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
   import { listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
   import { getAgentBudget, setAgentBudget, type AgentBudget } from '@/lib/api/agent-budgets';
-  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Workflow as WorkflowIcon } from 'lucide-svelte';
+  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Share2, Workflow as WorkflowIcon } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
   import { toggleSort } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -20,6 +20,7 @@
   import { isFeatureEnabled, loadFeatures, storeFeatures } from '@/lib/store/features.svelte';
   const page = createAgentPage();
   import { applyAgentDraftPatch, type AgentDraft, type AgentBuilderCatalog } from '@/lib/helper/agent-builder';
+  import { can, workspaceState } from '@/lib/store/workspace.svelte';
 
   storeNavbar.title = 'Agents';
 
@@ -111,7 +112,8 @@
   // Ownership tier. Chosen at creation; there is no tier conversion, so the
   // selector is disabled while editing. "global" is offered to installation
   // administrators only (the server refuses it for everyone else anyway).
-  let formScope = $state<AgentScope>('workspace');
+  let formScope = $state<AgentScope>('personal');
+  let mayPublish = $derived(isNativeAdmin() || can('agents.write'));
   let formAgentBudget = $state<AgentBudget | null>(null);
   let formBudgetLimit = $state<number | undefined>(undefined);
   let formBudgetPeriod = $state('monthly');
@@ -252,7 +254,7 @@
     if (!file) return;
     try {
       const content = await file.text();
-      await importAgent(content);
+      await importAgent(content, 'personal');
       addToast(`Imported agent from "${file.name}"`);
       await loadData();
     } catch (e: any) {
@@ -370,7 +372,7 @@
     formBudgetResetTime = '00:00';
     formBudgetTimezone = 'UTC';
     formConnections = {};
-    formScope = 'workspace';
+    formScope = 'personal';
     editingId = null;
     showForm = false;
   }
@@ -403,6 +405,7 @@
     formScope = agent.scope || 'workspace';
     showForm = true;
     const requestedAgentID = agent.id;
+    if (!isNativeAdmin()) return;
     try {
       const budget = await getAgentBudget(agent.id);
       if (editingId !== requestedAgentID) return;
@@ -499,6 +502,25 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete agent', 'alert');
     }
+  }
+
+  async function handlePublish(agent: Agent) {
+    if (!confirm(`Copy "${agent.name}" to the workspace?`)) return;
+    try {
+      await publishAgent(agent.id);
+      addToast(`Agent "${agent.name}" copied to the workspace`);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to publish agent', 'alert');
+    }
+  }
+
+  function canManageAgent(agent: Agent): boolean {
+    if (agent.workspace_id && agent.workspace_id !== workspaceState.access?.workspace_id) return false;
+    if (isNativeAdmin()) return true;
+    return agent.owner_user_id
+      ? agent.owner_user_id === storeAuth.identity?.subject
+      : mayPublish;
   }
 
   // ─── MCP Management ───
@@ -706,14 +728,16 @@
                     disabled={!!editingId}
                     class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text disabled:opacity-60"
                   >
-                    <option value="workspace">Workspace — shared with this workspace</option>
                     <option value="personal">Personal — only visible to you</option>
+                    {#if mayPublish || formScope === 'workspace'}
+                      <option value="workspace">Workspace — shared with this workspace</option>
+                    {/if}
                     {#if isNativeAdmin() || formScope === 'global'}
                       <option value="global">Global — available in every workspace</option>
                     {/if}
                   </select>
                   {#if !editingId}
-                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">The tier is fixed after creation. Global requires an installation administrator in the Default workspace.</p>
+                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Create it privately first, then copy it to the workspace when ready. Global requires an installation administrator in the Default workspace.</p>
                   {/if}
                 </div>
 
@@ -1013,6 +1037,7 @@
               </div>
             {/if}
 
+            {#if isNativeAdmin()}
             <!-- Agent Budget -->
             <div class="border border-gray-200 dark:border-dark-border bg-gray-50/60 dark:bg-dark-base p-3 space-y-3">
               <div class="flex items-center justify-between">
@@ -1051,6 +1076,7 @@
                 bind:timezone={formBudgetTimezone}
               />
             </div>
+            {/if}
 
             <!-- Max Iterations / Tool Timeout -->
             <div class="grid grid-cols-2 gap-3">
@@ -1177,6 +1203,15 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if agent.owner_user_id === storeAuth.identity?.subject && mayPublish}
+                    <button
+                      onclick={() => handlePublish(agent)}
+                      class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text"
+                      title="Copy to workspace agents"
+                    >
+                      <Share2 size={14} />
+                    </button>
+                  {/if}
                   <button
                     onclick={() => handleExport(agent)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
@@ -1191,6 +1226,7 @@
                   >
                     <Copy size={14} />
                   </button>
+                  {#if canManageAgent(agent)}
                   <button
                     onclick={() => openEdit(agent)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
@@ -1219,6 +1255,7 @@
                     >
                       <Trash2 size={14} />
                     </button>
+                  {/if}
                   {/if}
                 </div>
               </td>

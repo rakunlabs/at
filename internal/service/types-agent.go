@@ -192,6 +192,12 @@ type AgentStorer interface {
 	DeleteAgent(ctx context.Context, id string) error
 }
 
+// AgentPublisher copies an account-owned personal agent into the selected
+// workspace. The personal source remains independent from the published copy.
+type AgentPublisher interface {
+	PublishAgentToWorkspace(ctx context.Context, id, by string) (*Agent, error)
+}
+
 // ─── Agent Heartbeats ───
 
 // AgentHeartbeat tracks the last heartbeat for an agent.

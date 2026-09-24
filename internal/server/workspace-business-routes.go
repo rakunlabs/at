@@ -99,6 +99,19 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/organizations/{id}/agents", "organizations.write", "organizations", "id"},
 		{"PUT", "/organizations/{id}/agents/{agent_id}", "organizations.write", "organizations", "id"},
 		{"DELETE", "/organizations/{id}/agents/{agent_id}", "organizations.write", "organizations", "id"},
+		// Agents follow the same personal-to-workspace publication model as
+		// Skills and MCP Sets. Personal CRUD rides read admission; the store
+		// keeps workspace-owned writes and publication behind agents.write.
+		{"GET", "/agents", "agents.read", "", ""},
+		{"POST", "/agents", "agents.read", "", ""},
+		{"POST", "/agents/import", "agents.read", "", ""},
+		{"POST", "/agents/import/preview", "agents.read", "", ""},
+		{"GET", "/agents/{id}", "agents.read", "agents", "id"},
+		{"PUT", "/agents/{id}", "agents.read", "", ""},
+		{"DELETE", "/agents/{id}", "agents.read", "", ""},
+		{"POST", "/agents/{id}/publish", "agents.write", "", ""},
+		{"GET", "/agents/{id}/export", "agents.read", "agents", "id"},
+		{"GET", "/agents/{id}/export-json", "agents.read", "agents", "id"},
 		{"GET", "/agents/{id}/tasks", "agents.read", "agents", "id"},
 		{"GET", "/tasks/{id}/comments", "tasks.read", "tasks", "id"},
 		{"POST", "/tasks/{id}/comments", "comments.write", "tasks", "id"},

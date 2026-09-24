@@ -862,6 +862,17 @@ field (`workspace` | `personal` | `global`, no tier conversion afterwards):
   agent should reference a shared provider, or execution fails resolving the
   provider key in the caller's workspace.
 
+Agent management follows the personal-resource publication model used by Skills
+and MCP Sets. Anyone with `agents.read` may create, import, update and delete
+their own personal agents; workspace-owned creation/updates/deletes still require
+`agents.write`. `POST /api/v1/agents/{id}/publish` also requires `agents.write`
+and creates an independent workspace-owned copy rather than transferring or
+mutating the personal source. Publication revalidates provider, skill, MCP set,
+workflow and connection references in workspace scope, so an unshared personal
+dependency cannot be exposed through a workspace agent. The Agents UI defaults
+new/imported agents to Personal and offers **Copy to workspace** to the owner
+when their effective access includes `agents.write`. No migration is required.
+
 `GetAgent` uses the same visibility scope, which is what lets the chat loop
 run a personal or global agent; `service.DeriveAgentScope` reports the tier on
 every read (`scope` field). Deleting an account sweeps its personal agents and

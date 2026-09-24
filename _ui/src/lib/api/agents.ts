@@ -85,6 +85,11 @@ export async function deleteAgent(id: string): Promise<void> {
   await api.delete(`/agents/${id}`);
 }
 
+export async function publishAgent(id: string): Promise<Agent> {
+  const res = await api.post<Agent>(`/agents/${id}/publish`);
+  return res.data;
+}
+
 // ─── Import / Export ───
 
 export async function exportAgent(id: string): Promise<string> {
@@ -97,8 +102,9 @@ export async function exportAgentJSON(id: string): Promise<Partial<Agent>> {
   return res.data;
 }
 
-export async function importAgent(markdownContent: string): Promise<Agent> {
+export async function importAgent(markdownContent: string, scope: AgentScope = 'personal'): Promise<Agent> {
   const res = await api.post<Agent>('/agents/import', markdownContent, {
+    params: { scope },
     headers: { 'Content-Type': 'text/markdown' },
   });
   return res.data;
