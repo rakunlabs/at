@@ -36,8 +36,9 @@
     type MarketplaceSource,
     type MarketplaceSkill,
   } from '@/lib/api/marketplace';
-  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen } from 'lucide-svelte';
   import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
+  import SkillFilesDialog from '@/lib/components/SkillFilesDialog.svelte';
   import { listGitCredentials, type GitCredential } from '@/lib/api/git-credentials';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -77,6 +78,7 @@
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let showAIPanel = $state(false);
+  let folderSkill = $state<Skill | null>(null);
 
   // Form fields
   let formName = $state('');
@@ -1038,6 +1040,13 @@
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
                   <button
+                    onclick={() => folderSkill = skill}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    title="Open skill folder"
+                  >
+                    <FolderOpen size={14} />
+                  </button>
+                  <button
                     onclick={() => handleExport(skill)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Export skill as JSON"
@@ -1544,3 +1553,7 @@
     />
   {/if}
 </div>
+
+{#if folderSkill}
+  <SkillFilesDialog skill={folderSkill} onclose={() => folderSkill = null} onchanged={load} />
+{/if}

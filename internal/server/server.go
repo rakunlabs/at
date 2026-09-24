@@ -912,6 +912,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export-md", s.ExportSkillMDAPI)
+	apiGroup.GET("/v1/skills/{id}/files", s.ListSkillFilesAPI)
+	apiGroup.PUT("/v1/skills/{id}/files", s.PutSkillFilesAPI)
+	apiGroup.DELETE("/v1/skills/{id}/files", s.DeleteSkillFileAPI)
 	apiGroup.GET("/v1/skills/{id}/update-check", s.CheckSkillUpdateAPI)
 	apiGroup.POST("/v1/skills/{id}/update", s.ApplySkillUpdateAPI)
 

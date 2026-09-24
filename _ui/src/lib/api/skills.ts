@@ -21,6 +21,12 @@ export interface SkillResource {
   media_type?: string;
 }
 
+export interface SkillFile {
+  path: string;
+  content: string;
+  media_type?: string;
+}
+
 export interface Skill {
   id: string;
   name: string;
@@ -68,6 +74,20 @@ export async function updateSkill(id: string, skill: Partial<Skill>): Promise<Sk
 
 export async function deleteSkill(id: string): Promise<void> {
   await api.delete(`/skills/${id}`);
+}
+
+export async function listSkillFiles(id: string): Promise<SkillFile[]> {
+  const res = await api.get<{ files: SkillFile[] }>(`/skills/${id}/files`);
+  return res.data.files || [];
+}
+
+export async function putSkillFiles(id: string, files: SkillFile[]): Promise<Skill> {
+  const res = await api.put<Skill>(`/skills/${id}/files`, { files });
+  return res.data;
+}
+
+export async function deleteSkillFile(id: string, path: string): Promise<void> {
+  await api.delete(`/skills/${id}/files`, { params: { path } });
 }
 
 // ─── Skill Templates ───
