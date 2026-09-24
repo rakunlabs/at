@@ -137,6 +137,8 @@ type MarketplaceStorer interface {
 // to provide the agent with domain-specific capabilities.
 type Skill struct {
 	WorkspaceID  string          `json:"workspace_id"`
+	OwnerUserID  string          `json:"owner_user_id,omitempty"`
+	Scope        string          `json:"scope"`
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
@@ -181,6 +183,10 @@ type SkillStorer interface {
 	CreateSkill(ctx context.Context, s Skill) (*Skill, error)
 	UpdateSkill(ctx context.Context, id string, s Skill) (*Skill, error)
 	DeleteSkill(ctx context.Context, id string) error
+}
+
+type SkillPublisher interface {
+	PublishSkillToWorkspace(ctx context.Context, id, by string) (*Skill, error)
 }
 
 // ─── Pack Source Management ───

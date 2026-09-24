@@ -125,6 +125,10 @@ func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:   userEmail,
 		UpdatedBy:   userEmail,
 	}
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		mcpSet.OwnerUserID = principal.UserID
+		mcpSet.Scope = "personal"
+	}
 
 	record, err := s.mcpSetStore.CreateMCPSet(r.Context(), mcpSet)
 	if err != nil {

@@ -84,8 +84,16 @@ func (p *Postgres) ResolveMCPSetForUse(ctx context.Context, name string) (*servi
 	if err != nil {
 		return nil, err
 	}
+	_, hasPrincipal := service.AccessPrincipalFromContext(ctx)
+	if !hasPrincipal && service.LegacyWorkspaceAccessFromContext(ctx) {
+		scope = goqu.And(scope, goqu.C("owner_user_id").Eq(""))
+	} else if !a.PlatformAdmin {
+		scope = goqu.And(scope, goqu.Or(goqu.C("owner_user_id").Eq(""), goqu.C("owner_user_id").Eq(a.UserID)))
+	}
 	var row mcpSetRow
-	found, err := p.goqu.From(p.tableMCPSets).Where(scope, goqu.C("name").Eq(name)).ScanStructContext(ctx, &row)
+	found, err := p.goqu.From(p.tableMCPSets).Where(scope, goqu.C("name").Eq(name)).
+		Order(goqu.L("CASE WHEN owner_user_id = ? THEN 0 WHEN owner_user_id = '' THEN 1 ELSE 2 END", a.UserID).Asc()).
+		Limit(1).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("resolve MCP set for use: %w", err)
 	}

@@ -102,6 +102,8 @@ type MCPServerStorer interface {
 // MCPSet represents an internal MCP configuration that agents use.
 type MCPSet struct {
 	WorkspaceID string          `json:"workspace_id"`
+	OwnerUserID string          `json:"owner_user_id,omitempty"`
+	Scope       string          `json:"scope"`
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -124,4 +126,8 @@ type MCPSetStorer interface {
 	CreateMCPSet(ctx context.Context, s MCPSet) (*MCPSet, error)
 	UpdateMCPSet(ctx context.Context, id string, s MCPSet) (*MCPSet, error)
 	DeleteMCPSet(ctx context.Context, id string) error
+}
+
+type MCPSetPublisher interface {
+	PublishMCPSetToWorkspace(ctx context.Context, id, by string) (*MCPSet, error)
 }

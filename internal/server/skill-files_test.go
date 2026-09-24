@@ -38,6 +38,37 @@ func TestSkillFilesAPIUploadOverwritesMatchingPath(t *testing.T) {
 	}
 }
 
+func TestImportSkillFilesAPICreatesFromSelectedFolder(t *testing.T) {
+	store := newFakeSkillStore()
+	s := &Server{skillStore: store}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/import-files", strings.NewReader(`{
+		"files": [
+			{"path":"my-skill/SKILL.md","content":"---\nname: folder-skill\ndescription: From folder\n---\n\nInstructions.\n"},
+			{"path":"my-skill/.DS_Store","content":"ignored"},
+			{"path":"my-skill/references/guide.md","content":"guide"},
+			{"path":"my-skill/scripts/run.sh","content":"echo ok"}
+		]
+	}`))
+	req = req.WithContext(service.WithAccessPrincipal(req.Context(), service.AccessPrincipal{UserID: "user-1", WorkspaceID: service.DefaultWorkspaceID}))
+	w := httptest.NewRecorder()
+
+	s.ImportSkillFilesAPI(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if len(store.created) != 1 || store.created[0].Name != "folder-skill" {
+		t.Fatalf("created = %+v", store.created)
+	}
+	if store.created[0].OwnerUserID != "user-1" || store.created[0].Scope != "personal" {
+		t.Fatalf("ownership = %+v", store.created[0])
+	}
+	resources := store.created[0].Resources
+	if len(resources) != 2 || resources[0].Path != "references/guide.md" || resources[1].Path != "scripts/run.sh" {
+		t.Fatalf("resources = %+v", resources)
+	}
+}
+
 func TestDeleteSkillFileAPIProtectsMainFile(t *testing.T) {
 	store := newFakeSkillStore()
 	store.skills["skill-1"] = &service.Skill{ID: "skill-1", Name: "docs"}
@@ -132,6 +163,21 @@ func TestCleanSkillFilePath(t *testing.T) {
 				t.Fatalf("cleanSkillFilePath(%q) error = %v, ok = %v", tt.path, err, tt.ok)
 			}
 		})
+	}
+}
+
+func TestNormalizeSkillImportFilesRejectsMultipleOrOutsideMain(t *testing.T) {
+	if _, err := normalizeSkillImportFiles([]skillFile{
+		{Path: "a/SKILL.md", Content: "a"},
+		{Path: "b/SKILL.md", Content: "b"},
+	}); err == nil {
+		t.Fatal("expected multiple SKILL.md error")
+	}
+	if _, err := normalizeSkillImportFiles([]skillFile{
+		{Path: "skill/SKILL.md", Content: "a"},
+		{Path: "outside.txt", Content: "b"},
+	}); err == nil {
+		t.Fatal("expected outside file error")
 	}
 }
 

@@ -103,6 +103,19 @@ func (s *Server) CreateSkillAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
 	}
+	principal, ok := service.AccessPrincipalFromContext(r.Context())
+	if !ok && service.LegacyWorkspaceAccessFromContext(r.Context()) {
+		req.Scope = "workspace"
+		req.OwnerUserID = ""
+	} else if !ok || principal.UserID == "" {
+		httpResponse(w, "personal skills require a signed-in account", http.StatusBadRequest)
+		return
+	} else if req.Scope == "workspace" {
+		req.OwnerUserID = ""
+	} else {
+		req.Scope = "personal"
+		req.OwnerUserID = principal.UserID
+	}
 
 	userEmail := s.getUserEmail(r)
 	req.CreatedBy = userEmail
@@ -199,6 +212,23 @@ func (s *Server) DeleteSkillAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
+}
+
+func (s *Server) PublishSkillAPI(w http.ResponseWriter, r *http.Request) {
+	publisher, ok := s.skillStore.(service.SkillPublisher)
+	if !ok {
+		httpResponse(w, "skill publishing is not supported", http.StatusServiceUnavailable)
+		return
+	}
+	record, err := publisher.PublishSkillToWorkspace(r.Context(), r.PathValue("id"), s.getUserEmail(r))
+	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to publish skill: %v", err), http.StatusConflict)
+		return
+	}
+	httpResponseJSON(w, record, http.StatusCreated)
 }
 
 // ─── Import / Export API ───
@@ -372,6 +402,10 @@ func (s *Server) ImportSkillAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skill := skillFromExportData(&req, s.getUserEmail(r))
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		skill.OwnerUserID = principal.UserID
+		skill.Scope = "personal"
+	}
 
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)
 	if err != nil {
@@ -418,6 +452,10 @@ func (s *Server) ImportSkillFromURLAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		skill := skillFromExportData(pkg.Export, s.getUserEmail(r))
+		if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+			skill.OwnerUserID = principal.UserID
+			skill.Scope = "personal"
+		}
 		skill.SourceURL = body.URL
 		skill.SourceType = "url"
 		if body.Repository {
@@ -458,7 +496,8 @@ func (s *Server) validateSkillPackagesForImport(ctx context.Context, packages []
 		if err != nil {
 			return fmt.Errorf("check existing skill %q: %w", name, err)
 		}
-		if existing != nil {
+		principal, hasPrincipal := service.AccessPrincipalFromContext(ctx)
+		if existing != nil && (!hasPrincipal || existing.OwnerUserID == principal.UserID) {
 			return fmt.Errorf("skill %q already exists", name)
 		}
 	}
@@ -527,6 +566,10 @@ func (s *Server) ImportSkillMDAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skill := skillFromExportData(export, s.getUserEmail(r))
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		skill.OwnerUserID = principal.UserID
+		skill.Scope = "personal"
+	}
 	skill.SourceChecksum = sha256Hex(body.Content)
 
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)

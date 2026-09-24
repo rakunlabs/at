@@ -29,6 +29,8 @@ export interface SkillFile {
 
 export interface Skill {
   id: string;
+  owner_user_id?: string;
+  scope?: 'personal' | 'workspace';
   name: string;
   description: string;
   category?: string;
@@ -76,6 +78,11 @@ export async function deleteSkill(id: string): Promise<void> {
   await api.delete(`/skills/${id}`);
 }
 
+export async function publishSkill(id: string): Promise<Skill> {
+  const res = await api.post<Skill>(`/skills/${id}/publish`);
+  return res.data;
+}
+
 export async function listSkillFiles(id: string): Promise<SkillFile[]> {
   const res = await api.get<{ files: SkillFile[] }>(`/skills/${id}/files`);
   return res.data.files || [];
@@ -83,6 +90,11 @@ export async function listSkillFiles(id: string): Promise<SkillFile[]> {
 
 export async function putSkillFiles(id: string, files: SkillFile[]): Promise<Skill> {
   const res = await api.put<Skill>(`/skills/${id}/files`, { files });
+  return res.data;
+}
+
+export async function importSkillFiles(files: SkillFile[]): Promise<Skill> {
+  const res = await api.post<Skill>('/skills/import-files', { files });
   return res.data;
 }
 

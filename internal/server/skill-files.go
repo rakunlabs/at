@@ -25,6 +25,53 @@ type putSkillFilesRequest struct {
 	Files []skillFile `json:"files"`
 }
 
+// ImportSkillFilesAPI creates a skill from a browser-selected directory. The
+// directory may include one leading folder (the webkitRelativePath shape); it
+// is stripped so SKILL.md becomes the package root.
+func (s *Server) ImportSkillFilesAPI(w http.ResponseWriter, r *http.Request) {
+	if s.skillStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxSkillPackageSize*6+64*1024)
+	var req putSkillFilesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	files, err := normalizeSkillImportFiles(req.Files)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	skill, err := mergeSkillFiles(service.Skill{}, files)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	by := s.getUserEmail(r)
+	principal, ok := service.AccessPrincipalFromContext(r.Context())
+	if !ok && service.LegacyWorkspaceAccessFromContext(r.Context()) {
+		skill.OwnerUserID = ""
+		skill.Scope = "workspace"
+	} else if !ok || principal.UserID == "" {
+		httpResponse(w, "personal skills require a signed-in account", http.StatusBadRequest)
+		return
+	} else {
+		skill.OwnerUserID = principal.UserID
+		skill.Scope = "personal"
+	}
+	skill.CreatedBy = by
+	skill.UpdatedBy = by
+	record, err := s.skillStore.CreateSkill(r.Context(), skill)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to create skill from folder: %v", err), http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, record, http.StatusCreated)
+}
+
 // ListSkillFilesAPI returns the editable, virtual directory represented by a
 // skill record. SKILL.md is generated from the structured skill fields; every
 // other entry is backed by Skill.Resources.
@@ -250,4 +297,59 @@ func cleanSkillFilePath(value string) (string, error) {
 		}
 	}
 	return clean, nil
+}
+
+func normalizeSkillImportFiles(files []skillFile) ([]skillFile, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("at least one file is required")
+	}
+	cleaned := make([]skillFile, 0, len(files))
+	mainPath := ""
+	for _, file := range files {
+		if skillImportHiddenPath(file.Path) {
+			continue
+		}
+		clean, err := cleanSkillFilePath(file.Path)
+		if err != nil {
+			return nil, err
+		}
+		file.Path = clean
+		cleaned = append(cleaned, file)
+		if strings.EqualFold(pathpkg.Base(clean), skillMainFile) {
+			if mainPath != "" {
+				return nil, fmt.Errorf("skill folder must contain exactly one SKILL.md")
+			}
+			mainPath = clean
+		}
+	}
+	if mainPath == "" {
+		return nil, fmt.Errorf("skill folder must contain SKILL.md")
+	}
+
+	root := pathpkg.Dir(mainPath)
+	if root == "." {
+		root = ""
+	}
+	normalized := make([]skillFile, 0, len(cleaned))
+	for _, file := range cleaned {
+		if root != "" {
+			prefix := root + "/"
+			if !strings.HasPrefix(file.Path, prefix) {
+				return nil, fmt.Errorf("file %q is outside the SKILL.md directory", file.Path)
+			}
+			file.Path = strings.TrimPrefix(file.Path, prefix)
+		}
+		normalized = append(normalized, file)
+	}
+	return normalized, nil
+}
+
+func skillImportHiddenPath(value string) bool {
+	value = strings.ReplaceAll(value, "\\", "/")
+	for _, part := range strings.Split(value, "/") {
+		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
 }

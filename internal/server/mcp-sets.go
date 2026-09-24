@@ -100,6 +100,19 @@ func (s *Server) CreateMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 	if req.URLs == nil {
 		req.URLs = []string{}
 	}
+	principal, ok := service.AccessPrincipalFromContext(r.Context())
+	if !ok && service.LegacyWorkspaceAccessFromContext(r.Context()) {
+		req.Scope = "workspace"
+		req.OwnerUserID = ""
+	} else if !ok || principal.UserID == "" {
+		httpResponse(w, "personal MCP sets require a signed-in account", http.StatusBadRequest)
+		return
+	} else if req.Scope == "workspace" {
+		req.OwnerUserID = ""
+	} else {
+		req.Scope = "personal"
+		req.OwnerUserID = principal.UserID
+	}
 
 	userEmail := s.getUserEmail(r)
 	req.CreatedBy = userEmail
@@ -186,6 +199,23 @@ func (s *Server) DeleteMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, map[string]string{"status": "deleted"}, http.StatusOK)
 }
 
+func (s *Server) PublishMCPSetAPI(w http.ResponseWriter, r *http.Request) {
+	publisher, ok := s.mcpSetStore.(service.MCPSetPublisher)
+	if !ok {
+		httpResponse(w, "MCP set publishing is not supported", http.StatusServiceUnavailable)
+		return
+	}
+	record, err := publisher.PublishMCPSetToWorkspace(r.Context(), r.PathValue("id"), s.getUserEmail(r))
+	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to publish MCP set: %v", err), http.StatusConflict)
+		return
+	}
+	httpResponseJSON(w, record, http.StatusCreated)
+}
+
 // ─── MCP Set Import / Export API ───
 
 // ExportMCPSetAPI handles GET /api/v1/mcp/sets/{id}/export.
@@ -256,6 +286,10 @@ func (s *Server) ImportMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 		URLs:        req.URLs,
 		CreatedBy:   userEmail,
 		UpdatedBy:   userEmail,
+	}
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		mcpSet.OwnerUserID = principal.UserID
+		mcpSet.Scope = "personal"
 	}
 
 	record, err := s.mcpSetStore.CreateMCPSet(r.Context(), mcpSet)

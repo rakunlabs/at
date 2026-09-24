@@ -7,14 +7,17 @@
     createSkill,
     updateSkill,
     deleteSkill,
+    publishSkill,
     listSkillTemplates,
     installSkillTemplate,
     exportSkill,
     exportSkillMD,
     importSkillFromURL,
     importSkillMD,
+    importSkillFiles,
     getOAuthStartURL,
     type Skill,
+    type SkillFile,
     type SkillTool,
     type SkillTemplate,
   } from '@/lib/api/skills';
@@ -36,20 +39,23 @@
     type MarketplaceSource,
     type MarketplaceSkill,
   } from '@/lib/api/marketplace';
-  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users } from 'lucide-svelte';
   import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
   import SkillFilesDialog from '@/lib/components/SkillFilesDialog.svelte';
   import { listGitCredentials, type GitCredential } from '@/lib/api/git-credentials';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
+  import { can } from '@/lib/store/workspace.svelte';
+  import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
 
   storeNavbar.title = 'Skills';
 
   // ─── Tab State ───
 
-  const tabRoute = routeChoice('tab', ['my-skills', 'store', 'community'] as const, 'my-skills');
+  const tabRoute = routeChoice('tab', ['my-skills', 'workspace-skills', 'store', 'community'] as const, 'my-skills');
   let activeTab = $derived(tabRoute.value);
+  let mayPublish = $derived(isNativeAdmin() || can('skills.write'));
 
   // ─── State ───
 
@@ -67,18 +73,24 @@
 
   // Category filter for My Skills tab
   let mySelectedCategory = $state('');
-  let myCategories = $derived([...new Set((skills || []).map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
+  let scopedSkills = $derived((skills || []).filter((skill) => activeTab === 'workspace-skills' ? !skill.owner_user_id : Boolean(skill.owner_user_id)));
+  let myCategories = $derived([...new Set(scopedSkills.map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
   let filteredSkills = $derived(
     mySelectedCategory
-      ? (skills || []).filter((s) => s.category === mySelectedCategory)
-      : skills || []
+      ? scopedSkills.filter((s) => s.category === mySelectedCategory)
+      : scopedSkills
   );
+  let pagedSkills = $derived(filteredSkills.slice(offset, offset + limit));
 
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let showAIPanel = $state(false);
   let folderSkill = $state<Skill | null>(null);
+  let createFolderFiles = $state<Array<{ file: globalThis.File; path: string }>>([]);
+  let createFolderDragging = $state(false);
+  let importingFolder = $state(false);
+  let createFolderInput = $state<HTMLInputElement>();
 
   // Form fields
   let formName = $state('');
@@ -139,13 +151,13 @@
   async function load() {
     loading = true;
     try {
-      const params: any = { _offset: offset, _limit: limit };
+      const params: any = { _limit: 500 };
       if (searchQuery) params['name[like]'] = `%${searchQuery}%`;
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       const res = await listSkills(params);
       skills = res.data || [];
-      total = res.meta?.total || 0;
+      total = (res.data || []).length;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load skills', 'alert');
     } finally {
@@ -176,6 +188,7 @@
     formTags = [];
     formSystemPrompt = '';
     formTools = [];
+    createFolderFiles = [];
     editingId = null;
     showForm = false;
   }
@@ -223,8 +236,9 @@
         await updateSkill(editingId, payload);
         addToast(`Skill "${formName}" updated`);
       } else {
-        await createSkill(payload);
+        const created = await createSkill(payload);
         addToast(`Skill "${formName}" created`);
+        folderSkill = created;
       }
       resetForm();
       await load();
@@ -232,6 +246,86 @@
       addToast(e?.response?.data?.message || 'Failed to save skill', 'alert');
     } finally {
       saving = false;
+    }
+  }
+
+  async function decodeFolderFile(file: globalThis.File): Promise<string> {
+    const bytes = await file.arrayBuffer();
+    if (bytes.byteLength > 256 * 1024 && file.name.toLowerCase() !== 'skill.md') {
+      throw new Error(`${file.name} is larger than 256 KiB`);
+    }
+    try {
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (content.includes('\0')) throw new Error('binary');
+      return content;
+    } catch {
+      throw new Error(`${file.name} is not a UTF-8 text file`);
+    }
+  }
+
+  async function createFilesFromEntry(entry: any, prefix = ''): Promise<Array<{ file: globalThis.File; path: string }>> {
+    if (entry.isFile) {
+      const file = await new Promise<globalThis.File>((resolve, reject) => entry.file(resolve, reject));
+      return [{ file, path: `${prefix}${file.name}` }];
+    }
+    if (!entry.isDirectory) return [];
+    const entries: any[] = [];
+    const reader = entry.createReader();
+    while (true) {
+      const batch = await new Promise<any[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!batch.length) break;
+      entries.push(...batch);
+    }
+    const nested = await Promise.all(entries.map((child) => createFilesFromEntry(child, `${prefix}${entry.name}/`)));
+    return nested.flat();
+  }
+
+  function visibleSkillFiles(items: Array<{ file: globalThis.File; path: string }>) {
+    return items.filter((item) => !item.path.replaceAll('\\', '/').split('/').some((part) => part.startsWith('.')));
+  }
+
+  function selectCreateFolder(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    createFolderFiles = visibleSkillFiles(Array.from(input.files || []).map((file) => ({
+      file,
+      path: file.webkitRelativePath || file.name,
+    })));
+    input.value = '';
+  }
+
+  async function dropCreateFolder(event: DragEvent) {
+    event.preventDefault();
+    createFolderDragging = false;
+    const items = Array.from(event.dataTransfer?.items || []);
+    const entries = items.map((item: any) => item.webkitGetAsEntry?.()).filter(Boolean);
+    if (entries.length) {
+      const nested = await Promise.all(entries.map((entry) => createFilesFromEntry(entry)));
+      createFolderFiles = visibleSkillFiles(nested.flat());
+      return;
+    }
+    createFolderFiles = visibleSkillFiles(Array.from(event.dataTransfer?.files || []).map((file) => ({ file, path: file.name })));
+  }
+
+  async function handleImportFolder() {
+    if (!createFolderFiles.length) {
+      addToast('Choose a folder containing SKILL.md', 'warn');
+      return;
+    }
+    importingFolder = true;
+    try {
+      const files: SkillFile[] = [];
+      for (const item of createFolderFiles) {
+        files.push({ path: item.path, content: await decodeFolderFile(item.file), media_type: item.file.type || undefined });
+      }
+      const created = await importSkillFiles(files);
+      addToast(`Skill "${created.name}" created from folder`);
+      resetForm();
+      await load();
+      folderSkill = created;
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || e?.message || 'Failed to import skill folder', 'alert');
+    } finally {
+      importingFolder = false;
     }
   }
 
@@ -243,6 +337,17 @@
       await load();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete skill', 'alert');
+    }
+  }
+
+  async function handlePublish(skill: Skill) {
+    if (!confirm(`Copy "${skill.name}" to Workspace Skills?`)) return;
+    try {
+      await publishSkill(skill.id);
+      addToast(`Skill "${skill.name}" copied to the workspace`);
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to publish skill', 'alert');
     }
   }
 
@@ -279,7 +384,7 @@
       templates = await listSkillTemplates(cat);
       // Fetch ALL installed skills (not just current page) to check installed status
       const allSkillsRes = await listSkills({ _limit: 500 });
-      const allSkillNames = new Set((allSkillsRes.data || []).map((s: Skill) => s.name));
+      const allSkillNames = new Set((allSkillsRes.data || []).filter((s: Skill) => Boolean(s.owner_user_id)).map((s: Skill) => s.name));
       installedSlugs = new Set(templates.filter((t) => allSkillNames.has(t.skill.name)).map((t) => t.slug));
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load templates', 'alert');
@@ -635,7 +740,15 @@
         >
           <Wand2 size={14} />
           My Skills
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.filter((skill) => Boolean(skill.owner_user_id)).length})</span>
+        </button>
+        <button
+          onclick={() => { tabRoute.value = 'workspace-skills'; offset = 0; mySelectedCategory = ''; resetForm(); }}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'workspace-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+        >
+          <Users size={14} />
+          Workspace Skills
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.filter((skill) => !skill.owner_user_id).length})</span>
         </button>
         <button
           onclick={() => (tabRoute.value = 'store')}
@@ -653,7 +766,7 @@
         </button>
       </div>
 
-      {#if activeTab === 'my-skills'}
+      {#if activeTab === 'my-skills' || activeTab === 'workspace-skills'}
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -661,6 +774,7 @@
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Skills</h2>
         </div>
         <div class="flex items-center gap-2">
+          {#if activeTab === 'my-skills'}
           <button
             onclick={() => { showAIPanel = !showAIPanel; }}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
@@ -685,6 +799,7 @@
             <FileText size={12} />
             Paste SKILL.md
           </button>
+          {/if}
           <button
             onclick={load}
             class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
@@ -692,6 +807,7 @@
           >
             <RefreshCw size={14} />
           </button>
+          {#if activeTab === 'my-skills'}
           <button
             onclick={openCreate}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
@@ -699,6 +815,7 @@
             <Plus size={12} />
             New Skill
           </button>
+          {/if}
         </div>
       </div>
 
@@ -836,6 +953,58 @@
           </div>
 
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+            {#if !editingId}
+              <div class="border border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-base/50">
+                <div class="mb-2 flex items-start justify-between gap-3">
+                  <div>
+                    <div class="flex items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-dark-text">
+                      <FolderOpen size={14} />
+                      Create from a skill folder
+                    </div>
+                    <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                      Select or drop one folder containing SKILL.md. All nested text files are imported with their folder structure.
+                    </p>
+                  </div>
+                  {#if createFolderFiles.length > 0}
+                    <button type="button" onclick={() => createFolderFiles = []} class="shrink-0 p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-dark-text-muted dark:hover:bg-dark-elevated"><X size={13} /></button>
+                  {/if}
+                </div>
+                <div
+                  role="region"
+                  aria-label="Drop a skill folder"
+                  class={['flex min-h-24 flex-col items-center justify-center border border-dashed px-4 py-3 text-center', createFolderDragging ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-accent-muted dark:text-accent-text' : 'border-gray-300 bg-white text-gray-500 dark:border-dark-border-subtle dark:bg-dark-surface dark:text-dark-text-muted']}
+                  ondragover={(event) => { event.preventDefault(); createFolderDragging = true; }}
+                  ondragleave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) createFolderDragging = false; }}
+                  ondrop={dropCreateFolder}
+                >
+                  <FolderOpen size={22} class="mb-1" />
+                  {#if createFolderFiles.length > 0}
+                    <div class="text-xs font-medium text-gray-800 dark:text-dark-text">{createFolderFiles.length} files ready</div>
+                    <div class="mt-0.5 max-w-full truncate text-[11px]">{createFolderFiles[0]?.path.split('/')[0]}</div>
+                  {:else}
+                    <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Drop the complete folder here</div>
+                    <div class="mt-0.5 text-[11px]">SKILL.md + references, scripts and other text files</div>
+                  {/if}
+                  <button type="button" onclick={() => createFolderInput?.click()} class="mt-2 border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary dark:hover:bg-dark-border">
+                    Choose folder
+                  </button>
+                  <input bind:this={createFolderInput} class="hidden" type="file" multiple webkitdirectory={true} onchange={selectCreateFolder} />
+                </div>
+                {#if createFolderFiles.length > 0}
+                  <div class="mt-2 flex items-center justify-between gap-3">
+                    <span class="text-[11px] {createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md') ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}">
+                      {createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md') ? 'SKILL.md found' : 'SKILL.md is required'}
+                    </span>
+                    <button type="button" onclick={handleImportFolder} disabled={importingFolder || !createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md')} class="flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-40 dark:bg-accent dark:hover:bg-accent-hover">
+                      <Upload size={12} />
+                      {importingFolder ? 'Creating...' : 'Create from folder'}
+                    </button>
+                  </div>
+                {/if}
+                <div class="mt-3 flex items-center gap-3 text-[11px] text-gray-400 before:h-px before:flex-1 before:bg-gray-200 after:h-px after:flex-1 after:bg-gray-200 dark:text-dark-text-muted dark:before:bg-dark-border dark:after:bg-dark-border">or define it manually</div>
+              </div>
+            {/if}
+
             <!-- Name -->
             <div class="grid grid-cols-4 gap-3 items-center">
               <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
@@ -1000,9 +1169,9 @@
       <!-- Skill list -->
       {#if loading || skills.length > 0 || !showForm}
         <DataTable
-          items={filteredSkills}
+          items={pagedSkills}
           {loading}
-          total={mySelectedCategory ? filteredSkills.length : total}
+          total={filteredSkills.length}
           bind:limit
           bind:offset
           onchange={load}
@@ -1039,6 +1208,15 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if skill.owner_user_id === storeAuth.identity?.subject && mayPublish}
+                    <button
+                      onclick={() => handlePublish(skill)}
+                      class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text"
+                      title="Copy to Workspace Skills"
+                    >
+                      <Share2 size={14} />
+                    </button>
+                  {/if}
                   <button
                     onclick={() => folderSkill = skill}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
@@ -1060,6 +1238,7 @@
                   >
                     <Copy size={14} />
                   </button>
+                  {#if skill.owner_user_id || mayPublish}
                   <button
                     onclick={() => openEditWithAI(skill)}
                     class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text dark:hover:text-accent-text "
@@ -1095,6 +1274,7 @@
                     >
                       <Trash2 size={14} />
                     </button>
+                  {/if}
                   {/if}
                 </div>
               </td>

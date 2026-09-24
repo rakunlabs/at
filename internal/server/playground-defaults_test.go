@@ -105,8 +105,9 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 
 // The Playground's tool plane must be reachable by an ordinary member, and the
 // catalogs it needs to offer a choice must be readable — otherwise the page
-// renders tool pickers whose every request answers 403. Management of those
-// same resources stays installation administration.
+// renders tool pickers whose every request answers 403. Personal Skill/MCP Set
+// CRUD rides the read capability; publishing or changing workspace-owned rows
+// remains behind the write capability in the store.
 func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 	policies := map[string]string{}
 	for _, p := range workspaceBusinessPolicies() {
@@ -128,21 +129,24 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
 		}
 	}
-	// Managing skills and connections is not opened by the read policies above.
-	// MCP Sets deliberately use their workspace mcp.write capability.
-	for _, pattern := range []string{"POST /skills", "POST /connections", "PUT /skills/{id}"} {
+	// Connections remain installation administration.
+	for _, pattern := range []string{"POST /connections"} {
 		if got, ok := policies[pattern]; ok {
 			t.Errorf("%s became capability-admitted on %q; management must stay installation administration", pattern, got)
 		}
 	}
 	for pattern, want := range map[string]string{
-		"POST /mcp/sets":                        "mcp.write",
-		"PUT /mcp/sets/{id}":                    "mcp.write",
-		"DELETE /mcp/sets/{id}":                 "mcp.write",
+		"POST /skills":                          "skills.read",
+		"PUT /skills/{id}":                      "skills.read",
+		"POST /skills/{id}/publish":             "skills.write",
+		"POST /mcp/sets":                        "mcp.read",
+		"PUT /mcp/sets/{id}":                    "mcp.read",
+		"DELETE /mcp/sets/{id}":                 "mcp.read",
+		"POST /mcp/sets/{id}/publish":           "mcp.write",
 		"GET /mcp/sets/{id}":                    "mcp.read",
 		"GET /mcp/sets/{id}/export":             "mcp.read",
 		"POST /mcp/sets/{id}/inspect-upstreams": "mcp.read",
-		"POST /mcp-templates/{slug}/install":    "mcp.write",
+		"POST /mcp-templates/{slug}/install":    "mcp.read",
 	} {
 		if got := policies[pattern]; got != want {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)

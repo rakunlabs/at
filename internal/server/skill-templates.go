@@ -341,6 +341,10 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 		CreatedBy:      userEmail,
 		UpdatedBy:      userEmail,
 	}
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		skill.OwnerUserID = principal.UserID
+		skill.Scope = "personal"
+	}
 
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)
 	if err != nil {

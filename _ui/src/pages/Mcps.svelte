@@ -2,15 +2,15 @@
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { can } from '@/lib/store/workspace.svelte';
-  import { isNativeAdmin } from '@/lib/store/auth.svelte';
+  import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, inspectMCPSetUpstreams, type MCPSet, type MCPStdioUpstreamStatus, type MCPUpstreamInspection } from '@/lib/api/mcp-sets';
+  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, publishMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, inspectMCPSetUpstreams, type MCPSet, type MCPStdioUpstreamStatus, type MCPUpstreamInspection } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listMCPBinaries, uploadMCPBinary, deleteMCPBinary, listStdioProcesses, type MCPBinary, type StdioProcess } from '@/lib/api/mcp-binaries';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy } from 'lucide-svelte';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -21,9 +21,10 @@
 
   // ─── Tab State ───
 
-  const tabRoute = routeChoice('tab', ['my-mcps', 'store', 'binaries'] as const, 'my-mcps');
+  const tabRoute = routeChoice('tab', ['my-mcps', 'workspace-mcps', 'store', 'binaries'] as const, 'my-mcps');
   let activeTab = $derived(tabRoute.value);
   let mayWrite = $derived(isNativeAdmin() || can('mcp.write'));
+  let mayPersonalWrite = $derived(isNativeAdmin() || can('mcp.read'));
   let mayUse = $derived(isNativeAdmin() || can('mcp.use'));
   let platformAdmin = $derived(isNativeAdmin());
 
@@ -43,7 +44,7 @@
     try {
       const cat = selectedCategory || undefined;
       mcpTemplates = await listMCPTemplates(cat);
-      const setNames = new Set(sets.map((s) => s.name));
+      const setNames = new Set(sets.filter((s) => Boolean(s.owner_user_id)).map((s) => s.name));
       installedSlugs = new Set(mcpTemplates.filter((t) => setNames.has(t.mcp_server.name)).map((t) => t.slug));
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load templates', 'alert');
@@ -78,15 +79,22 @@
 
   let sets = $state<MCPSet[]>([]);
 
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(25);
+  let total = $state(0);
+
   // ─── My MCPs Category Filter ───
 
   let mySelectedCategory = $state('');
-  let myCategories = $derived([...new Set((sets || []).map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
+  let scopedSets = $derived((sets || []).filter((set) => activeTab === 'workspace-mcps' ? !set.owner_user_id : Boolean(set.owner_user_id)));
+  let myCategories = $derived([...new Set(scopedSets.map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
   let filteredSets = $derived(
     mySelectedCategory
-      ? (sets || []).filter((s) => s.category === mySelectedCategory)
-      : sets || []
+      ? scopedSets.filter((s) => s.category === mySelectedCategory)
+      : scopedSets
   );
+  let pagedSets = $derived(filteredSets.slice(offset, offset + limit));
   let availableSkills = $state<Skill[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let availableWorkflows = $state<Workflow[]>([]);
@@ -98,11 +106,6 @@
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
   let showAIPanel = $state(false);
-
-  // Pagination
-  let offset = $state(0);
-  let limit = $state(25);
-  let total = $state(0);
 
   // Form fields
   let formName = $state('');
@@ -130,7 +133,7 @@
   async function loadData() {
     loading = true;
     try {
-      const params: any = { _offset: offset, _limit: limit };
+      const params: any = { _limit: 500 };
       if (searchQuery) {
         params['name[like]'] = `%${searchQuery}%`;
       }
@@ -139,7 +142,7 @@
 
       const sResult = await listMCPSets(params);
       sets = sResult.data || [];
-      total = sResult.meta?.total || 0;
+      total = (sResult.data || []).length;
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -290,6 +293,17 @@
       await loadData();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete MCP', 'alert');
+    }
+  }
+
+  async function handlePublish(set: MCPSet) {
+    if (!confirm(`Copy "${set.name}" to Workspace MCPs?`)) return;
+    try {
+      await publishMCPSet(set.id);
+      addToast(`MCP "${set.name}" copied to the workspace`);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to publish MCP', 'alert');
     }
   }
 
@@ -635,7 +649,15 @@
         >
           <Layers size={14} />
           My MCPs
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({sets.filter((set) => Boolean(set.owner_user_id)).length})</span>
+        </button>
+        <button
+          onclick={() => { tabRoute.value = 'workspace-mcps'; offset = 0; mySelectedCategory = ''; resetForm(); }}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'workspace-mcps' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+        >
+          <Users size={14} />
+          Workspace MCPs
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({sets.filter((set) => !set.owner_user_id).length})</span>
         </button>
         <button
           onclick={() => (tabRoute.value = 'store')}
@@ -655,7 +677,7 @@
         {/if}
       </div>
 
-      {#if activeTab === 'my-mcps'}
+      {#if activeTab === 'my-mcps' || activeTab === 'workspace-mcps'}
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -664,7 +686,7 @@
           <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </div>
         <div class="flex items-center gap-2">
-          {#if !mayWrite}
+          {#if activeTab === 'workspace-mcps' && !mayWrite}
             <span class="text-xs text-gray-500 dark:text-dark-text-muted" title="The mcp.write capability is required to change MCP Sets">Read only</span>
           {/if}
           <button
@@ -674,7 +696,7 @@
           >
             <RefreshCw size={14} />
           </button>
-          {#if mayWrite}
+          {#if activeTab === 'my-mcps' && mayPersonalWrite}
             <button
               onclick={() => mcpImportFileInput?.click()}
               class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
@@ -1350,9 +1372,9 @@
       <!-- Set list -->
       {#if loading || sets.length > 0 || !showForm}
         <DataTable
-          items={filteredSets}
+          items={pagedSets}
           {loading}
-          total={mySelectedCategory ? filteredSets.length : total}
+          total={filteredSets.length}
           bind:limit
           bind:offset
           onchange={loadData}
@@ -1418,6 +1440,11 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if set.owner_user_id === storeAuth.identity?.subject && mayWrite}
+                    <button onclick={() => handlePublish(set)} class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text" title="Copy to Workspace MCPs">
+                      <Share2 size={14} />
+                    </button>
+                  {/if}
                   {#if mayUse && (set.config?.mcp_upstreams ?? []).length > 0}
                     <button
                       onclick={() => handleInspectUpstreams(set.id)}
@@ -1446,7 +1473,7 @@
                   >
                     <Download size={14} />
                   </button>
-                  {#if mayWrite}
+                  {#if set.owner_user_id || mayWrite}
                     <button
                       onclick={() => openEdit(set)}
                       class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
@@ -1561,7 +1588,7 @@
                 </div>
 
                 <!-- Install button -->
-                {#if !installedSlugs.has(tmpl.slug) && mayWrite}
+                {#if !installedSlugs.has(tmpl.slug) && mayPersonalWrite}
                   <button
                     onclick={() => handleInstallTemplate(tmpl.slug)}
                     class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "

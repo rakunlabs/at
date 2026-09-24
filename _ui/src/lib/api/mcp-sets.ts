@@ -12,6 +12,8 @@ const api = axios.create({
 
 export interface MCPSet {
   id: string;
+  owner_user_id?: string;
+  scope?: 'personal' | 'workspace';
   name: string;
   description: string;
   category?: string;
@@ -49,6 +51,11 @@ export async function updateMCPSet(id: string, data: Partial<MCPSet>): Promise<M
 
 export async function deleteMCPSet(id: string): Promise<void> {
   await api.delete(`/mcp/sets/${id}`);
+}
+
+export async function publishMCPSet(id: string): Promise<MCPSet> {
+  const res = await api.post<MCPSet>(`/mcp/sets/${id}/publish`);
+  return res.data;
 }
 
 // ─── Import / Export ───

@@ -164,7 +164,7 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 	if err := agentOwnershipWriteGuard(w.actor, agent.OwnerUserID, agent.Config); err != nil {
 		return nil, err
 	}
-	if err = p.agentReferences(ctx, w, agent.Config); err != nil {
+	if err = p.agentReferences(ctx, w, agent.Config, agent.OwnerUserID != ""); err != nil {
 		return nil, err
 	}
 	configJSON, err := json.Marshal(agent.Config)
@@ -284,7 +284,7 @@ func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Age
 	if err := agentOwnershipWriteGuard(w.actor, currentOwner, agent.Config); err != nil {
 		return nil, err
 	}
-	if err = p.agentReferences(ctx, w, agent.Config); err != nil {
+	if err = p.agentReferences(ctx, w, agent.Config, currentOwner != ""); err != nil {
 		return nil, err
 	}
 	configJSON, err := json.Marshal(agent.Config)

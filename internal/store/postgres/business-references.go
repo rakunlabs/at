@@ -144,7 +144,45 @@ func (p *Postgres) businessNamedReference(ctx context.Context, w *businessWrite,
 	return nil
 }
 
-func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c service.AgentConfig) error {
+func (p *Postgres) ownedBusinessNamedReference(ctx context.Context, w *businessWrite, table interface{}, column, value string) error {
+	if value == "" {
+		return nil
+	}
+	visibility := goqu.Or(goqu.C("owner_user_id").Eq(""), goqu.C("owner_user_id").Eq(w.actor.UserID))
+	var id string
+	found, err := w.tx.From(table).Select("id").Where(
+		goqu.C("workspace_id").Eq(w.actor.WorkspaceID), visibility,
+		goqu.Or(goqu.C("id").Eq(value), goqu.C(column).Eq(value)),
+	).Order(goqu.L("CASE WHEN owner_user_id = ? THEN 0 ELSE 1 END", w.actor.UserID).Asc()).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+	if err != nil {
+		return fmt.Errorf("validate named owned reference: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) workspaceBusinessNamedReference(ctx context.Context, w *businessWrite, table interface{}, column, value string) error {
+	if value == "" {
+		return nil
+	}
+	var id string
+	found, err := w.tx.From(table).Select("id").Where(
+		goqu.C("workspace_id").Eq(w.actor.WorkspaceID),
+		goqu.C("owner_user_id").Eq(""),
+		goqu.Or(goqu.C("id").Eq(value), goqu.C(column).Eq(value)),
+	).ForKeyShare(goqu.Wait).Limit(1).ScanValContext(ctx, &id)
+	if err != nil {
+		return fmt.Errorf("validate named workspace-owned reference: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
+}
+
+func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c service.AgentConfig, personal bool) error {
 	if len(c.MCPs) > 0 && !w.actor.PlatformAdmin {
 		return service.ErrAccessDenied
 	}
@@ -152,7 +190,13 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 		return err
 	}
 	for _, skill := range c.Skills {
-		if err := p.businessNamedReference(ctx, w, p.tableSkills, "name", skill.ID); err != nil {
+		var err error
+		if personal {
+			err = p.ownedBusinessNamedReference(ctx, w, p.tableSkills, "name", skill.ID)
+		} else {
+			err = p.workspaceBusinessNamedReference(ctx, w, p.tableSkills, "name", skill.ID)
+		}
+		if err != nil {
 			return err
 		}
 		for _, id := range skill.Connections {
@@ -162,7 +206,13 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 		}
 	}
 	for _, name := range c.MCPSets {
-		if err := p.businessNamedReference(ctx, w, p.tableMCPSets, "name", name); err != nil {
+		var err error
+		if personal {
+			err = p.ownedBusinessNamedReference(ctx, w, p.tableMCPSets, "name", name)
+		} else {
+			err = p.workspaceBusinessNamedReference(ctx, w, p.tableMCPSets, "name", name)
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -249,16 +299,22 @@ func (p *Postgres) workflowReferences(ctx context.Context, w *businessWrite, g s
 			}
 		}
 		for _, ref := range []struct {
-			key   string
-			table interface{}
-		}{{"skills", p.tableSkills}, {"mcp_sets", p.tableMCPSets}, {"workflows", p.tableWorkflows}} {
+			key            string
+			table          interface{}
+			workspaceOwned bool
+		}{{"skills", p.tableSkills, true}, {"mcp_sets", p.tableMCPSets, true}, {"workflows", p.tableWorkflows, false}} {
 			if raw, ok := node.Data[ref.key]; ok {
 				values, err := businessStringList(raw)
 				if err != nil {
 					return err
 				}
 				for _, v := range values {
-					if err = p.businessNamedReference(ctx, w, ref.table, "name", v); err != nil {
+					if ref.workspaceOwned {
+						err = p.workspaceBusinessNamedReference(ctx, w, ref.table, "name", v)
+					} else {
+						err = p.businessNamedReference(ctx, w, ref.table, "name", v)
+					}
+					if err != nil {
 						return err
 					}
 				}
@@ -354,7 +410,7 @@ func (p *Postgres) approvalReferences(ctx context.Context, w *businessWrite, v s
 
 func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string) error {
 	for _, name := range c.EnabledSkills {
-		if err := p.businessNamedReference(ctx, w, p.tableSkills, "name", name); err != nil {
+		if err := p.workspaceBusinessNamedReference(ctx, w, p.tableSkills, "name", name); err != nil {
 			return err
 		}
 	}
@@ -364,7 +420,29 @@ func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c servic
 		}
 	}
 	for _, name := range sets {
-		if err := p.businessNamedReference(ctx, w, p.tableMCPSets, "name", name); err != nil {
+		if err := p.workspaceBusinessNamedReference(ctx, w, p.tableMCPSets, "name", name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Postgres) mcpSetReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string, personal bool) error {
+	if !personal {
+		return p.mcpReferences(ctx, w, c, sets)
+	}
+	for _, name := range c.EnabledSkills {
+		if err := p.ownedBusinessNamedReference(ctx, w, p.tableSkills, "name", name); err != nil {
+			return err
+		}
+	}
+	for _, id := range c.WorkflowIDs {
+		if err := p.businessReference(ctx, w, p.tableWorkflows, "id", id); err != nil {
+			return err
+		}
+	}
+	for _, name := range sets {
+		if err := p.ownedBusinessNamedReference(ctx, w, p.tableMCPSets, "name", name); err != nil {
 			return err
 		}
 	}
@@ -372,13 +450,17 @@ func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c servic
 }
 
 func mcpReadDTO(a service.AccessPrincipal, id, workspace string, c *service.MCPServerConfig, urls *[]string) {
+	mcpReadOwnedDTO(a, id, workspace, "", c, urls)
+}
+
+func mcpReadOwnedDTO(a service.AccessPrincipal, id, workspace, owner string, c *service.MCPServerConfig, urls *[]string) {
 	resource := service.AccessResource{WorkspaceID: workspace, ID: id}
 	// A caller who can rewrite the complete MCP record must be able to load the
 	// current value first. Otherwise the editor receives an empty/redacted
 	// upstream list and a routine save silently deletes the existing endpoints.
 	// Read-only callers still get the safe DTO unless they separately hold the
 	// credentials capability.
-	if a.Allows("credentials.manage", resource) || a.Allows("mcp.write", resource) {
+	if owner != "" && owner == a.UserID || a.Allows("credentials.manage", resource) || a.Allows("mcp.write", resource) {
 		return
 	}
 	for i := range c.HTTPTools {

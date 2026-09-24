@@ -158,6 +158,21 @@ type businessWrite struct {
 	predicate exp.Expression
 }
 
+// ownedResourceWritePredicate admits an account's own personal row while
+// keeping workspace rows behind the existing write capability. Platform
+// administrators retain their installation-wide recovery access.
+func ownedResourceWritePredicate(a service.AccessPrincipal, capability string) exp.Expression {
+	base := exp.Expression(goqu.C("workspace_id").Eq(a.WorkspaceID))
+	if a.PlatformAdmin {
+		return base
+	}
+	personal := goqu.C("owner_user_id").Eq(a.UserID)
+	if a.Allows(capability, service.AccessResource{WorkspaceID: a.WorkspaceID}) {
+		return goqu.And(base, goqu.Or(personal, goqu.C("owner_user_id").Eq("")))
+	}
+	return goqu.And(base, personal)
+}
+
 func (p *Postgres) beginBusinessWrite(ctx context.Context, table interface{}, capability, id string) (*businessWrite, error) {
 	tx, err := p.goqu.BeginTx(ctx, nil)
 	if err != nil {

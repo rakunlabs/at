@@ -25,11 +25,11 @@ const capabilityRoutes: Record<string, string> = {
   '/chats': 'models.use',
   '/usage': 'usage.read', '/llm-calls': 'traces.read',
   '/settings/trace-export': 'workspace.write',
-  '/mcps': 'mcp.read',
+  '/mcps': 'mcp.read', '/skills': 'skills.read',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are
-// registered on `apiGroup` without a business policy: skills and skill
-// templates, marketplaces, integration packs and pack sources, variables,
+// registered on `apiGroup` without a business policy: marketplaces, integration
+// packs and pack sources, variables,
 // node configurations, triggers, connections/connectors/oauth, and MCP servers
 // and sets. Scoping any of them backend-side is what moves the route back into
 // `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when one is. The
@@ -41,7 +41,7 @@ const platformRoutes = [
   // only useful to installation administrators who can change the policy.
   '/settings/execution',
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system', '/settings/git-credentials',
-  '/skills', '/marketplaces', '/integrations', '/variables',
+  '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers',
 ];
 // An account with no membership anywhere resolves nothing: every workspace
