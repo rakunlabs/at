@@ -4,10 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/query"
 )
+
+const MaxSubagentDepth = 3
+
+func AgentAllowsSubagent(parent, child *Agent) bool {
+	if parent == nil || child == nil {
+		return false
+	}
+	for _, ref := range parent.Config.Subagents {
+		if ref == child.ID || strings.EqualFold(strings.TrimSpace(ref), child.Name) {
+			return true
+		}
+	}
+	return false
+}
 
 // SkillRef references a skill attached to an agent. It behaves like a plain
 // string (the skill's name or ID) for backward compatibility but can also
@@ -114,8 +129,11 @@ type AgentConfig struct {
 	// loop. Agents can also reach workflows indirectly via MCP sets; this
 	// field is the explicit, portable attachment — export/import move agents
 	// and their workflows together without relying on MCP-set indirection.
-	Workflows                 []string `json:"workflows,omitempty"`
-	BuiltinTools              []string `json:"builtin_tools,omitempty"`               // Enabled builtin tool names
+	Workflows    []string `json:"workflows,omitempty"`
+	BuiltinTools []string `json:"builtin_tools,omitempty"` // Enabled builtin tool names
+	// Subagents allowlists agents this agent may launch through agent_run. IDs
+	// and names are accepted so portable agent exports do not depend on one DB.
+	Subagents                 []string `json:"subagents,omitempty"`
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution

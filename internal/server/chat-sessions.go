@@ -418,13 +418,23 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	if err := s.persistRuntimeRun(ctx); err != nil {
 		return err
 	}
-	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "chats.run", ResourceID: sessionID}); err != nil {
-		return err
+	transientRuntime, transient := subagentRuntimeFromContext(ctx)
+	if !transient {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "chats.run", ResourceID: sessionID}); err != nil {
+			return err
+		}
 	}
 	// 1. Load session.
-	session, err := s.chatSessionStore.GetChatSession(ctx, sessionID)
-	if err != nil {
-		return fmt.Errorf("get session: %w", err)
+	var session *service.ChatSession
+	var err error
+	if transient {
+		value := transientRuntime.Session
+		session = &value
+	} else {
+		session, err = s.chatSessionStore.GetChatSession(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("get session: %w", err)
+		}
 	}
 	if session == nil {
 		return fmt.Errorf("session %q not found", sessionID)
@@ -492,9 +502,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	if session.Config.HistoryLimit > 0 && (historyLimit == 0 || session.Config.HistoryLimit < historyLimit) {
 		historyLimit = session.Config.HistoryLimit
 	}
-	dbMessages, err := s.chatSessionStore.ListChatMessages(ctx, sessionID, historyLimit)
-	if err != nil {
-		return fmt.Errorf("load messages: %w", err)
+	var dbMessages []service.ChatMessage
+	if !transient {
+		dbMessages, err = s.chatSessionStore.ListChatMessages(ctx, sessionID, historyLimit)
+		if err != nil {
+			return fmt.Errorf("load messages: %w", err)
+		}
 	}
 
 	// 4b. Sanitize message history — remove orphaned tool results that don't follow a tool call.
@@ -507,8 +520,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		Role:      "user",
 		Data:      data,
 	}
-	if _, err := s.chatSessionStore.CreateChatMessage(ctx, userMsg); err != nil {
-		return fmt.Errorf("persist user message: %w", err)
+	if !transient {
+		if _, err := s.chatSessionStore.CreateChatMessage(ctx, userMsg); err != nil {
+			return fmt.Errorf("persist user message: %w", err)
+		}
 	}
 
 	// 6. Collect tools from agent config.
@@ -651,16 +666,31 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			return s.skillStore.GetSkillByName(ctx, nameOrID)
 		}
 	}
-	skillRuntime, err := workflow.NewSkillRuntime(ctx, skillLookup, agent.Config.Skills, nil,
+	var transientSkillNames []string
+	if transient && transientRuntime.SkillID != "" {
+		transientSkillNames = append(transientSkillNames, transientRuntime.SkillID)
+	}
+	skillRuntime, err := workflow.NewSkillRuntime(ctx, skillLookup, agent.Config.Skills, transientSkillNames,
 		func(name string, lookupErr error) {
 			slog.Warn("agentic loop: skill lookup failed", "skill", name, "error", lookupErr)
 		})
 	if err != nil {
 		return fmt.Errorf("agentic loop: skill runtime: %w", err)
 	}
+	forkedSkillPrompt := ""
+	if transient && transientRuntime.SkillID != "" {
+		loaded, loadErr := skillRuntime.HandleLoadSkill(map[string]any{"skill_name": transientRuntime.SkillID})
+		if loadErr != nil {
+			return fmt.Errorf("agentic loop: activate forked skill: %w", loadErr)
+		}
+		forkedSkillPrompt = loaded
+	}
 
 	// Builtin tools (from agent config).
 	for _, toolName := range agent.Config.BuiltinTools {
+		if toolName == "agent_run" && subagentDepthFromContext(ctx) >= maxSubagentDepth {
+			continue
+		}
 		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
 			continue
 		}
@@ -680,6 +710,22 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		toolHandlers[bt.Name] = toolHandlerInfo{
 			handler:     bt.Name,
 			handlerType: "builtin",
+		}
+	}
+	if skillRuntime.HasBackgroundFork() {
+		for _, toolName := range []string{"agent_run_status", "agent_run_cancel"} {
+			if _, exists := toolHandlers[toolName]; exists {
+				continue
+			}
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
+				continue
+			}
+			bt, ok := builtinToolByName(toolName)
+			if !ok {
+				continue
+			}
+			allTools = append(allTools, service.Tool{Name: bt.Name, Description: bt.Description, InputSchema: bt.InputSchema})
+			toolHandlers[bt.Name] = toolHandlerInfo{handler: bt.Name, handlerType: "builtin"}
 		}
 	}
 
@@ -768,6 +814,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 	// 7. Build system prompt.
 	systemPrompt := agent.Config.SystemPrompt
+	if forkedSkillPrompt != "" {
+		if systemPrompt != "" {
+			systemPrompt += "\n\n"
+		}
+		systemPrompt += forkedSkillPrompt
+	}
 	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"
@@ -989,7 +1041,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 	// Trace identity: one agentic-loop turn is one trace; the chat
 	// session groups turns into a session.
-	turnTraceID := ulid.Make().String()
+	turnTraceID := chatTraceIDFromContext(ctx)
+	if turnTraceID == "" {
+		turnTraceID = ulid.Make().String()
+	}
+	ctx = contextWithChatTraceID(ctx, turnTraceID)
 	traceTaskID := ""
 	if taskLinked != nil {
 		traceTaskID = taskLinked.ID
@@ -1011,6 +1067,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		ReasoningEffort: agent.Config.ReasoningEffort,
 	}
 	recordObservation := s.recordObservationFunc()
+	generationMetadata := subagentObservationMetadata(ctx)
 
 	// 10. Agentic loop.
 	// Set when the agent finalizes the linked task via the task_complete /
@@ -1110,7 +1167,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
 						Context: observationContext, Messages: windowed, Tools: llmTools,
 						LatencyMs: latencyMs, Iteration: iteration, Err: err,
-						ErrorCode: classifyHTTPError(err),
+						ErrorCode: classifyHTTPError(err), Metadata: generationMetadata,
 					}))
 				}
 				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
@@ -1145,7 +1202,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		if recordObservation != nil {
 			genObsID = recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
 				Context: observationContext, Messages: windowed, Tools: llmTools,
-				Response: resp, LatencyMs: latencyMs, Iteration: iteration,
+				Response: resp, LatencyMs: latencyMs, Iteration: iteration, Metadata: generationMetadata,
 			}))
 		}
 
@@ -1270,7 +1327,20 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				// the tool_result text so the LLM picks it up on the next
 				// turn — preserving correct assistant→user tool-call
 				// sequencing for Anthropic/OpenAI providers.
-				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+				forkRequest, forked, forkErr := skillRuntime.ForkRequest(tc.Arguments)
+				if forkErr != nil {
+					callErr = forkErr
+				} else if forked {
+					forkCtx := contextWithSubagentSkill(ctx, forkRequest.Skill.ID)
+					result, callErr = s.dispatchBuiltinTool(forkCtx, "agent_run", map[string]any{
+						"agent":      forkRequest.Agent,
+						"task":       forkRequest.Task,
+						"context":    forkRequest.Context,
+						"background": forkRequest.Background,
+					})
+				} else {
+					result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+				}
 			} else if tc.Name == workflow.ReadSkillResourceToolName {
 				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
@@ -1383,6 +1453,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				}
 				slog.Debug("agentic loop: tool call result", "tool", tc.Name, "result_length", len(result), "result", logResult)
 			}
+			toolMetadata := agentRunToolMetadata(tc.Name, result)
 
 			onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
 
@@ -1399,7 +1470,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
 					Context: observationContext, ParentObservationID: genObsID,
 					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
-					Iteration: iteration, Err: callErr,
+					Iteration: iteration, Err: callErr, Metadata: toolMetadata,
 				}))
 			}
 
@@ -1560,6 +1631,9 @@ func (s *Server) ConfirmToolCallAPI(w http.ResponseWriter, r *http.Request) {
 // ─── Helpers ───
 
 func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content string, toolCalls []service.ToolCall) error {
+	if _, transient := subagentRuntimeFromContext(ctx); transient {
+		return nil
+	}
 	if s.chatSessionStore == nil {
 		return fmt.Errorf("chat session store unavailable")
 	}
@@ -1870,6 +1944,9 @@ func sanitizeLLMMessages(msgs []service.Message) []service.Message {
 }
 
 func (s *Server) persistToolResults(ctx context.Context, sessionID string, results []service.ContentBlock) {
+	if _, transient := subagentRuntimeFromContext(ctx); transient {
+		return
+	}
 	if s.chatSessionStore == nil {
 		return
 	}

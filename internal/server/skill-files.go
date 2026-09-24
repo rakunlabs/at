@@ -244,6 +244,9 @@ func mergeSkillFiles(skill service.Skill, files []skillFile) (service.Skill, err
 			skill.Version = export.Version
 			skill.Author = export.Author
 			skill.License = export.License
+			skill.Context = export.Context
+			skill.Agent = export.Agent
+			skill.Background = export.Background
 			skill.SystemPrompt = export.SystemPrompt
 			skill.Tools = export.Tools
 			continue

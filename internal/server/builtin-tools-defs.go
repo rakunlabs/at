@@ -175,6 +175,8 @@ func (s *Server) BuiltinToolListAPI(w http.ResponseWriter, r *http.Request) {
 type builtinCallRequest struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	AgentID   string         `json:"agent_id,omitempty"`
+	TraceID   string         `json:"trace_id,omitempty"`
 }
 
 // builtinCallResponse is the response body for BuiltinToolCallAPI.
@@ -210,6 +212,12 @@ func (s *Server) BuiltinToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := contextWithSessionID(r.Context(), getSessionID(r))
+	if req.AgentID != "" {
+		ctx = contextWithAgentID(ctx, req.AgentID)
+	}
+	if req.TraceID != "" {
+		ctx = contextWithChatTraceID(ctx, req.TraceID)
+	}
 	result, execErr = s.dispatchBuiltinTool(ctx, req.Name, req.Arguments)
 
 	resp := builtinCallResponse{Result: result}

@@ -338,6 +338,10 @@ type Dependencies struct {
 	// nil when builtin tools are not available.
 	BuiltinToolDispatcher BuiltinToolDispatcher
 
+	// AgentRunner invokes the server's isolated subagent lifecycle while
+	// preserving the current workflow execution identity.
+	AgentRunner AgentRunnerFunc
+
 	// BuiltinToolDefs lists the available built-in tool definitions (name, description, schema).
 	// Used by agent_call nodes to include enabled builtin tools in the LLM tool list.
 	BuiltinToolDefs []BuiltinToolDef
@@ -426,6 +430,8 @@ type WorkflowExecutorFunc func(ctx context.Context, wf *service.Workflow, args m
 
 // AgentLookup resolves an agent ID to its definition.
 type AgentLookup func(ctx context.Context, id string) (*service.Agent, error)
+
+type AgentRunnerFunc func(ctx context.Context, parentAgentID, name string, args map[string]any) (string, error)
 
 // ConnectionLookup resolves a connection ID to its decrypted definition.
 type ConnectionLookup func(ctx context.Context, id string) (*service.Connection, error)

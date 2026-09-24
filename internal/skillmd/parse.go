@@ -20,6 +20,9 @@ type SkillMD struct {
 	License       string            `yaml:"license"`
 	Compatibility string            `yaml:"compatibility"`
 	Metadata      map[string]string `yaml:"metadata"`
+	Context       string            `yaml:"context"`
+	Agent         string            `yaml:"agent"`
+	Background    bool              `yaml:"background"`
 	Body          string            // markdown content after frontmatter
 }
 

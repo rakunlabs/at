@@ -1900,7 +1900,7 @@
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'builtin') {
-        const res = await callBuiltinTool(tc.function.name, args);
+        const res = await callBuiltinTool(tc.function.name, args, boundAgentId, turnTraceId);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'local') {

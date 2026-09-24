@@ -103,6 +103,10 @@ func (s *Server) CreateSkillAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
 	}
+	if err := service.ValidateSkillExecution(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	principal, ok := service.AccessPrincipalFromContext(r.Context())
 	if !ok && service.LegacyWorkspaceAccessFromContext(r.Context()) {
 		req.Scope = "workspace"
@@ -152,6 +156,10 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 
 	if req.Name == "" {
 		httpResponse(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if err := service.ValidateSkillExecution(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -247,6 +255,9 @@ type skillExportData struct {
 	SystemPrompt string                  `json:"system_prompt"`
 	Tools        []service.Tool          `json:"tools"`
 	Resources    []service.SkillResource `json:"resources,omitempty"`
+	Context      string                  `json:"context,omitempty"`
+	Agent        string                  `json:"agent,omitempty"`
+	Background   bool                    `json:"background,omitempty"`
 }
 
 // skillFromExportData converts a portable export document into a Skill record.
@@ -262,6 +273,9 @@ func skillFromExportData(export *skillExportData, by string) service.Skill {
 		SystemPrompt: export.SystemPrompt,
 		Tools:        export.Tools,
 		Resources:    export.Resources,
+		Context:      export.Context,
+		Agent:        export.Agent,
+		Background:   export.Background,
 		CreatedBy:    by,
 		UpdatedBy:    by,
 	}
@@ -279,6 +293,9 @@ func skillToExportData(skill *service.Skill) skillExportData {
 		SystemPrompt: skill.SystemPrompt,
 		Tools:        skill.Tools,
 		Resources:    skill.Resources,
+		Context:      skill.Context,
+		Agent:        skill.Agent,
+		Background:   skill.Background,
 	}
 }
 
@@ -291,6 +308,9 @@ func skillToMarkdown(skill *service.Skill) ([]byte, error) {
 		Version:     skill.Version,
 		Author:      skill.Author,
 		License:     skill.License,
+		Context:     skill.Context,
+		Agent:       skill.Agent,
+		Background:  skill.Background,
 		Body:        skill.SystemPrompt,
 	}
 
@@ -679,6 +699,9 @@ func skillExportFromSkillMD(data []byte) (*skillExportData, error) {
 		Version:      parsed.Version,
 		Author:       parsed.Author,
 		License:      parsed.License,
+		Context:      parsed.Context,
+		Agent:        parsed.Agent,
+		Background:   parsed.Background,
 		SystemPrompt: parsed.Body,
 		Tools:        tools,
 		Resources:    nil,

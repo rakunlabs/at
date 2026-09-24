@@ -648,6 +648,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		ConnectionLookup:      s.connectionLookupFunc(),
 		VarSave:               s.varSaveFunc(),
 		BuiltinToolDispatcher: s.dispatchBuiltinTool,
+		AgentRunner:           s.workflowAgentRunner,
 		BuiltinToolDefs:       s.builtinToolDefsForWorkflow(),
 		ChatMessageCreator:    s.chatMessageCreatorFunc(),
 		ChatSessionLookup:     s.chatSessionLookupFunc(),

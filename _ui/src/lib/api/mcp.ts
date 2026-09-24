@@ -112,10 +112,14 @@ export async function listBuiltinTools(includeDisabled = false): Promise<Builtin
 export async function callBuiltinTool(
   name: string,
   args: Record<string, any>,
+  agentId = '',
+  traceId = '',
 ): Promise<BuiltinCallToolResponse> {
   const res = await api.post<BuiltinCallToolResponse>('/mcp/call-builtin-tool', {
     name,
     arguments: args,
+    agent_id: agentId || undefined,
+    trace_id: traceId || undefined,
   });
   return res.data;
 }

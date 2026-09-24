@@ -19,6 +19,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/rakunlabs/query"
 )
@@ -147,6 +149,11 @@ type Skill struct {
 	SystemPrompt string          `json:"system_prompt"`       // Prompt fragment appended to the agent's system prompt
 	Tools        []Tool          `json:"tools"`               // Built-in tool definitions (may include JS handlers)
 	Resources    []SkillResource `json:"resources,omitempty"` // Text files bundled beside SKILL.md
+	// Claude-compatible execution metadata. Context="fork" runs the skill in
+	// the named agent's isolated context instead of injecting it into the caller.
+	Context    string `json:"context,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Background bool   `json:"background,omitempty"`
 
 	// Sharing / provenance metadata. Round-trips through export/import so
 	// other agent platforms (Claude Code plugins, agentskills consumers,
@@ -165,6 +172,22 @@ type Skill struct {
 	UpdatedAt string `json:"updated_at"`
 	CreatedBy string `json:"created_by"`
 	UpdatedBy string `json:"updated_by"`
+}
+
+func ValidateSkillExecution(skill Skill) error {
+	switch skill.Context {
+	case "":
+		if skill.Agent != "" || skill.Background {
+			return fmt.Errorf("skill agent/background requires context \"fork\"")
+		}
+	case "fork":
+		if strings.TrimSpace(skill.Agent) == "" {
+			return fmt.Errorf("forked skill requires an agent")
+		}
+	default:
+		return fmt.Errorf("unsupported skill context %q", skill.Context)
+	}
+	return nil
 }
 
 // SkillResource is a UTF-8 text file bundled with a SKILL.md package. Paths

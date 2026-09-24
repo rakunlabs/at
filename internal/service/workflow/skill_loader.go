@@ -49,6 +49,17 @@ const ReadSkillResourceToolName = "read_skill_resource"
 type SkillCatalogEntry struct {
 	Name        string
 	Description string
+	Context     string
+	Agent       string
+	Background  bool
+}
+
+type SkillForkRequest struct {
+	Skill      *service.Skill
+	Agent      string
+	Task       string
+	Context    string
+	Background bool
 }
 
 // SkillToolHandlerInfo captures a tool handler resolved from a loaded skill.
@@ -196,6 +207,9 @@ func NewSkillRuntime(
 		rt.catalog = append(rt.catalog, SkillCatalogEntry{
 			Name:        canonical,
 			Description: skill.Description,
+			Context:     skill.Context,
+			Agent:       skill.Agent,
+			Background:  skill.Background,
 		})
 	}
 
@@ -223,6 +237,15 @@ func (r *SkillRuntime) HasResources() bool {
 	return false
 }
 
+func (r *SkillRuntime) HasBackgroundFork() bool {
+	for _, entry := range r.catalog {
+		if entry.Context == "fork" && entry.Background {
+			return true
+		}
+	}
+	return false
+}
+
 // Catalog returns the (read-only) list of catalog entries — useful for
 // tests and logging. Callers must not mutate the returned slice.
 func (r *SkillRuntime) Catalog() []SkillCatalogEntry {
@@ -235,18 +258,40 @@ func (r *SkillRuntime) CatalogSystemPrompt() string {
 	if len(r.catalog) == 0 {
 		return ""
 	}
+	r.mu.Lock()
+	loaded := make(map[string]bool, len(r.loadedSkills))
+	for name, value := range r.loadedSkills {
+		loaded[name] = value
+	}
+	r.mu.Unlock()
+	visible := make([]SkillCatalogEntry, 0, len(r.catalog))
+	for _, entry := range r.catalog {
+		if !loaded[entry.Name] {
+			visible = append(visible, entry)
+		}
+	}
+	if len(visible) == 0 {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("## Available Skills\n\n")
 	b.WriteString("You have access to the following skills. Each skill bundles a domain-specific prompt and a set of tools. ")
 	b.WriteString("Skills are NOT loaded by default — you must call the `")
 	b.WriteString(LoadSkillToolName)
 	b.WriteString("` tool with the skill name to activate it. Once activated, the skill's instructions and tools become available for the rest of the conversation.\n\n")
-	for _, e := range r.catalog {
+	for _, e := range visible {
 		desc := e.Description
 		if desc == "" {
 			desc = "(no description)"
 		}
 		fmt.Fprintf(&b, "- `%s` — %s\n", e.Name, desc)
+		if e.Context == "fork" {
+			mode := "foreground"
+			if e.Background {
+				mode = "background"
+			}
+			fmt.Fprintf(&b, "  Runs in an isolated %s context using agent `%s`; pass a self-contained `task` when loading it.\n", mode, e.Agent)
+		}
 	}
 	b.WriteString("\nCall `")
 	b.WriteString(LoadSkillToolName)
@@ -263,7 +308,7 @@ func (r *SkillRuntime) LoadSkillToolDef() service.Tool {
 	}
 	return service.Tool{
 		Name:        LoadSkillToolName,
-		Description: "Activate one of your attached skills so its instructions and tools become available. Call this once per skill, when you decide the task needs that skill's capabilities.",
+		Description: "Activate an attached skill. Normal skills load into this context. A catalog entry marked isolated runs through its configured subagent and requires a self-contained task.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -272,10 +317,55 @@ func (r *SkillRuntime) LoadSkillToolDef() service.Tool {
 					"description": "The name of the skill to load. Must match one of the catalog entries listed in your system prompt.",
 					"enum":        enum,
 				},
+				"task": map[string]any{
+					"type":        "string",
+					"description": "Task for an isolated skill. Required when the selected skill has context: fork.",
+				},
+				"context": map[string]any{
+					"type":        "string",
+					"description": "Optional background and constraints for the isolated skill run.",
+				},
 			},
 			"required": []string{"skill_name"},
 		},
 	}
+}
+
+// ForkRequest recognizes a context: fork skill without activating it in the
+// caller. The caller executes this request through its isolated-agent runner.
+func (r *SkillRuntime) ForkRequest(args map[string]any) (SkillForkRequest, bool, error) {
+	name, _ := args["skill_name"].(string)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return SkillForkRequest{}, false, nil
+	}
+	skill := r.registry[name]
+	if skill == nil || skill.Context != "fork" {
+		return SkillForkRequest{}, false, nil
+	}
+	canonical := skill.Name
+	if canonical == "" {
+		canonical = skill.ID
+	}
+	r.mu.Lock()
+	alreadyLoaded := r.loadedSkills[canonical]
+	r.mu.Unlock()
+	if alreadyLoaded {
+		return SkillForkRequest{}, false, nil
+	}
+	if err := service.CheckExecution(r.ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
+		return SkillForkRequest{}, true, err
+	}
+	task, _ := args["task"].(string)
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return SkillForkRequest{}, true, fmt.Errorf("load_skill: task is required for forked skill %q", name)
+	}
+	extra, _ := args["context"].(string)
+	return SkillForkRequest{
+		Skill: skill, Agent: skill.Agent, Task: task,
+		Context: strings.TrimSpace(extra), Background: skill.Background,
+	}, true, nil
 }
 
 // ReadSkillResourceToolDef returns the on-demand package resource reader.

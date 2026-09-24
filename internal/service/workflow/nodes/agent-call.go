@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -49,6 +50,56 @@ type agentCallNode struct {
 	mcpURLs       []string
 	skillNames    []string
 	inlineTools   []service.Tool
+}
+
+func runIsolatedSubagent(ctx context.Context, reg *workflow.Registry, agentID, task, taskContext, skillID string) (string, error) {
+	depth := workflow.SubagentDepth(ctx)
+	if depth >= service.MaxSubagentDepth {
+		return "", fmt.Errorf("subagent depth limit reached (%d)", service.MaxSubagentDepth)
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: agentID}); err != nil {
+		return "", err
+	}
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return "", fmt.Errorf("subagent task is required")
+	}
+	if strings.TrimSpace(taskContext) != "" {
+		task += "\n\nContext and constraints:\n" + strings.TrimSpace(taskContext)
+	}
+	subNode, err := newAgentCallNode(service.WorkflowNode{Data: map[string]any{"agent_id": agentID}})
+	if err != nil {
+		return "", fmt.Errorf("failed to init sub-agent %s: %w", agentID, err)
+	}
+	inputs := map[string]any{"prompt": task}
+	if skillID != "" {
+		inputs["skills"] = []string{skillID}
+		inputs["activate_skill"] = skillID
+	}
+	childCtx := workflow.ContextWithSubagentDepth(ctx, depth+1)
+	result, err := subNode.Run(childCtx, reg, inputs)
+	if err != nil {
+		return "", fmt.Errorf("sub-agent execution failed: %w", err)
+	}
+	if response, ok := result.Data()["response"].(string); ok {
+		return response, nil
+	}
+	return fmt.Sprintf("%v", result.Data()), nil
+}
+
+func subagentToolMetadata(output string) map[string]any {
+	var payload struct {
+		AgentID   string `json:"agent_id"`
+		AgentName string `json:"agent_name"`
+		TraceID   string `json:"trace_id"`
+	}
+	if json.Unmarshal([]byte(output), &payload) != nil || payload.TraceID == "" || payload.AgentID == "" {
+		return nil
+	}
+	return map[string]any{
+		"child_trace_id": payload.TraceID, "child_agent_id": payload.AgentID,
+		"child_agent_name": payload.AgentName,
+	}
 }
 
 func init() {
@@ -370,6 +421,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	if preset != nil {
 		presetSkillRefs = preset.Config.Skills
 	}
+	activateSkill := strings.TrimSpace(toString(inputs["activate_skill"]))
+	if activateSkill != "" {
+		extraSkillNames = append(extraSkillNames, activateSkill)
+	}
 
 	skillRuntime, err := workflow.NewSkillRuntime(ctx, reg.SkillLookup, presetSkillRefs, extraSkillNames,
 		func(name string, lookupErr error) {
@@ -378,6 +433,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		})
 	if err != nil {
 		return nil, fmt.Errorf("agent_call: skill runtime: %w", err)
+	}
+	activatedSkillPrompt := ""
+	if activateSkill != "" {
+		activatedSkillPrompt, err = skillRuntime.HandleLoadSkill(map[string]any{"skill_name": activateSkill})
+		if err != nil {
+			return nil, fmt.Errorf("agent_call: activate forked skill: %w", err)
+		}
 	}
 	logi.Ctx(ctx).Info("agent_call: skill catalog ready",
 		"count", len(skillRuntime.Catalog()))
@@ -407,6 +469,22 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				handler:     def.Name,
 				handlerType: "builtin",
 			}
+			builtinAvailability[def.Name] = def.Available
+		}
+	}
+	if skillRuntime.HasBackgroundFork() && reg.BuiltinToolDispatcher != nil {
+		for _, def := range reg.BuiltinToolDefs {
+			if def.Name != "agent_run_status" && def.Name != "agent_run_cancel" {
+				continue
+			}
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: def.Name}) != nil {
+				continue
+			}
+			if _, exists := toolHandlers[def.Name]; exists {
+				continue
+			}
+			allTools = append(allTools, service.Tool{Name: def.Name, Description: def.Description, InputSchema: def.InputSchema})
+			toolHandlers[def.Name] = toolHandlerInfo{handler: def.Name, handlerType: "builtin"}
 			builtinAvailability[def.Name] = def.Available
 		}
 	}
@@ -535,6 +613,12 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		} else {
 			systemPrompt = preset.Config.SystemPrompt
 		}
+	}
+	if activatedSkillPrompt != "" {
+		if systemPrompt != "" {
+			systemPrompt += "\n\n"
+		}
+		systemPrompt += activatedSkillPrompt
 	}
 	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
@@ -772,7 +856,35 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				// turn — preserving correct assistant→user tool-call
 				// sequencing for Anthropic/OpenAI providers. Subsequent
 				// iterations expose the skill's tools via ActiveSkillTools.
-				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+				forkRequest, forked, forkErr := skillRuntime.ForkRequest(tc.Arguments)
+				if forkErr != nil {
+					callErr = forkErr
+				} else if forked {
+					if execErr := service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: "agent_run"}); execErr != nil {
+						callErr = execErr
+					} else if preset == nil {
+						callErr = fmt.Errorf("forked skills require an agent preset")
+					} else if reg.AgentRunner != nil {
+						result, callErr = reg.AgentRunner(ctx, preset.ID, "agent_run", map[string]any{
+							"agent": forkRequest.Agent, "task": forkRequest.Task,
+							"context": forkRequest.Context, "background": forkRequest.Background,
+							"_skill_id": forkRequest.Skill.ID, "_parent_trace_id": runTraceID,
+						})
+					} else if reg.AgentLookup == nil {
+						callErr = fmt.Errorf("agent lookup not configured")
+					} else {
+						child, lookupErr := reg.AgentLookup(ctx, forkRequest.Agent)
+						if lookupErr != nil || child == nil {
+							callErr = fmt.Errorf("forked skill agent %q not found: %w", forkRequest.Agent, lookupErr)
+						} else if !service.AgentAllowsSubagent(preset, child) {
+							callErr = fmt.Errorf("agent %q is not in %q's subagent allowlist", child.Name, preset.Name)
+						} else {
+							result, callErr = runIsolatedSubagent(ctx, reg, child.ID, forkRequest.Task, forkRequest.Context, forkRequest.Skill.ID)
+						}
+					}
+				} else {
+					result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+				}
 			} else if tc.Name == workflow.ReadSkillResourceToolName {
 				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
 			} else if mcpToolNames[tc.Name] {
@@ -820,7 +932,16 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				} else if hi.handlerType == "builtin" {
 					// Execute builtin tool via dispatcher.
 					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
-					result, callErr = reg.BuiltinToolDispatcher(toolCtx, tc.Name, tc.Arguments)
+					if reg.AgentRunner != nil && (tc.Name == "agent_run" || tc.Name == "agent_run_status" || tc.Name == "agent_run_cancel") {
+						runnerArgs := make(map[string]any, len(tc.Arguments)+1)
+						for key, value := range tc.Arguments {
+							runnerArgs[key] = value
+						}
+						runnerArgs["_parent_trace_id"] = runTraceID
+						result, callErr = reg.AgentRunner(toolCtx, n.agentID, tc.Name, runnerArgs)
+					} else {
+						result, callErr = reg.BuiltinToolDispatcher(toolCtx, tc.Name, tc.Arguments)
+					}
 					cancel()
 				} else if hi.handlerType == "workflow" {
 					// Execute an agent-attached workflow via the engine-owned executor.
@@ -841,36 +962,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					task, _ := tc.Arguments["task"].(string)
 					subAgentID := hi.handler
 
-					// Create a temporary node configuration for the sub-agent.
-					subNodeConfig := service.WorkflowNode{
-						Data: map[string]any{
-							"agent_id": subAgentID,
-						},
-					}
-
-					subNode, err := newAgentCallNode(subNodeConfig)
-					if err != nil {
-						callErr = fmt.Errorf("failed to init sub-agent %s: %w", subAgentID, err)
-					} else {
-						// Run the sub-agent.
-						subInputs := map[string]any{
-							"prompt": task,
-						}
-						// Pass through mcp/skills if we wanted to inherit context,
-						// but for now let's keep it isolated to the task.
-
-						subResult, err := subNode.Run(ctx, reg, subInputs)
-						if err != nil {
-							callErr = fmt.Errorf("sub-agent execution failed: %w", err)
-						} else {
-							// Extract response.
-							if resp, ok := subResult.Data()["response"].(string); ok {
-								result = resp
-							} else {
-								result = fmt.Sprintf("%v", subResult.Data())
-							}
-						}
-					}
+					result, callErr = runIsolatedSubagent(ctx, reg, subAgentID, task, "", "")
 				} else {
 					// Execute JS handler via Goja (default). Use the per-tool
 					// VarLookup so that provider-scoped keys resolve through
@@ -903,7 +995,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				reg.RecordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
 					Context: observationContext, ParentObservationID: genObsID,
 					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
-					Iteration: iteration, Err: callErr,
+					Iteration: iteration, Err: callErr, Metadata: subagentToolMetadata(result),
 				}))
 			}
 

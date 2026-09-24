@@ -66,6 +66,12 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 			config.BuiltinTools = builtins
 		}
 	}
+	if raw, ok := args["subagents"]; ok {
+		data, _ := json.Marshal(raw)
+		if err := json.Unmarshal(data, &config.Subagents); err != nil {
+			return "", fmt.Errorf("subagents must be an array of strings")
+		}
+	}
 
 	// Validate provider exists and model is available if both are specified.
 	if config.Provider != "" && s.store != nil {
@@ -241,6 +247,12 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 		var builtins []string
 		if err := json.Unmarshal(data, &builtins); err == nil {
 			existing.Config.BuiltinTools = builtins
+		}
+	}
+	if raw, ok := args["subagents"]; ok {
+		data, _ := json.Marshal(raw)
+		if err := json.Unmarshal(data, &existing.Config.Subagents); err != nil {
+			return "", fmt.Errorf("subagents must be an array of strings")
 		}
 	}
 

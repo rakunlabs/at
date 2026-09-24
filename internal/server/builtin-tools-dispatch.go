@@ -163,6 +163,12 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execAgentGet(ctx, args)
 	case "agent_update":
 		return s.execAgentUpdate(ctx, args)
+	case "agent_run":
+		return s.execAgentRun(ctx, args)
+	case "agent_run_status":
+		return s.execAgentRunStatus(ctx, args)
+	case "agent_run_cancel":
+		return s.execAgentRunCancel(ctx, args)
 
 	// Skill tools.
 	case "skill_list":

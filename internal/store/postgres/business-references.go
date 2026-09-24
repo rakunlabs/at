@@ -182,6 +182,29 @@ func (p *Postgres) workspaceBusinessNamedReference(ctx context.Context, w *busin
 	return nil
 }
 
+func (p *Postgres) agentBusinessNamedReference(ctx context.Context, w *businessWrite, value string, personal bool) error {
+	if value == "" {
+		return nil
+	}
+	owners := exp.Expression(goqu.C("owner_user_id").Eq(""))
+	if personal {
+		owners = goqu.Or(owners, goqu.C("owner_user_id").Eq(w.actor.UserID))
+	}
+	local := goqu.And(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), owners)
+	var ids []string
+	err := w.tx.From(p.tableAgents).Select("id").Where(
+		goqu.Or(local, agentGlobalPredicate()),
+		goqu.Or(goqu.C("id").Eq(value), goqu.C("name").Eq(value)),
+	).ForKeyShare(goqu.Wait).Limit(2).ScanValsContext(ctx, &ids)
+	if err != nil {
+		return fmt.Errorf("validate agent reference: %w", err)
+	}
+	if len(ids) != 1 {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
+}
+
 func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c service.AgentConfig, personal bool) error {
 	if len(c.MCPs) > 0 && !w.actor.PlatformAdmin {
 		return service.ErrAccessDenied
@@ -223,6 +246,11 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 	}
 	for _, id := range c.Connections {
 		if err := p.businessReference(ctx, w, p.tableConnections, "id", id); err != nil {
+			return err
+		}
+	}
+	for _, ref := range c.Subagents {
+		if err := p.agentBusinessNamedReference(ctx, w, ref, personal); err != nil {
 			return err
 		}
 	}

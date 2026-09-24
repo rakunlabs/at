@@ -20,6 +20,7 @@ type AgentMD struct {
 	MCPs                      []string `yaml:"mcp_urls,omitempty"`
 	Workflows                 []string `yaml:"workflows,omitempty"`
 	BuiltinTools              []string `yaml:"builtin_tools,omitempty"`
+	Subagents                 []string `yaml:"subagents,omitempty"`
 	MaxIterations             int      `yaml:"max_iterations,omitempty"`
 	ToolTimeout               int      `yaml:"tool_timeout,omitempty"`
 	ConfirmationRequiredTools []string `yaml:"confirmation_required_tools,omitempty"`

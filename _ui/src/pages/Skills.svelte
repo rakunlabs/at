@@ -48,6 +48,7 @@
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import { can } from '@/lib/store/workspace.svelte';
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
+  import { listAgents, type Agent } from '@/lib/api/agents';
 
   storeNavbar.title = 'Skills';
 
@@ -60,6 +61,7 @@
   // ─── State ───
 
   let skills = $state<Skill[]>([]);
+  let agents = $state<Agent[]>([]);
   let loading = $state(true);
   
   // Pagination
@@ -99,6 +101,9 @@
   let formTags = $state<string[]>([]);
   let formSystemPrompt = $state('');
   let formTools = $state<SkillTool[]>([]);
+  let formContext = $state<'' | 'fork'>('');
+  let formAgent = $state('');
+  let formBackground = $state(false);
   let saving = $state(false);
 
   // Copy / Paste via system clipboard (works across browsers/machines)
@@ -109,6 +114,9 @@
       description: skill.description,
       system_prompt: skill.system_prompt,
       tools: skill.tools || [],
+      context: skill.context || undefined,
+      agent: skill.agent || undefined,
+      background: skill.background || undefined,
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
@@ -139,6 +147,9 @@
         handler: t.handler || '',
         handler_type: t.handler_type || 'js',
       }));
+      formContext = src.context === 'fork' ? 'fork' : '';
+      formAgent = formContext === 'fork' ? (src.agent || '') : '';
+      formBackground = formContext === 'fork' && Boolean(src.background);
       editingId = null;
       showForm = true;
     } catch {
@@ -165,6 +176,15 @@
     }
   }
 
+  async function loadAgents() {
+    try {
+      const res = await listAgents({ _limit: 500 } as any);
+      agents = res.data || [];
+    } catch {
+      agents = [];
+    }
+  }
+
   function handleSearch(value: string) {
     searchQuery = value;
     offset = 0;
@@ -178,6 +198,7 @@
   }
 
   load();
+  loadAgents();
 
   // ─── Form ───
 
@@ -188,6 +209,9 @@
     formTags = [];
     formSystemPrompt = '';
     formTools = [];
+    formContext = '';
+    formAgent = '';
+    formBackground = false;
     createFolderFiles = [];
     editingId = null;
     showForm = false;
@@ -207,6 +231,9 @@
     formTags = skill.tags ? [...skill.tags] : [];
     formSystemPrompt = skill.system_prompt;
     formTools = (skill.tools || []).map((t) => ({ ...t }));
+    formContext = skill.context === 'fork' ? 'fork' : '';
+    formAgent = skill.agent || '';
+    formBackground = Boolean(skill.background);
     showForm = true;
   }
 
@@ -220,6 +247,10 @@
       addToast('Skill name is required', 'warn');
       return;
     }
+    if (formContext === 'fork' && !formAgent) {
+      addToast('Select an agent for the forked skill', 'warn');
+      return;
+    }
 
     saving = true;
     try {
@@ -230,6 +261,9 @@
         tags: formTags.length > 0 ? formTags : undefined,
         system_prompt: formSystemPrompt,
         tools: formTools.filter((t) => t.name.trim()),
+        context: formContext || undefined,
+        agent: formContext === 'fork' ? formAgent : undefined,
+        background: formContext === 'fork' ? formBackground : undefined,
       };
 
       if (editingId) {
@@ -1064,6 +1098,38 @@
                 placeholder="Instructions for the agent when using this skill"
                 class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
               ></textarea>
+            </div>
+
+            <!-- Execution Context -->
+            <div class="grid grid-cols-4 gap-3 items-start">
+              <label for="form-context" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Execution</label>
+              <div class="col-span-3 space-y-2">
+                <select
+                  id="form-context"
+                  bind:value={formContext}
+                  onchange={() => { if (formContext !== 'fork') { formAgent = ''; formBackground = false; } }}
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                >
+                  <option value="">Current agent context</option>
+                  <option value="fork">Forked subagent context</option>
+                </select>
+                {#if formContext === 'fork'}
+                  <select
+                    bind:value={formAgent}
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                  >
+                    <option value="">Select subagent...</option>
+                    {#each agents as agent}
+                      <option value={agent.id}>{agent.name}</option>
+                    {/each}
+                  </select>
+                  <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-text-secondary">
+                    <input type="checkbox" bind:checked={formBackground} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    Run in background
+                  </label>
+                  <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">The calling agent must include this target in its Subagents allowlist.</p>
+                {/if}
+              </div>
             </div>
 
             <!-- Tools -->

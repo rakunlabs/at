@@ -38,6 +38,9 @@ export interface Skill {
   system_prompt: string;
   tools: SkillTool[];
   resources?: SkillResource[];
+  context?: '' | 'fork';
+  agent?: string;
+  background?: boolean;
   // Sharing / provenance metadata
   version?: string;
   author?: string;

@@ -30,6 +30,8 @@ export interface AgentConfig {
   /** Workflow NAMES exposed to the agent as callable wf_<name> tools. */
   workflows?: string[];
   builtin_tools: string[];
+  /** Agents this agent may launch through the agent_run built-in. */
+  subagents?: string[];
   max_iterations: number;
   tool_timeout: number;
   confirmation_required_tools?: string[];

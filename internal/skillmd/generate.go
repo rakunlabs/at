@@ -75,6 +75,9 @@ func (s *SkillMD) frontmatterOnly() *skillFrontmatter {
 		License:       s.License,
 		Compatibility: s.Compatibility,
 		Metadata:      s.Metadata,
+		Context:       s.Context,
+		Agent:         s.Agent,
+		Background:    s.Background,
 	}
 }
 
@@ -88,4 +91,7 @@ type skillFrontmatter struct {
 	License       string            `yaml:"license,omitempty"`
 	Compatibility string            `yaml:"compatibility,omitempty"`
 	Metadata      map[string]string `yaml:"metadata,omitempty"`
+	Context       string            `yaml:"context,omitempty"`
+	Agent         string            `yaml:"agent,omitempty"`
+	Background    bool              `yaml:"background,omitempty"`
 }

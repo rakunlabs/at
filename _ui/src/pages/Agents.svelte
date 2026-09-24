@@ -103,6 +103,7 @@
   let formMCPSets = $state<string[]>([]);
   let formWorkflows = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
+  let formSubagents = $state<string[]>([]);
   let formMCPs = $state<string[]>(['']);
   let formMaxIterations = $state(10);
   let formToolTimeout = $state(60);
@@ -176,6 +177,7 @@
         mcp_sets: agent.config.mcp_sets || [],
         workflows: agent.config.workflows || [],
         builtin_tools: agent.config.builtin_tools || [],
+        subagents: agent.config.subagents || [],
         mcp_urls: agent.config.mcp_urls || [],
         max_iterations: agent.config.max_iterations,
         tool_timeout: agent.config.tool_timeout,
@@ -215,6 +217,7 @@
       formWorkflows = cfg.workflows || [];
       formConnections = cfg.connections || {};
       formBuiltinTools = cfg.builtin_tools || [];
+      formSubagents = cfg.subagents || [];
       formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
       formMaxIterations = cfg.max_iterations || 10;
       formToolTimeout = cfg.tool_timeout || 60;
@@ -359,6 +362,7 @@
     formMCPSets = [];
     formWorkflows = [];
     formBuiltinTools = [];
+    formSubagents = [];
     formMCPs = [''];
     formMaxIterations = 10;
     formToolTimeout = 60;
@@ -396,6 +400,7 @@
     formMCPSets = [...(agent.config.mcp_sets || [])];
     formWorkflows = [...(agent.config.workflows || [])];
     formBuiltinTools = [...(agent.config.builtin_tools || [])];
+    formSubagents = [...(agent.config.subagents || [])];
     formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
@@ -453,6 +458,7 @@
           mcp_sets: formMCPSets,
           workflows: formWorkflows,
           builtin_tools: formBuiltinTools,
+          subagents: formSubagents,
           mcp_urls: cleanMCPs,
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
@@ -965,6 +971,26 @@
                 {/each}
                 {#if workflows.length === 0}
                   <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No workflows available</div>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Subagents -->
+
+            <div>
+              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                Subagents
+                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">Isolated workers available through <code class="font-mono">agent_run</code></span>
+              </span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each agents.filter((candidate) => candidate.id !== editingId) as candidate}
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" bind:group={formSubagents} value={candidate.id} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={candidate.config.description || candidate.name}>{candidate.name}</span>
+                  </label>
+                {/each}
+                {#if agents.filter((candidate) => candidate.id !== editingId).length === 0}
+                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No other agents available</div>
                 {/if}
               </div>
             </div>

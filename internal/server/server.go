@@ -239,6 +239,11 @@ type Server struct {
 	// Active chat turns can be cancelled when their workspace is deleted.
 	activeChatTurns sync.Map
 
+	// Ephemeral background subagents are process-local by design. They create
+	// no durable organization task and disappear after a short terminal TTL.
+	activeSubagents sync.Map
+	subagentMu      sync.Mutex
+
 	version   string
 	commit    string
 	buildDate string
