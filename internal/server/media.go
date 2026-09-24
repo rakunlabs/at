@@ -80,7 +80,8 @@ func mediaSettingsRedacted(settings service.MediaSettings) mediaSettingsResponse
 // mediaAccess mirrors playgroundAccess: native authentication must be
 // configured and the store must actually implement media storage. Settings are
 // administrator-only; object routes only need an authenticated native subject,
-// because every object read and write is scoped to that subject. The apiGroup
+// because every object read and write is scoped to that subject and the
+// admitted workspace. The apiGroup
 // middleware is the outer boundary and currently admits administrators only,
 // so this handler-level check is deliberately the narrower of the two rather
 // than the only one.
@@ -259,11 +260,13 @@ func (s *Server) mediaBackend(w http.ResponseWriter, r *http.Request, store serv
 	return target, *settings, true
 }
 
-// mediaStorageKey is always server generated: "<owner>/<ulid><ext>" under the
-// configured prefix, with the extension derived from the SNIFFED content type.
-// A client filename never reaches the storage layer.
-func mediaStorageKey(settings service.MediaSettings, owner, ext string) string {
-	key := owner + "/" + ulid.Make().String() + ext
+// mediaStorageKey is always server generated:
+// "<workspace>/<owner>/<ulid><ext>" under the configured prefix, with the
+// extension derived from the SNIFFED content type. A client filename never
+// reaches the storage layer. The workspace segment also keeps backend objects
+// visibly partitioned; database admission remains the security boundary.
+func mediaStorageKey(settings service.MediaSettings, workspace, owner, ext string) string {
+	key := workspace + "/" + owner + "/" + ulid.Make().String() + ext
 	if settings.Backend == service.MediaBackendS3 {
 		return service.NormalizeMediaPrefix(settings.S3.Prefix) + key
 	}
@@ -279,6 +282,11 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		nativeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	principal, admitted := service.AccessPrincipalFromContext(r.Context())
+	if !admitted || principal.WorkspaceID == "" {
+		nativeError(w, http.StatusForbidden, "media storage requires a selected workspace")
 		return
 	}
 	target, settings, ok := s.mediaBackend(w, r, store)
@@ -327,7 +335,7 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, http.StatusUnsupportedMediaType, "only png, jpeg, gif and webp images can be stored")
 		return
 	}
-	key := mediaStorageKey(settings, owner, ext)
+	key := mediaStorageKey(settings, principal.WorkspaceID, owner, ext)
 	if err := target.Put(r.Context(), key, contentType, data); err != nil {
 		// The raw error can name buckets and hosts, so it is logged rather
 		// than returned to a user who may not administer the installation.
@@ -337,6 +345,7 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(data)
 	created, err := store.CreateMediaObject(r.Context(), service.MediaObject{
+		WorkspaceID: principal.WorkspaceID,
 		OwnerUserID: owner,
 		Backend:     settings.Backend,
 		StorageKey:  key,
@@ -362,21 +371,26 @@ func (s *Server) MediaObjectAPI(w http.ResponseWriter, r *http.Request) {
 	if store == nil {
 		return
 	}
+	principal, admitted := service.AccessPrincipalFromContext(r.Context())
+	if !admitted || principal.WorkspaceID == "" {
+		nativeError(w, http.StatusForbidden, "media storage requires a selected workspace")
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		s.mediaServe(w, r, store, owner)
+		s.mediaServe(w, r, store, principal.WorkspaceID, owner)
 	case http.MethodDelete:
-		s.mediaDelete(w, r, store, owner)
+		s.mediaDelete(w, r, store, principal.WorkspaceID, owner)
 	default:
 		nativeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-// mediaServe streams one object. Ownership is resolved before any blob read,
-// and a foreign object answers 404, never 403: 403 would confirm that the
-// identifier exists.
-func (s *Server) mediaServe(w http.ResponseWriter, r *http.Request, store service.MediaStorer, owner string) {
-	object, err := store.GetMediaObject(r.Context(), owner, r.PathValue("id"))
+// mediaServe streams one object. Workspace and ownership are resolved before
+// any blob read, and a foreign object answers 404, never 403: 403 would confirm
+// that the identifier exists.
+func (s *Server) mediaServe(w http.ResponseWriter, r *http.Request, store service.MediaStorer, workspace, owner string) {
+	object, err := store.GetMediaObject(r.Context(), workspace, owner, r.PathValue("id"))
 	if err != nil {
 		mediaStoreError(w, err)
 		return
@@ -416,8 +430,8 @@ func (s *Server) mediaServe(w http.ResponseWriter, r *http.Request, store servic
 // mediaDelete removes the row first, then the blob: the row is the only thing
 // that makes an object reachable, so a failed blob deletion leaves garbage
 // rather than a dangling reference.
-func (s *Server) mediaDelete(w http.ResponseWriter, r *http.Request, store service.MediaStorer, owner string) {
-	object, err := store.DeleteMediaObject(r.Context(), owner, r.PathValue("id"))
+func (s *Server) mediaDelete(w http.ResponseWriter, r *http.Request, store service.MediaStorer, workspace, owner string) {
+	object, err := store.DeleteMediaObject(r.Context(), workspace, owner, r.PathValue("id"))
 	if err != nil {
 		mediaStoreError(w, err)
 		return

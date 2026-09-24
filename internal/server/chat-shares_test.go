@@ -60,12 +60,12 @@ func TestChatShareMediaCopiesOutliveSourceAndRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sourceKey := mediaStorageKey(*settings, owners[0], ".png")
+	sourceKey := mediaStorageKey(*settings, service.DefaultWorkspaceID, owners[0], ".png")
 	sourceBytes := []byte("portable-image")
 	if err := target.Put(t.Context(), sourceKey, "image/png", sourceBytes); err != nil {
 		t.Fatal(err)
 	}
-	source, err := mediaStore.CreateMediaObject(t.Context(), service.MediaObject{OwnerUserID: owners[0], Backend: settings.Backend, StorageKey: sourceKey, ContentType: "image/png", SizeBytes: int64(len(sourceBytes)), Checksum: "sum"})
+	source, err := mediaStore.CreateMediaObject(t.Context(), service.MediaObject{WorkspaceID: service.DefaultWorkspaceID, OwnerUserID: owners[0], Backend: settings.Backend, StorageKey: sourceKey, ContentType: "image/png", SizeBytes: int64(len(sourceBytes)), Checksum: "sum"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestChatShareMediaCopiesOutliveSourceAndRevocation(t *testing.T) {
 	if len(sharedMedia) != 1 || sharedMedia[0] == source.ID {
 		t.Fatalf("media was not copied: source=%s shared=%v", source.ID, sharedMedia)
 	}
-	deleted, err := mediaStore.DeleteMediaObject(t.Context(), owners[0], source.ID)
+	deleted, err := mediaStore.DeleteMediaObject(t.Context(), service.DefaultWorkspaceID, owners[0], source.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

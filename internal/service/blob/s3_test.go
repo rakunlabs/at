@@ -33,6 +33,31 @@ func newS3Store(t *testing.T, endpoint string, pathStyle bool) *s3Store {
 	return store
 }
 
+func TestS3BlankRegionUsesMinIODefault(t *testing.T) {
+	store, err := newS3(service.MediaS3Settings{
+		Endpoint:        "http://127.0.0.1:9000",
+		Bucket:          "media",
+		AccessKeyID:     "minioadmin",
+		SecretAccessKey: "minioadmin",
+		UsePathStyle:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.region != service.MediaS3DefaultRegion {
+		t.Fatalf("region %q, want %q", store.region, service.MediaS3DefaultRegion)
+	}
+	req, err := http.NewRequest(http.MethodHead, store.objectURL("").String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty := sha256.Sum256(nil)
+	store.sign(req, hex.EncodeToString(empty[:]), time.Date(2026, time.September, 24, 0, 0, 0, 0, time.UTC))
+	if got := req.Header.Get("Authorization"); !strings.Contains(got, "/20260924/us-east-1/s3/aws4_request") {
+		t.Fatalf("authorization used the wrong scope: %s", got)
+	}
+}
+
 // TestS3SignatureFixedVector pins the signature for a fixed date, key, payload
 // and header set so a refactor of the canonicalisation cannot silently break
 // signing (the failure mode is an opaque upstream SignatureDoesNotMatch).

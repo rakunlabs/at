@@ -53,6 +53,7 @@ export interface MediaSettingsBody {
 /** One stored image. `storage_key` is backend-internal, never a URL. */
 export interface MediaObject {
   id: string;
+  workspace_id: string;
   owner_user_id: string;
   backend: string;
   storage_key: string;

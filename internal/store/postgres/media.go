@@ -18,10 +18,11 @@ import (
 
 var _ service.MediaStorer = (*Postgres)(nil)
 
-var mediaObjectColumns = []any{"id", "owner_user_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
+var mediaObjectColumns = []any{"id", "workspace_id", "owner_user_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
 
 type mediaObjectRow struct {
 	ID          string    `db:"id"`
+	WorkspaceID string    `db:"workspace_id"`
 	OwnerUserID string    `db:"owner_user_id"`
 	Backend     string    `db:"backend"`
 	StorageKey  string    `db:"storage_key"`
@@ -34,6 +35,7 @@ type mediaObjectRow struct {
 func mediaObjectRowToRecord(row mediaObjectRow) service.MediaObject {
 	return service.MediaObject{
 		ID:          row.ID,
+		WorkspaceID: row.WorkspaceID,
 		OwnerUserID: row.OwnerUserID,
 		Backend:     row.Backend,
 		StorageKey:  row.StorageKey,
@@ -178,11 +180,12 @@ func (p *Postgres) SaveMediaSettings(ctx context.Context, settings service.Media
 }
 
 func (p *Postgres) CreateMediaObject(ctx context.Context, object service.MediaObject) (*service.MediaObject, error) {
-	if object.OwnerUserID == "" {
+	if object.WorkspaceID == "" || object.OwnerUserID == "" {
 		return nil, service.ErrMediaNotFound
 	}
 	record := goqu.Record{
 		"id":            ulid.Make().String(),
+		"workspace_id":  object.WorkspaceID,
 		"owner_user_id": object.OwnerUserID,
 		"backend":       object.Backend,
 		"storage_key":   object.StorageKey,
@@ -199,14 +202,14 @@ func (p *Postgres) CreateMediaObject(ctx context.Context, object service.MediaOb
 	return &out, nil
 }
 
-// GetMediaObject is owner scoped: a foreign object is indistinguishable from a
-// missing one, so ownership cannot be probed.
-func (p *Postgres) GetMediaObject(ctx context.Context, owner, id string) (*service.MediaObject, error) {
-	if owner == "" || id == "" {
+// GetMediaObject is workspace-and-owner scoped: a foreign object is
+// indistinguishable from a missing one, so either boundary cannot be probed.
+func (p *Postgres) GetMediaObject(ctx context.Context, workspace, owner, id string) (*service.MediaObject, error) {
+	if workspace == "" || owner == "" || id == "" {
 		return nil, service.ErrMediaNotFound
 	}
 	var row mediaObjectRow
-	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{"id": id, "owner_user_id": owner}).ScanStructContext(ctx, &row)
+	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{"id": id, "workspace_id": workspace, "owner_user_id": owner}).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}
@@ -221,12 +224,12 @@ func (p *Postgres) GetMediaObject(ctx context.Context, owner, id string) (*servi
 // blob from the backend that row names. The record is dropped first on
 // purpose: a blob without a row is unreachable garbage the administrator can
 // sweep, while a row without a blob is a broken image in the UI.
-func (p *Postgres) DeleteMediaObject(ctx context.Context, owner, id string) (*service.MediaObject, error) {
-	if owner == "" || id == "" {
+func (p *Postgres) DeleteMediaObject(ctx context.Context, workspace, owner, id string) (*service.MediaObject, error) {
+	if workspace == "" || owner == "" || id == "" {
 		return nil, service.ErrMediaNotFound
 	}
 	var row mediaObjectRow
-	found, err := p.goqu.Delete(p.tableMediaObjects).Where(goqu.Ex{"id": id, "owner_user_id": owner}).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row)
+	found, err := p.goqu.Delete(p.tableMediaObjects).Where(goqu.Ex{"id": id, "workspace_id": workspace, "owner_user_id": owner}).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}

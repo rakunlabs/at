@@ -82,6 +82,7 @@ func TestWorkspaceLifecyclePreferencesAndDeletion(t *testing.T) {
 			{"token_usage", goqu.Record{"token_id": "token-" + id, "model": "model", "workspace_id": id}},
 			{"chat_sessions", goqu.Record{"id": "chat-" + id, "agent_id": "agent", "created_at": time.Now(), "updated_at": time.Now(), "workspace_id": id}},
 			{"chat_messages", goqu.Record{"id": "message-" + id, "session_id": "chat-" + id, "role": "assistant", "created_at": time.Now(), "workspace_id": id}},
+			{"media_objects", goqu.Record{"id": "media-" + id, "workspace_id": id, "owner_user_id": admin.ID, "backend": "filesystem", "storage_key": id + "/media.png", "content_type": "image/png", "size_bytes": 1, "checksum": "sum"}},
 			{"execution_policies", goqu.Record{"workspace_id": id, "version": 1, "data": "{}"}},
 		} {
 			if _, err := p.goqu.Insert(p.workspaceTable(seed.table)).Rows(seed.row).Executor().ExecContext(ctx); err != nil {
@@ -92,6 +93,9 @@ func TestWorkspaceLifecyclePreferencesAndDeletion(t *testing.T) {
 	deleted, err := p.DeleteWorkspace(ctx, workspace.Name)
 	if err != nil || deleted.WorkspaceID != workspace.ID {
 		t.Fatalf("delete: %+v %v", deleted, err)
+	}
+	if len(deleted.MediaObjects) != 1 || deleted.MediaObjects[0].WorkspaceID != workspace.ID {
+		t.Fatalf("deleted media cleanup handoff: %+v", deleted.MediaObjects)
 	}
 	for _, table := range workspaceDeletionTables {
 		n, err := p.goqu.From(p.workspaceTable(table)).Where(goqu.Ex{"workspace_id": workspace.ID}).CountContext(ctx)

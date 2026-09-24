@@ -778,11 +778,21 @@ and `TestWorkspaceAnalyticsCapabilityRank`
 
 Because `<img src>` cannot send `X-AT-Workspace-ID`, the workspace query
 selector that `fileServeUrl` pins for `/api/v1/files/serve` also applies to
-owner-scoped `GET /api/v1/media/{id}` (`nativeBlobReadPath`; `mediaImageURL`
-takes the selected workspace as its second argument). `/media/settings*` stays
+workspace-and-owner-scoped `GET /api/v1/media/{id}` (`nativeBlobReadPath`;
+`mediaImageURL` takes the selected workspace as its second argument). Migration
+70 adds `media_objects.workspace_id`, backfills historically ambiguous objects
+to Default and preserves the known workspace of chat-share copies. New backend
+keys are `<workspace>/<owner>/<ulid>.<ext>`, so both the database lookup and
+object namespace are partitioned. `/media/settings*` stays
 installation administration: the literal `GET /media/settings` policy
 (`platform.manage`) must precede `/media/{id}` in the policy slice, whose
 `{id}` parameter would otherwise swallow it.
+
+S3-compatible media storage defaults a blank SigV4 region to `us-east-1`, which
+is MinIO's default region. The UI selects path-style addressing for a fresh S3
+configuration because MinIO and most local gateways require it. A MinIO server
+configured with a custom region still needs that exact value; an arbitrary
+region is part of the signature and normally produces HTTP 400.
 
 `/studio` and `/files` stay capability-gated because their data plane is
 `/api/v1/files/*`, which `registerRuntimeRoutes` admits on `files.read`; only

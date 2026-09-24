@@ -144,7 +144,7 @@ func mediaS3WithoutBucket(version int64) service.MediaSettings {
 	return s
 }
 
-func TestMediaObjectOwnerScoping(t *testing.T) {
+func TestMediaObjectWorkspaceOwnerScoping(t *testing.T) {
 	p := newTestStore(t, nil)
 	ctx := t.Context()
 
@@ -152,6 +152,7 @@ func TestMediaObjectOwnerScoping(t *testing.T) {
 		t.Fatalf("ownerless create: %v", err)
 	}
 	created, err := p.CreateMediaObject(ctx, service.MediaObject{
+		WorkspaceID: service.DefaultWorkspaceID,
 		OwnerUserID: "user-a",
 		Backend:     service.MediaBackendFilesystem,
 		StorageKey:  "user-a/01HX.png",
@@ -166,18 +167,25 @@ func TestMediaObjectOwnerScoping(t *testing.T) {
 		t.Fatalf("created: %+v", created)
 	}
 
-	got, err := p.GetMediaObject(ctx, "user-a", created.ID)
+	got, err := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "user-a", created.ID)
 	if err != nil || got.StorageKey != "user-a/01HX.png" || got.ContentType != "image/png" || got.Checksum != "abc" {
 		t.Fatalf("get: %+v %v", got, err)
 	}
 	// A foreign or unknown object is indistinguishable from a missing one.
 	for name, fn := range map[string]func() error{
-		"foreign get":     func() error { _, e := p.GetMediaObject(ctx, "user-b", created.ID); return e },
-		"foreign delete":  func() error { _, e := p.DeleteMediaObject(ctx, "user-b", created.ID); return e },
-		"unknown get":     func() error { _, e := p.GetMediaObject(ctx, "user-a", "nope"); return e },
-		"empty owner get": func() error { _, e := p.GetMediaObject(ctx, "", created.ID); return e },
-		"empty id delete": func() error { _, e := p.DeleteMediaObject(ctx, "user-a", ""); return e },
-		"unknown delete":  func() error { _, e := p.DeleteMediaObject(ctx, "user-a", "nope"); return e },
+		"foreign workspace": func() error { _, e := p.GetMediaObject(ctx, "other", "user-a", created.ID); return e },
+		"foreign get": func() error {
+			_, e := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "user-b", created.ID)
+			return e
+		},
+		"foreign delete": func() error {
+			_, e := p.DeleteMediaObject(ctx, service.DefaultWorkspaceID, "user-b", created.ID)
+			return e
+		},
+		"unknown get":     func() error { _, e := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "user-a", "nope"); return e },
+		"empty owner get": func() error { _, e := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "", created.ID); return e },
+		"empty id delete": func() error { _, e := p.DeleteMediaObject(ctx, service.DefaultWorkspaceID, "user-a", ""); return e },
+		"unknown delete":  func() error { _, e := p.DeleteMediaObject(ctx, service.DefaultWorkspaceID, "user-a", "nope"); return e },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := fn(); !errors.Is(err, service.ErrMediaNotFound) {
@@ -187,11 +195,11 @@ func TestMediaObjectOwnerScoping(t *testing.T) {
 	}
 
 	// Delete returns the removed row so the caller can remove the blob.
-	deleted, err := p.DeleteMediaObject(ctx, "user-a", created.ID)
+	deleted, err := p.DeleteMediaObject(ctx, service.DefaultWorkspaceID, "user-a", created.ID)
 	if err != nil || deleted.StorageKey != "user-a/01HX.png" || deleted.Backend != service.MediaBackendFilesystem {
 		t.Fatalf("delete: %+v %v", deleted, err)
 	}
-	if _, err := p.GetMediaObject(ctx, "user-a", created.ID); !errors.Is(err, service.ErrMediaNotFound) {
+	if _, err := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "user-a", created.ID); !errors.Is(err, service.ErrMediaNotFound) {
 		t.Fatalf("after delete: %v", err)
 	}
 }

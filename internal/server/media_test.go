@@ -165,7 +165,6 @@ func TestMediaSettingsHTTPContract(t *testing.T) {
 		"empty filesystem root":    `{"version":1,"backend":"filesystem","filesystem":{},"s3":{}}`,
 		"unknown backend":          `{"version":1,"backend":"gcs","filesystem":{},"s3":{}}`,
 		"s3 without bucket":        `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test","region":"us-east-1","access_key_id":"k","secret_access_key":"s"}}`,
-		"s3 without region":        `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test","bucket":"b","access_key_id":"k","secret_access_key":"s"}}`,
 		"s3 bad endpoint scheme":   `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"ftp://s3.example.test","region":"us-east-1","bucket":"b","access_key_id":"k","secret_access_key":"s"}}`,
 		"s3 endpoint with path":    `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test/bucket","region":"us-east-1","bucket":"b","access_key_id":"k","secret_access_key":"s"}}`,
 		"s3 without credentials":   `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test","region":"us-east-1","bucket":"b"}}`,
@@ -178,8 +177,9 @@ func TestMediaSettingsHTTPContract(t *testing.T) {
 		})
 	}
 
-	// A valid write bumps the version and redacts the secret.
-	w = mediaRequest(t, s, tokens[0], "PUT", "/settings", mediaS3Body(1, "first-bucket", mediaTestSecret))
+	// A blank region adopts the MinIO/S3-compatible default and a valid write
+	// bumps the version and redacts the secret.
+	w = mediaRequest(t, s, tokens[0], "PUT", "/settings", `{"version":1,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test","bucket":"first-bucket","prefix":"/playground/","access_key_id":"AKIAEXAMPLE","secret_access_key":"`+mediaTestSecret+`","use_path_style":true}}`)
 	saved := mediaDecodeSettings(t, w)
 	if w.Code != 200 || saved.Version != 2 || !saved.SecretAccessKeySet || saved.S3.SecretAccessKey != "" {
 		t.Fatalf("save: %d %s", w.Code, w.Body)
@@ -187,6 +187,9 @@ func TestMediaSettingsHTTPContract(t *testing.T) {
 	// The prefix is normalised.
 	if saved.S3.Prefix != "playground/" {
 		t.Fatalf("prefix %q", saved.S3.Prefix)
+	}
+	if saved.S3.Region != service.MediaS3DefaultRegion {
+		t.Fatalf("default region %q", saved.S3.Region)
 	}
 
 	w = mediaRequest(t, s, tokens[0], "GET", "/settings", "")
@@ -310,7 +313,7 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 	}
 	// The key is server generated from the owner and a ULID; the client
 	// filename never reaches storage.
-	if !strings.HasPrefix(object.StorageKey, object.OwnerUserID+"/") || !strings.HasSuffix(object.StorageKey, ".png") || strings.Contains(object.StorageKey, "shot") {
+	if object.WorkspaceID != service.DefaultWorkspaceID || !strings.HasPrefix(object.StorageKey, object.WorkspaceID+"/"+object.OwnerUserID+"/") || !strings.HasSuffix(object.StorageKey, ".png") || strings.Contains(object.StorageKey, "shot") {
 		t.Fatalf("storage key %q", object.StorageKey)
 	}
 	if _, err := os.Stat(filepath.Join(root, object.StorageKey)); err != nil {

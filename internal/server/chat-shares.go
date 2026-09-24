@@ -210,6 +210,10 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 	if len(ids) == 0 {
 		return replacements, nil, nil
 	}
+	principal, ok := service.AccessPrincipalFromContext(ctx)
+	if !ok || principal.WorkspaceID == "" {
+		return nil, nil, service.ErrAccessDenied
+	}
 	store, ok := s.store.(service.MediaStorer)
 	if !ok {
 		return nil, nil, service.ErrMediaNotFound
@@ -224,7 +228,7 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 	}
 	created := []service.MediaObject{}
 	for _, id := range ids {
-		object, err := store.GetMediaObject(ctx, sourceOwner, id)
+		object, err := store.GetMediaObject(ctx, principal.WorkspaceID, sourceOwner, id)
 		if err != nil || object.Backend != settings.Backend {
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
 			return nil, nil, service.ErrMediaNotFound
@@ -241,12 +245,12 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 			return nil, nil, service.ErrChatShareTooLarge
 		}
 		ext := mediaAllowedContentTypes[object.ContentType]
-		key := mediaStorageKey(*settings, targetOwner, ext)
+		key := mediaStorageKey(*settings, principal.WorkspaceID, targetOwner, ext)
 		if err := target.Put(ctx, key, object.ContentType, data); err != nil {
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
 			return nil, nil, err
 		}
-		copy, err := store.CreateMediaObject(ctx, service.MediaObject{OwnerUserID: targetOwner, Backend: object.Backend, StorageKey: key, ContentType: object.ContentType, SizeBytes: object.SizeBytes, Checksum: object.Checksum})
+		copy, err := store.CreateMediaObject(ctx, service.MediaObject{WorkspaceID: principal.WorkspaceID, OwnerUserID: targetOwner, Backend: object.Backend, StorageKey: key, ContentType: object.ContentType, SizeBytes: object.SizeBytes, Checksum: object.Checksum})
 		if err != nil {
 			target.Delete(ctx, key) //nolint:errcheck // best effort rollback
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
@@ -260,7 +264,7 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 
 func (s *Server) cleanupChatMedia(ctx context.Context, target blob.Store, store service.MediaStorer, owner string, objects []service.MediaObject) {
 	for _, object := range objects {
-		if _, err := store.DeleteMediaObject(ctx, owner, object.ID); err != nil {
+		if _, err := store.DeleteMediaObject(ctx, object.WorkspaceID, owner, object.ID); err != nil {
 			slog.Warn("chat media row cleanup failed", "id", object.ID, "error", err.Error())
 		}
 		if err := target.Delete(ctx, object.StorageKey); err != nil {
@@ -538,5 +542,5 @@ func (s *Server) ChatShareMediaAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.SetPathValue("id", r.PathValue("media"))
-	s.mediaServe(w, r, mediaStore, chatShareOwner(share.ID))
+	s.mediaServe(w, r, mediaStore, principal.WorkspaceID, chatShareOwner(share.ID))
 }

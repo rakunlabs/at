@@ -83,6 +83,10 @@
   function selectBackend(value: string) {
     if (!settings) return;
     settings.backend = value as MediaBackend;
+    if (value === 's3' && !settings.s3.region.trim()) {
+      settings.s3.region = 'us-east-1';
+      settings.s3.use_path_style = true;
+    }
     testResult = null;
     notice = error = '';
   }
@@ -197,7 +201,7 @@
                 <input bind:value={settings.s3.endpoint} type="url" placeholder="https://s3.us-east-1.amazonaws.com" spellcheck="false" autocomplete="off" />
               </label>
               <label>
-                Region
+                Region (optional)
                 <input bind:value={settings.s3.region} placeholder="us-east-1" spellcheck="false" autocomplete="off" />
               </label>
               <label>
@@ -239,6 +243,11 @@
               {:else}
                 No secret access key is stored yet.
               {/if}
+            </p>
+            <p class="settings-note">
+              MinIO defaults to <code class="font-mono">us-east-1</code>. Leave Region blank to use that value;
+              enter another region only when your MinIO server was explicitly configured with one. SigV4 includes the
+              region in its signature, so an arbitrary value is rejected with a 400 response.
             </p>
             {#if settings.secret_access_key_set}
               <button

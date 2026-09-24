@@ -16,12 +16,15 @@ const (
 	MediaBackendDisabled   = ""
 	MediaBackendFilesystem = "filesystem"
 	MediaBackendS3         = "s3"
+	// MediaS3DefaultRegion is the SigV4 region used by MinIO and most local
+	// S3-compatible stores when no region was configured explicitly.
+	MediaS3DefaultRegion = "us-east-1"
 )
 
 var (
-	// ErrMediaNotFound is returned for unknown objects and for objects owned
-	// by another user. The two cases are deliberately indistinguishable so
-	// ownership cannot be probed.
+	// ErrMediaNotFound is returned for unknown objects and for objects in
+	// another workspace or owned by another user. The cases are deliberately
+	// indistinguishable so scope and ownership cannot be probed.
 	ErrMediaNotFound = errors.New("media object not found")
 	// ErrMediaConflict is returned when a settings write loses the
 	// optimistic-concurrency race on version.
@@ -66,6 +69,7 @@ type MediaS3Settings struct {
 // from the bytes the server actually received, never from client claims.
 type MediaObject struct {
 	ID          string `json:"id" db:"id"`
+	WorkspaceID string `json:"workspace_id" db:"workspace_id"`
 	OwnerUserID string `json:"owner_user_id" db:"owner_user_id"`
 	Backend     string `json:"backend" db:"backend"`
 	StorageKey  string `json:"storage_key" db:"storage_key"`
@@ -112,9 +116,6 @@ func (s MediaSettings) Validate() error {
 		if err := validateMediaS3Endpoint(s.S3.Endpoint); err != nil {
 			return err
 		}
-		if strings.TrimSpace(s.S3.Region) == "" {
-			return fmt.Errorf("s3 media storage requires a region")
-		}
 		if strings.TrimSpace(s.S3.AccessKeyID) == "" || strings.TrimSpace(s.S3.SecretAccessKey) == "" {
 			return fmt.Errorf("s3 media storage requires an access key id and secret access key")
 		}
@@ -151,6 +152,9 @@ func (s MediaSettings) Normalized() MediaSettings {
 	out.Filesystem.Root = strings.TrimSpace(out.Filesystem.Root)
 	out.S3.Endpoint = strings.TrimRight(strings.TrimSpace(out.S3.Endpoint), "/")
 	out.S3.Region = strings.TrimSpace(out.S3.Region)
+	if out.Backend == MediaBackendS3 && out.S3.Region == "" {
+		out.S3.Region = MediaS3DefaultRegion
+	}
 	out.S3.Bucket = strings.TrimSpace(out.S3.Bucket)
 	out.S3.AccessKeyID = strings.TrimSpace(out.S3.AccessKeyID)
 	out.S3.Prefix = NormalizeMediaPrefix(out.S3.Prefix)
@@ -170,7 +174,7 @@ func NormalizeMediaPrefix(prefix string) string {
 // MediaStorer deliberately does not extend the composite Storer: the server
 // type-asserts it so a backend without media support degrades to 503 instead
 // of failing to satisfy Storer. Object methods take the owner as their first
-// scoping argument and must filter on it.
+// scoping arguments and must filter on both workspace and owner.
 type MediaStorer interface {
 	// GetMediaSettings never returns (nil, nil): an installation with no row
 	// yet resolves to DefaultMediaSettings.
@@ -180,8 +184,8 @@ type MediaStorer interface {
 	// version. A stale version yields ErrMediaConflict.
 	SaveMediaSettings(ctx context.Context, settings MediaSettings) (*MediaSettings, error)
 	CreateMediaObject(ctx context.Context, object MediaObject) (*MediaObject, error)
-	GetMediaObject(ctx context.Context, owner, id string) (*MediaObject, error)
+	GetMediaObject(ctx context.Context, workspace, owner, id string) (*MediaObject, error)
 	// DeleteMediaObject returns the row it removed so the caller can delete
 	// the matching blob from the backend that row names.
-	DeleteMediaObject(ctx context.Context, owner, id string) (*MediaObject, error)
+	DeleteMediaObject(ctx context.Context, workspace, owner, id string) (*MediaObject, error)
 }

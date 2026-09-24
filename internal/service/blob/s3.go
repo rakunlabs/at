@@ -54,12 +54,15 @@ type s3Store struct {
 }
 
 func newS3(s service.MediaS3Settings) (*s3Store, error) {
+	if strings.TrimSpace(s.Region) == "" {
+		s.Region = service.MediaS3DefaultRegion
+	}
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(s.Endpoint), "/"))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, errors.New("s3 media storage endpoint must be an absolute http(s) URL")
 	}
-	if s.Bucket == "" || s.Region == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
-		return nil, errors.New("s3 media storage requires bucket, region, access key id and secret access key")
+	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
+		return nil, errors.New("s3 media storage requires bucket, access key id and secret access key")
 	}
 	return &s3Store{
 		scheme:          u.Scheme,

@@ -13,10 +13,11 @@ CREATE TABLE ${TABLE_PREFIX}media_settings (
     config TEXT NOT NULL
 );
 
--- media_objects records one stored blob. It is owner-scoped only: no
+-- media_objects records one stored blob. At this migration it is owner-scoped only: no
 -- workspace, no sharing, no workspace capability, exactly like
 -- playground_conversations. Every read and write filters on owner_user_id, so
 -- a foreign object is indistinguishable from a missing one.
+-- Migration 70 adds the selected workspace as a second scope.
 --
 -- The blob itself lives in the configured backend under storage_key; this
 -- table is the authoritative record of which backend owns it, what content
