@@ -22,8 +22,9 @@ import (
 
 // discoverRequest is the JSON body for POST /api/v1/providers/discover-models.
 type discoverRequest struct {
-	Config config.LLMConfig `json:"config"`
-	Key    string           `json:"key,omitempty"` // optional: existing provider key to fall back to stored api_key
+	Config     config.LLMConfig `json:"config"`
+	Key        string           `json:"key,omitempty"`         // optional: existing workspace provider key
+	ProviderID string           `json:"provider_id,omitempty"` // optional: existing personal provider ID
 }
 
 // discoverResponse is returned by the discover-models endpoint.
@@ -35,6 +36,14 @@ type discoverResponse struct {
 // It uses the provided config (type, api_key, base_url, extra_headers, proxy) to
 // call the upstream provider's model listing API and returns available model IDs.
 func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
+	s.discoverModelsAPI(w, r, false)
+}
+
+func (s *Server) DiscoverPersonalProviderModelsAPI(w http.ResponseWriter, r *http.Request) {
+	s.discoverModelsAPI(w, r, true)
+}
+
+func (s *Server) discoverModelsAPI(w http.ResponseWriter, r *http.Request, personal bool) {
 	var req discoverRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
@@ -49,7 +58,7 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	// When editing an existing provider the UI redacts the API key. If the
 	// request omits the key but includes a provider key, look up the stored
 	// config and use its API key so discovery still works.
-	existing, admitted := s.discoveryConfig(w, r, &req)
+	existing, admitted := s.discoveryConfig(w, r, &req, personal)
 	if !admitted {
 		return
 	}
@@ -62,7 +71,7 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Config.Type {
 	case "openai":
-		models, err = s.discoverOpenAIProviderModels(ctx, req.Key, req.Config)
+		models, err = s.discoverOpenAIProviderModels(ctx, req.Key, req.Config, existing)
 	case "anthropic":
 		if req.Config.AuthType == "claude-code" && req.Config.RefreshToken != "" {
 			if existing == nil {
@@ -75,10 +84,14 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			expiry, _ := time.Parse(time.RFC3339, req.Config.TokenExpiresAt)
-			source := antropic.NewOAuthTokenSource(req.Config.APIKey, req.Config.RefreshToken, expiry, client, s.claudeOAuthRefreshCallback(existing.Key, existing.WorkspaceID))
+			authReference := existing.Key
+			if existing.Reference != "" {
+				authReference = existing.Reference
+			}
+			source := antropic.NewOAuthTokenSource(req.Config.APIKey, req.Config.RefreshToken, expiry, client, s.claudeOAuthRefreshCallback(authReference, existing.WorkspaceID))
 			// Discovery must not rotate the shared single-use refresh token
 			// out from under the gateway and execution sources.
-			if fn := s.claudeOAuthCoordinator(existing.Key, existing.WorkspaceID); fn != nil {
+			if fn := s.claudeOAuthCoordinator(authReference, existing.WorkspaceID); fn != nil {
 				source.SetCoordinator(fn)
 			}
 			req.Config.APIKey, err = source.Token(ctx)
@@ -122,6 +135,14 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 // It uses the provided config to call the upstream provider's model listing API
 // and returns model IDs that look like embedding models.
 func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Request) {
+	s.discoverEmbeddingModelsAPI(w, r, false)
+}
+
+func (s *Server) DiscoverPersonalProviderEmbeddingModelsAPI(w http.ResponseWriter, r *http.Request) {
+	s.discoverEmbeddingModelsAPI(w, r, true)
+}
+
+func (s *Server) discoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Request, personal bool) {
 	var req discoverRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
@@ -135,7 +156,7 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 
 	// When editing an existing provider the UI redacts the API key. Fall back
 	// to the stored config's key so discovery still works.
-	if _, admitted := s.discoveryConfig(w, r, &req); !admitted {
+	if _, admitted := s.discoveryConfig(w, r, &req, personal); !admitted {
 		return
 	}
 	if req.Config.AuthType == "chatgpt" {
@@ -182,15 +203,30 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
 }
 
-func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *discoverRequest) (*service.ProviderRecord, bool) {
-	if req.Key == "" {
+func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *discoverRequest, personal bool) (*service.ProviderRecord, bool) {
+	if personal && req.Key != "" || !personal && req.ProviderID != "" {
+		httpResponse(w, "provider reference does not match the discovery endpoint", http.StatusBadRequest)
+		return nil, false
+	}
+	if personal && req.ProviderID == "" || !personal && req.Key == "" {
 		return nil, true
 	}
 	if s.store == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return nil, false
 	}
-	existing, err := s.store.GetProvider(r.Context(), req.Key)
+	var existing *service.ProviderRecord
+	var err error
+	if personal {
+		store, ok := s.store.(service.PersonalProviderStorer)
+		if !ok {
+			httpResponse(w, "personal provider store unavailable", http.StatusServiceUnavailable)
+			return nil, false
+		}
+		existing, err = store.GetPersonalProvider(r.Context(), req.ProviderID)
+	} else {
+		existing, err = s.store.GetProvider(r.Context(), req.Key)
+	}
 	if err != nil {
 		if !workspaceBusinessError(w, err) {
 			httpResponse(w, "failed to load provider credentials", http.StatusInternalServerError)
@@ -201,9 +237,12 @@ func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *di
 		httpResponse(w, "provider not found in this workspace", http.StatusNotFound)
 		return nil, false
 	}
-	if actor, ok := service.AccessPrincipalFromContext(r.Context()); ok && !actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: existing.WorkspaceID, ID: existing.ID}) {
-		httpResponse(w, "provider credential access required", http.StatusForbidden)
-		return nil, false
+	if !personal {
+		actor, ok := service.AccessPrincipalFromContext(r.Context())
+		if ok && !actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: existing.WorkspaceID, ID: existing.ID}) {
+			httpResponse(w, "provider credential access required", http.StatusForbidden)
+			return nil, false
+		}
 	}
 	// A disabled provider must not reach upstream at all, not even to list
 	// models: discovery spends the same credentials as a request would.
@@ -225,6 +264,9 @@ func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *di
 	// stored service-account key the same way — the caller only ever held the
 	// redaction sentinel.
 	preserveProviderCredentialsJSON(&req.Config, existing.Config, false)
+	if personal {
+		req.Key = existing.Reference
+	}
 	return existing, true
 }
 
@@ -299,7 +341,7 @@ type providerModelDiscoverer interface {
 	Models(ctx context.Context) ([]string, error)
 }
 
-func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, cfg config.LLMConfig) ([]string, error) {
+func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, cfg config.LLMConfig, existing *service.ProviderRecord) ([]string, error) {
 	if isCopilotConfig(cfg) {
 		return discoverCopilotModels(ctx, cfg, copilotChatCapability)
 	}
@@ -307,9 +349,12 @@ func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, c
 		if key == "" || s.store == nil {
 			return nil, fmt.Errorf("save and authorize the ChatGPT provider before discovering models")
 		}
-		existing, err := s.store.GetProvider(ctx, key)
-		if err != nil {
-			return nil, err
+		var err error
+		if existing == nil {
+			existing, err = s.providerAuthRecordByReference(ctx, key)
+			if err != nil {
+				return nil, err
+			}
 		}
 		if existing == nil {
 			return nil, fmt.Errorf("ChatGPT provider not found in this workspace")

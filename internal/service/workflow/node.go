@@ -509,9 +509,10 @@ type LoopGovernor interface {
 
 // BuiltinToolDef describes a built-in tool available to agents.
 type BuiltinToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	InputSchema map[string]any             `json:"input_schema"`
+	Available   func(context.Context) bool `json:"-"`
 }
 
 // NewRegistry creates a new execution registry.

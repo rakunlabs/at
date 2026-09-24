@@ -49,12 +49,19 @@ export interface LLMConfig {
 }
 
 export interface ProviderRecord {
+  workspace_id?: string;
+  owner_user_id?: string;
   id: string;
   key: string;
+  display_key?: string;
+  reference?: string;
+  scope?: ProviderScope;
   config: LLMConfig;
   created_at: string;
   updated_at: string;
 }
+
+export type ProviderScope = 'personal' | 'workspace' | 'global';
 
 export async function listProviders(params?: ListParams): Promise<ListResult<ProviderRecord>> {
   const res = await api.get<ListResult<ProviderRecord>>('/providers', { params });
@@ -96,6 +103,37 @@ export async function setProviderDisabled(key: string, disabled: boolean): Promi
   return res.data;
 }
 
+export async function listPersonalProviders(params?: ListParams): Promise<ListResult<ProviderRecord>> {
+  const res = await api.get<ListResult<ProviderRecord>>('/personal-providers', { params });
+  return res.data;
+}
+
+export async function createPersonalProvider(key: string, config: LLMConfig, scope: ProviderScope = 'personal'): Promise<ProviderRecord> {
+  const res = await api.post<ProviderRecord>('/personal-providers', { key, config, scope });
+  return res.data;
+}
+
+export async function updatePersonalProvider(id: string, key: string, config: LLMConfig, clearCredentialsJSON = false): Promise<ProviderRecord> {
+  const body: Record<string, any> = { key, config };
+  if (clearCredentialsJSON) body.clear_credentials_json = true;
+  const res = await api.put<ProviderRecord>(`/personal-providers/${encodeURIComponent(id)}`, body);
+  return res.data;
+}
+
+export async function setPersonalProviderScope(id: string, scope: ProviderScope): Promise<ProviderRecord> {
+  const res = await api.put<ProviderRecord>(`/personal-providers/${encodeURIComponent(id)}/scope`, { scope });
+  return res.data;
+}
+
+export async function setPersonalProviderDisabled(id: string, disabled: boolean): Promise<{ disabled: boolean }> {
+  const res = await api.put<{ disabled: boolean }>(`/personal-providers/${encodeURIComponent(id)}/disable`, { disabled });
+  return res.data;
+}
+
+export async function deletePersonalProvider(id: string): Promise<void> {
+  await api.delete(`/personal-providers/${encodeURIComponent(id)}`);
+}
+
 interface DiscoverModelsResponse {
   models: string[];
 }
@@ -114,6 +152,20 @@ export async function discoverEmbeddingModels(config: Partial<LLMConfig>, key?: 
   return res.data.models;
 }
 
+export async function discoverPersonalModels(config: Partial<LLMConfig>, providerId?: string): Promise<string[]> {
+  const body: Record<string, any> = { config };
+  if (providerId) body.provider_id = providerId;
+  const res = await api.post<DiscoverModelsResponse>('/personal-providers/discover-models', body);
+  return res.data.models;
+}
+
+export async function discoverPersonalEmbeddingModels(config: Partial<LLMConfig>, providerId?: string): Promise<string[]> {
+  const body: Record<string, any> = { config };
+  if (providerId) body.provider_id = providerId;
+  const res = await api.post<DiscoverModelsResponse>('/personal-providers/discover-embedding-models', body);
+  return res.data.models;
+}
+
 // ─── Device Auth (subscription-backed provider device flows) ───
 
 export interface DeviceAuthResponse {
@@ -128,13 +180,13 @@ export interface DeviceAuthStatusResponse {
   error?: string;
 }
 
-export async function startDeviceAuth(key: string): Promise<DeviceAuthResponse> {
-  const res = await api.post<DeviceAuthResponse>('/providers/device-auth', { key });
+export async function startDeviceAuth(key: string, personal = false): Promise<DeviceAuthResponse> {
+  const res = await api.post<DeviceAuthResponse>(personal ? '/personal-providers/device-auth' : '/providers/device-auth', { key });
   return res.data;
 }
 
-export async function getDeviceAuthStatus(key: string): Promise<DeviceAuthStatusResponse> {
-  const res = await api.get<DeviceAuthStatusResponse>('/providers/device-auth-status', {
+export async function getDeviceAuthStatus(key: string, personal = false): Promise<DeviceAuthStatusResponse> {
+  const res = await api.get<DeviceAuthStatusResponse>(personal ? '/personal-providers/device-auth-status' : '/providers/device-auth-status', {
     params: { key },
   });
   return res.data;
@@ -151,13 +203,13 @@ export interface ClaudeAuthCallbackResponse {
   status: 'authorized';
 }
 
-export async function startClaudeAuth(key: string): Promise<ClaudeAuthStartResponse> {
-  const res = await api.post<ClaudeAuthStartResponse>('/providers/claude-auth', { key });
+export async function startClaudeAuth(key: string, personal = false): Promise<ClaudeAuthStartResponse> {
+  const res = await api.post<ClaudeAuthStartResponse>(personal ? '/personal-providers/claude-auth' : '/providers/claude-auth', { key });
   return res.data;
 }
 
-export async function submitClaudeAuthCode(key: string, code: string): Promise<ClaudeAuthCallbackResponse> {
-  const res = await api.post<ClaudeAuthCallbackResponse>('/providers/claude-auth/callback', { key, code });
+export async function submitClaudeAuthCode(key: string, code: string, personal = false): Promise<ClaudeAuthCallbackResponse> {
+  const res = await api.post<ClaudeAuthCallbackResponse>(personal ? '/personal-providers/claude-auth/callback' : '/providers/claude-auth/callback', { key, code });
   return res.data;
 }
 
@@ -167,8 +219,9 @@ export async function submitClaudeAuthToken(
   key: string,
   access_token: string,
   refresh_token: string,
+  personal = false,
 ): Promise<ClaudeAuthCallbackResponse> {
-  const res = await api.post<ClaudeAuthCallbackResponse>('/providers/claude-auth/token', {
+  const res = await api.post<ClaudeAuthCallbackResponse>(personal ? '/personal-providers/claude-auth/token' : '/providers/claude-auth/token', {
     key,
     access_token,
     refresh_token,
@@ -184,7 +237,7 @@ export interface ClaudeAuthSyncResponse {
   expires_at?: string; // RFC3339 token expiry time (if known from CLI credentials)
 }
 
-export async function syncClaudeAuthFromCLI(key: string): Promise<ClaudeAuthSyncResponse> {
-  const res = await api.post<ClaudeAuthSyncResponse>('/providers/claude-auth/sync', { key });
+export async function syncClaudeAuthFromCLI(key: string, personal = false): Promise<ClaudeAuthSyncResponse> {
+  const res = await api.post<ClaudeAuthSyncResponse>(personal ? '/personal-providers/claude-auth/sync' : '/providers/claude-auth/sync', { key });
   return res.data;
 }

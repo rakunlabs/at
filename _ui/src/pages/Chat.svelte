@@ -50,7 +50,7 @@
     type ExtensionDescriptor,
     type ExtensionTool,
   } from '@/lib/helper/extension-bridge';
-  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP } from '@/lib/api/features';
+  import { FEATURE_AGENTS, FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_SHARING } from '@/lib/api/features';
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
@@ -95,7 +95,8 @@
     uploadMedia,
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
-  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot } from 'lucide-svelte';
+  import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
+  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot, Share2 } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -259,6 +260,7 @@
   // ─── State ───
 
   let models = $state<string[]>([]);
+  let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
   let selectedModel = $state('');
   let systemPrompt = $state('');
   let userInput = $state('');
@@ -329,6 +331,7 @@
   let selectedMCPSetNames = $state<string[]>([]);
   let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
   let agents = $state<Agent[]>([]);
+  let agentsAvailable = $derived(isFeatureEnabled(FEATURE_AGENTS));
   /** Agent bound to this conversation; supplies the base setup. */
   let boundAgentId = $state('');
   let agentPickerId = $state('');
@@ -706,6 +709,7 @@
   let conversation = $state<PlaygroundConversation | null>(null);
   let parentTitle = $state('');
   let meta = $state<MessageMeta[]>([]);
+  let showShareDialog = $state(false);
   let conversations = $state<PlaygroundConversation[]>([]);
   let conversationsLoading = $state(false);
   let conversationsCursor = $state('');
@@ -776,6 +780,12 @@
   }
 
   let unsavedCount = $derived(meta.reduce((n, m) => n + (m.sequence === null ? 1 : 0), 0));
+  let sharingAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_SHARING));
+  let shareBoundaries = $derived.by(() => messages.flatMap((message, index) => {
+    const sequence = meta[index]?.sequence;
+    if (message.role !== 'assistant' || sequence === null || sequence === undefined || (message.tool_calls?.length ?? 0) > 0) return [];
+    return [{ sequence, label: `Message ${sequence} · ${getTextContent(message.content).slice(0, 56) || 'completed response'}` }];
+  }));
 
   /**
    * A restored conversation may name a model the provider list no longer
@@ -1161,16 +1171,25 @@
 
       // Build full model list: provider_key/model
       const allModels: string[] = [];
+      const groups: Array<{ label: string; models: string[] }> = [];
       for (const p of info.providers ?? []) {
+        const reference = p.reference || p.key;
+        const providerModels: string[] = [];
         if (p.models && p.models.length > 0) {
           for (const m of p.models) {
-            allModels.push(`${p.key}/${m}`);
+            providerModels.push(`${reference}/${m}`);
           }
         } else if (p.default_model) {
-          allModels.push(`${p.key}/${p.default_model}`);
+          providerModels.push(`${reference}/${p.default_model}`);
+        }
+        if (providerModels.length > 0) {
+          const scope = p.scope ? ` · ${p.scope[0].toUpperCase()}${p.scope.slice(1)}` : '';
+          groups.push({ label: `${p.key}${scope}`, models: providerModels });
+          allModels.push(...providerModels);
         }
       }
       allModels.sort((a, b) => a.localeCompare(b));
+      modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
       models = allModels;
       if (allModels.length > 0 && !selectedModel) {
         selectedModel = allModels[0];
@@ -1183,6 +1202,8 @@
   }
 
   async function loadAgents() {
+    if (!agentsAvailable) return;
+
     try {
       const res = await listAgents();
       agents = res.data ?? [];
@@ -1346,7 +1367,7 @@
     // model would silently rewrite the conversation's pair, so each is dropped
     // and named rather than applied blind.
     let agentId = preset.agent_id ?? '';
-    if (agentId && !agents.some(a => a.id === agentId)) {
+    if (agentsAvailable && agentId && !agents.some(a => a.id === agentId)) {
       addToast(`"${preset.name}" names an agent that is no longer available — applied without it.`, 'warn');
       agentId = '';
     }
@@ -1565,17 +1586,19 @@
     refreshTools();
   }
 
-  const boundAgent = $derived(boundAgentId ? agents.find(a => a.id === boundAgentId) : undefined);
+  const boundAgent = $derived(agentsAvailable && boundAgentId ? agents.find(a => a.id === boundAgentId) : undefined);
   const inherited = $derived(agentSelections(boundAgent?.config, skills));
   const effectiveSelections = $derived(mergeChatSelections({
     mcp_sets: selectedMCPSetNames,
     skills: selectedSkillNames,
     builtin_tools: enabledBuiltinTools,
   }, inherited));
-  const effectiveSystemPrompt = $derived(boundAgentId ? (boundAgent?.config.system_prompt ?? '') : systemPrompt);
+  const effectiveSystemPrompt = $derived(agentsAvailable && boundAgentId ? (boundAgent?.config.system_prompt ?? '') : systemPrompt);
 
   /** Keep inherited setup separate so unbinding restores only personal choices. */
   function bindAgent(agentId: string) {
+    if (!agentsAvailable) return;
+
     const agent = agents.find(a => a.id === agentId);
     if (!agent) return;
     boundAgentId = agent.id;
@@ -2197,7 +2220,7 @@
       addToast('Wait for tool discovery to finish before sending.', 'warn');
       return false;
     }
-    if (boundAgentId && !boundAgent) {
+    if (agentsAvailable && boundAgentId && !boundAgent) {
       addToast('The selected agent is unavailable. Remove it or reload before sending.', 'warn');
       return false;
     }
@@ -2617,8 +2640,15 @@
         {#if modelOptions.length === 0}
           <option value="">No models available</option>
         {/if}
-        {#each modelOptions as model}
-          <option value={model}>{model}</option>
+        {#if selectedModel && !models.includes(selectedModel)}
+          <option value={selectedModel}>{selectedModel} · unavailable</option>
+        {/if}
+        {#each modelGroups as group}
+          <optgroup label={group.label}>
+            {#each group.models as model}
+              <option value={model}>{model.slice(model.indexOf('/') + 1)}</option>
+            {/each}
+          </optgroup>
         {/each}
       </select>
       <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
@@ -2664,7 +2694,7 @@
       aria-expanded={showWorkbench}
       aria-haspopup="dialog"
       class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showWorkbench ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-      title="Workbench — system prompt, agent, presets and tools"
+      title={agentsAvailable ? 'Workbench — system prompt, agent, presets and tools' : 'Workbench — system prompt, presets and tools'}
     >
       <Wrench size={14} />
       {#if toolCount > 0}
@@ -2717,9 +2747,15 @@
         </div>
       {/if}
 
-      {#if boundAgentId}
+      {#if agentsAvailable && boundAgentId}
         <button onclick={() => (showWorkbench = true)} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" aria-expanded={showWorkbench} aria-haspopup="dialog" class="h-9 inline-flex min-w-0 max-w-40 items-center justify-center gap-1.5 px-2.5 border border-gray-300 dark:border-dark-border-subtle text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent ">
           <Bot size={14} class="shrink-0" /><span class="truncate">{boundAgent?.name ?? 'Unavailable agent'}</span>
+        </button>
+      {/if}
+
+      {#if sharingAvailable && conversationId && shareBoundaries.length > 0}
+        <button onclick={() => (showShareDialog = true)} aria-label="Share conversation snapshot" aria-haspopup="dialog" aria-expanded={showShareDialog} class="h-9 inline-flex items-center justify-center gap-1.5 border border-gray-300 px-2.5 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-accent dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text">
+          <Share2 size={14} /> Share
         </button>
       {/if}
 
@@ -2755,6 +2791,16 @@
         <span>Forked at message {conversation.forked_from_sequence} — the source conversation was deleted</span>
       {/if}
     </div>
+  {/if}
+
+  {#if conversation?.imported_from_share_id}
+    <div class="border-b border-gray-200 bg-blue-50/70 px-4 py-1.5 text-[11px] text-blue-800 dark:border-dark-border dark:bg-blue-900/10 dark:text-blue-300">
+      Independent copy of shared snapshot version {conversation.imported_from_share_version}. Changes here never affect the source.
+    </div>
+  {/if}
+
+  {#if showShareDialog && conversationId}
+    <ShareDialog conversationId={conversationId} boundaries={shareBoundaries} onclose={() => (showShareDialog = false)} />
   {/if}
 
   <!-- Workbench.
@@ -2876,7 +2922,7 @@
                   : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text',
               ]}
             >
-              {tab.label}
+              {tab.id === 'agent' && !agentsAvailable ? 'Server tools' : tab.label}
             </button>
           {/each}
         </div>
@@ -2893,12 +2939,12 @@
           {#if workbenchTab === 'prompt'}
           <div class="block max-w-2xl">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
-            {#if boundAgentId}
+            {#if agentsAvailable && boundAgentId}
               <p class="mb-1 text-xs text-purple-700 dark:text-purple-300">From {boundAgent?.name ?? 'agent'} · Read-only. Copy to your settings to edit.</p>
             {/if}
             <textarea
               value={effectiveSystemPrompt}
-              readonly={!!boundAgentId}
+              readonly={agentsAvailable && !!boundAgentId}
               oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
               aria-label="System prompt"
               placeholder="System prompt (optional)"
@@ -2907,12 +2953,13 @@
             ></textarea>
           </div>
           <p class="text-xs text-gray-500 dark:text-dark-text-muted">
-            The prompt guides the whole conversation. Presets also capture the model, agent, prompt, and every tool selection without changing the transcript.
+            The prompt guides the whole conversation. Presets also capture the model, {agentsAvailable ? 'agent, ' : ''}prompt, and every tool selection without changing the transcript.
           </p>
           {/if}
 
           <!-- Agent contributions remain separate from personal selections. -->
           {#if workbenchTab === 'agent'}
+          {#if agentsAvailable}
           <div class="block">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
             {#if boundAgentId}
@@ -2947,6 +2994,7 @@
               </div>
             {/if}
           </div>
+          {/if}
 
           <!-- MCP Sets (Internal MCPs) -->
           {#if availableMCPSets.length > 0}
@@ -3623,7 +3671,7 @@
       {:else}
         <button
           onclick={sendMessage}
-          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools || (!!boundAgentId && !boundAgent)}
+          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools || (agentsAvailable && !!boundAgentId && !boundAgent)}
           class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
           title="Send (Ctrl+Enter / ⌘+Enter)"
           aria-label="Send message"

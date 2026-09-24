@@ -172,6 +172,12 @@ func nativeBlobReadPath(cookiePath, path string) bool {
 	if path == cookiePath+"api/v1/files/serve" {
 		return true
 	}
+	if rest, ok := strings.CutPrefix(path, cookiePath+"api/v1/chats/shares/"); ok {
+		parts := strings.Split(rest, "/")
+		if len(parts) == 3 && parts[0] != "" && parts[1] == "media" && parts[2] != "" {
+			return true
+		}
+	}
 	rest, ok := strings.CutPrefix(path, cookiePath+"api/v1/media/")
 	// Media object ids are single segments; "settings" is the JSON
 	// configuration surface and never a native element.

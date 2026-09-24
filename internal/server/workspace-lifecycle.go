@@ -117,6 +117,7 @@ func (s *Server) DeleteWorkspaceAPI(w http.ResponseWriter, r *http.Request) {
 	for _, id := range deleted.BotIDs {
 		s.stopBot(id)
 	}
+	s.deleteChatMediaBlobs(r.Context(), deleted.MediaObjects)
 	if s.scheduler != nil {
 		if err := s.scheduler.Reload(); err != nil {
 			slog.Warn("reload scheduler after workspace deletion", "error", err)

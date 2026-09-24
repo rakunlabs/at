@@ -18,6 +18,13 @@ on iPhone/iPad. It uses the same conversations and workspaces as desktop.
 Server operations require a connection; an offline screen helps you reconnect.
 See [_ui/README.md](_ui/README.md) for deployment and installation details.
 
+## Chat sharing
+
+Authenticated workspace members can publish versioned conversation snapshots and
+copy them into independent personal Chats without transferring provider
+credentials or runnable tool configuration. See [docs/chat-sharing.md](docs/chat-sharing.md)
+for snapshot, media, authorization, API, and upgrade semantics.
+
 ## Configuration
 
 > `at.yaml` config file is automatically loaded if present in the current working directory or use `AT_CONFIG_FILE`.

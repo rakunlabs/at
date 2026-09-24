@@ -684,7 +684,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
+		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, s.builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		// Cron runs execute under the trigger's persisted workspace principal,
 		// never an ambient installation-wide context.
@@ -839,6 +839,21 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
 	apiGroup.PUT("/v1/providers/{key}/disable", s.SetProviderDisabledAPI)
 	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
+	apiGroup.GET("/v1/personal-providers", s.ListPersonalProvidersAPI)
+	apiGroup.POST("/v1/personal-providers", s.CreatePersonalProviderAPI)
+	apiGroup.GET("/v1/personal-providers/{id}", s.GetPersonalProviderAPI)
+	apiGroup.PUT("/v1/personal-providers/{id}", s.UpdatePersonalProviderAPI)
+	apiGroup.PUT("/v1/personal-providers/{id}/scope", s.SetPersonalProviderScopeAPI)
+	apiGroup.PUT("/v1/personal-providers/{id}/disable", s.SetPersonalProviderDisabledAPI)
+	apiGroup.DELETE("/v1/personal-providers/{id}", s.DeletePersonalProviderAPI)
+	apiGroup.POST("/v1/personal-providers/discover-models", s.DiscoverPersonalProviderModelsAPI)
+	apiGroup.POST("/v1/personal-providers/discover-embedding-models", s.DiscoverPersonalProviderEmbeddingModelsAPI)
+	apiGroup.POST("/v1/personal-providers/device-auth", s.DeviceAuthAPI)
+	apiGroup.GET("/v1/personal-providers/device-auth-status", s.DeviceAuthStatusAPI)
+	apiGroup.POST("/v1/personal-providers/claude-auth", s.ClaudeAuthStartAPI)
+	apiGroup.POST("/v1/personal-providers/claude-auth/callback", s.ClaudeAuthCallbackAPI)
+	apiGroup.POST("/v1/personal-providers/claude-auth/token", s.ClaudeAuthTokenAPI)
+	apiGroup.POST("/v1/personal-providers/claude-auth/sync", s.ClaudeAuthSyncAPI)
 
 	// API Token management
 	apiGroup.GET("/v1/api-tokens", s.ListAPITokensAPI)
@@ -1241,6 +1256,14 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	apiGroup.POST("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	apiGroup.DELETE("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.POST("/v1/chats/conversations/{id}/shares/preview", s.ChatSharePreviewAPI)
+	apiGroup.POST("/v1/chats/conversations/{id}/shares", s.PublishChatShareAPI)
+	apiGroup.GET("/v1/chats/conversations/{id}/share", s.ChatConversationShareAPI)
+	apiGroup.GET("/v1/chats/shares/{id}", s.ChatShareAPI)
+	apiGroup.PUT("/v1/chats/shares/{id}", s.ChatShareAPI)
+	apiGroup.DELETE("/v1/chats/shares/{id}", s.ChatShareAPI)
+	apiGroup.POST("/v1/chats/shares/{id}/import", s.ImportChatShareAPI)
+	apiGroup.GET("/v1/chats/shares/{id}/media/{media}", s.ChatShareMediaAPI)
 	apiGroup.GET("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
 	apiGroup.PUT("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
 	apiGroup.GET("/v1/chats/presets", s.ChatPresetsAPI)

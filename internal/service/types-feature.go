@@ -39,6 +39,7 @@ const (
 	// page discovers extensions the person installed and calls their tools
 	// through the browser. Nothing is dialled by the server.
 	FeatureChatExtensions     = "chat_extensions"
+	FeatureChatSharing        = "chat_sharing"
 	FeatureChatSessions       = "chat_sessions"
 	FeatureBots               = "bots"
 	FeatureAudioTranscription = "audio_transcription"

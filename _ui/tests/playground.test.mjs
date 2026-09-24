@@ -64,6 +64,29 @@ test('conversation ordering stays newest-created first after local merges', () =
   assert.deepEqual(api.sortPlaygroundConversations([oldest, newest, middle]).map(c => c.id), ['c3', 'c2', 'c1']);
 });
 
+test('chat share APIs pin the target workspace and version', async () => {
+  const options = { include_system_prompt: false, include_tool_outputs: true, include_attachments: false };
+  response = { id: 'share/1', version: 2, payload: { messages: [] }, options };
+  await api.previewChatShare('c/1', 8, options, 'workspace-2');
+  await api.publishChatShare('c/1', 8, options, 'workspace-2');
+  await api.updateChatShare('share/1', 10, options, 'workspace-2');
+  await api.importChatShare('share/1', 2, { provider_key: 'provider:p1', model: 'm1' });
+  await api.revokeChatShare('share/1', 'workspace-2');
+  assert.deepEqual(calls, [
+    ['post', '/chats/conversations/c%2F1/shares/preview', { through_sequence: 8, options }, { headers: { 'X-AT-Workspace-ID': 'workspace-2' } }],
+    ['post', '/chats/conversations/c%2F1/shares', { through_sequence: 8, options }, { headers: { 'X-AT-Workspace-ID': 'workspace-2' } }],
+    ['put', '/chats/shares/share%2F1', { through_sequence: 10, options }, { headers: { 'X-AT-Workspace-ID': 'workspace-2' } }],
+    ['post', '/chats/shares/share%2F1/import', { version: 2, provider_key: 'provider:p1', model: 'm1' }, undefined],
+    ['delete', '/chats/shares/share%2F1', { headers: { 'X-AT-Workspace-ID': 'workspace-2' } }],
+  ]);
+  assert.equal(api.chatShareRoute('share/1'), '/chats/shared/share%2F1');
+});
+
+test('missing conversation share is represented as null', async () => {
+  failure = { response: { status: 404 } };
+  assert.equal(await api.getConversationShare('c1', 'w1'), null);
+});
+
 test('absent fork lineage stays absent — never null', async () => {
   response = { data: [conversation()], meta: {} };
   const [plain] = (await api.listPlaygroundConversations()).data;

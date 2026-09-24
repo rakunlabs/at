@@ -18,7 +18,8 @@ import (
 var _ service.CodexOAuthTokenStorer = (*Postgres)(nil)
 
 func (p *Postgres) WithCodexOAuthTokens(ctx context.Context, workspace, key string, change func(*service.CodexOAuthTokens) error) (*service.CodexOAuthTokens, error) {
-	if workspace == "" || key == "" || change == nil {
+	_, personal := service.ParsePersonalProviderReference(key)
+	if key == "" || change == nil || workspace == "" && !personal {
 		return nil, service.ErrAccessDenied
 	}
 	p.encKeyMu.RLock()
@@ -28,13 +29,9 @@ func (p *Postgres) WithCodexOAuthTokens(ctx context.Context, workspace, key stri
 		return nil, fmt.Errorf("begin Codex credential rotation: %w", err)
 	}
 	defer tx.Rollback()
-	var row providerRow
-	found, err := tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": workspace, "key": key}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
+	row, err := p.lockOAuthProvider(ctx, tx, workspace, key)
 	if err != nil {
-		return nil, fmt.Errorf("lock Codex provider: %w", err)
-	}
-	if !found {
-		return nil, service.ErrAccessDenied
+		return nil, err
 	}
 	record, err := rowToRecord(row, p.encKey)
 	if err != nil {
@@ -73,7 +70,7 @@ func (p *Postgres) WithCodexOAuthTokens(ctx context.Context, workspace, key stri
 	if err != nil {
 		return tokens, fmt.Errorf("encode Codex rotation: %w", err)
 	}
-	if _, err := tx.Update(p.tableProviders).Set(goqu.Record{"config": types.RawJSON(data), "updated_at": time.Now().UTC(), "updated_by": "system:oauth-refresh"}).Where(goqu.Ex{"id": row.ID, "workspace_id": workspace}).Executor().ExecContext(ctx); err != nil {
+	if _, err := tx.Update(p.tableProviders).Set(goqu.Record{"config": types.RawJSON(data), "updated_at": time.Now().UTC(), "updated_by": "system:oauth-refresh"}).Where(goqu.Ex{"id": row.ID}).Executor().ExecContext(ctx); err != nil {
 		return tokens, fmt.Errorf("persist Codex rotation: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

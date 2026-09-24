@@ -234,6 +234,8 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureProviderSetup
+	case "personal-providers":
+		return service.FeatureProviderSetup
 	case "model-pricing":
 		return service.FeatureModelPricing
 	case "usage", "cost-events":
@@ -270,6 +272,9 @@ func featureKeyForRoute(path, method, basePath string) string {
 		// Chats without browsers reaching machines on the user's network.
 		if seg(1) == "local-mcp-servers" {
 			return service.FeatureChatLocalMCP
+		}
+		if seg(1) == "shares" || seg(2) == "shares" || seg(2) == "share" {
+			return service.FeatureChatSharing
 		}
 
 		return service.FeaturePlayground

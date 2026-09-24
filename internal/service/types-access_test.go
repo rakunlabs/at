@@ -37,6 +37,23 @@ func TestWorkspaceAccessBoundaries(t *testing.T) {
 		t.Fatal("absent principal allowed")
 	}
 }
+
+func TestPersonalProviderCapabilityRankAndDeny(t *testing.T) {
+	resource := AccessResource{WorkspaceID: "a"}
+	viewer := AccessPrincipal{WorkspaceID: "a", Grants: WorkspaceRoleGrants("viewer")}
+	if viewer.Allows("personal_providers.manage", resource) {
+		t.Fatal("viewer received personal provider management")
+	}
+	member := AccessPrincipal{WorkspaceID: "a", Grants: WorkspaceRoleGrants("member")}
+	if !member.Allows("personal_providers.manage", resource) {
+		t.Fatal("member did not receive personal provider management")
+	}
+	member.Denied = []string{"personal_providers.manage"}
+	if member.Allows("personal_providers.manage", resource) {
+		t.Fatal("workspace deny did not remove personal provider management")
+	}
+}
+
 func TestWorkspaceAccessSelectorsAndDelegation(t *testing.T) {
 	g := AccessGrant{Capability: "files.read", ResourceIDs: []string{"one"}, PathPatterns: []string{"media/*.png"}}
 	p := AccessPrincipal{WorkspaceID: "a", Grants: []AccessGrant{g}}

@@ -2,15 +2,23 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { isNativeAdmin } from '@/lib/store/auth.svelte';
-  import { workspaceTransport } from '@/lib/api/transport';
+  import { can, workspaceState } from '@/lib/store/workspace.svelte';
   import {
     listProviders,
     createProvider,
     updateProvider,
     deleteProvider,
     setProviderDisabled,
+    listPersonalProviders,
+    createPersonalProvider,
+    updatePersonalProvider,
+    deletePersonalProvider,
+    setPersonalProviderScope,
+    setPersonalProviderDisabled,
     discoverModels,
     discoverEmbeddingModels,
+    discoverPersonalModels,
+    discoverPersonalEmbeddingModels,
     startDeviceAuth,
     getDeviceAuthStatus,
     startClaudeAuth,
@@ -18,6 +26,7 @@
     submitClaudeAuthToken,
     syncClaudeAuthFromCLI,
     type ProviderRecord,
+    type ProviderScope,
     type LLMConfig,
   } from '@/lib/api/providers';
   import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff } from 'lucide-svelte';
@@ -965,6 +974,10 @@
 
   let providers = $state<ProviderRecord[]>([]);
   let loading = $state(true);
+  let providerView = $state<'personal' | 'workspace'>(can('personal_providers.manage') ? 'personal' : 'workspace');
+  let canManagePersonal = $derived(can('personal_providers.manage'));
+  let canManageWorkspace = $derived(can('providers.write') && can('credentials.manage'));
+  let canManageGlobal = $derived(isNativeAdmin() && workspaceState.access?.workspace_id === 'legacy-default');
   
   // Pagination
   let offset = $state(0);
@@ -978,6 +991,7 @@
   let showForm = $state(false);
   let showPresets = $state(false);
   let editingKey = $state<string | null>(null);
+  let editingPersonalId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let activePreset = $state<Preset | null>(null);
   // Per-row in-flight guard for the availability toggle.
@@ -992,7 +1006,7 @@
   // Form fields
   let formKey = $state('');
   let formType = $state<string>('openai');
-  let formShared = $state(false);
+  let formScope = $state<ProviderScope>('personal');
   let formDisabled = $state(false);
   let formApiKey = $state('');
   let formBaseUrl = $state('');
@@ -1060,7 +1074,9 @@
       if (searchQuery) params['key[like]'] = `%${searchQuery}%`;
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
-      const res = await listProviders(params);
+      const res = providerView === 'personal'
+        ? await listPersonalProviders(params)
+        : await listProviders(params);
       providers = res.data || [];
       total = res.meta?.total || 0;
     } catch (e: any) {
@@ -1068,6 +1084,15 @@
     } finally {
       loading = false;
     }
+  }
+
+  function switchProviderView(view: 'personal' | 'workspace') {
+    if (view === 'personal' && !canManagePersonal) return;
+    providerView = view;
+    offset = 0;
+    searchQuery = '';
+    sorts = [];
+    void load();
   }
 
   function handleSearch(value: string) {
@@ -1091,7 +1116,7 @@
     resetClaudeAuth();
     formKey = '';
     formType = 'openai';
-    formShared = false;
+    formScope = canManagePersonal ? 'personal' : 'workspace';
     formDisabled = false;
     formApiKey = '';
     formBaseUrl = '';
@@ -1117,6 +1142,7 @@
     formRateLimitRetryAfterCapMs = '';
     showRateLimitSection = false;
     editingKey = null;
+    editingPersonalId = null;
     activePreset = null;
     showForm = false;
     showPresets = false;
@@ -1125,6 +1151,7 @@
   function openCreate() {
     resetForm();
     activePreset = null;
+    formScope = canManagePersonal ? 'personal' : 'workspace';
     showForm = true;
   }
 
@@ -1136,6 +1163,7 @@
   function applyPreset(preset: Preset) {
     resetForm();
     activePreset = preset;
+    formScope = canManagePersonal ? 'personal' : 'workspace';
     formKey = preset.key;
     formType = preset.config.type || 'openai';
     formApiKey = '';
@@ -1153,9 +1181,10 @@
   function openEdit(rec: ProviderRecord) {
     resetForm();
     editingKey = rec.key;
+    editingPersonalId = rec.owner_user_id ? rec.id : null;
     formKey = rec.key;
     formType = rec.config.type;
-    formShared = !!rec.config.shared_with_all_workspaces;
+    formScope = rec.owner_user_id ? (rec.scope || 'personal') : (rec.config.shared_with_all_workspaces ? 'global' : 'workspace');
     // Display only: availability is changed through the list's power button, so
     // buildConfig() never sends it and the backend preserves the stored value.
     formDisabled = !!rec.config.disabled;
@@ -1194,7 +1223,7 @@
     const cfg: LLMConfig = {
       type: formType,
       model: formModel,
-      shared_with_all_workspaces: formShared,
+      shared_with_all_workspaces: !editingPersonalId && formScope === 'global',
     };
     if (formApiKey) cfg.api_key = formApiKey;
     // Only a key the operator actually supplied is sent; an omitted field
@@ -1256,10 +1285,18 @@
 
     try {
       const cfg = buildConfig();
-      if (editingKey) {
+      if (editingPersonalId) {
+        await updatePersonalProvider(editingPersonalId, formKey, cfg, clearStoredCredentials);
+        await setPersonalProviderScope(editingPersonalId, formScope);
+        addToast(`Personal provider "${formKey}" updated`);
+      } else if (editingKey) {
         await updateProvider(editingKey, cfg, clearStoredCredentials);
         addToast(`Provider "${editingKey}" updated`);
+      } else if (formScope === 'personal') {
+        await createPersonalProvider(formKey, cfg, 'personal');
+        addToast(`Personal provider "${formKey}" created`);
       } else {
+        cfg.shared_with_all_workspaces = formScope === 'global';
         await createProvider(formKey, cfg);
         addToast(`Provider "${formKey}" created`);
       }
@@ -1270,10 +1307,11 @@
     }
   }
 
-  async function handleDelete(key: string) {
+  async function handleDelete(rec: ProviderRecord) {
     try {
-      await deleteProvider(key);
-      addToast(`Provider "${key}" deleted`);
+      if (rec.owner_user_id) await deletePersonalProvider(rec.id);
+      else await deleteProvider(rec.key);
+      addToast(`Provider "${rec.key}" deleted`);
       deleteConfirm = null;
       await load();
     } catch (e: any) {
@@ -1282,15 +1320,17 @@
   }
 
   async function toggleDisabled(rec: ProviderRecord) {
-    if (changingDisabled[rec.key]) return;
+    const identity = rec.owner_user_id ? rec.id : rec.key;
+    if (changingDisabled[identity]) return;
     const next = !rec.config.disabled;
-    changingDisabled = { ...changingDisabled, [rec.key]: true };
+    changingDisabled = { ...changingDisabled, [identity]: true };
     try {
-      await setProviderDisabled(rec.key, next);
+      if (rec.owner_user_id) await setPersonalProviderDisabled(rec.id, next);
+      else await setProviderDisabled(rec.key, next);
       // Patch the row in place: a full reload would drop the current page,
       // search and sort for what is a single-field change.
       providers = providers.map((p) =>
-        p.key === rec.key ? { ...p, config: { ...p.config, disabled: next } } : p,
+        p.id === rec.id ? { ...p, config: { ...p.config, disabled: next } } : p,
       );
       addToast(
         next
@@ -1300,7 +1340,7 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to change provider availability', 'alert');
     } finally {
-      const { [rec.key]: _, ...rest } = changingDisabled;
+      const { [identity]: _, ...rest } = changingDisabled;
       changingDisabled = rest;
     }
   }
@@ -1454,6 +1494,10 @@
     deviceAuthURI = '';
   }
 
+  function authProviderReference(): string {
+    return editingPersonalId ? `provider:${editingPersonalId}` : (editingKey || '');
+  }
+
   async function handleDeviceAuth() {
     if (!editingKey) {
       addToast('Save the provider first, then click Authorize', 'warn');
@@ -1470,9 +1514,15 @@
       if (!formType || !formModel) {
         throw new Error('Type and model are required');
       }
-      await updateProvider(editingKey, buildConfig());
+      if (editingPersonalId) {
+        await updatePersonalProvider(editingPersonalId, formKey, buildConfig());
+      } else {
+        await updateProvider(editingKey, buildConfig());
+      }
 
-      const resp = await startDeviceAuth(editingKey);
+      const reference = authProviderReference();
+      const personal = !!editingPersonalId;
+      const resp = await startDeviceAuth(reference, personal);
       deviceAuthCode = resp.user_code;
       deviceAuthURI = resp.verification_uri;
       deviceAuthInterval = resp.interval || 5;
@@ -1481,7 +1531,7 @@
       // Start polling for authorization status
       deviceAuthTimer = setInterval(async () => {
         try {
-          const status = await getDeviceAuthStatus(editingKey!);
+          const status = await getDeviceAuthStatus(reference, personal);
           if (status.status === 'authorized') {
             stopDeviceAuthPolling();
             formHasStoredKey = true;
@@ -1529,7 +1579,7 @@
     try {
       claudeAuthPending = true;
       claudeAuthCode = '';
-      const resp = await startClaudeAuth(editingKey);
+      const resp = await startClaudeAuth(authProviderReference(), !!editingPersonalId);
       claudeAuthURL = resp.auth_url;
     } catch (e: any) {
       claudeAuthPending = false;
@@ -1545,7 +1595,7 @@
 
     claudeAuthSubmitting = true;
     try {
-      await submitClaudeAuthCode(editingKey, claudeAuthCode.trim());
+      await submitClaudeAuthCode(authProviderReference(), claudeAuthCode.trim(), !!editingPersonalId);
       resetClaudeAuth();
       formHasStoredKey = true;
       addToast('Claude authorized successfully');
@@ -1564,7 +1614,7 @@
 
     claudeTokenSubmitting = true;
     try {
-      await submitClaudeAuthToken(editingKey, claudeTokenAccess.trim(), claudeTokenRefresh.trim());
+      await submitClaudeAuthToken(authProviderReference(), claudeTokenAccess.trim(), claudeTokenRefresh.trim(), !!editingPersonalId);
       resetClaudeAuth();
       formHasStoredKey = true;
       addToast('Claude authorized successfully via token paste');
@@ -1583,7 +1633,7 @@
 
     claudeSyncing = true;
     try {
-      const resp = await syncClaudeAuthFromCLI(editingKey);
+      const resp = await syncClaudeAuthFromCLI(authProviderReference(), !!editingPersonalId);
       resetClaudeAuth();
       formHasStoredKey = true;
       let msg = `Claude authorized via ${resp.source}`;
@@ -1624,7 +1674,9 @@
       }
       if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
 
-      const models = await discoverModels(cfg as any, editingKey || undefined);
+      const models = editingPersonalId || formScope === 'personal'
+        ? await discoverPersonalModels(cfg as any, editingPersonalId || undefined)
+        : await discoverModels(cfg as any, editingKey || undefined);
       if (models.length === 0) {
         addToast('No models found', 'warn');
       } else {
@@ -1667,7 +1719,9 @@
       }
       if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
 
-      const models = await discoverEmbeddingModels(cfg as any, editingKey || undefined);
+      const models = editingPersonalId || formScope === 'personal'
+        ? await discoverPersonalEmbeddingModels(cfg as any, editingPersonalId || undefined)
+        : await discoverEmbeddingModels(cfg as any, editingKey || undefined);
       if (models.length === 0) {
         addToast('No embedding models found', 'warn');
       } else {
@@ -1737,6 +1791,7 @@
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
       <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
+    {#if canManagePersonal || canManageWorkspace}
     <div class="flex gap-2">
       <button
         onclick={openPresets}
@@ -1753,7 +1808,27 @@
         Custom
       </button>
     </div>
+    {/if}
   </div>
+
+  {#if !showForm && !showPresets}
+    <div class="mb-4 flex border-b border-gray-200 dark:border-dark-border" role="tablist" aria-label="Provider ownership">
+      {#if canManagePersonal}
+        <button
+          role="tab"
+          aria-selected={providerView === 'personal'}
+          onclick={() => switchProviderView('personal')}
+          class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'personal' ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted']}
+        >My providers</button>
+      {/if}
+      <button
+        role="tab"
+        aria-selected={providerView === 'workspace'}
+        onclick={() => switchProviderView('workspace')}
+        class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'workspace' ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted']}
+      >Workspace providers</button>
+    </div>
+  {/if}
 
   <!-- Preset Picker -->
   {#if showPresets}
@@ -1852,19 +1927,29 @@
       {/if}
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
-        {#if isNativeAdmin()}
-          <div class="space-y-2 border-b border-gray-200 dark:border-dark-border pb-4">
-            {#if workspaceTransport.selected === 'legacy-default'}
-              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-text-secondary">
-                <input type="checkbox" bind:checked={formShared} class="accent-accent" />
-                <span>Make available to all workspaces</span>
-              </label>
-              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Manage this provider here; every current and future workspace can use it. Credentials stay in this workspace. A local provider with the same key takes precedence.</p>
-            {:else}
-              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">This provider belongs to the selected workspace. To share a provider with every workspace, add it in the Default workspace and enable “Make available to all workspaces”.</p>
-            {/if}
+        <div class="grid grid-cols-4 gap-3 items-start border-b border-gray-200 dark:border-dark-border pb-4">
+          <label for="form-scope" class="pt-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Scope</label>
+          <div class="col-span-3">
+            <div class="relative">
+              <select
+                id="form-scope"
+                bind:value={formScope}
+                class="h-9 w-full appearance-none border border-gray-300 bg-white px-3 pr-8 text-sm text-gray-700 focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 disabled:text-gray-500 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:disabled:bg-dark-base"
+              >
+                {#if canManagePersonal || editingPersonalId}<option value="personal">Personal — only you</option>{/if}
+                {#if canManageWorkspace || formScope === 'workspace'}<option value="workspace">Workspace — members can use it</option>{/if}
+                {#if canManageGlobal || formScope === 'global'}<option value="global">Global — every workspace</option>{/if}
+              </select>
+              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+            </div>
+            <p class="mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
+              {#if formScope === 'personal'}Stored for your account and available to you in workspaces you can access.
+              {:else if editingPersonalId}Your credential stays account-owned; this publishes model use without exposing the secret.
+              {:else if formScope === 'workspace'}Owned and managed by the selected workspace.
+              {:else}Owned in Default and available to all workspaces. Platform administrator only.{/if}
+            </p>
           </div>
-        {/if}
+        </div>
         <!-- Key -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="form-key" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Key</label>
@@ -2579,6 +2664,8 @@
       {#snippet row(rec)}
         {@const chatModels = rec.config.models || []}
         {@const embeddingModels = rec.config.embedding_models || []}
+        {@const rowIdentity = rec.owner_user_id ? rec.id : rec.key}
+        {@const canEditRecord = rec.owner_user_id ? canManagePersonal : canManageWorkspace}
         <tr
           class={[
             '',
@@ -2597,7 +2684,7 @@
                 <PowerOff size={10} /> Disabled
               </span>
             {/if}
-            {#if rec.config.shared_with_all_workspaces}<span class="block font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared with all workspaces</span>{/if}
+            <span class="block font-sans text-xs font-normal capitalize text-gray-500 dark:text-dark-text-muted">{rec.scope || (rec.config.shared_with_all_workspaces ? 'global' : 'workspace')}</span>
           </td>
           <td class="px-4 py-2.5">
             <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
@@ -2634,9 +2721,9 @@
               >
                 <FileCode size={14} />
               </button>
-              <button
+              {#if canEditRecord}<button
                 onclick={() => toggleDisabled(rec)}
-                disabled={changingDisabled[rec.key]}
+                disabled={changingDisabled[rowIdentity]}
                 class={[
                   'p-1.5 disabled:cursor-wait disabled:opacity-50',
                   rec.config.disabled
@@ -2653,7 +2740,8 @@
                 {:else}
                   <PowerOff size={14} />
                 {/if}
-              </button>
+              </button>{/if}
+              {#if canEditRecord}
               <button
                 onclick={() => openEdit(rec)}
                 class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary "
@@ -2661,9 +2749,9 @@
               >
                 <Pencil size={14} />
               </button>
-              {#if deleteConfirm === rec.key}
+              {#if deleteConfirm === rowIdentity}
                 <button
-                  onclick={() => handleDelete(rec.key)}
+                  onclick={() => handleDelete(rec)}
                   class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                 >
                   Confirm
@@ -2676,12 +2764,13 @@
                 </button>
               {:else}
                 <button
-                  onclick={() => (deleteConfirm = rec.key)}
+                  onclick={() => (deleteConfirm = rowIdentity)}
                   class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 "
                   title="Delete"
                 >
                   <Trash2 size={14} />
                 </button>
+              {/if}
               {/if}
             </div>
           </td>

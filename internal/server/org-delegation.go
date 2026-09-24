@@ -897,14 +897,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var latencyMs int64
 		var windowed []service.Message
 		for attempt := 0; attempt < 3; attempt++ {
-			available := make([]service.Tool, 0, len(llmTools))
-			for _, tool := range llmTools {
-				if _, builtin := builtinToolMap[tool.Name]; builtin && isKnownBuiltinTool(tool.Name) && s.checkBuiltinToolFeatures(ctx, tool.Name) != nil {
-					continue
-				}
-				available = append(available, tool)
-			}
-			llmTools = available
+			llmTools = s.availableLoopTools(ctx, llmTools, func(name string) bool {
+				_, builtin := builtinToolMap[name]
+				return builtin && isKnownBuiltinTool(name)
+			})
 			resp, windowed, latencyMs, chatErr = agentloop.CallProvider(
 				ctx, s.loopGov, scopedProvider, model, agentID, task.ID, messages, llmTools, agent.Config.ReasoningEffort,
 			)

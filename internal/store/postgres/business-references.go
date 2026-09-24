@@ -184,7 +184,21 @@ func (p *Postgres) businessProviderReference(ctx context.Context, w *businessWri
 		return nil
 	}
 	var id string
-	found, err := w.tx.From(p.tableProviders).Select("id").Where(goqu.C("key").Eq(key), goqu.Or(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.And(goqu.C("workspace_id").Eq("legacy-default"), goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(w.tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID})))))).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+	personalID, personal := service.ParsePersonalProviderReference(key)
+	var found bool
+	var err error
+	if personal {
+		grants := p.workspaceTable("personal_provider_grants")
+		found, err = w.tx.From(p.tableProviders).Select("id").Where(
+			goqu.Ex{"id": personalID, "workspace_id": nil},
+			goqu.Or(
+				goqu.C("owner_user_id").Eq(w.actor.UserID),
+				goqu.C("id").In(w.tx.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(w.actor.WorkspaceID)))),
+			),
+		).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+	} else {
+		found, err = w.tx.From(p.tableProviders).Select("id").Where(goqu.C("owner_user_id").Eq(""), goqu.C("key").Eq(key), goqu.Or(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.And(goqu.C("workspace_id").Eq("legacy-default"), goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(w.tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID})))))).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+	}
 	if err != nil {
 		return fmt.Errorf("validate provider binding: %w", err)
 	}

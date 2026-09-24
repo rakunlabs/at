@@ -1,5 +1,6 @@
 import { listAgents, type Agent } from '../api/agents';
-import { listProviders, type ProviderRecord } from '../api/providers';
+import { type ProviderRecord } from '../api/providers';
+import { getInfo } from '../api/gateway';
 import { listSkills, type Skill } from '../api/skills';
 import { listMCPSets, type MCPSet } from '../api/mcp-sets';
 import { listWorkflows, type Workflow } from '../api/workflows';
@@ -43,7 +44,21 @@ export function createAgentPage() {
     if (!isFeatureEnabled('external_connections')) data.connections = [];
     if (!isFeatureEnabled('workflow_builder')) data.workflows = [];
     await Promise.all([
-      editor.load('Providers', listProviders, result => { data.providers = result.data || []; }),
+      editor.load('Providers', getInfo, result => {
+        data.providers = (result.providers || []).map(provider => ({
+          id: provider.reference || provider.key,
+          key: provider.reference || provider.key,
+          display_key: provider.key,
+          reference: provider.reference,
+          scope: provider.scope,
+          config: {
+            type: provider.type,
+            model: provider.default_model,
+            models: provider.models || [],
+          },
+          created_at: '', updated_at: '', created_by: '', updated_by: '',
+        }));
+      }),
       isFeatureEnabled('skills') && editor.load('Skills', listSkills, result => { data.skills = result.data || []; }),
       isFeatureEnabled('mcp_servers') && editor.load('MCP sets', () => listMCPSets({ _limit: 500 }), result => { data.mcpSets = result.data || []; }),
       isFeatureEnabled('builtin_tools') && editor.load('Built-in tools', () => listBuiltinTools(true), result => { data.builtinToolDefs = result.tools || []; }),

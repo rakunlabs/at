@@ -52,7 +52,7 @@ func AccessCapabilities() []AccessCapability {
 			out = append(out, AccessCapability{Key: kind + "." + action})
 		}
 	}
-	for _, key := range []string{"workspace.read", "workspace.write", "workspace.archive", "members.read", "members.manage", "permissions.read", "permissions.manage", "credentials.manage", "models.use", "agents.execute", "workflows.execute", "tasks.execute", "tasks.cancel", "usage.read", "traces.read", "providers.read", "providers.write", "execution.configure"} {
+	for _, key := range []string{"workspace.read", "workspace.write", "workspace.archive", "members.read", "members.manage", "permissions.read", "permissions.manage", "credentials.manage", "models.use", "agents.execute", "workflows.execute", "tasks.execute", "tasks.cancel", "usage.read", "traces.read", "providers.read", "providers.write", "personal_providers.manage", "execution.configure"} {
 		out = append(out, AccessCapability{Key: key})
 	}
 	for _, key := range []string{"connections.use", "variables.use", "node_configs.use", "mcp.use", "bots.use"} {
@@ -105,7 +105,7 @@ func WorkspaceRoleGrants(role string) []AccessGrant {
 		if strings.HasSuffix(c.Key, ".read") {
 			min = 1
 		}
-		if strings.HasSuffix(c.Key, ".write") || strings.HasSuffix(c.Key, ".execute") || c.Key == "models.use" || c.Key == "tasks.cancel" {
+		if strings.HasSuffix(c.Key, ".write") || strings.HasSuffix(c.Key, ".execute") || c.Key == "models.use" || c.Key == "personal_providers.manage" || c.Key == "tasks.cancel" {
 			min = 2
 		}
 		if c.Key == "connections.use" || c.Key == "variables.use" || c.Key == "node_configs.use" || c.Key == "mcp.use" || c.Key == "bots.use" {

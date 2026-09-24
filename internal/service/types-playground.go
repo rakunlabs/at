@@ -45,10 +45,12 @@ type PlaygroundConversation struct {
 	// that was copied from it. Both are zero for a conversation started from
 	// scratch, and ForkedFromID reverts to zero when the source is deleted
 	// (the column is ON DELETE SET NULL, so the fork itself survives).
-	ForkedFromID       string `json:"forked_from_id,omitempty" db:"forked_from_id"`
-	ForkedFromSequence int64  `json:"forked_from_sequence,omitempty" db:"forked_from_sequence"`
-	CreatedAt          string `json:"created_at" db:"created_at"`
-	UpdatedAt          string `json:"updated_at" db:"updated_at"`
+	ForkedFromID             string `json:"forked_from_id,omitempty" db:"forked_from_id"`
+	ForkedFromSequence       int64  `json:"forked_from_sequence,omitempty" db:"forked_from_sequence"`
+	ImportedFromShareID      string `json:"imported_from_share_id,omitempty" db:"imported_from_share_id"`
+	ImportedFromShareVersion int64  `json:"imported_from_share_version,omitempty" db:"imported_from_share_version"`
+	CreatedAt                string `json:"created_at" db:"created_at"`
+	UpdatedAt                string `json:"updated_at" db:"updated_at"`
 }
 
 // PlaygroundMessage is one durable transcript entry.

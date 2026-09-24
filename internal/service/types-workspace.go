@@ -110,9 +110,10 @@ type WorkspacePreferences struct {
 }
 
 type WorkspaceDeletion struct {
-	WorkspaceID string   `json:"workspace_id"`
-	BotIDs      []string `json:"-"`
-	TaskIDs     []string `json:"-"`
+	WorkspaceID  string        `json:"workspace_id"`
+	BotIDs       []string      `json:"-"`
+	TaskIDs      []string      `json:"-"`
+	MediaObjects []MediaObject `json:"-"`
 }
 
 type WorkspaceLifecycleStorer interface {

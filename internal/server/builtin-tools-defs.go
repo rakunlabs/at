@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
@@ -109,16 +110,30 @@ func isKnownBuiltinTool(name string) bool {
 
 // builtinToolDefsForWorkflow returns the builtin tool definitions in the
 // workflow.BuiltinToolDef format, suitable for passing to the workflow engine.
-func builtinToolDefsForWorkflow() []workflow.BuiltinToolDef {
+func (s *Server) builtinToolDefsForWorkflow() []workflow.BuiltinToolDef {
 	defs := make([]workflow.BuiltinToolDef, len(builtinTools))
 	for i, bt := range builtinTools {
 		defs[i] = workflow.BuiltinToolDef{
 			Name:        bt.Name,
 			Description: bt.Description,
 			InputSchema: bt.InputSchema,
+			Available: func(ctx context.Context) bool {
+				return s.checkBuiltinToolFeatures(ctx, bt.Name) == nil
+			},
 		}
 	}
 	return defs
+}
+
+func (s *Server) availableLoopTools(ctx context.Context, tools []service.Tool, isBuiltin func(string) bool) []service.Tool {
+	available := make([]service.Tool, 0, len(tools))
+	for _, tool := range tools {
+		if isBuiltin(tool.Name) && s.checkBuiltinToolFeatures(ctx, tool.Name) != nil {
+			continue
+		}
+		available = append(available, tool)
+	}
+	return available
 }
 
 // ─── API Handlers ───

@@ -23,6 +23,8 @@ export interface PlaygroundConversation {
   forked_from_id?: string;
   /** Absent when the conversation was started from scratch. */
   forked_from_sequence?: number;
+  imported_from_share_id?: string;
+  imported_from_share_version?: number;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +75,39 @@ export interface PlaygroundMessageInput {
   provider_key: string;
   model: string;
   data: Record<string, unknown>;
+}
+
+export interface ChatShareOptions {
+  include_system_prompt: boolean;
+  include_tool_outputs: boolean;
+  include_attachments: boolean;
+}
+
+export interface ChatSharePayload {
+  title: string;
+  system_prompt?: string;
+  provider_key?: string;
+  model?: string;
+  messages: PlaygroundMessage[];
+}
+
+export interface ChatShare {
+  id: string;
+  workspace_id: string;
+  source_conversation_id?: string;
+  through_sequence: number;
+  version: number;
+  revoked_at?: string;
+  created_at: string;
+  updated_at: string;
+  payload: ChatSharePayload;
+  options: ChatShareOptions;
+}
+
+export interface ChatSharePreview {
+  payload: ChatSharePayload;
+  attachment_count: number;
+  options: ChatShareOptions;
 }
 
 // ─── Contract guards ───
@@ -146,6 +181,56 @@ export async function forkPlaygroundConversation(id: string, fromSequence: numbe
   if (title !== undefined) body.title = title;
   const res = await api.post<PlaygroundConversation>(`${conversationPath(id)}/fork`, body);
   return res.data;
+}
+
+const workspaceHeaders = (workspaceID?: string) => workspaceID ? { headers: { 'X-AT-Workspace-ID': workspaceID } } : undefined;
+
+export async function previewChatShare(id: string, throughSequence: number, options: ChatShareOptions, workspaceID?: string): Promise<ChatSharePreview> {
+  const res = await api.post<ChatSharePreview>(`${conversationPath(id)}/shares/preview`, { through_sequence: throughSequence, options }, workspaceHeaders(workspaceID));
+  return res.data;
+}
+
+export async function publishChatShare(id: string, throughSequence: number, options: ChatShareOptions, workspaceID?: string): Promise<ChatShare> {
+  const res = await api.post<ChatShare>(`${conversationPath(id)}/shares`, { through_sequence: throughSequence, options }, workspaceHeaders(workspaceID));
+  return res.data;
+}
+
+export async function getConversationShare(id: string, workspaceID?: string): Promise<ChatShare | null> {
+  try {
+    const res = await api.get<ChatShare>(`${conversationPath(id)}/share`, workspaceHeaders(workspaceID));
+    return res.data;
+  } catch (error: any) {
+    if (error?.response?.status === 404) return null;
+    throw error;
+  }
+}
+
+export async function getChatShare(id: string, workspaceID?: string): Promise<ChatShare> {
+  const res = await api.get<ChatShare>(`/chats/shares/${encodeURIComponent(id)}`, workspaceHeaders(workspaceID));
+  return res.data;
+}
+
+export async function updateChatShare(id: string, throughSequence: number, options: ChatShareOptions, workspaceID?: string): Promise<ChatShare> {
+  const res = await api.put<ChatShare>(`/chats/shares/${encodeURIComponent(id)}`, { through_sequence: throughSequence, options }, workspaceHeaders(workspaceID));
+  return res.data;
+}
+
+export async function revokeChatShare(id: string, workspaceID?: string): Promise<void> {
+  await api.delete(`/chats/shares/${encodeURIComponent(id)}`, workspaceHeaders(workspaceID));
+}
+
+export async function importChatShare(id: string, version: number, input: { title?: string; provider_key?: string; model?: string } = {}, workspaceID?: string): Promise<PlaygroundConversation> {
+  const res = await api.post<PlaygroundConversation>(`/chats/shares/${encodeURIComponent(id)}/import`, { version, ...input }, workspaceHeaders(workspaceID));
+  return res.data;
+}
+
+export function chatShareRoute(id: string): string {
+  return `/chats/shared/${encodeURIComponent(id)}`;
+}
+
+export function chatShareMediaURL(shareID: string, mediaID: string, workspaceID = ''): string {
+  const query = workspaceID ? `?workspace_id=${encodeURIComponent(workspaceID)}` : '';
+  return `api/v1/chats/shares/${encodeURIComponent(shareID)}/media/${encodeURIComponent(mediaID)}${query}`;
 }
 
 // ─── Per-account defaults ───

@@ -263,6 +263,7 @@ func (p *Postgres) Close() {
 
 type providerRow struct {
 	WorkspaceID string        `db:"workspace_id" goqu:"skipupdate"`
+	OwnerUserID string        `db:"owner_user_id" goqu:"skipupdate"`
 	ID          string        `db:"id" goqu:"skipupdate"`
 	Key         string        `db:"key"`
 	Config      types.RawJSON `db:"config"`
@@ -413,10 +414,15 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 		return nil, fmt.Errorf("commit provider: %w", err)
 	}
 
+	scope := service.ProviderScopeWorkspace
+	if record.Config.SharedWithAllWorkspaces {
+		scope = service.ProviderScopeGlobal
+	}
 	return &service.ProviderRecord{
 		WorkspaceID: w.actor.WorkspaceID,
 		ID:          id,
 		Key:         key,
+		Scope:       scope,
 		Config:      record.Config,
 		CreatedAt:   now.Format(time.RFC3339),
 		UpdatedAt:   now.Format(time.RFC3339),
@@ -522,11 +528,17 @@ func rowToRecord(row providerRow, encKey []byte) (*service.ProviderRecord, error
 	if err != nil {
 		return nil, fmt.Errorf("decrypt provider config for %q: %w", row.Key, err)
 	}
+	scope := service.ProviderScopeWorkspace
+	if cfg.SharedWithAllWorkspaces {
+		scope = service.ProviderScopeGlobal
+	}
 
 	return &service.ProviderRecord{
 		WorkspaceID: row.WorkspaceID,
+		OwnerUserID: row.OwnerUserID,
 		ID:          row.ID,
 		Key:         row.Key,
+		Scope:       scope,
 		Config:      cfg,
 		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),

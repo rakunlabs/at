@@ -257,6 +257,14 @@ func (s *Server) PlaygroundConversationAPI(w http.ResponseWriter, r *http.Reques
 		}
 		httpResponseJSON(w, c, http.StatusOK)
 	case http.MethodDelete:
+		if shares, ok := s.store.(service.ChatShareStorer); ok {
+			objects, err := shares.RevokeChatSharesForSource(r.Context(), owner, id)
+			if err != nil {
+				chatShareError(w, err)
+				return
+			}
+			s.deleteChatMediaBlobs(r.Context(), objects)
+		}
 		if err := store.DeletePlaygroundConversation(r.Context(), owner, id); err != nil {
 			playgroundError(w, err)
 			return

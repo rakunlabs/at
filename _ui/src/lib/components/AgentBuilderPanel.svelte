@@ -26,7 +26,7 @@
   let chat: HTMLDivElement | undefined = $state();
   let controller: AbortController | undefined;
   let disposed = false;
-  let models = $derived([...new Set(providers.flatMap(p => (p.models?.length ? p.models : p.default_model ? [p.default_model] : []).map(m => `${p.key}/${m}`)))]);
+  let models = $derived([...new Set(providers.flatMap(p => (p.models?.length ? p.models : p.default_model ? [p.default_model] : []).map(m => `${p.reference || p.key}/${m}`)))]);
 
   async function loadModels() {
     loading = true; error = '';

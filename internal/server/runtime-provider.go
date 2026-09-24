@@ -97,8 +97,12 @@ func (s *Server) cachedWorkspaceProvider(record *service.ProviderRecord) (servic
 	if err != nil {
 		return nil, err
 	}
-	s.wireClaudeOAuthCallback(record.Key, created, record.WorkspaceID)
-	s.wireChatGPTOAuthCallback(record.Key, created, record.WorkspaceID)
+	authReference := record.Key
+	if record.Reference != "" {
+		authReference = record.Reference
+	}
+	s.wireClaudeOAuthCallback(authReference, created, record.WorkspaceID)
+	s.wireChatGPTOAuthCallback(authReference, created, record.WorkspaceID)
 	if len(executionProviders.entries) >= 512 {
 		for old := range executionProviders.entries {
 			delete(executionProviders.entries, old)

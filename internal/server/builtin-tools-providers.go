@@ -297,7 +297,7 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 	key, _ := args["key"].(string)
 	switch cfg.Type {
 	case "openai":
-		models, err = s.discoverOpenAIProviderModels(ctx, key, cfg)
+		models, err = s.discoverOpenAIProviderModels(ctx, key, cfg, nil)
 	case "anthropic":
 		models, err = discoverAnthropicModels(ctx, cfg)
 		if err != nil {

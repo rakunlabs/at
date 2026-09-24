@@ -9,6 +9,8 @@ const api = axios.create({
 export interface InfoProvider {
   shared?: boolean;
   key: string;
+  reference?: string;
+  scope?: 'personal' | 'workspace' | 'global';
   type: string;
   default_model: string;
   models: string[];
@@ -29,8 +31,9 @@ export interface InfoResponse {
   assets_root?: string;
 }
 
-export async function getInfo(): Promise<InfoResponse> {
-  const res = await api.get<InfoResponse>('/info');
+export async function getInfo(workspaceID?: string): Promise<InfoResponse> {
+  const config = workspaceID ? { headers: { 'X-AT-Workspace-ID': workspaceID } } : undefined;
+  const res = await api.get<InfoResponse>('/info', config);
   return res.data;
 }
 

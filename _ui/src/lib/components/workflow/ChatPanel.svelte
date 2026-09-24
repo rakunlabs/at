@@ -42,12 +42,13 @@
       const info = await getInfo();
       const allModels: string[] = [];
       for (const p of info.providers) {
+        const reference = p.reference || p.key;
         if (p.models && p.models.length > 0) {
           for (const m of p.models) {
-            allModels.push(`${p.key}/${m}`);
+            allModels.push(`${reference}/${m}`);
           }
         } else if (p.default_model) {
-          allModels.push(`${p.key}/${p.default_model}`);
+          allModels.push(`${reference}/${p.default_model}`);
         }
       }
       models = allModels;
@@ -203,7 +204,7 @@
     try {
       const info = await getInfo();
       providersInfo = info.providers.map((p: InfoProvider) => ({
-        key: p.key,
+        key: p.reference || p.key,
         models: p.models?.length ? p.models : p.default_model ? [p.default_model] : [],
       }));
     } catch {}

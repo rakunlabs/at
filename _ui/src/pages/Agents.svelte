@@ -518,6 +518,11 @@
   // ─── Derived ───
 
   let selectedProviderConfig = $derived(providers.find(p => p.key === formProvider));
+  let providerGroups = $derived([
+    { label: 'Personal', providers: providers.filter(p => p.scope === 'personal') },
+    { label: 'Workspace', providers: providers.filter(p => !p.scope || p.scope === 'workspace') },
+    { label: 'Global', providers: providers.filter(p => p.scope === 'global') },
+  ].filter(group => group.providers.length > 0));
   let reasoningAdapterType = $derived(selectedProviderConfig?.config.type ?? '');
   let forwardsReasoningEffort = $derived(['openai', 'azure', 'vertex'].includes(reasoningAdapterType));
   let mapsThinkingBudget = $derived(['anthropic', 'gemini', 'vertex-gemini', 'minimax'].includes(reasoningAdapterType));
@@ -750,8 +755,12 @@
                       class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                     >
                       <option value="">Select a provider...</option>
-                      {#each providers as p}
-                        <option value={p.key}>{p.key} ({p.config.type})</option>
+                      {#each providerGroups as group}
+                        <optgroup label={group.label}>
+                          {#each group.providers as p}
+                            <option value={p.key}>{p.display_key || p.key} ({p.config.type})</option>
+                          {/each}
+                        </optgroup>
                       {/each}
                     </select>
                   </div>

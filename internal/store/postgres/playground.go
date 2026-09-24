@@ -29,22 +29,24 @@ const (
 )
 
 var (
-	playgroundConversationColumns = []any{"id", "owner_user_id", "title", "system_prompt", "provider_key", "model", "config", "forked_from_id", "forked_from_sequence", "created_at", "updated_at"}
+	playgroundConversationColumns = []any{"id", "owner_user_id", "title", "system_prompt", "provider_key", "model", "config", "forked_from_id", "forked_from_sequence", "imported_from_share_id", "imported_from_share_version", "created_at", "updated_at"}
 	playgroundMessageColumns      = []any{"id", "conversation_id", "sequence", "role", "provider_key", "model", "data", "created_at"}
 )
 
 type playgroundConversationRow struct {
-	ID                 string         `db:"id"`
-	OwnerUserID        string         `db:"owner_user_id"`
-	Title              string         `db:"title"`
-	SystemPrompt       string         `db:"system_prompt"`
-	ProviderKey        string         `db:"provider_key"`
-	Model              string         `db:"model"`
-	Config             string         `db:"config"`
-	ForkedFromID       sql.NullString `db:"forked_from_id"`
-	ForkedFromSequence sql.NullInt64  `db:"forked_from_sequence"`
-	CreatedAt          time.Time      `db:"created_at"`
-	UpdatedAt          time.Time      `db:"updated_at"`
+	ID                       string         `db:"id"`
+	OwnerUserID              string         `db:"owner_user_id"`
+	Title                    string         `db:"title"`
+	SystemPrompt             string         `db:"system_prompt"`
+	ProviderKey              string         `db:"provider_key"`
+	Model                    string         `db:"model"`
+	Config                   string         `db:"config"`
+	ForkedFromID             sql.NullString `db:"forked_from_id"`
+	ForkedFromSequence       sql.NullInt64  `db:"forked_from_sequence"`
+	ImportedFromShareID      sql.NullString `db:"imported_from_share_id"`
+	ImportedFromShareVersion sql.NullInt64  `db:"imported_from_share_version"`
+	CreatedAt                time.Time      `db:"created_at"`
+	UpdatedAt                time.Time      `db:"updated_at"`
 }
 
 type playgroundMessageRow struct {
@@ -64,17 +66,19 @@ func playgroundConversationRowToRecord(row playgroundConversationRow) (service.P
 		return service.PlaygroundConversation{}, fmt.Errorf("decode playground conversation config: %w", err)
 	}
 	return service.PlaygroundConversation{
-		ID:                 row.ID,
-		OwnerUserID:        row.OwnerUserID,
-		Title:              row.Title,
-		SystemPrompt:       row.SystemPrompt,
-		ProviderKey:        row.ProviderKey,
-		Model:              row.Model,
-		Config:             config,
-		ForkedFromID:       row.ForkedFromID.String,
-		ForkedFromSequence: row.ForkedFromSequence.Int64,
-		CreatedAt:          row.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:          row.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:                       row.ID,
+		OwnerUserID:              row.OwnerUserID,
+		Title:                    row.Title,
+		SystemPrompt:             row.SystemPrompt,
+		ProviderKey:              row.ProviderKey,
+		Model:                    row.Model,
+		Config:                   config,
+		ForkedFromID:             row.ForkedFromID.String,
+		ForkedFromSequence:       row.ForkedFromSequence.Int64,
+		ImportedFromShareID:      row.ImportedFromShareID.String,
+		ImportedFromShareVersion: row.ImportedFromShareVersion.Int64,
+		CreatedAt:                row.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:                row.UpdatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 

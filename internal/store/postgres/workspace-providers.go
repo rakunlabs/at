@@ -120,12 +120,31 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 		return nil, err
 	}
 	var row providerRow
-	found, err := tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "key": key}).ScanStructContext(ctx, &row)
+	personalID, personalReference := service.ParsePersonalProviderReference(key)
+	if provenance, _, ok := service.ExecutionFromContext(ctx); personalReference && ok && provenance.ServiceID != "" {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	var found bool
+	if personalReference {
+		grants := p.workspaceTable("personal_provider_grants")
+		found, err = tx.From(p.tableProviders).
+			Select(personalProviderSelect()...).
+			Where(
+				goqu.Ex{"id": personalID, "workspace_id": nil},
+				goqu.Or(
+					goqu.C("owner_user_id").Eq(a.UserID),
+					goqu.C("id").In(tx.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(a.WorkspaceID)))),
+				),
+			).
+			ScanStructContext(ctx, &row)
+	} else {
+		found, err = tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "owner_user_id": "", "key": key}).ScanStructContext(ctx, &row)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace provider: %w", err)
 	}
-	if !found {
-		found, err = tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": "legacy-default", "key": key}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": a.WorkspaceID})))).ScanStructContext(ctx, &row)
+	if !found && !personalReference {
+		found, err = tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": "legacy-default", "owner_user_id": "", "key": key}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": a.WorkspaceID})))).ScanStructContext(ctx, &row)
 		if err != nil {
 			return nil, fmt.Errorf("resolve platform provider grant: %w", err)
 		}
@@ -154,6 +173,9 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 			}
 		}
 	}
+	if !found {
+		return nil, service.ErrAccessResourceNotFound
+	}
 	if !a.Allows("models.use", service.AccessResource{Kind: "models", WorkspaceID: a.WorkspaceID, ID: row.ID, Path: key + "/" + model}) {
 		return nil, service.ErrAccessDenied
 	}
@@ -162,6 +184,12 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 	record, err := rowToRecord(row, p.encKey)
 	if err != nil {
 		return nil, err
+	}
+	if personalReference {
+		record.Reference = service.PersonalProviderReference(record.ID)
+		if err := p.decoratePersonalProvider(ctx, a.WorkspaceID, record); err != nil {
+			return nil, err
+		}
 	}
 	// A disabled provider is a configured provider that must not serve traffic.
 	// Refusing here covers every scoped caller — agents, workflows, chat

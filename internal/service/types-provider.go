@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/query"
@@ -12,14 +13,41 @@ import (
 
 // ProviderRecord represents a provider configuration stored in the database.
 type ProviderRecord struct {
-	WorkspaceID string           `json:"workspace_id"`
+	WorkspaceID string           `json:"workspace_id,omitempty"`
+	OwnerUserID string           `json:"owner_user_id,omitempty"`
 	ID          string           `json:"id"`
 	Key         string           `json:"key"`
+	Reference   string           `json:"reference,omitempty"`
+	Scope       string           `json:"scope,omitempty"`
 	Config      config.LLMConfig `json:"config"`
 	CreatedAt   string           `json:"created_at"`
 	UpdatedAt   string           `json:"updated_at"`
 	CreatedBy   string           `json:"created_by"`
 	UpdatedBy   string           `json:"updated_by"`
+}
+
+const (
+	ProviderScopePersonal  = "personal"
+	ProviderScopeWorkspace = "workspace"
+	ProviderScopeGlobal    = "global"
+
+	providerReferencePrefix = "provider:"
+)
+
+func PersonalProviderReference(id string) string {
+	if id == "" {
+		return ""
+	}
+	return providerReferencePrefix + id
+}
+
+func ParsePersonalProviderReference(value string) (string, bool) {
+	id, ok := strings.CutPrefix(value, providerReferencePrefix)
+	return id, ok && id != ""
+}
+
+func ValidProviderScope(scope string) bool {
+	return scope == ProviderScopePersonal || scope == ProviderScopeWorkspace || scope == ProviderScopeGlobal
 }
 
 // ProviderStorer defines CRUD operations for provider configurations
@@ -30,6 +58,19 @@ type ProviderStorer interface {
 	CreateProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
 	UpdateProvider(ctx context.Context, key string, record ProviderRecord) (*ProviderRecord, error)
 	DeleteProvider(ctx context.Context, key string) error
+}
+
+// PersonalProviderStorer owns account-scoped credentials independently of a
+// workspace lifecycle. Personal records are addressed by immutable ID; legacy
+// workspace/global providers keep their key-based contract.
+type PersonalProviderStorer interface {
+	ListPersonalProviders(ctx context.Context, q *query.Query) (*ListResult[ProviderRecord], error)
+	GetPersonalProvider(ctx context.Context, id string) (*ProviderRecord, error)
+	CreatePersonalProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
+	UpdatePersonalProvider(ctx context.Context, id string, record ProviderRecord) (*ProviderRecord, error)
+	DeletePersonalProvider(ctx context.Context, id string) error
+	SetPersonalProviderScope(ctx context.Context, id, scope, createdBy string) (*ProviderRecord, error)
+	SetPersonalProviderDisabled(ctx context.Context, id string, disabled bool, updatedBy string) error
 }
 
 // ErrProviderDisabled is returned when a provider would otherwise be admitted

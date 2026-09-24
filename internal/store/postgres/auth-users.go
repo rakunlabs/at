@@ -38,6 +38,7 @@ var authUserDeletionTables = []struct {
 	{"chat_sessions", "owner_user_id"},
 	{"agents", "owner_user_id"},
 	{"tokens", "owner_user_id"},
+	{"providers", "owner_user_id"},
 	// Per-account settings, including the Chats preset and the personal
 	// registry of local MCP endpoints — the latter is encrypted, so leaving
 	// it behind would strand a secret belonging to an account that no longer

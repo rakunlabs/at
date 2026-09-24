@@ -135,7 +135,7 @@
   }
 
   async function loadProviders() {
-    await references.load('Providers', getInfo, info => { providers = info.providers; });
+    await references.load('Providers', getInfo, info => { providers = info.providers.filter(provider => !provider.reference); });
   }
 
   async function loadWebhooks() {

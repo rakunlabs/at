@@ -113,3 +113,103 @@ func TestRuntimeProviderWorkspaceCacheAndModelGrant(t *testing.T) {
 		t.Fatal("cached provider survived grant revocation")
 	}
 }
+
+func TestRuntimeProviderPersonalIdentityCache(t *testing.T) {
+	store := postgrestest.New(t, bytes.Repeat([]byte{2}, 32))
+	admin, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "personal-cache-admin", Admin: true}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "personal-cache-alice"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "personal-cache-bob"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []*service.AuthUser{admin, alice, bob} {
+		if err := store.CreateAuthSession(t.Context(), service.AuthSession{Hash: user.ID, UserID: user.ID, Version: user.SessionVersion, Transport: "web", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspace, err := store.CreateWorkspace(service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: admin.ID}), "personal cache", admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminPrincipal, _, err := store.ResolveWorkspaceAccess(t.Context(), workspace.ID, admin.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminCtx := service.WithAccessPrincipal(t.Context(), adminPrincipal)
+	workspace.ExecutionEnabled = true
+	if _, err := store.UpdateWorkspace(adminCtx, *workspace); err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []*service.AuthUser{alice, bob} {
+		if err := store.SetWorkspaceMember(adminCtx, service.WorkspaceMembership{WorkspaceID: workspace.ID, UserID: user.ID, Role: "member", Status: "active"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	actor := func(user *service.AuthUser) context.Context {
+		t.Helper()
+		principal, _, err := store.ResolveWorkspaceAccess(t.Context(), workspace.ID, user.ID, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return service.WithAccessPrincipal(t.Context(), principal)
+	}
+	aliceCtx, bobCtx := actor(alice), actor(bob)
+	aliceProvider, err := store.CreatePersonalProvider(aliceCtx, service.ProviderRecord{Key: "same", Config: config.LLMConfig{Type: "openai", Model: "m", APIKey: "alice"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobProvider, err := store.CreatePersonalProvider(bobCtx, service.ProviderRecord{Key: "same", Config: config.LLMConfig{Type: "openai", Model: "m", APIKey: "bob"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	s := &Server{store: store, loopGov: loopgov.New(loopgov.Config{WorkspaceRoot: t.TempDir()}, nil), providerFactory: func(c config.LLMConfig) (service.LLMProvider, error) {
+		calls.Add(1)
+		return &fakeObsProvider{responses: []*service.LLMResponse{{Content: c.APIKey, Finished: true}}}, nil
+	}}
+	aliceRuntime, err := s.bindRuntimePrincipal(aliceCtx, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobRuntime, err := s.bindRuntimePrincipal(bobCtx, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat := func(ctx context.Context, reference string) string {
+		t.Helper()
+		provider, model, err := s.runtimeProviderLookup(ctx, reference)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := provider.Chat(ctx, model, nil, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.Content
+	}
+	if got := chat(aliceRuntime, aliceProvider.Reference); got != "alice" {
+		t.Fatalf("Alice credential = %q", got)
+	}
+	if got := chat(bobRuntime, bobProvider.Reference); got != "bob" {
+		t.Fatalf("Bob credential = %q", got)
+	}
+	if _, _, err := s.runtimeProviderLookup(bobRuntime, aliceProvider.Reference); err == nil {
+		t.Fatal("Bob resolved Alice's same-named personal provider")
+	}
+	aliceProvider.Config.APIKey = "alice-rotated"
+	if _, err := store.UpdatePersonalProvider(aliceCtx, aliceProvider.ID, *aliceProvider); err != nil {
+		t.Fatal(err)
+	}
+	if got := chat(aliceRuntime, aliceProvider.Reference); got != "alice-rotated" {
+		t.Fatalf("stale personal cache credential = %q", got)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("provider constructions = %d, want 3", calls.Load())
+	}
+}

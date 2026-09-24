@@ -32,6 +32,8 @@ type infoResponse struct {
 
 type infoProvider struct {
 	Key          string   `json:"key"`
+	Reference    string   `json:"reference,omitempty"`
+	Scope        string   `json:"scope,omitempty"`
 	Type         string   `json:"type"`
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
@@ -67,7 +69,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		providerList = make([]infoProvider, 0, len(catalog))
 		for _, entry := range catalog {
-			providerList = append(providerList, infoProvider{Key: entry.Key, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared})
+			providerList = append(providerList, infoProvider{Key: entry.Key, Reference: entry.Reference, Scope: entry.Scope, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared})
 		}
 	}
 

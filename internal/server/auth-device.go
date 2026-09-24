@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
@@ -268,7 +269,7 @@ func (s *Server) saveCodexAuthTokens(ctx context.Context, providerKey string, sn
 		return fmt.Errorf("ChatGPT OAuth response is missing access, refresh, or account credentials")
 	}
 
-	record, err := s.store.GetProvider(ctx, providerKey)
+	record, err := s.providerAuthRecordByReference(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
@@ -293,14 +294,10 @@ func (s *Server) saveCodexAuthTokens(ctx context.Context, providerKey string, sn
 	}
 	cfg.ExtraHeaders["ChatGPT-Account-ID"] = tokens.AccountID
 
-	if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-		Key:       providerKey,
-		Config:    cfg,
-		UpdatedBy: "system:oauth",
-	}); err != nil {
+	if _, err := s.updateProviderAuthRecord(ctx, providerKey, record, cfg, "system:oauth"); err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
-	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
+	if err := s.reloadProviderAuthRecord(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 	return nil
@@ -399,7 +396,7 @@ func (s *Server) saveDeviceAuthToken(ctx context.Context, providerKey, providerI
 	}
 
 	// Read current config.
-	record, err := s.store.GetProvider(ctx, providerKey)
+	record, err := s.providerAuthRecordByReference(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
@@ -415,16 +412,12 @@ func (s *Server) saveDeviceAuthToken(ctx context.Context, providerKey, providerI
 	cfg.APIKey = oauthToken
 
 	// Persist.
-	if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-		Key:       providerKey,
-		Config:    cfg,
-		UpdatedBy: "",
-	}); err != nil {
+	if _, err := s.updateProviderAuthRecord(ctx, providerKey, record, cfg, ""); err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
 
 	// Hot-reload the provider so it uses the new token.
-	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
+	if err := s.reloadProviderAuthRecord(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 
@@ -1057,7 +1050,7 @@ func (s *Server) saveClaudeAuthTokens(ctx context.Context, providerKey, accessTo
 	// the HTTP client disconnects after its one-use authorization code is consumed.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	record, err := s.store.GetProvider(ctx, providerKey)
+	record, err := s.providerAuthRecordByReference(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
@@ -1073,11 +1066,7 @@ func (s *Server) saveClaudeAuthTokens(ctx context.Context, providerKey, accessTo
 	cfg.RefreshToken = refreshToken
 	cfg.TokenExpiresAt = expiresAt
 
-	updated, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-		Key:       providerKey,
-		Config:    cfg,
-		UpdatedBy: "",
-	})
+	updated, err := s.updateProviderAuthRecord(ctx, providerKey, record, cfg, "")
 	if err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
@@ -1085,7 +1074,7 @@ func (s *Server) saveClaudeAuthTokens(ctx context.Context, providerKey, accessTo
 		return fmt.Errorf("provider disappeared during authorization")
 	}
 
-	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
+	if err := s.reloadProviderAuthRecord(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 
@@ -1099,7 +1088,7 @@ func (s *Server) providerAuthRecord(w http.ResponseWriter, r *http.Request, key 
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return nil, false
 	}
-	record, err := s.store.GetProvider(r.Context(), key)
+	record, err := s.providerAuthRecordByReference(r.Context(), key)
 	if err != nil {
 		if !workspaceBusinessError(w, err) {
 			slog.Error("claude auth: get provider failed", "key", key, "error", err)
@@ -1111,11 +1100,14 @@ func (s *Server) providerAuthRecord(w http.ResponseWriter, r *http.Request, key 
 		httpResponse(w, fmt.Sprintf("provider %q not found", key), http.StatusNotFound)
 		return nil, false
 	}
-	if actor, ok := service.AccessPrincipalFromContext(r.Context()); ok {
-		resource := service.AccessResource{WorkspaceID: record.WorkspaceID, ID: record.ID}
-		if !actor.Allows("providers.write", resource) || !actor.Allows("credentials.manage", resource) {
-			httpResponse(w, "provider credential management access required", http.StatusForbidden)
-			return nil, false
+	if _, personal := service.ParsePersonalProviderReference(key); !personal {
+		actor, ok := service.AccessPrincipalFromContext(r.Context())
+		if ok {
+			resource := service.AccessResource{WorkspaceID: record.WorkspaceID, ID: record.ID}
+			if !actor.Allows("providers.write", resource) || !actor.Allows("credentials.manage", resource) {
+				httpResponse(w, "provider credential management access required", http.StatusForbidden)
+				return nil, false
+			}
 		}
 	}
 	for _, authType := range authTypes {
@@ -1125,6 +1117,35 @@ func (s *Server) providerAuthRecord(w http.ResponseWriter, r *http.Request, key 
 	}
 	httpResponse(w, "Save this provider with the selected authentication type before authorizing it.", http.StatusBadRequest)
 	return nil, false
+}
+
+func (s *Server) providerAuthRecordByReference(ctx context.Context, reference string) (*service.ProviderRecord, error) {
+	if id, personal := service.ParsePersonalProviderReference(reference); personal {
+		store, ok := s.store.(service.PersonalProviderStorer)
+		if !ok {
+			return nil, fmt.Errorf("personal provider store unavailable")
+		}
+		return store.GetPersonalProvider(ctx, id)
+	}
+	return s.store.GetProvider(ctx, reference)
+}
+
+func (s *Server) updateProviderAuthRecord(ctx context.Context, reference string, current *service.ProviderRecord, cfg config.LLMConfig, updatedBy string) (*service.ProviderRecord, error) {
+	if id, personal := service.ParsePersonalProviderReference(reference); personal {
+		store, ok := s.store.(service.PersonalProviderStorer)
+		if !ok {
+			return nil, fmt.Errorf("personal provider store unavailable")
+		}
+		return store.UpdatePersonalProvider(ctx, id, service.ProviderRecord{Key: current.Key, Config: cfg, UpdatedBy: updatedBy})
+	}
+	return s.store.UpdateProvider(ctx, reference, service.ProviderRecord{Key: reference, Config: cfg, UpdatedBy: updatedBy})
+}
+
+func (s *Server) reloadProviderAuthRecord(ctx context.Context, reference string, cfg config.LLMConfig) error {
+	if _, personal := service.ParsePersonalProviderReference(reference); personal {
+		return nil
+	}
+	return s.reloadWorkspaceProvider(ctx, reference, cfg)
 }
 
 func (s *Server) providerAuthHTTPClient(proxy string, insecure bool) (*http.Client, error) {

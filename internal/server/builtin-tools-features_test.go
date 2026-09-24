@@ -117,3 +117,33 @@ func TestBuiltinMCPFeatureFiltering(t *testing.T) {
 		t.Fatalf("MCP leaked disabled tools: %+v", tools)
 	}
 }
+
+func TestBuiltinFeatureChangeAcrossAgentLoopsAndMCP(t *testing.T) {
+	ctx := runtimeTestContext(t, t.TempDir(), &atomic.Bool{})
+	for _, surface := range []string{"sessions", "organization_delegation"} {
+		t.Run(surface, func(t *testing.T) {
+			s := toolFeatureServer(map[string]bool{})
+			tools := []service.Tool{{Name: "bash_execute"}, {Name: "todo_read"}, {Name: "external"}}
+			isBuiltin := func(name string) bool { return name != "external" }
+			if got := s.availableLoopTools(ctx, tools, isBuiltin); len(got) != 3 {
+				t.Fatalf("initial tools: %+v", got)
+			}
+			s.features.data.Store(&featureSnapshot{flags: map[string]bool{service.FeatureBuiltinOther: false}, loadedAt: time.Now()})
+			got := s.availableLoopTools(ctx, tools, isBuiltin)
+			if len(got) != 2 || got[0].Name != "bash_execute" || got[1].Name != "external" {
+				t.Fatalf("tools after feature change: %+v", got)
+			}
+		})
+	}
+
+	s := toolFeatureServer(map[string]bool{})
+	runtime := newMCPRuntime()
+	(&mcpRuntimeBuilder{server: s}).addBuiltins(ctx, runtime, service.MCPServerConfig{EnabledBuiltinTools: []string{"file_list"}})
+	if len(runtime.Tools()) != 1 {
+		t.Fatalf("MCP discovery: %+v", runtime.Tools())
+	}
+	s.features.data.Store(&featureSnapshot{flags: map[string]bool{service.FeatureFiles: false}, loadedAt: time.Now()})
+	if _, err := runtime.CallTool(ctx, "file_list", nil); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("MCP call survived feature change: %v", err)
+	}
+}

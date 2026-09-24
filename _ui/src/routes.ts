@@ -8,6 +8,7 @@ import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
+import SharedChat from '@/pages/SharedChat.svelte';
 import ChatSessions from '@/pages/ChatSessions.svelte';
 import Tokens from '@/pages/Tokens.svelte';
 import NodeConfigs from '@/pages/NodeConfigs.svelte';
@@ -100,6 +101,7 @@ export default {
   // wrapped objects and would straddle the router's `{#if componentParams}`
   // boundary, so navigating `/chats` → `/chats/:id` would unmount and
   // remount the page — killing the in-flight turn the lazy save depends on.
+  '/chats/shared/:id': guarded(SharedChat, '/chats'),
   '/chats/:id?': guarded(Chat, '/chats'),
   '/sessions': guarded(ChatSessions, '/sessions'),
   '/tokens': redirect('/settings/tokens'),

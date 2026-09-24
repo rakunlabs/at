@@ -16,6 +16,30 @@ func (p *Postgres) ResolveExecutionResource(ctx context.Context, kind, key strin
 	if !ok || principal.WorkspaceID == "" || key == "" {
 		return service.AccessResource{}, service.ErrAccessDenied
 	}
+	if kind == "providers" {
+		if providerID, personal := service.ParsePersonalProviderReference(key); personal {
+			provenance, _, executing := service.ExecutionFromContext(ctx)
+			if executing && provenance.ServiceID != "" {
+				return service.AccessResource{}, service.ErrAccessDenied
+			}
+			grants := p.workspaceTable("personal_provider_grants")
+			var id string
+			found, err := p.goqu.From(p.tableProviders).Select("id").Where(
+				goqu.Ex{"id": providerID, "workspace_id": nil},
+				goqu.Or(
+					goqu.C("owner_user_id").Eq(principal.UserID),
+					goqu.C("id").In(p.goqu.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(principal.WorkspaceID)))),
+				),
+			).Limit(1).ScanValContext(ctx, &id)
+			if err != nil {
+				return service.AccessResource{}, fmt.Errorf("resolve personal execution provider: %w", err)
+			}
+			if !found {
+				return service.AccessResource{}, service.ErrAccessDenied
+			}
+			return service.AccessResource{Kind: kind, ID: id, WorkspaceID: principal.WorkspaceID, OwnerID: principal.UserID}, nil
+		}
+	}
 	table, alias := "", ""
 	switch kind {
 	case "providers":

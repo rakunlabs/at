@@ -26,12 +26,26 @@ func (p *Postgres) ExecutionProviderDefaultModel(ctx context.Context, key string
 		Model    string `db:"model"`
 		Disabled bool   `db:"disabled"`
 	}
-	query := p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(goqu.Ex{"key": key, "workspace_id": actor.WorkspaceID})
+	personalID, personalReference := service.ParsePersonalProviderReference(key)
+	if provenance, _, ok := service.ExecutionFromContext(ctx); personalReference && ok && provenance.ServiceID != "" {
+		return "", service.ErrAccessDenied
+	}
+	query := p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(goqu.Ex{"key": key, "workspace_id": actor.WorkspaceID, "owner_user_id": ""})
+	if personalReference {
+		grants := p.workspaceTable("personal_provider_grants")
+		query = p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(
+			goqu.Ex{"id": personalID, "workspace_id": nil},
+			goqu.Or(
+				goqu.C("owner_user_id").Eq(actor.UserID),
+				goqu.C("id").In(p.goqu.From(grants).Select("provider_id").Where(goqu.Or(goqu.C("global").Eq(true), goqu.C("workspace_id").Eq(actor.WorkspaceID)))),
+			),
+		)
+	}
 	found, err := query.ScanStructContext(ctx, &meta)
 	if err != nil {
 		return "", fmt.Errorf("resolve model metadata: %w", err)
 	}
-	if !found {
+	if !found && !personalReference {
 		found, err = p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(goqu.Ex{"key": key, "workspace_id": "legacy-default"}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(p.goqu.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID})))).ScanStructContext(ctx, &meta)
 	}
 	if err != nil {

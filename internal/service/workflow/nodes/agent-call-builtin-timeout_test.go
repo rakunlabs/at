@@ -76,3 +76,35 @@ func TestAgentCall_BuiltinTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentCall_BuiltinFeatureChangeRemovesAdvertisedTool(t *testing.T) {
+	ctx := executiontest.Context(t)
+	enabled := true
+	calls := 0
+	mp := &mockProvider{chatFunc: func(_ context.Context, _ string, _ []service.Message, tools []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
+		calls++
+		if calls == 1 {
+			if len(tools) != 1 || tools[0].Name != "bash_execute" {
+				t.Fatalf("first model call tools: %+v", tools)
+			}
+			return &service.LLMResponse{ToolCalls: []service.ToolCall{{ID: "tc1", Name: "bash_execute", Arguments: map[string]any{}}}}, nil
+		}
+		if len(tools) != 0 {
+			t.Fatalf("disabled built-in remained in workflow model input: %+v", tools)
+		}
+		return &service.LLMResponse{Content: "done", Finished: true}, nil
+	}}
+	reg := newTestRegistryWithProvider(mp)
+	reg.AgentLookup = func(context.Context, string) (*service.Agent, error) {
+		return &service.Agent{Config: service.AgentConfig{Provider: "test-provider", BuiltinTools: []string{"bash_execute"}}}, nil
+	}
+	reg.BuiltinToolDefs = []workflow.BuiltinToolDef{{Name: "bash_execute", Available: func(context.Context) bool { return enabled }}}
+	reg.BuiltinToolDispatcher = func(context.Context, string, map[string]any) (string, error) {
+		enabled = false
+		return "ok", nil
+	}
+	node := makeNode(t, "agent_call", map[string]any{"agent_id": "test-agent", "max_iterations": float64(3)})
+	if _, err := node.Run(ctx, reg, map[string]any{"prompt": "run builtin"}); err != nil {
+		t.Fatal(err)
+	}
+}

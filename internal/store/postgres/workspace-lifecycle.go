@@ -15,8 +15,9 @@ var _ service.WorkspaceLifecycleStorer = (*Postgres)(nil)
 // represented by workspaceResourceTable. Deletion is one scoped transaction.
 var workspaceDeletionTables = []string{
 	"workflow_executions",
+	"chat_shares",
 	"execution_service_bindings", "execution_provenance", "execution_policies",
-	"workspace_provider_grants", "workspace_permission_mappings", "workspace_user_permissions", "workspace_user_denied",
+	"personal_provider_grants", "workspace_provider_grants", "workspace_permission_mappings", "workspace_user_permissions", "workspace_user_denied",
 	"workspace_permissions", "workspace_invitations", "workspace_memberships", "task_board_settings",
 	"chat_messages", "chat_sessions", "token_usage", "tokens",
 	"workflow_versions", "triggers", "workflows", "task_labels", "issue_comments", "organization_agents",
@@ -51,6 +52,16 @@ func (p *Postgres) DeleteWorkspace(ctx context.Context, confirmation string) (*s
 		return nil, service.ErrWorkspaceConflict
 	}
 	deleted := &service.WorkspaceDeletion{WorkspaceID: a.WorkspaceID}
+	var mediaRows []mediaObjectRow
+	if err := tx.From(p.tableMediaObjects.As("m")).
+		Join(p.workspaceTable("chat_share_media").As("sm"), goqu.On(goqu.I("sm.media_object_id").Eq(goqu.I("m.id")))).
+		Join(p.workspaceTable("chat_shares").As("s"), goqu.On(goqu.I("s.id").Eq(goqu.I("sm.share_id")))).
+		Select(mediaObjectSelect("m")...).Where(goqu.I("s.workspace_id").Eq(a.WorkspaceID)).ScanStructsContext(ctx, &mediaRows); err != nil {
+		return nil, fmt.Errorf("list deleted workspace chat media: %w", err)
+	}
+	for _, row := range mediaRows {
+		deleted.MediaObjects = append(deleted.MediaObjects, mediaObjectRowToRecord(row))
+	}
 	if err := tx.From(p.workspaceTable("bot_configs")).Select("id").Where(goqu.Ex{"workspace_id": a.WorkspaceID}).ScanValsContext(ctx, &deleted.BotIDs); err != nil {
 		return nil, fmt.Errorf("list deleted workspace bots: %w", err)
 	}

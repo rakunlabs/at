@@ -251,6 +251,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// toolHandlers maps tool name → handler info for non-skill tools.
 	toolHandlers := make(map[string]toolHandlerInfo)
+	builtinAvailability := make(map[string]func(context.Context) bool)
 
 	// mcpToolNames tracks which tool names come from MCP (dispatched via MCP client).
 	mcpToolNames := make(map[string]bool)
@@ -391,6 +392,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: def.Name}) != nil {
 				continue
 			}
+			if def.Available != nil && !def.Available(ctx) {
+				continue
+			}
 			if !enabledSet[def.Name] {
 				continue
 			}
@@ -403,6 +407,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				handler:     def.Name,
 				handlerType: "builtin",
 			}
+			builtinAvailability[def.Name] = def.Available
 		}
 	}
 
@@ -658,8 +663,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
 		available := make([]service.Tool, 0, len(llmTools))
 		for _, tool := range llmTools {
-			if handler, ok := toolHandlers[tool.Name]; ok && handler.handlerType == "builtin" && service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: tool.Name}) != nil {
-				continue
+			if handler, ok := toolHandlers[tool.Name]; ok && handler.handlerType == "builtin" {
+				if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: tool.Name}) != nil {
+					continue
+				}
+				if available := builtinAvailability[tool.Name]; available != nil && !available(ctx) {
+					continue
+				}
 			}
 			available = append(available, tool)
 		}

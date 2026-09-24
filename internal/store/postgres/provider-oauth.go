@@ -21,7 +21,8 @@ var _ service.ClaudeOAuthTokenStorer = (*Postgres)(nil)
 // exchange, so the exchange must observe the currently stored credential rather
 // than a per-source in-memory copy.
 func (p *Postgres) WithClaudeOAuthTokens(ctx context.Context, workspace, key string, change func(*service.ClaudeOAuthTokens) error) (*service.ClaudeOAuthTokens, error) {
-	if workspace == "" || key == "" || change == nil {
+	_, personal := service.ParsePersonalProviderReference(key)
+	if key == "" || change == nil || workspace == "" && !personal {
 		return nil, service.ErrAccessDenied
 	}
 	p.encKeyMu.RLock()
@@ -31,13 +32,9 @@ func (p *Postgres) WithClaudeOAuthTokens(ctx context.Context, workspace, key str
 		return nil, fmt.Errorf("begin OAuth rotation: %w", err)
 	}
 	defer tx.Rollback()
-	var row providerRow
-	found, err := tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": workspace, "key": key}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
+	row, err := p.lockOAuthProvider(ctx, tx, workspace, key)
 	if err != nil {
-		return nil, fmt.Errorf("load OAuth provider: %w", err)
-	}
-	if !found {
-		return nil, service.ErrAccessDenied
+		return nil, err
 	}
 	record, err := rowToRecord(row, p.encKey)
 	if err != nil {
@@ -71,7 +68,7 @@ func (p *Postgres) WithClaudeOAuthTokens(ctx context.Context, workspace, key str
 	if err != nil {
 		return tokens, fmt.Errorf("encode rotated OAuth credentials: %w", err)
 	}
-	if _, err := tx.Update(p.tableProviders).Set(goqu.Record{"config": types.RawJSON(data), "updated_at": time.Now().UTC(), "updated_by": "system:oauth-refresh"}).Where(goqu.Ex{"id": row.ID, "workspace_id": workspace}).Executor().ExecContext(ctx); err != nil {
+	if _, err := tx.Update(p.tableProviders).Set(goqu.Record{"config": types.RawJSON(data), "updated_at": time.Now().UTC(), "updated_by": "system:oauth-refresh"}).Where(goqu.Ex{"id": row.ID}).Executor().ExecContext(ctx); err != nil {
 		return tokens, fmt.Errorf("save rotated OAuth credentials: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

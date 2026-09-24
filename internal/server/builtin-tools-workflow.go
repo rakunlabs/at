@@ -772,7 +772,7 @@ func (s *Server) buildWorkflowEngine(ctx context.Context) *workflow.Engine {
 		ConnectionLookup:      s.connectionLookupFunc(),
 		VarSave:               s.varSaveFunc(),
 		BuiltinToolDispatcher: s.dispatchBuiltinTool,
-		BuiltinToolDefs:       builtinToolDefsForWorkflow(),
+		BuiltinToolDefs:       s.builtinToolDefsForWorkflow(),
 		ChatMessageCreator:    s.chatMessageCreatorFunc(),
 		ChatSessionLookup:     s.chatSessionLookupFunc(),
 		RecordUsage:           s.recordUsageFunc(),
