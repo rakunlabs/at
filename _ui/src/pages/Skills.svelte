@@ -103,11 +103,10 @@
   let formSystemPrompt = $state('');
   let formContext = $state<'' | 'fork'>('');
   let formAgent = $state('');
-  let formBackground = $state(false);
   let saving = $state(false);
 
   function formSignature(): string {
-    return JSON.stringify([formName, formDescription, formCategory, formTags, formSystemPrompt, formContext, formAgent, formBackground]);
+    return JSON.stringify([formName, formDescription, formCategory, formTags, formSystemPrompt, formContext, formAgent]);
   }
   let formDirty = $derived(showForm && formSignature() !== formSnapshot);
 
@@ -196,7 +195,6 @@
     formSystemPrompt = '';
     formContext = '';
     formAgent = '';
-    formBackground = false;
     createFolderFiles = [];
     editingId = null;
     editingSkill = null;
@@ -219,7 +217,6 @@
     formSystemPrompt = skill.system_prompt;
     formContext = skill.context === 'fork' ? 'fork' : '';
     formAgent = skill.agent || '';
-    formBackground = Boolean(skill.background);
     editingSkill = skill;
     showForm = true;
     formSnapshot = formSignature();
@@ -246,7 +243,6 @@
         system_prompt: formSystemPrompt,
         context: formContext || undefined,
         agent: formContext === 'fork' ? formAgent : undefined,
-        background: formContext === 'fork' ? formBackground : undefined,
         // The form has no fields for these SKILL.md frontmatter values; an
         // update replaces the record, so omitting them would erase them.
         ...(editingSkill ? { version: editingSkill.version, author: editingSkill.author, license: editingSkill.license } : {}),
@@ -1107,7 +1103,7 @@
                 <select
                   id="form-context"
                   bind:value={formContext}
-                  onchange={() => { if (formContext !== 'fork') { formAgent = ''; formBackground = false; } }}
+                  onchange={() => { if (formContext !== 'fork') formAgent = ''; }}
                   class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
                 >
                   <option value="">Current agent context</option>
@@ -1123,11 +1119,7 @@
                       <option value={agent.id}>{agent.name}</option>
                     {/each}
                   </select>
-                  <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-text-secondary">
-                    <input type="checkbox" bind:checked={formBackground} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    Run in background
-                  </label>
-                  <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">The calling agent must include this target in its Subagents allowlist.</p>
+                  <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">The calling agent chooses foreground or background for each run. It must include this target in its Subagents allowlist.</p>
                 {/if}
               </div>
             </div>

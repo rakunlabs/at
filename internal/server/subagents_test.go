@@ -171,6 +171,9 @@ func TestBackgroundAgentRunStatusAndCancel(t *testing.T) {
 	s := &Server{
 		agentStore: &mockAgentStoreForDelegation{agents: agents},
 		loopGov:    loopgov.New(loopgov.Config{WorkspaceRoot: t.TempDir()}, nil),
+		agentRuntimeSettingsStore: &memoryAgentRuntimeSettings{settings: service.AgentRuntimeSettings{
+			Version: 1, MaxBackgroundSubagentsPerOwner: 1,
+		}},
 		providers: map[string]ProviderInfo{
 			"prov1": {provider: provider, providerType: "openai", defaultModel: "m1"},
 		},
@@ -193,6 +196,9 @@ func TestBackgroundAgentRunStatusAndCancel(t *testing.T) {
 	case <-provider.started:
 	case <-time.After(time.Second):
 		t.Fatal("background provider did not start")
+	}
+	if _, err := s.execAgentRun(ctx, map[string]any{"agent": "child", "task": "another", "background": true}); err == nil || !strings.Contains(err.Error(), "limit reached (1 active runs)") {
+		t.Fatalf("configured background limit was not enforced: %v", err)
 	}
 
 	if _, err := s.execAgentRunCancel(ctx, map[string]any{"run_id": startPayload.RunID}); err != nil {

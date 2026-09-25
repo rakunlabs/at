@@ -10,7 +10,7 @@ import (
 func TestSkillRuntimeForkRequest(t *testing.T) {
 	skill := &service.Skill{
 		ID: "review-skill", Name: "review", Context: "fork",
-		Agent: "reviewer", Background: true, SystemPrompt: "Review carefully.",
+		Agent: "reviewer", SystemPrompt: "Review carefully.",
 	}
 	lookup := func(name string) (*service.Skill, error) {
 		if name == "review" || name == skill.ID {
@@ -23,7 +23,7 @@ func TestSkillRuntimeForkRequest(t *testing.T) {
 		t.Fatalf("NewSkillRuntime: %v", err)
 	}
 	req, forked, err := rt.ForkRequest(map[string]any{
-		"skill_name": "review", "task": "Inspect the patch", "context": "Focus on auth",
+		"skill_name": "review", "task": "Inspect the patch", "context": "Focus on auth", "run_mode": "background",
 	})
 	if err != nil {
 		t.Fatalf("ForkRequest: %v", err)
@@ -36,5 +36,12 @@ func TestSkillRuntimeForkRequest(t *testing.T) {
 	}
 	if _, _, err := rt.ForkRequest(map[string]any{"skill_name": "review"}); err == nil {
 		t.Fatal("expected a missing task error")
+	}
+	foreground, _, err := rt.ForkRequest(map[string]any{"skill_name": "review", "task": "Inspect again"})
+	if err != nil || foreground.Background {
+		t.Fatalf("omitted run_mode should use foreground: %+v, err=%v", foreground, err)
+	}
+	if _, _, err := rt.ForkRequest(map[string]any{"skill_name": "review", "task": "Inspect", "run_mode": "later"}); err == nil {
+		t.Fatal("expected invalid run_mode error")
 	}
 }

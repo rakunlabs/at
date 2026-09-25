@@ -20,7 +20,6 @@ type SkillMD struct {
 	Metadata      map[string]string `yaml:"metadata"`
 	Context       string            `yaml:"context"`
 	Agent         string            `yaml:"agent"`
-	Background    bool              `yaml:"background"`
 	Body          string            // markdown content after frontmatter
 }
 

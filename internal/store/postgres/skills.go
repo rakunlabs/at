@@ -32,7 +32,6 @@ type skillRow struct {
 	Resources          types.RawJSON `db:"resources"`
 	Context            string        `db:"execution_context"`
 	Agent              string        `db:"execution_agent"`
-	Background         bool          `db:"execution_background"`
 	Version            string        `db:"version"`
 	Author             string        `db:"author"`
 	License            string        `db:"license"`
@@ -48,7 +47,7 @@ type skillRow struct {
 	UpdatedBy          string        `db:"updated_by"`
 }
 
-var skillColumns = []any{"id", "name", "description", "category", "tags", "system_prompt", "tools", "resources", "execution_context", "execution_agent", "execution_background", "version", "author", "license", "source_url", "source_type", "source_ref", "source_path", "source_credential_id", "source_checksum", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id"}
+var skillColumns = []any{"id", "name", "description", "category", "tags", "system_prompt", "tools", "resources", "execution_context", "execution_agent", "version", "author", "license", "source_url", "source_type", "source_ref", "source_path", "source_credential_id", "source_checksum", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id"}
 
 func (p *Postgres) skillVisibilityScope(ctx context.Context) (exp.Expression, service.AccessPrincipal, error) {
 	a, err := p.businessPrincipal(ctx)
@@ -94,7 +93,7 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Background, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID); err != nil {
 			return nil, fmt.Errorf("scan skill row: %w", err)
 		}
 
@@ -131,7 +130,7 @@ func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, err
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Background, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -158,7 +157,7 @@ func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Sk
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Background, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Resources, &row.Context, &row.Agent, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceType, &row.SourceRef, &row.SourcePath, &row.SourceCredentialID, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -226,7 +225,6 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 			"resources":            types.RawJSON(resourcesJSON),
 			"execution_context":    sk.Context,
 			"execution_agent":      sk.Agent,
-			"execution_background": sk.Background,
 			"version":              sk.Version,
 			"author":               sk.Author,
 			"license":              sk.License,
@@ -267,7 +265,6 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 		Resources:          sk.Resources,
 		Context:            sk.Context,
 		Agent:              sk.Agent,
-		Background:         sk.Background,
 		Version:            sk.Version,
 		Author:             sk.Author,
 		License:            sk.License,
@@ -339,7 +336,6 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 			"resources":            types.RawJSON(resourcesJSON),
 			"execution_context":    sk.Context,
 			"execution_agent":      sk.Agent,
-			"execution_background": sk.Background,
 			"version":              sk.Version,
 			"author":               sk.Author,
 			"license":              sk.License,
@@ -432,7 +428,6 @@ func skillRowToRecord(row skillRow) (*service.Skill, error) {
 		Resources:          resources,
 		Context:            row.Context,
 		Agent:              row.Agent,
-		Background:         row.Background,
 		Version:            row.Version,
 		Author:             row.Author,
 		License:            row.License,
@@ -486,8 +481,8 @@ func (p *Postgres) PublishSkillToWorkspace(ctx context.Context, id, by string) (
 		"name": row.Name, "description": row.Description, "category": row.Category,
 		"tags": row.Tags, "system_prompt": row.SystemPrompt, "tools": row.Tools,
 		"resources": row.Resources, "execution_context": row.Context,
-		"execution_agent": row.Agent, "execution_background": row.Background,
-		"version": row.Version, "author": row.Author,
+		"execution_agent": row.Agent,
+		"version":         row.Version, "author": row.Author,
 		"license": row.License, "source_url": row.SourceURL, "source_type": row.SourceType,
 		"source_ref": row.SourceRef, "source_path": row.SourcePath,
 		"source_credential_id": row.SourceCredentialID, "source_checksum": row.SourceChecksum,

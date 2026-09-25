@@ -39,7 +39,6 @@ type SkillCatalogEntry struct {
 	Description string
 	Context     string
 	Agent       string
-	Background  bool
 }
 
 type SkillForkRequest struct {
@@ -174,7 +173,6 @@ func NewSkillRuntime(
 			Description: skill.Description,
 			Context:     skill.Context,
 			Agent:       skill.Agent,
-			Background:  skill.Background,
 		})
 	}
 
@@ -202,9 +200,9 @@ func (r *SkillRuntime) HasResources() bool {
 	return false
 }
 
-func (r *SkillRuntime) HasBackgroundFork() bool {
+func (r *SkillRuntime) HasFork() bool {
 	for _, entry := range r.catalog {
-		if entry.Context == "fork" && entry.Background {
+		if entry.Context == "fork" {
 			return true
 		}
 	}
@@ -251,11 +249,7 @@ func (r *SkillRuntime) CatalogSystemPrompt() string {
 		}
 		fmt.Fprintf(&b, "- `%s` — %s\n", e.Name, desc)
 		if e.Context == "fork" {
-			mode := "foreground"
-			if e.Background {
-				mode = "background"
-			}
-			fmt.Fprintf(&b, "  Runs in an isolated %s context using agent `%s`; pass a self-contained `task` when loading it.\n", mode, e.Agent)
+			fmt.Fprintf(&b, "  Runs in an isolated context using agent `%s`; pass a self-contained `task` and choose `run_mode` (`foreground` when the result is needed now, `background` for independent concurrent work).\n", e.Agent)
 		}
 	}
 	b.WriteString("\nCall `")
@@ -289,6 +283,11 @@ func (r *SkillRuntime) LoadSkillToolDef() service.Tool {
 				"context": map[string]any{
 					"type":        "string",
 					"description": "Optional background and constraints for the isolated skill run.",
+				},
+				"run_mode": map[string]any{
+					"type":        "string",
+					"enum":        []string{"foreground", "background"},
+					"description": "Execution mode for an isolated skill. Use background for independent concurrent work. Defaults to foreground.",
 				},
 			},
 			"required": []string{"skill_name"},
@@ -327,9 +326,17 @@ func (r *SkillRuntime) ForkRequest(args map[string]any) (SkillForkRequest, bool,
 		return SkillForkRequest{}, true, fmt.Errorf("load_skill: task is required for forked skill %q", name)
 	}
 	extra, _ := args["context"].(string)
+	runMode, _ := args["run_mode"].(string)
+	runMode = strings.TrimSpace(runMode)
+	if runMode == "" {
+		runMode = "foreground"
+	}
+	if runMode != "foreground" && runMode != "background" {
+		return SkillForkRequest{}, true, fmt.Errorf("load_skill: run_mode must be foreground or background")
+	}
 	return SkillForkRequest{
 		Skill: skill, Agent: skill.Agent, Task: task,
-		Context: strings.TrimSpace(extra), Background: skill.Background,
+		Context: strings.TrimSpace(extra), Background: runMode == "background",
 	}, true, nil
 }
 

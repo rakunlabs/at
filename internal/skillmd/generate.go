@@ -64,7 +64,6 @@ func (s *SkillMD) frontmatterOnly() *skillFrontmatter {
 		Metadata:      s.Metadata,
 		Context:       s.Context,
 		Agent:         s.Agent,
-		Background:    s.Background,
 	}
 }
 
@@ -80,5 +79,4 @@ type skillFrontmatter struct {
 	Metadata      map[string]string `yaml:"metadata,omitempty"`
 	Context       string            `yaml:"context,omitempty"`
 	Agent         string            `yaml:"agent,omitempty"`
-	Background    bool              `yaml:"background,omitempty"`
 }

@@ -708,7 +708,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			handlerType: "builtin",
 		}
 	}
-	if skillRuntime.HasBackgroundFork() {
+	if skillRuntime.HasFork() {
 		for _, toolName := range []string{"agent_run_status", "agent_run_cancel"} {
 			if _, exists := toolHandlers[toolName]; exists {
 				continue

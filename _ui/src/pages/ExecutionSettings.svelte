@@ -5,6 +5,7 @@
   import { isNativeAdmin } from '../lib/store/auth.svelte';
   import { storeNavbar } from '../lib/store/store.svelte';
   import { authErrorMessage } from '../lib/api/auth';
+  import { getAgentRuntimeSettings, saveAgentRuntimeSettings, type AgentRuntimeSettings } from '../lib/api/agent-runtime-settings';
 
   storeNavbar.title = 'Execution';
 
@@ -26,6 +27,10 @@
   let busy = $state(false);
   let error = $state('');
   let notice = $state('');
+  let agentRuntime = $state<AgentRuntimeSettings | null>(null);
+  let agentRuntimeBusy = $state(false);
+  let agentRuntimeError = $state('');
+  let agentRuntimeNotice = $state('');
   let filteredTools = $derived(availableTools.filter(name => name.includes(toolSearch.trim().toLowerCase())));
   const path = () => `workspaces/${encodeURIComponent(workspaceTransport.selected)}/execution-policy`;
 
@@ -44,7 +49,37 @@
       busy = false;
     }
   }
-  onMount(() => { if (workspaceTransport.selected) void load(); });
+  async function loadAgentRuntime() {
+    agentRuntimeBusy = true;
+    agentRuntimeError = agentRuntimeNotice = '';
+    try {
+      agentRuntime = await getAgentRuntimeSettings();
+    } catch (e) {
+      agentRuntimeError = authErrorMessage(e, 'Agent runtime settings are unavailable.');
+    } finally {
+      agentRuntimeBusy = false;
+    }
+  }
+
+  async function saveAgentRuntime(e: SubmitEvent) {
+    e.preventDefault();
+    if (!agentRuntime || agentRuntimeBusy) return;
+    agentRuntimeBusy = true;
+    agentRuntimeError = agentRuntimeNotice = '';
+    try {
+      agentRuntime = await saveAgentRuntimeSettings(agentRuntime);
+      agentRuntimeNotice = 'Agent runtime settings saved.';
+    } catch (e) {
+      agentRuntimeError = authErrorMessage(e, 'Could not save agent runtime settings. Reload and retry.');
+    } finally {
+      agentRuntimeBusy = false;
+    }
+  }
+
+  onMount(() => {
+    if (workspaceTransport.selected) void load();
+    if (isNativeAdmin()) void loadAgentRuntime();
+  });
 
   function allowEverything() {
     if (!policy) return;
@@ -80,6 +115,29 @@
     <h1 class="settings-title">Execution policy</h1>
     <p class="settings-subtitle">Choose what agents, bots and MCP servers can run in the selected workspace.</p>
   </header>
+  {#if isNativeAdmin()}
+    <section class="settings-section space-y-3" aria-labelledby="agent-runtime-title">
+      <div>
+        <h2 id="agent-runtime-title" class="settings-subsection-title">Background subagents</h2>
+        <p class="settings-note">Installation-wide concurrency for ephemeral background agent runs. The limit applies separately to each user and workspace on each server replica.</p>
+      </div>
+      {#if agentRuntimeError}<p role="alert" class="settings-error">{agentRuntimeError}</p>{/if}
+      {#if agentRuntimeNotice}<p role="status" class="settings-note">{agentRuntimeNotice}</p>{/if}
+      {#if agentRuntime}
+        <form class="space-y-3" onsubmit={saveAgentRuntime}>
+          <fieldset disabled={agentRuntimeBusy}>
+            <label>Maximum active background runs per owner
+              <input type="number" min="1" max="128" step="1" bind:value={agentRuntime.max_background_subagents_per_owner} />
+              <span class="settings-note">Default: 16. Higher values increase provider load and concurrent tool execution.</span>
+            </label>
+            <button class="settings-primary mt-3">Save agent runtime settings</button>
+          </fieldset>
+        </form>
+      {:else}
+        <button class="settings-button" disabled={agentRuntimeBusy} onclick={loadAgentRuntime}>Reload agent runtime settings</button>
+      {/if}
+    </section>
+  {/if}
   {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
   {#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
   <button class="settings-button" disabled={busy || !workspaceTransport.selected} onclick={load}>Reload policy</button>

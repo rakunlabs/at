@@ -91,6 +91,7 @@ type Storer interface {
 	ConnectorStorer
 	RoutingProfileStorer
 	FeatureSettingStorer
+	AgentRuntimeSettingsStorer
 	LLMCallStorer
 }
 
@@ -151,9 +152,8 @@ type Skill struct {
 	Resources    []SkillResource `json:"resources,omitempty"` // Text files bundled beside SKILL.md
 	// Claude-compatible execution metadata. Context="fork" runs the skill in
 	// the named agent's isolated context instead of injecting it into the caller.
-	Context    string `json:"context,omitempty"`
-	Agent      string `json:"agent,omitempty"`
-	Background bool   `json:"background,omitempty"`
+	Context string `json:"context,omitempty"`
+	Agent   string `json:"agent,omitempty"`
 
 	// Sharing / provenance metadata. Round-trips through export/import so
 	// other agent platforms (Claude Code plugins, agentskills consumers,
@@ -177,8 +177,8 @@ type Skill struct {
 func ValidateSkillExecution(skill Skill) error {
 	switch skill.Context {
 	case "":
-		if skill.Agent != "" || skill.Background {
-			return fmt.Errorf("skill agent/background requires context \"fork\"")
+		if skill.Agent != "" {
+			return fmt.Errorf("skill agent requires context \"fork\"")
 		}
 	case "fork":
 		if strings.TrimSpace(skill.Agent) == "" {

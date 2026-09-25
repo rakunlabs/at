@@ -16,7 +16,6 @@ import (
 )
 
 const maxSubagentDepth = service.MaxSubagentDepth
-const maxBackgroundSubagentsPerOwner = 8
 
 type subagentRuntimeContext struct {
 	Depth         int
@@ -235,6 +234,14 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 	if !ok {
 		return "", service.ErrExecutionDenied
 	}
+	maxBackground := service.DefaultMaxBackgroundSubagentsPerOwner
+	if s.agentRuntimeSettingsStore != nil {
+		settings, err := s.agentRuntimeSettingsStore.GetAgentRuntimeSettings(ctx)
+		if err != nil {
+			return "", fmt.Errorf("load agent runtime settings: %w", err)
+		}
+		maxBackground = settings.MaxBackgroundSubagentsPerOwner
+	}
 	run := &backgroundSubagentRun{
 		ID: "subrun_" + ulid.Make().String(), Status: "queued",
 		AgentID: child.ID, AgentName: child.Name, TraceID: ulid.Make().String(),
@@ -261,15 +268,15 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		if !terminal {
 			active++
 		}
-		return active < maxBackgroundSubagentsPerOwner
+		return active < maxBackground
 	})
-	if active >= maxBackgroundSubagentsPerOwner {
+	if active >= maxBackground {
 		s.subagentMu.Unlock()
 		cancel()
 		if stopServer != nil {
 			stopServer()
 		}
-		return "", fmt.Errorf("background subagent limit reached (%d active runs)", maxBackgroundSubagentsPerOwner)
+		return "", fmt.Errorf("background subagent limit reached (%d active runs)", maxBackground)
 	}
 	s.activeSubagents.Store(run.ID, run)
 	s.subagentMu.Unlock()

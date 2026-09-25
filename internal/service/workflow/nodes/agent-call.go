@@ -469,7 +469,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			builtinAvailability[def.Name] = def.Available
 		}
 	}
-	if skillRuntime.HasBackgroundFork() && reg.BuiltinToolDispatcher != nil {
+	if skillRuntime.HasFork() && reg.BuiltinToolDispatcher != nil {
 		for _, def := range reg.BuiltinToolDefs {
 			if def.Name != "agent_run_status" && def.Name != "agent_run_cancel" {
 				continue

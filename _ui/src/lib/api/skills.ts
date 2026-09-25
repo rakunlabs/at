@@ -41,7 +41,6 @@ export interface Skill {
   resources?: SkillResource[];
   context?: '' | 'fork';
   agent?: string;
-  background?: boolean;
   // Sharing / provenance metadata
   version?: string;
   author?: string;

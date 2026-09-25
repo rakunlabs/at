@@ -256,7 +256,6 @@ type skillExportData struct {
 	Resources    []service.SkillResource `json:"resources,omitempty"`
 	Context      string                  `json:"context,omitempty"`
 	Agent        string                  `json:"agent,omitempty"`
-	Background   bool                    `json:"background,omitempty"`
 }
 
 // skillFromExportData converts a portable export document into a Skill record.
@@ -274,7 +273,6 @@ func skillFromExportData(export *skillExportData, by string) service.Skill {
 		Resources:    export.Resources,
 		Context:      export.Context,
 		Agent:        export.Agent,
-		Background:   export.Background,
 		CreatedBy:    by,
 		UpdatedBy:    by,
 	}
@@ -294,7 +292,6 @@ func skillToExportData(skill *service.Skill) skillExportData {
 		Resources:    skill.Resources,
 		Context:      skill.Context,
 		Agent:        skill.Agent,
-		Background:   skill.Background,
 	}
 }
 
@@ -313,7 +310,6 @@ func skillToMarkdown(skill *service.Skill) ([]byte, error) {
 		License:     copy.License,
 		Context:     copy.Context,
 		Agent:       copy.Agent,
-		Background:  copy.Background,
 		Body:        copy.SystemPrompt,
 	}
 	return skillmd.Generate(sm, nil)
@@ -679,7 +675,6 @@ func skillExportFromSkillMD(data []byte) (*skillExportData, error) {
 		License:      parsed.License,
 		Context:      parsed.Context,
 		Agent:        parsed.Agent,
-		Background:   parsed.Background,
 		SystemPrompt: parsed.Body,
 		Tools:        nil,
 		Resources:    nil,

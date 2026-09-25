@@ -241,8 +241,9 @@ type Server struct {
 
 	// Ephemeral background subagents are process-local by design. They create
 	// no durable organization task and disappear after a short terminal TTL.
-	activeSubagents sync.Map
-	subagentMu      sync.Mutex
+	activeSubagents           sync.Map
+	subagentMu                sync.Mutex
+	agentRuntimeSettingsStore service.AgentRuntimeSettingsStorer
 
 	version   string
 	commit    string
@@ -495,54 +496,55 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	)
 
 	s := &Server{
-		nativeAuth:               native,
-		authSettings:             runtimeAuth,
-		config:                   cfg,
-		ctx:                      ctx,
-		server:                   mux,
-		providers:                providers,
-		idempotency:              newIdempotencyCache(),
-		store:                    store,
-		tokenStore:               store,
-		tokenUsageStore:          store,
-		workflowStore:            store,
-		workflowVersionStore:     store,
-		triggerStore:             store,
-		skillStore:               store,
-		variableStore:            store,
-		nodeConfigStore:          store,
-		agentStore:               store,
-		chatSessionStore:         store,
-		mcpServerStore:           store,
-		mcpSetStore:              store,
-		botConfigStore:           store,
-		marketplaceStore:         store,
-		marketplaceSourceStore:   store,
-		userPrefStore:            store,
-		organizationStore:        store,
-		goalStore:                store,
-		taskStore:                store,
-		agentBudgetStore:         store,
-		agentHeartbeatStore:      store,
-		projectStore:             store,
-		issueCommentStore:        store,
-		labelStore:               store,
-		heartbeatRunStore:        store,
-		wakeupRequestStore:       store,
-		agentRuntimeStateStore:   store,
-		agentTaskSessionStore:    store,
-		approvalStore:            store,
-		agentConfigRevisionStore: store,
-		costEventStore:           store,
-		orgAgentStore:            store,
-		packSourceStore:          store,
-		guideStore:               store,
-		connectionStore:          store,
-		routingProfileStore:      store,
-		cooldown:                 newProviderCooldown(),
-		connectorStore:           store,
-		featureStore:             store,
-		llmCallStore:             store,
+		nativeAuth:                native,
+		authSettings:              runtimeAuth,
+		config:                    cfg,
+		ctx:                       ctx,
+		server:                    mux,
+		providers:                 providers,
+		idempotency:               newIdempotencyCache(),
+		store:                     store,
+		tokenStore:                store,
+		tokenUsageStore:           store,
+		workflowStore:             store,
+		workflowVersionStore:      store,
+		triggerStore:              store,
+		skillStore:                store,
+		variableStore:             store,
+		nodeConfigStore:           store,
+		agentStore:                store,
+		chatSessionStore:          store,
+		mcpServerStore:            store,
+		mcpSetStore:               store,
+		botConfigStore:            store,
+		marketplaceStore:          store,
+		marketplaceSourceStore:    store,
+		userPrefStore:             store,
+		organizationStore:         store,
+		goalStore:                 store,
+		taskStore:                 store,
+		agentBudgetStore:          store,
+		agentHeartbeatStore:       store,
+		projectStore:              store,
+		issueCommentStore:         store,
+		labelStore:                store,
+		heartbeatRunStore:         store,
+		wakeupRequestStore:        store,
+		agentRuntimeStateStore:    store,
+		agentTaskSessionStore:     store,
+		approvalStore:             store,
+		agentConfigRevisionStore:  store,
+		costEventStore:            store,
+		orgAgentStore:             store,
+		packSourceStore:           store,
+		guideStore:                store,
+		connectionStore:           store,
+		routingProfileStore:       store,
+		cooldown:                  newProviderCooldown(),
+		connectorStore:            store,
+		featureStore:              store,
+		agentRuntimeSettingsStore: store,
+		llmCallStore:              store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -1303,6 +1305,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	settingsGroup := apiGroup.Group("/v1/settings")
 	settingsGroup.Use(s.adminAuthMiddleware())
 	settingsGroup.POST("/rotate-key", s.RotateKeyAPI)
+	settingsGroup.GET("/agent-runtime", s.AgentRuntimeSettingsAPI)
+	settingsGroup.PUT("/agent-runtime", s.AgentRuntimeSettingsAPI)
 
 	// ////////////////////////////////////////////
 

@@ -80,6 +80,7 @@ type Postgres struct {
 	tableConnectors           exp.IdentifierExpression
 	tableRoutingProfiles      exp.IdentifierExpression
 	tableFeatureSettings      exp.IdentifierExpression
+	tableAgentRuntimeSettings exp.IdentifierExpression
 	tableLLMCalls             exp.IdentifierExpression
 	tableAuthUsers            exp.IdentifierExpression
 	tableAuthSessions         exp.IdentifierExpression
@@ -246,6 +247,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableConnectors:           goqu.T(tablePrefix + "connectors"),
 		tableRoutingProfiles:      goqu.T(tablePrefix + "routing_profiles"),
 		tableFeatureSettings:      goqu.T(tablePrefix + "feature_settings"),
+		tableAgentRuntimeSettings: goqu.T(tablePrefix + "agent_runtime_settings"),
 		tableLLMCalls:             goqu.T(tablePrefix + "llm_calls"),
 		encKey:                    encKey,
 	}, nil

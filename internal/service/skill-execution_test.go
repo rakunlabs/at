@@ -10,7 +10,7 @@ func TestValidateSkillExecution(t *testing.T) {
 	}{
 		{name: "inline", skill: Skill{}},
 		{name: "foreground fork", skill: Skill{Context: "fork", Agent: "reviewer"}},
-		{name: "background fork", skill: Skill{Context: "fork", Agent: "reviewer", Background: true}},
+		{name: "fork", skill: Skill{Context: "fork", Agent: "reviewer"}},
 		{name: "missing agent", skill: Skill{Context: "fork"}, wantErr: true},
 		{name: "agent without fork", skill: Skill{Agent: "reviewer"}, wantErr: true},
 		{name: "unknown context", skill: Skill{Context: "thread", Agent: "reviewer"}, wantErr: true},

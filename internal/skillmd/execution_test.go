@@ -4,7 +4,7 @@ import "testing"
 
 func TestGenerateForkExecutionMetadata(t *testing.T) {
 	data, err := Generate(&SkillMD{
-		Name: "review", Context: "fork", Agent: "reviewer", Background: true, Body: "Review carefully.",
+		Name: "review", Context: "fork", Agent: "reviewer", Body: "Review carefully.",
 	}, nil)
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -13,7 +13,7 @@ func TestGenerateForkExecutionMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if parsed.Context != "fork" || parsed.Agent != "reviewer" || !parsed.Background {
+	if parsed.Context != "fork" || parsed.Agent != "reviewer" {
 		t.Fatalf("execution metadata did not round trip: %+v\n%s", parsed, data)
 	}
 }
