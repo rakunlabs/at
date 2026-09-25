@@ -64,7 +64,7 @@
   function stop() { controller?.abort(); }
 </script>
 
-<aside class="settings-form flex flex-col min-w-0 h-[36rem] max-h-[80dvh] xl:sticky xl:top-4 bg-white dark:bg-dark-surface" aria-label="Agent Builder AI">
+<aside id="agent-ai-builder" class="settings-form w-80 max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" aria-label="Agent Builder AI">
   <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
     <h3 class="flex items-center gap-2 text-sm font-medium"><Bot size={16} />Agent Builder AI</h3>
     <button type="button" class="settings-button min-h-11 sm:min-h-0" aria-label="Close AI builder" onclick={onclose}><X size={14} /></button>

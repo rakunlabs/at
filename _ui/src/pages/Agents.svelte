@@ -580,8 +580,8 @@
   <title>AT | Agents</title>
 </svelte:head>
 
-<div class="flex h-full">
-  <div class="flex-1 overflow-y-auto">
+<div class="flex h-full min-w-0">
+  <div class="flex-1 min-w-0 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto">
       {#if agents.length > 0}
         <LoadIssues issues={page.list.issues} retry={loadData} {loading} />
@@ -655,20 +655,14 @@
                   Paste
                 </button>
               {/if}
-              <button type="button" disabled={saving} aria-expanded={showAIBuilder} onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
+              <button type="button" disabled={saving} aria-expanded={showAIBuilder} aria-controls="agent-ai-builder" onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
             </div>
             <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
           </div>
 
-          <div class={showAIBuilder ? 'grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] items-start' : ''}>
-          {#if showAIBuilder}
-            <div class="min-w-0 border-b xl:border-b-0 xl:border-l border-gray-200 dark:border-dark-border xl:col-start-2 xl:row-start-1">
-              {#key formVersion}<AgentBuilderPanel getDraft={getAgentDraft} getCatalog={getBuilderCatalog} applyPatch={applyBuilderPatch} contextLoading={page.editorLoading} bind:busy={builderBusy} onclose={() => { showAIBuilder = false; builderBusy = false; }} />{/key}
-            </div>
-          {/if}
-          <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="min-w-0 p-4 space-y-4 xl:col-start-1 xl:row-start-1">
+          <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="min-w-0 p-4 space-y-4">
             <LoadIssues issues={page.editor.issues} retry={page.loadEditor} loading={page.editorLoading} />
             <!-- Profile Header: Avatar left, identity fields right -->
             <div class="flex flex-col sm:flex-row gap-4 items-start">
@@ -1044,7 +1038,7 @@
                       <button
                         type="button"
                         onclick={() => removeMcpInput(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                        class="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
                         title="Remove URL"
                       >
                         <X size={14} />
@@ -1151,7 +1145,6 @@
               </button>
             </div>
           </form>
-          </div>
         </div>
       {/if}
 
@@ -1276,7 +1269,7 @@
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = agent.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                      class="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1291,4 +1284,7 @@
       {/if}
     </div>
   </div>
+  {#if showAIBuilder}
+    {#key formVersion}<AgentBuilderPanel getDraft={getAgentDraft} getCatalog={getBuilderCatalog} applyPatch={applyBuilderPatch} contextLoading={page.editorLoading} bind:busy={builderBusy} onclose={() => { showAIBuilder = false; builderBusy = false; }} />{/key}
+  {/if}
 </div>
