@@ -225,3 +225,64 @@ func TestBackgroundAgentRunStatusAndCancel(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestBackgroundAgentRunOwnerCancellationCascades(t *testing.T) {
+	provider := &blockingSubagentProvider{started: make(chan struct{}), done: make(chan struct{})}
+	agents := map[string]*service.Agent{
+		"parent": {ID: "parent", Name: "Parent", Config: service.AgentConfig{Subagents: []string{"child"}}},
+		"child": {
+			ID: "child", Name: "Child",
+			Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 2},
+		},
+	}
+	s := &Server{
+		agentStore: &mockAgentStoreForDelegation{agents: agents},
+		loopGov:    loopgov.New(loopgov.Config{WorkspaceRoot: t.TempDir()}, nil),
+		providers: map[string]ProviderInfo{
+			"prov1": {provider: provider, providerType: "openai", defaultModel: "m1"},
+		},
+	}
+	installRuntimeFixture(t, s)
+	ownerCtx, cancelOwner := context.WithCancel(contextWithAgentID(s.ctx, "parent"))
+	ownerCtx = contextWithBackgroundSubagentOwner(ownerCtx, "subrun_parent", ownerCtx)
+
+	started, err := s.execAgentRun(ownerCtx, map[string]any{"agent": "child", "task": "wait", "background": true})
+	if err != nil {
+		t.Fatalf("start child background agent: %v", err)
+	}
+	var payload struct {
+		RunID       string `json:"run_id"`
+		ParentRunID string `json:"parent_run_id"`
+	}
+	if err := json.Unmarshal([]byte(started), &payload); err != nil || payload.RunID == "" || payload.ParentRunID != "subrun_parent" {
+		t.Fatalf("unexpected child payload %q: %+v, err=%v", started, payload, err)
+	}
+	select {
+	case <-provider.started:
+	case <-time.After(time.Second):
+		t.Fatal("child background provider did not start")
+	}
+
+	cancelOwner()
+	select {
+	case <-provider.done:
+	case <-time.After(time.Second):
+		t.Fatal("owner cancellation did not stop child background provider")
+	}
+
+	statusCtx := contextWithAgentID(s.ctx, "parent")
+	deadline := time.Now().Add(time.Second)
+	for {
+		status, statusErr := s.execAgentRunStatus(statusCtx, map[string]any{"run_id": payload.RunID})
+		if statusErr != nil {
+			t.Fatalf("child background status: %v", statusErr)
+		}
+		if strings.Contains(status, `"status":"cancelled"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("child run did not reach cancelled: %s", status)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

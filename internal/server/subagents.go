@@ -27,6 +27,13 @@ type subagentRuntimeContext struct {
 
 type subagentRuntimeContextKey struct{}
 
+type backgroundSubagentOwner struct {
+	RunID string
+	Ctx   context.Context
+}
+
+type backgroundSubagentOwnerContextKey struct{}
+
 type backgroundSubagentRun struct {
 	mu sync.Mutex
 
@@ -36,6 +43,7 @@ type backgroundSubagentRun struct {
 	AgentName   string
 	TraceID     string
 	ParentTrace string
+	ParentRunID string
 	WorkspaceID string
 	UserID      string
 	Result      string
@@ -43,6 +51,15 @@ type backgroundSubagentRun struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Cancel      context.CancelFunc
+}
+
+func contextWithBackgroundSubagentOwner(ctx context.Context, runID string, owner context.Context) context.Context {
+	return context.WithValue(ctx, backgroundSubagentOwnerContextKey{}, backgroundSubagentOwner{RunID: runID, Ctx: owner})
+}
+
+func backgroundSubagentOwnerFromContext(ctx context.Context) (backgroundSubagentOwner, bool) {
+	owner, ok := ctx.Value(backgroundSubagentOwnerContextKey{}).(backgroundSubagentOwner)
+	return owner, ok && owner.RunID != "" && owner.Ctx != nil
 }
 
 func contextWithSubagentRuntime(ctx context.Context, runtime subagentRuntimeContext) context.Context {
@@ -251,6 +268,12 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 	parent := context.WithoutCancel(ctx)
 	runCtx, cancel := context.WithCancel(parent)
 	run.Cancel = cancel
+	var stopOwner func() bool
+	if owner, ok := backgroundSubagentOwnerFromContext(ctx); ok {
+		run.ParentRunID = owner.RunID
+		stopOwner = context.AfterFunc(owner.Ctx, cancel)
+	}
+	runCtx = contextWithBackgroundSubagentOwner(runCtx, run.ID, runCtx)
 	var stopServer func() bool
 	if s.ctx != nil {
 		stopServer = context.AfterFunc(s.ctx, cancel)
@@ -276,6 +299,9 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		if stopServer != nil {
 			stopServer()
 		}
+		if stopOwner != nil {
+			stopOwner()
+		}
 		return "", fmt.Errorf("background subagent limit reached (%d active runs)", maxBackground)
 	}
 	s.activeSubagents.Store(run.ID, run)
@@ -285,6 +311,9 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		defer cancel()
 		if stopServer != nil {
 			defer stopServer()
+		}
+		if stopOwner != nil {
+			defer stopOwner()
 		}
 		run.mu.Lock()
 		if run.Status != "cancelling" {
@@ -368,6 +397,9 @@ func marshalBackgroundSubagent(run *backgroundSubagentRun) (string, error) {
 		"run_id": run.ID, "status": run.Status, "agent_id": run.AgentID,
 		"agent_name": run.AgentName, "trace_id": run.TraceID,
 		"parent_trace_id": run.ParentTrace,
+	}
+	if run.ParentRunID != "" {
+		payload["parent_run_id"] = run.ParentRunID
 	}
 	if run.Result != "" {
 		payload["result"] = run.Result
