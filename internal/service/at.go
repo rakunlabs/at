@@ -243,16 +243,18 @@ type PackSourceStorer interface {
 // or non-secret (stored as plaintext, shown in list responses).
 // Accessed from workflow JS handlers via getVar() and bash handlers via $VAR_<KEY>.
 type Variable struct {
-	WorkspaceID string `json:"workspace_id"`
-	ID          string `json:"id"`
-	Key         string `json:"key"`
-	Value       string `json:"value"`
-	Description string `json:"description"`
-	Secret      bool   `json:"secret"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	CreatedBy   string `json:"created_by"`
-	UpdatedBy   string `json:"updated_by"`
+	WorkspaceID  string   `json:"workspace_id"`
+	ID           string   `json:"id"`
+	Key          string   `json:"key"`
+	Value        string   `json:"value"`
+	Description  string   `json:"description"`
+	Secret       bool     `json:"secret"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	AllowedHosts []string `json:"allowed_hosts,omitempty"`
+	CreatedAt    string   `json:"created_at"`
+	UpdatedAt    string   `json:"updated_at"`
+	CreatedBy    string   `json:"created_by"`
+	UpdatedBy    string   `json:"updated_by"`
 }
 
 // VariableStorer defines CRUD operations for variables.

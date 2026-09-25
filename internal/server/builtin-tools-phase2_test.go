@@ -65,6 +65,9 @@ func (f *fakeVariableStore) GetVariableByKey(_ context.Context, key string) (*se
 	}
 	return nil, nil
 }
+func (f *fakeVariableStore) ResolveVariableForUse(ctx context.Context, key string) (*service.Variable, error) {
+	return f.GetVariableByKey(ctx, key)
+}
 func (f *fakeVariableStore) CreateVariable(_ context.Context, v service.Variable) (*service.Variable, error) {
 	f.created = append(f.created, v)
 	if v.ID == "" {
@@ -132,10 +135,8 @@ func TestDispatch_VariableCreate_UpsertsByKey(t *testing.T) {
 	}
 }
 
-// TestDispatch_VariableList_RedactsSecrets verifies that secrets are
-// redacted in list output. Single-record Get returns the plaintext —
-// the LLM has to ask for a specific record by ID to see a secret,
-// which leaves an audit trail.
+// TestDispatch_VariableList_RedactsSecrets verifies that model-facing variable
+// tools never return secret plaintext, including a targeted get.
 func TestDispatch_VariableList_RedactsSecrets(t *testing.T) {
 	store := newFakeVariableStore()
 	store.vars["v1"] = &service.Variable{ID: "v1", Key: "PUBLIC", Value: "hello"}
@@ -156,13 +157,13 @@ func TestDispatch_VariableList_RedactsSecrets(t *testing.T) {
 		t.Error("secret should be redacted to ***")
 	}
 
-	// Get should return the unredacted value.
+	// Get must remain redacted too. Secret use is by typed reference.
 	getOut, err := s.dispatchBuiltinTool(executiontest.Context(t), "variable_get", map[string]any{"id": "v2"})
 	if err != nil {
 		t.Fatalf("variable_get: %v", err)
 	}
-	if !strings.Contains(getOut, "supersecret") {
-		t.Error("variable_get should return unredacted value")
+	if strings.Contains(getOut, "supersecret") || !strings.Contains(getOut, `"value": "***"`) {
+		t.Error("variable_get should keep secret values redacted")
 	}
 }
 

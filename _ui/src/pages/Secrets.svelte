@@ -7,6 +7,7 @@
     updateVariable,
     deleteVariable,
     type Variable,
+    type VariableInput,
   } from '@/lib/api/secrets';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -41,6 +42,8 @@
   let formSecret = $state(true);
   let formShowValue = $state(false);
   let formHasStoredValue = $state(false);
+  let formAllowHttp = $state(false);
+  let formAllowedHosts = $state('');
   let saving = $state(false);
 
   // ─── Load ───
@@ -85,6 +88,8 @@
     formSecret = true;
     formShowValue = false;
     formHasStoredValue = false;
+    formAllowHttp = false;
+    formAllowedHosts = '';
     editingId = null;
     showForm = false;
   }
@@ -103,6 +108,8 @@
     formValue = '';
     formShowValue = false;
     formHasStoredValue = true;
+    formAllowHttp = (variable.allowed_tools || []).includes('http_request');
+    formAllowedHosts = (variable.allowed_hosts || []).join('\n');
     showForm = true;
   }
 
@@ -117,13 +124,24 @@
       return;
     }
 
+    const allowedHosts = formAllowedHosts
+      .split(/[\n,]/)
+      .map((host) => host.trim())
+      .filter(Boolean);
+    if (formSecret && formAllowHttp && allowedHosts.length === 0) {
+      addToast('Add at least one HTTPS destination host for secret references', 'warn');
+      return;
+    }
+
     saving = true;
     try {
       if (editingId) {
-        const payload: { key: string; value?: string; description?: string; secret?: boolean } = {
+        const payload: VariableInput = {
           key: formKey.trim(),
           description: formDescription.trim(),
           secret: formSecret,
+          allowed_tools: formSecret && formAllowHttp ? ['http_request'] : [],
+          allowed_hosts: formSecret && formAllowHttp ? allowedHosts : [],
         };
         if (formValue) {
           payload.value = formValue;
@@ -136,6 +154,8 @@
           value: formValue,
           description: formDescription.trim(),
           secret: formSecret,
+          allowed_tools: formSecret && formAllowHttp ? ['http_request'] : [],
+          allowed_hosts: formSecret && formAllowHttp ? allowedHosts : [],
         });
         addToast(`Variable "${formKey}" created`);
       }
@@ -260,7 +280,14 @@
             <input
               id="form-secret"
               type="checkbox"
-              bind:checked={formSecret}
+              checked={formSecret}
+              onchange={(event) => {
+                formSecret = (event.currentTarget as HTMLInputElement).checked;
+                if (!formSecret) {
+                  formAllowHttp = false;
+                  formAllowedHosts = '';
+                }
+              }}
               class="w-4 h-4 text-gray-900 border-gray-300 focus:ring-gray-900/10 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
             />
             <span class="text-xs text-gray-500 dark:text-dark-text-muted">
@@ -269,12 +296,45 @@
           </div>
         </div>
 
+        {#if formSecret}
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <div class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Tool references</div>
+            <div class="col-span-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-3 space-y-3">
+              <label class="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  bind:checked={formAllowHttp}
+                  class="mt-0.5 w-4 h-4 text-gray-900 border-gray-300 focus:ring-gray-900/10 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                />
+                <span>
+                  <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Allow use by HTTP Request</span>
+                  <span class="block text-xs text-gray-500 dark:text-dark-text-muted">The model can reference this variable by name, but the value is resolved only inside the request executor.</span>
+                </span>
+              </label>
+
+              {#if formAllowHttp}
+                <div>
+                  <label for="form-allowed-hosts" class="block text-xs font-medium text-gray-600 dark:text-dark-text-secondary mb-1">Allowed HTTPS hosts</label>
+                  <textarea
+                    id="form-allowed-hosts"
+                    bind:value={formAllowedHosts}
+                    rows="3"
+                    placeholder={'api.example.com\n*.service.example.com'}
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  ></textarea>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-dark-text-muted">One host per line. URLs, paths, and broad <code class="font-mono">*</code> wildcards are refused.</p>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
         <!-- Usage hint -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <div></div>
           <div class="col-span-3 text-xs text-gray-400 dark:text-dark-text-muted bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border px-3 py-2 space-y-1">
-            <div><span class="font-medium text-gray-500 dark:text-dark-text-muted">JS handler:</span> <code class="font-mono">getVar("{formKey || 'key'}")</code></div>
-            <div><span class="font-medium text-gray-500 dark:text-dark-text-muted">Bash handler:</span> <code class="font-mono">$VAR_{(formKey || 'KEY').toUpperCase().replace(/[.\-]/g, '_')}</code></div>
+            <div><span class="font-medium text-gray-500 dark:text-dark-text-muted">Reference:</span> <code class="font-mono">{'{"$ref":"variable://' + (formKey || 'key') + '","prefix":"Bearer "}'}</code></div>
+            <div>Secret references are accepted only by explicitly allowed tools and destination hosts. Arbitrary Bash does not receive them.</div>
           </div>
         </div>
 
@@ -323,6 +383,7 @@
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
         <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Value</th>
         <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Tool use</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
         <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
       {/snippet}
@@ -339,6 +400,14 @@
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={variable.description}>
             {variable.description || '-'}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48">
+            {#if (variable.allowed_tools || []).includes('http_request')}
+              <span class="font-mono text-gray-700 dark:text-dark-text-secondary">http_request</span>
+              <span class="block truncate" title={(variable.allowed_hosts || []).join(', ')}>{(variable.allowed_hosts || []).join(', ')}</span>
+            {:else}
+              <span class="text-gray-400 dark:text-dark-text-faint">Not allowed</span>
+            {/if}
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(variable.updated_at)}</td>
           <td class="px-4 py-2.5 text-right">
@@ -366,7 +435,7 @@
               {:else}
                 <button
                   onclick={() => (deleteConfirm = variable.id)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 "
                   title="Delete"
                 >
                   <Trash2 size={14} />

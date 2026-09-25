@@ -3,30 +3,35 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
+	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
+
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/query"
 )
 
 // ─── Variable CRUD ───
 
 type variableRow struct {
-	WorkspaceID string    `db:"workspace_id"`
-	ID          string    `db:"id"`
-	Key         string    `db:"key"`
-	Value       string    `db:"value"`
-	Description string    `db:"description"`
-	Secret      bool      `db:"secret"`
-	CreatedAt   time.Time `db:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at"`
-	CreatedBy   string    `db:"created_by"`
-	UpdatedBy   string    `db:"updated_by"`
+	WorkspaceID  string        `db:"workspace_id"`
+	ID           string        `db:"id"`
+	Key          string        `db:"key"`
+	Value        string        `db:"value"`
+	Description  string        `db:"description"`
+	Secret       bool          `db:"secret"`
+	AllowedTools types.RawJSON `db:"allowed_tools"`
+	AllowedHosts types.RawJSON `db:"allowed_hosts"`
+	CreatedAt    time.Time     `db:"created_at"`
+	UpdatedAt    time.Time     `db:"updated_at"`
+	CreatedBy    string        `db:"created_by"`
+	UpdatedBy    string        `db:"updated_by"`
 }
 
 func (p *Postgres) ListVariables(ctx context.Context, q *query.Query) (*service.ListResult[service.Variable], error) {
@@ -34,7 +39,7 @@ func (p *Postgres) ListVariables(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, err
 	}
-	sql, total, err := p.buildListQuery(ctx, p.tableVariables, q, "id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
+	sql, total, err := p.buildListQuery(ctx, p.tableVariables, q, "id", "key", "value", "description", "secret", "allowed_tools", "allowed_hosts", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list variables query: %w", err)
 	}
@@ -52,7 +57,7 @@ func (p *Postgres) ListVariables(ctx context.Context, q *query.Query) (*service.
 	var items []service.Variable
 	for rows.Next() {
 		var row variableRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.AllowedTools, &row.AllowedHosts, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan variable row: %w", err)
 		}
 
@@ -88,7 +93,7 @@ func (p *Postgres) GetVariable(ctx context.Context, id string) (*service.Variabl
 		return nil, err
 	}
 	query, _, err := p.goqu.From(p.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Select("id", "key", "value", "description", "secret", "allowed_tools", "allowed_hosts", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
 		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -96,7 +101,7 @@ func (p *Postgres) GetVariable(ctx context.Context, id string) (*service.Variabl
 	}
 
 	var row variableRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.AllowedTools, &row.AllowedHosts, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -124,7 +129,7 @@ func (p *Postgres) GetVariableByKey(ctx context.Context, key string) (*service.V
 		return nil, err
 	}
 	query, _, err := p.goqu.From(p.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Select("id", "key", "value", "description", "secret", "allowed_tools", "allowed_hosts", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
 		Where(scope, goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
@@ -132,7 +137,7 @@ func (p *Postgres) GetVariableByKey(ctx context.Context, key string) (*service.V
 	}
 
 	var row variableRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.AllowedTools, &row.AllowedHosts, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -151,6 +156,9 @@ func (p *Postgres) GetVariableByKey(ctx context.Context, key string) (*service.V
 }
 
 func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*service.Variable, error) {
+	if err := service.ValidateVariableUsePolicy(v); err != nil {
+		return nil, err
+	}
 	w, err := p.beginBusinessWrite(ctx, p.tableVariables, "variables.write", "")
 	if err != nil {
 		return nil, err
@@ -177,19 +185,29 @@ func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*ser
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
+	allowedTools, err := json.Marshal(v.AllowedTools)
+	if err != nil {
+		return nil, fmt.Errorf("marshal variable allowed tools: %w", err)
+	}
+	allowedHosts, err := json.Marshal(v.AllowedHosts)
+	if err != nil {
+		return nil, fmt.Errorf("marshal variable allowed hosts: %w", err)
+	}
 
 	query, _, err := p.goqu.Insert(p.tableVariables).Rows(
 		goqu.Record{
-			"workspace_id": w.actor.WorkspaceID,
-			"id":           id,
-			"key":          v.Key,
-			"value":        storeValue,
-			"description":  v.Description,
-			"secret":       v.Secret,
-			"created_at":   now,
-			"updated_at":   now,
-			"created_by":   v.CreatedBy,
-			"updated_by":   v.UpdatedBy,
+			"workspace_id":  w.actor.WorkspaceID,
+			"id":            id,
+			"key":           v.Key,
+			"value":         storeValue,
+			"description":   v.Description,
+			"secret":        v.Secret,
+			"allowed_tools": types.RawJSON(allowedTools),
+			"allowed_hosts": types.RawJSON(allowedHosts),
+			"created_at":    now,
+			"updated_at":    now,
+			"created_by":    v.CreatedBy,
+			"updated_by":    v.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -204,20 +222,25 @@ func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*ser
 	}
 
 	return &service.Variable{
-		WorkspaceID: w.actor.WorkspaceID,
-		ID:          id,
-		Key:         v.Key,
-		Value:       v.Value,
-		Description: v.Description,
-		Secret:      v.Secret,
-		CreatedAt:   now.Format(time.RFC3339),
-		UpdatedAt:   now.Format(time.RFC3339),
-		CreatedBy:   v.CreatedBy,
-		UpdatedBy:   v.UpdatedBy,
+		WorkspaceID:  w.actor.WorkspaceID,
+		ID:           id,
+		Key:          v.Key,
+		Value:        v.Value,
+		Description:  v.Description,
+		Secret:       v.Secret,
+		AllowedTools: v.AllowedTools,
+		AllowedHosts: v.AllowedHosts,
+		CreatedAt:    now.Format(time.RFC3339),
+		UpdatedAt:    now.Format(time.RFC3339),
+		CreatedBy:    v.CreatedBy,
+		UpdatedBy:    v.UpdatedBy,
 	}, nil
 }
 
 func (p *Postgres) UpdateVariable(ctx context.Context, id string, v service.Variable) (*service.Variable, error) {
+	if err := service.ValidateVariableUsePolicy(v); err != nil {
+		return nil, err
+	}
 	w, err := p.beginBusinessWrite(ctx, p.tableVariables, "variables.write", id)
 	if err != nil {
 		return nil, err
@@ -257,15 +280,25 @@ func (p *Postgres) UpdateVariable(ctx context.Context, id string, v service.Vari
 	}
 
 	now := time.Now().UTC()
+	allowedTools, err := json.Marshal(v.AllowedTools)
+	if err != nil {
+		return nil, fmt.Errorf("marshal variable allowed tools: %w", err)
+	}
+	allowedHosts, err := json.Marshal(v.AllowedHosts)
+	if err != nil {
+		return nil, fmt.Errorf("marshal variable allowed hosts: %w", err)
+	}
 
 	query, _, err := p.goqu.Update(p.tableVariables).Set(
 		goqu.Record{
-			"key":         v.Key,
-			"value":       storeValue,
-			"description": v.Description,
-			"secret":      v.Secret,
-			"updated_at":  now,
-			"updated_by":  v.UpdatedBy,
+			"key":           v.Key,
+			"value":         storeValue,
+			"description":   v.Description,
+			"secret":        v.Secret,
+			"allowed_tools": types.RawJSON(allowedTools),
+			"allowed_hosts": types.RawJSON(allowedHosts),
+			"updated_at":    now,
+			"updated_by":    v.UpdatedBy,
 		},
 	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -323,17 +356,31 @@ func variableRowToRecord(row variableRow, encKey []byte) (*service.Variable, err
 		value = decrypted
 	}
 
+	var allowedTools, allowedHosts []string
+	if len(row.AllowedTools) > 0 {
+		if err := json.Unmarshal(row.AllowedTools, &allowedTools); err != nil {
+			return nil, fmt.Errorf("unmarshal variable allowed tools for %q: %w", row.Key, err)
+		}
+	}
+	if len(row.AllowedHosts) > 0 {
+		if err := json.Unmarshal(row.AllowedHosts, &allowedHosts); err != nil {
+			return nil, fmt.Errorf("unmarshal variable allowed hosts for %q: %w", row.Key, err)
+		}
+	}
+
 	return &service.Variable{
-		WorkspaceID: row.WorkspaceID,
-		ID:          row.ID,
-		Key:         row.Key,
-		Value:       value,
-		Description: row.Description,
-		Secret:      row.Secret,
-		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy:   row.CreatedBy,
-		UpdatedBy:   row.UpdatedBy,
+		WorkspaceID:  row.WorkspaceID,
+		ID:           row.ID,
+		Key:          row.Key,
+		Value:        value,
+		Description:  row.Description,
+		Secret:       row.Secret,
+		AllowedTools: allowedTools,
+		AllowedHosts: allowedHosts,
+		CreatedAt:    row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:    row.CreatedBy,
+		UpdatedBy:    row.UpdatedBy,
 	}, nil
 }
 

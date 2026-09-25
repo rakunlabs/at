@@ -103,6 +103,10 @@ func (s *Server) CreateVariableAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "value is required", http.StatusBadRequest)
 		return
 	}
+	if err := service.ValidateVariableUsePolicy(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	userEmail := s.getUserEmail(r)
 	req.CreatedBy = userEmail
@@ -116,6 +120,10 @@ func (s *Server) CreateVariableAPI(w http.ResponseWriter, r *http.Request) {
 			existing.Description = req.Description
 		}
 		existing.Secret = req.Secret
+		if req.AllowedTools != nil {
+			existing.AllowedTools = req.AllowedTools
+			existing.AllowedHosts = req.AllowedHosts
+		}
 		existing.UpdatedBy = userEmail
 		record, err := s.variableStore.UpdateVariable(r.Context(), existing.ID, *existing)
 		if err != nil {
@@ -158,6 +166,26 @@ func (s *Server) UpdateVariableAPI(w http.ResponseWriter, r *http.Request) {
 
 	if req.Key == "" {
 		httpResponse(w, "key is required", http.StatusBadRequest)
+		return
+	}
+	existing, err := s.variableStore.GetVariable(r.Context(), id)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get variable: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if existing == nil {
+		httpResponse(w, fmt.Sprintf("variable %q not found", id), http.StatusNotFound)
+		return
+	}
+	if req.Value == "" {
+		req.Value = existing.Value
+	}
+	if req.AllowedTools == nil {
+		req.AllowedTools = existing.AllowedTools
+		req.AllowedHosts = existing.AllowedHosts
+	}
+	if err := service.ValidateVariableUsePolicy(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

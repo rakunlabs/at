@@ -254,6 +254,8 @@ func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance serv
 			kind, cap = "skills", "skills.read"
 		case "variables.read":
 			kind, cap = "variables", "variables.read"
+		case "variables.use":
+			kind, cap = "variables", "variables.use"
 		case "connections.use":
 			kind, cap = "connections", "connections.read"
 		case "agents.run":

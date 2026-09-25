@@ -86,7 +86,7 @@ var builtinTools = []builtinToolDef{
 				},
 				"headers": map[string]any{
 					"type":        "object",
-					"description": "Optional HTTP headers as key-value pairs",
+					"description": "Optional HTTP headers. A secret variable may be used without revealing it as {\"$ref\":\"variable://KEY\",\"prefix\":\"Bearer \"}; the variable must explicitly allow http_request and the HTTPS destination host.",
 				},
 				"body": map[string]any{
 					"type":        "string",
@@ -611,30 +611,33 @@ var builtinTools = []builtinToolDef{
 
 	// ─── Variable Management Tools (Phase 2) ───
 	// Variables are the key-value store backing skill/workflow handlers.
-	// Secret variables are encrypted at rest and redacted to "***" in
-	// list responses (Get returns the unredacted value, matching the UI
-	// behaviour). Create is an upsert by key — if a variable with the
+	// Secret variables are encrypted at rest and always redacted from
+	// model-facing list/get responses. Create is an upsert by key — if a variable with the
 	// same key exists, it's updated instead of erroring (mirrors HTTP).
-	{Name: "variable_list", Description: "List all variables. Secret variable values are redacted to '***' in this response; use variable_get to retrieve a specific secret unredacted.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "variable_get", Description: "Get a single variable by ID, INCLUDING its full unredacted value (even for secrets). Use this when a skill/workflow handler needs the live value — it's the same code path the UI's edit form uses.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("Variable ID.")}, "required": []string{"id"}}},
+	{Name: "variable_list", Description: "List variable names, descriptions, use policies, and non-secret values. Secret values are always redacted to '***'. A permitted secret can be passed by reference to http_request without reading it.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "variable_get", Description: "Get variable metadata by ID. Secret values remain redacted; use an approved variable:// reference in a supported tool instead of reading the secret.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("Variable ID.")}, "required": []string{"id"}}},
 	{Name: "variable_create", Description: "Create or upsert a variable. If a variable with the same `key` already exists, it's UPDATED instead of erroring (the value/description/secret flag are replaced). Use `secret: true` for tokens/passwords — these are encrypted at rest and redacted in list responses.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"key":         map[string]any{"type": "string", "description": "Variable key. Skills reference variables by key (case-sensitive)."},
-			"value":       map[string]any{"type": "string", "description": "Variable value"},
-			"description": map[string]any{"type": "string", "description": "Optional description"},
-			"secret":      map[string]any{"type": "boolean", "description": "If true, value is encrypted at rest and redacted in list responses"},
+			"key":           map[string]any{"type": "string", "description": "Variable key. Skills reference variables by key (case-sensitive)."},
+			"value":         map[string]any{"type": "string", "description": "Variable value"},
+			"description":   map[string]any{"type": "string", "description": "Optional description"},
+			"secret":        map[string]any{"type": "boolean", "description": "If true, value is encrypted at rest and redacted in list responses"},
+			"allowed_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"http_request"}}, "description": "Tools allowed to resolve this secret by reference. Omit or [] to deny model-driven use."},
+			"allowed_hosts": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Exact HTTPS hosts or explicit wildcard subdomains allowed for http_request, for example api.example.com or *.example.com."},
 		},
 		"required": []string{"key", "value"},
 	}},
 	{Name: "variable_update", Description: "Update a variable by ID. Pass the full intended state (key + value at minimum). Use variable_create to upsert by key without knowing the ID.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"id":          map[string]any{"type": "string", "description": "Variable ID"},
-			"key":         map[string]any{"type": "string"},
-			"value":       map[string]any{"type": "string"},
-			"description": map[string]any{"type": "string"},
-			"secret":      map[string]any{"type": "boolean"},
+			"id":            map[string]any{"type": "string", "description": "Variable ID"},
+			"key":           map[string]any{"type": "string"},
+			"value":         map[string]any{"type": "string"},
+			"description":   map[string]any{"type": "string"},
+			"secret":        map[string]any{"type": "boolean"},
+			"allowed_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"http_request"}}},
+			"allowed_hosts": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		},
 		"required": []string{"id", "key"},
 	}},
@@ -868,14 +871,31 @@ func (s *Server) execHTTPRequest(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("invalid request: %w", err)
 	}
 
-	// Apply headers.
+	// Apply headers. Secret references are resolved only at this execution
+	// boundary and are retained solely for response redaction.
+	var resolvedSecrets []string
 	if headers, ok := args["headers"].(map[string]any); ok {
 		for k, v := range headers {
-			httpReq.Header.Set(k, fmt.Sprintf("%v", v))
+			resolved, err := s.resolveHTTPHeaderValue(ctx, httpReq.URL, v)
+			if err != nil {
+				return "", fmt.Errorf("resolve HTTP header %q: %w", k, err)
+			}
+			httpReq.Header.Set(k, resolved.Value)
+			if resolved.Secret != "" {
+				resolvedSecrets = append(resolvedSecrets, resolved.Secret)
+			}
 		}
 	}
 
 	client := &http.Client{Timeout: timeout}
+	if len(resolvedSecrets) > 0 {
+		// A redirect could move an authenticated request outside the variable's
+		// host allowlist. Refuse it rather than relying on client-specific header
+		// forwarding rules.
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return fmt.Errorf("redirect refused for a request containing secret variable references")
+		}
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
@@ -899,14 +919,14 @@ func (s *Server) execHTTPRequest(ctx context.Context, args map[string]any) (stri
 	// Build response headers map.
 	respHeaders := make(map[string]string)
 	for k, v := range resp.Header {
-		respHeaders[k] = strings.Join(v, ", ")
+		respHeaders[k] = redactResolvedSecrets(strings.Join(v, ", "), resolvedSecrets)
 	}
 
 	result := map[string]any{
 		"status":      resp.StatusCode,
 		"status_text": resp.Status,
 		"headers":     respHeaders,
-		"body":        string(body),
+		"body":        redactResolvedSecrets(string(body), resolvedSecrets),
 	}
 	if truncated {
 		result["truncated"] = true

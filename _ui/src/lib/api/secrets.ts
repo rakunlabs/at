@@ -13,6 +13,8 @@ export interface Variable {
   value: string; // redacted as "***" in list responses for secret variables
   description: string;
   secret: boolean; // true = encrypted at rest, value redacted in list API
+  allowed_tools?: string[];
+  allowed_hosts?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -29,12 +31,21 @@ export async function getVariable(id: string): Promise<Variable> {
   return res.data;
 }
 
-export async function createVariable(data: { key: string; value: string; description?: string; secret?: boolean }): Promise<Variable> {
+export interface VariableInput {
+  key: string;
+  value?: string;
+  description?: string;
+  secret?: boolean;
+  allowed_tools?: string[];
+  allowed_hosts?: string[];
+}
+
+export async function createVariable(data: VariableInput & { value: string }): Promise<Variable> {
   const res = await api.post<Variable>('/variables', data);
   return res.data;
 }
 
-export async function updateVariable(id: string, data: { key: string; value?: string; description?: string; secret?: boolean }): Promise<Variable> {
+export async function updateVariable(id: string, data: VariableInput): Promise<Variable> {
   const res = await api.put<Variable>(`/variables/${id}`, data);
   return res.data;
 }
