@@ -50,7 +50,7 @@ export const apiSections: ApiSectionMeta[] = [
     id: 'opencode-config',
     title: 'Opencode config',
     description: 'Generate an opencode.json provider block from your models.',
-    body: 'opencode config json provider ai-sdk openai-compatible baseurl models select',
+    body: 'opencode config json provider ai-sdk openai-compatible baseurl models select v1 v2 providers package settings plugins',
   },
   {
     id: 'mcp-configuration',

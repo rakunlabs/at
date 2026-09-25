@@ -2,7 +2,11 @@
   import { CheckSquare, Square } from 'lucide-svelte';
   import type { InfoProvider } from '@/lib/api/gateway';
   import DocsCodeBlock from './DocsCodeBlock.svelte';
-  import { opencodeDiscoveryConfig, opencodeProviderConfig } from './snippets';
+  import {
+    opencodeDiscoveryConfig,
+    opencodeProviderConfig,
+    type OpencodeVersion,
+  } from './snippets';
 
   interface Props {
     baseUrl: string;
@@ -15,6 +19,7 @@
 
   /** `discovery` asks opencode to read the model list at runtime. */
   let mode = $state<'discovery' | 'manual'>('discovery');
+  let version = $state<OpencodeVersion>('v1');
   let selectedProviderKey = $state('');
   /** Full model ids, `provider/model`. */
   let selectedModels = $state<Set<string>>(new Set());
@@ -61,11 +66,12 @@
 
   const config = $derived(
     mode === 'discovery'
-      ? opencodeDiscoveryConfig({ baseUrl, instanceName })
+      ? opencodeDiscoveryConfig({ baseUrl, instanceName, version })
       : opencodeProviderConfig({
           baseUrl,
           instanceName,
           models: Array.from(selectedModels),
+          version,
         }),
   );
 
@@ -82,30 +88,82 @@
         : '',
     ];
   }
+
+  function versionClass(value: OpencodeVersion): string[] {
+    return [
+      buttonClass,
+      version === value
+        ? 'bg-gray-900 text-white hover:bg-gray-900 dark:bg-accent dark:text-dark-bg dark:hover:bg-accent'
+        : '',
+    ];
+  }
 </script>
 
-<div
-  class="flex flex-wrap gap-2"
-  role="group"
-  aria-label="opencode model list source"
->
-  <button
-    type="button"
-    aria-pressed={mode === 'discovery'}
-    onclick={() => (mode = 'discovery')}
-    class={modeClass('discovery')}
-  >
-    Auto discovery
-  </button>
-  <button
-    type="button"
-    aria-pressed={mode === 'manual'}
-    onclick={() => (mode = 'manual')}
-    class={modeClass('manual')}
-  >
-    Pick models
-  </button>
+<div class="flex flex-wrap gap-x-6 gap-y-2">
+  <div class="flex flex-wrap gap-2" role="group" aria-label="opencode version">
+    <button
+      type="button"
+      aria-pressed={version === 'v1'}
+      onclick={() => (version = 'v1')}
+      class={versionClass('v1')}
+    >
+      opencode V1
+    </button>
+    <button
+      type="button"
+      aria-pressed={version === 'v2'}
+      onclick={() => (version = 'v2')}
+      class={versionClass('v2')}
+    >
+      opencode V2
+    </button>
+  </div>
+
+  <div class="flex flex-wrap gap-2" role="group" aria-label="opencode model list source">
+    <button
+      type="button"
+      aria-pressed={mode === 'discovery'}
+      onclick={() => (mode = 'discovery')}
+      class={modeClass('discovery')}
+    >
+      Auto discovery
+    </button>
+    <button
+      type="button"
+      aria-pressed={mode === 'manual'}
+      onclick={() => (mode = 'manual')}
+      class={modeClass('manual')}
+    >
+      Pick models
+    </button>
+  </div>
 </div>
+
+{#if version === 'v2'}
+  <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+    opencode V2 uses <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >providers</code
+    >,
+    <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >package</code
+    > and
+    <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >settings</code
+    > instead of V1's <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >provider</code
+    > / <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >npm</code
+    > / <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >options</code
+    >.
+  </p>
+{/if}
 
 {#if mode === 'discovery'}
   <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">

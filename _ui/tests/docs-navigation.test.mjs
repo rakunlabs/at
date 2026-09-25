@@ -191,6 +191,42 @@ test('opencodeDiscoveryConfig keeps the deployment path prefix in the endpoint',
   assert.equal(cfg.provider.at.options.baseURL, 'https://host/at/gateway/v1');
 });
 
+test('opencodeDiscoveryConfig emits the V2 providers/package/settings schema', () => {
+  const cfg = JSON.parse(
+    snippets.opencodeDiscoveryConfig({
+      baseUrl: 'https://host/at',
+      instanceName: 'AT',
+      version: 'v2',
+    }),
+  );
+  assert.equal(cfg.provider, undefined);
+  assert.equal(cfg.plugin, undefined);
+  assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@1.6.1', options: {} }]);
+  assert.deepEqual(cfg.providers.at, {
+    name: 'AT',
+    package: '@opencode-ai/ai/providers/openai-compatible',
+    settings: {
+      baseURL: 'https://host/at/gateway/v1',
+      modelsDiscovery: { enabled: true, endpoint: '/at/gateway/v1/models' },
+    },
+    models: {},
+  });
+});
+
+test('opencodeProviderConfig emits the V2 schema without a discovery plugin', () => {
+  const cfg = JSON.parse(
+    snippets.opencodeProviderConfig({
+      baseUrl: 'https://at',
+      instanceName: 'AT',
+      models: ['b/2', 'a/1'],
+      version: 'v2',
+    }),
+  );
+  assert.equal(cfg.plugins, undefined);
+  assert.deepEqual(Object.keys(cfg.providers.at.models), ['a/1', 'b/2']);
+  assert.deepEqual(cfg.providers.at.settings, { baseURL: 'https://at/gateway/v1' });
+});
+
 test('codeExampleFor covers every advertised tab', () => {
   for (const tab of snippets.codeExampleTabs) {
     const code = snippets.codeExampleFor(tab.id, 'openai/gpt-4o', 'https://at');
