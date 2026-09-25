@@ -27,9 +27,13 @@ export interface UsageSummary {
   cache_write_tokens: number;
   total_tokens: number;
   request_count: number;
+  priced_request_count: number;
   error_count: number;
   cost_cents: number;
   avg_latency_ms: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
   max_latency_ms: number;
   total_latency_ms: number;
   first_event_at?: string;
@@ -44,9 +48,11 @@ export interface UsageTimeSeriesPoint {
   cache_write_tokens: number;
   total_tokens: number;
   request_count: number;
+  priced_request_count: number;
   error_count: number;
   cost_cents: number;
   avg_latency_ms: number;
+  p95_latency_ms: number;
 }
 
 export interface BudgetUtilization extends BudgetSchedule {
@@ -56,10 +62,12 @@ export interface BudgetUtilization extends BudgetSchedule {
   current_spend: number;
   period_start?: string;
   period_end?: string;
+  request_count: number;
+  priced_request_count: number;
   usage_percent: number;
 }
 
-export type GroupBy = 'provider' | 'model' | 'agent' | 'org' | 'project' | 'goal' | 'billing_code' | 'status' | 'user' | 'source';
+export type GroupBy = 'provider' | 'model' | 'agent' | 'org' | 'project' | 'goal' | 'billing_code' | 'status' | 'error_code' | 'user' | 'source';
 export type Bucket = 'hour' | 'day';
 
 // Convert a UsageFilter into the flattened query-string object axios expects.

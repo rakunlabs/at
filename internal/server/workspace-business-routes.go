@@ -214,6 +214,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/skills/{id}/publish", "skills.write", "", ""},
 		{"GET", "/skills/{id}/export", "skills.read", "", ""},
 		{"GET", "/skills/{id}/export-md", "skills.read", "", ""},
+		{"GET", "/skills/{id}/export-package", "skills.read", "", ""},
 		{"GET", "/skills/{id}/files", "skills.read", "", ""},
 		{"PUT", "/skills/{id}/files", "skills.read", "", ""},
 		{"DELETE", "/skills/{id}/files", "skills.read", "", ""},

@@ -44,6 +44,17 @@ func TestEstimateUsageCostCentsMissingPricingZero(t *testing.T) {
 	}
 }
 
+func TestEstimateUsageCostDistinguishesZeroPriceFromMissingPricing(t *testing.T) {
+	if cost, available := estimateUsageCost(nil, "local", "free", "local/free", service.Usage{PromptTokens: 10}); cost != 0 || available {
+		t.Fatalf("missing pricing = (%f, %v), want (0, false)", cost, available)
+	}
+
+	cost, available := estimateUsageCost([]service.ModelPricing{{ProviderKey: "local", Model: "free"}}, "local", "free", "local/free", service.Usage{PromptTokens: 10})
+	if cost != 0 || !available {
+		t.Fatalf("zero pricing = (%f, %v), want (0, true)", cost, available)
+	}
+}
+
 func TestCheckTokenLimitsSpendExceeded(t *testing.T) {
 	s := &Server{costEventStore: &budgetCostEventStore{spend: 501}}
 	token := &service.APIToken{

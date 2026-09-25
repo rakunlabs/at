@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -8,6 +10,7 @@ import (
 	pathpkg "path"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -23,6 +26,91 @@ type skillFile struct {
 
 type putSkillFilesRequest struct {
 	Files []skillFile `json:"files"`
+}
+
+// ExportSkillPackageAPI downloads the complete portable skill directory. Even
+// a skill without resources is wrapped in a named directory containing
+// SKILL.md, so extracting several downloads never scatters loose files.
+func (s *Server) ExportSkillPackageAPI(w http.ResponseWriter, r *http.Request) {
+	if s.skillStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	record, err := s.skillStore.GetSkill(r.Context(), r.PathValue("id"))
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get skill: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, "skill not found", http.StatusNotFound)
+		return
+	}
+
+	main, err := skillToMarkdown(record)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to generate SKILL.md: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	root := skillPackageDirectoryName(record.Name)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if err := writeSkillPackageFile(zw, pathpkg.Join(root, skillMainFile), main); err != nil {
+		httpResponse(w, fmt.Sprintf("failed to create skill package: %v", err), http.StatusInternalServerError)
+		return
+	}
+	resources := append([]service.SkillResource(nil), record.Resources...)
+	sort.Slice(resources, func(i, j int) bool { return resources[i].Path < resources[j].Path })
+	for _, resource := range resources {
+		resourcePath, err := cleanSkillFilePath(resource.Path)
+		if err != nil || strings.EqualFold(resourcePath, skillMainFile) {
+			httpResponse(w, fmt.Sprintf("failed to create skill package: invalid resource path %q", resource.Path), http.StatusInternalServerError)
+			return
+		}
+		if err := writeSkillPackageFile(zw, pathpkg.Join(root, resourcePath), []byte(resource.Content)); err != nil {
+			httpResponse(w, fmt.Sprintf("failed to create skill package: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := zw.Close(); err != nil {
+		httpResponse(w, fmt.Sprintf("failed to create skill package: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": root + ".zip"}))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
+}
+
+func writeSkillPackageFile(zw *zip.Writer, name string, data []byte) error {
+	w, err := zw.Create(name)
+	if err != nil {
+		return fmt.Errorf("create %q: %w", name, err)
+	}
+	if _, err := w.Write(data); err != nil {
+		return fmt.Errorf("write %q: %w", name, err)
+	}
+	return nil
+}
+
+func skillPackageDirectoryName(name string) string {
+	name = strings.TrimSpace(name)
+	var result strings.Builder
+	for _, r := range name {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '-', r == '_', r == '.', unicode.IsSpace(r):
+			result.WriteRune(r)
+		default:
+			result.WriteByte('-')
+		}
+	}
+	clean := strings.Trim(result.String(), " .")
+	if clean == "" || clean == "." || clean == ".." {
+		return "skill"
+	}
+	return clean
 }
 
 // ImportSkillFilesAPI creates a skill from a browser-selected directory. The

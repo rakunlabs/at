@@ -101,7 +101,11 @@ func writeTestFile(t *testing.T, name, content string) {
 
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	// Test repositories must not inherit signing or hooks from the developer's
+	// global Git configuration. In particular, commit.gpgSign can otherwise
+	// open an interactive PIN prompt during go test.
+	gitArgs := []string{"-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", "-c", "core.hooksPath=/dev/null"}
+	cmd := exec.Command("git", append(gitArgs, args...)...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %s: %v", args, out, err)

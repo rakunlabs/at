@@ -77,6 +77,9 @@ func TestUsage_GetUsageSummary(t *testing.T) {
 	if got.RequestCount != 4 {
 		t.Errorf("RequestCount: got %d, want 4", got.RequestCount)
 	}
+	if got.PricedRequestCount != 3 {
+		t.Errorf("PricedRequestCount: got %d, want 3", got.PricedRequestCount)
+	}
 	if got.ErrorCount != 1 {
 		t.Errorf("ErrorCount: got %d, want 1", got.ErrorCount)
 	}
@@ -92,6 +95,9 @@ func TestUsage_GetUsageSummary(t *testing.T) {
 	// 0.5 + 1.0 + 0.2 = 1.7 cents
 	if diff := got.CostCents - 1.7; diff > 0.01 || diff < -0.01 {
 		t.Errorf("CostCents: got %f, want ~1.7", got.CostCents)
+	}
+	if got.P50LatencyMs != 750 || got.P95LatencyMs != 1850 {
+		t.Errorf("latency percentiles: p50=%f p95=%f, want 750/1850", got.P50LatencyMs, got.P95LatencyMs)
 	}
 }
 
@@ -130,6 +136,9 @@ func TestUsage_GetUsageGrouped_Provider(t *testing.T) {
 	if openai.RequestCount != 3 {
 		t.Errorf("openai RequestCount: got %d, want 3", openai.RequestCount)
 	}
+	if openai.PricedRequestCount != 2 {
+		t.Errorf("openai PricedRequestCount: got %d, want 2", openai.PricedRequestCount)
+	}
 	if openai.ErrorCount != 1 {
 		t.Errorf("openai ErrorCount: got %d, want 1", openai.ErrorCount)
 	}
@@ -149,6 +158,13 @@ func TestUsage_GetUsageGrouped_InvalidGroupBy(t *testing.T) {
 	}
 }
 
+func TestUsageGroupColumnErrorCode(t *testing.T) {
+	got, err := usageGroupColumn("error_code")
+	if err != nil || got != "error_code" {
+		t.Fatalf("usageGroupColumn(error_code) = %q, %v", got, err)
+	}
+}
+
 func TestUsage_GetUsageTimeSeries_Day(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t, nil)
@@ -164,6 +180,9 @@ func TestUsage_GetUsageTimeSeries_Day(t *testing.T) {
 	// Seeded offsets place the first 3 events on day 1 and the error on day 2.
 	if points[0].RequestCount != 3 {
 		t.Errorf("day1 RequestCount: got %d, want 3", points[0].RequestCount)
+	}
+	if points[0].PricedRequestCount != 3 {
+		t.Errorf("day1 PricedRequestCount: got %d, want 3", points[0].PricedRequestCount)
 	}
 	if points[0].ErrorCount != 0 {
 		t.Errorf("day1 ErrorCount: got %d, want 0", points[0].ErrorCount)

@@ -33,6 +33,7 @@ type costEventRow struct {
 	CacheReadTokens  int64          `db:"cache_read_tokens"`
 	CacheWriteTokens int64          `db:"cache_write_tokens"`
 	CostCents        float64        `db:"cost_cents"`
+	CostAvailable    bool           `db:"cost_available"`
 	LatencyMs        int64          `db:"latency_ms"`
 	Status           string         `db:"status"`
 	ErrorCode        sql.NullString `db:"error_code"`
@@ -43,7 +44,7 @@ type costEventRow struct {
 var costEventColumns = []interface{}{
 	"id", "organization_id", "agent_id", "task_id", "project_id", "goal_id",
 	"billing_code", "run_id", "provider", "model",
-	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_cents",
+	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_cents", "cost_available",
 	"latency_ms", "status", "error_code", "error_message",
 	"created_at", "user_id", "source",
 }
@@ -55,7 +56,7 @@ func scanCostEventRow(scanner interface {
 		&row.ID, &row.OrganizationID, &row.AgentID, &row.TaskID,
 		&row.ProjectID, &row.GoalID, &row.BillingCode, &row.RunID,
 		&row.Provider, &row.Model, &row.InputTokens, &row.OutputTokens,
-		&row.CacheReadTokens, &row.CacheWriteTokens, &row.CostCents,
+		&row.CacheReadTokens, &row.CacheWriteTokens, &row.CostCents, &row.CostAvailable,
 		&row.LatencyMs, &row.Status, &row.ErrorCode, &row.ErrorMessage,
 		&row.CreatedAt, &row.UserID, &row.Source,
 	)
@@ -78,6 +79,7 @@ func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent)
 	if status == "" {
 		status = "ok"
 	}
+	costAvailable := event.CostAvailable || event.CostCents > 0
 
 	query, _, err := p.goqu.Insert(p.tableCostEvents).Rows(
 		goqu.Record{
@@ -99,6 +101,7 @@ func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent)
 			"cache_read_tokens":  event.CacheReadTokens,
 			"cache_write_tokens": event.CacheWriteTokens,
 			"cost_cents":         event.CostCents,
+			"cost_available":     costAvailable,
 			"latency_ms":         event.LatencyMs,
 			"status":             status,
 			"error_code":         event.ErrorCode,
@@ -271,6 +274,7 @@ func costEventRowToRecord(row costEventRow) *service.CostEvent {
 		CacheReadTokens:  row.CacheReadTokens,
 		CacheWriteTokens: row.CacheWriteTokens,
 		CostCents:        row.CostCents,
+		CostAvailable:    row.CostAvailable,
 		LatencyMs:        row.LatencyMs,
 		Status:           row.Status,
 		ErrorCode:        row.ErrorCode.String,

@@ -29,20 +29,30 @@ func withUserUsage(ctx context.Context, source string) context.Context {
 }
 
 func (s *Server) estimateGatewayUsageCostCents(ctx context.Context, providerKey, actualModel, fullModel string, usage service.Usage) float64 {
+	cost, _ := s.estimateGatewayUsageCost(ctx, providerKey, actualModel, fullModel, usage)
+	return cost
+}
+
+func (s *Server) estimateGatewayUsageCost(ctx context.Context, providerKey, actualModel, fullModel string, usage service.Usage) (float64, bool) {
 	if s.agentBudgetStore == nil {
-		return 0
+		return 0, false
 	}
 	pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return estimateUsageCostCents(pricingList, providerKey, actualModel, fullModel, usage)
+	return estimateUsageCost(pricingList, providerKey, actualModel, fullModel, usage)
 }
 
 func estimateUsageCostCents(pricingList []service.ModelPricing, providerKey, actualModel, fullModel string, usage service.Usage) float64 {
+	cost, _ := estimateUsageCost(pricingList, providerKey, actualModel, fullModel, usage)
+	return cost
+}
+
+func estimateUsageCost(pricingList []service.ModelPricing, providerKey, actualModel, fullModel string, usage service.Usage) (float64, bool) {
 	pricing, ok := findModelPricing(pricingList, providerKey, actualModel, fullModel)
 	if !ok {
-		return 0
+		return 0, false
 	}
 
 	dollars := (float64(usage.PromptTokens) * pricing.PromptPricePer1M / 1_000_000) +
@@ -50,9 +60,9 @@ func estimateUsageCostCents(pricingList []service.ModelPricing, providerKey, act
 		(float64(usage.CacheReadTokens) * pricing.CacheReadPricePer1M / 1_000_000) +
 		(float64(usage.CacheWriteTokens) * pricing.CacheWritePricePer1M / 1_000_000)
 	if dollars <= 0 {
-		return 0
+		return 0, true
 	}
-	return dollars * 100
+	return dollars * 100, true
 }
 
 func findModelPricing(pricingList []service.ModelPricing, providerKey, actualModel, fullModel string) (service.ModelPricing, bool) {

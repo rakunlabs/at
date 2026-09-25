@@ -68,15 +68,20 @@ func agentBudgetPeriod(budget *service.AgentBudget, now time.Time) (time.Time, t
 }
 
 func (s *Server) deriveAgentBudget(ctx context.Context, budget *service.AgentBudget, now time.Time) (*service.AgentBudget, error) {
+	derived, _, err := s.deriveAgentBudgetUsage(ctx, budget, now)
+	return derived, err
+}
+
+func (s *Server) deriveAgentBudgetUsage(ctx context.Context, budget *service.AgentBudget, now time.Time) (*service.AgentBudget, service.UsageSummary, error) {
 	if budget == nil {
-		return nil, nil
+		return nil, service.UsageSummary{}, nil
 	}
 	start, end, err := agentBudgetPeriod(budget, now)
 	if err != nil {
-		return nil, fmt.Errorf("calculate agent budget period: %w", err)
+		return nil, service.UsageSummary{}, fmt.Errorf("calculate agent budget period: %w", err)
 	}
 	if s.costEventStore == nil {
-		return nil, fmt.Errorf("cost event store not configured")
+		return nil, service.UsageSummary{}, fmt.Errorf("cost event store not configured")
 	}
 	summary, err := s.costEventStore.GetUsageSummary(ctx, service.UsageFilter{
 		From:     start.Format(time.RFC3339),
@@ -84,7 +89,7 @@ func (s *Server) deriveAgentBudget(ctx context.Context, budget *service.AgentBud
 		AgentIDs: []string{budget.AgentID},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get agent budget spend: %w", err)
+		return nil, service.UsageSummary{}, fmt.Errorf("get agent budget spend: %w", err)
 	}
 
 	derived := *budget
@@ -94,7 +99,7 @@ func (s *Server) deriveAgentBudget(ctx context.Context, budget *service.AgentBud
 	derived.CurrentSpend = summary.CostCents / 100
 	derived.PeriodStart = start.Format(time.RFC3339)
 	derived.PeriodEnd = end.Format(time.RFC3339)
-	return &derived, nil
+	return &derived, summary, nil
 }
 
 func (s *Server) organizationBudgetStatus(ctx context.Context, org *service.Organization, now time.Time) (*service.BudgetStatus, error) {

@@ -580,8 +580,8 @@
   <title>AT | Agents</title>
 </svelte:head>
 
-<div class="flex h-full min-w-0">
-  <div class="flex-1 min-w-0 overflow-y-auto">
+<div class="flex h-full min-h-0 min-w-0 overflow-hidden">
+  <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
     <div class="p-6 max-w-6xl mx-auto">
       {#if agents.length > 0}
         <LoadIssues issues={page.list.issues} retry={loadData} {loading} />

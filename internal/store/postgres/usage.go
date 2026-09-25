@@ -94,9 +94,13 @@ const usageAggregateSelect = `
     COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
     COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0) AS total_tokens,
     COUNT(*)                         AS request_count,
+	COUNT(*) FILTER (WHERE cost_available) AS priced_request_count,
     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(cost_cents), 0)    AS cost_cents,
-    COALESCE(AVG(latency_ms), 0)    AS avg_latency_ms,
+	COALESCE(AVG(NULLIF(latency_ms, 0)), 0) AS avg_latency_ms,
+	COALESCE(percentile_cont(0.50) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE latency_ms > 0), 0) AS p50_latency_ms,
+	COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE latency_ms > 0), 0) AS p95_latency_ms,
+	COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE latency_ms > 0), 0) AS p99_latency_ms,
     COALESCE(MAX(latency_ms), 0)    AS max_latency_ms,
     COALESCE(SUM(latency_ms), 0)    AS total_latency_ms,
     MIN(created_at)                  AS first_event_at,
@@ -112,8 +116,8 @@ func (p *Postgres) GetUsageSummary(ctx context.Context, filter service.UsageFilt
 	var first, last sql.NullTime
 	err := p.db.QueryRowContext(ctx, q, args...).Scan(
 		&sum.InputTokens, &sum.OutputTokens, &sum.CacheReadTokens, &sum.CacheWriteTokens, &sum.TotalTokens,
-		&sum.RequestCount, &sum.ErrorCount, &sum.CostCents,
-		&sum.AvgLatencyMs, &sum.MaxLatencyMs, &sum.TotalLatencyMs,
+		&sum.RequestCount, &sum.PricedRequestCount, &sum.ErrorCount, &sum.CostCents,
+		&sum.AvgLatencyMs, &sum.P50LatencyMs, &sum.P95LatencyMs, &sum.P99LatencyMs, &sum.MaxLatencyMs, &sum.TotalLatencyMs,
 		&first, &last,
 	)
 	if err != nil {
@@ -146,6 +150,8 @@ func usageGroupColumn(groupBy string) (string, error) {
 		return "billing_code", nil
 	case "status":
 		return "status", nil
+	case "error_code", "error":
+		return "error_code", nil
 	case "user", "user_id":
 		return "user_id", nil
 	case "source":
@@ -194,8 +200,8 @@ func (p *Postgres) GetUsageGrouped(ctx context.Context, filter service.UsageFilt
 			&key,
 			&row.Label,
 			&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheWriteTokens, &row.TotalTokens,
-			&row.RequestCount, &row.ErrorCount, &row.CostCents,
-			&row.AvgLatencyMs, &row.MaxLatencyMs, &row.TotalLatencyMs,
+			&row.RequestCount, &row.PricedRequestCount, &row.ErrorCount, &row.CostCents,
+			&row.AvgLatencyMs, &row.P50LatencyMs, &row.P95LatencyMs, &row.P99LatencyMs, &row.MaxLatencyMs, &row.TotalLatencyMs,
 			&first, &last,
 		); err != nil {
 			return nil, fmt.Errorf("scan usage group row: %w", err)
@@ -233,9 +239,11 @@ func (p *Postgres) GetUsageTimeSeries(ctx context.Context, filter service.UsageF
             COALESCE(SUM(cache_write_tokens), 0),
             COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0),
             COUNT(*),
+			COUNT(*) FILTER (WHERE cost_available),
             COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(cost_cents), 0),
-            COALESCE(AVG(latency_ms), 0)
+            COALESCE(AVG(NULLIF(latency_ms, 0)), 0),
+			COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) FILTER (WHERE latency_ms > 0), 0)
          FROM %s%s
          GROUP BY bucket
          ORDER BY bucket ASC`,
@@ -255,7 +263,7 @@ func (p *Postgres) GetUsageTimeSeries(ctx context.Context, filter service.UsageF
 		if err := rows.Scan(
 			&bucketT,
 			&point.InputTokens, &point.OutputTokens, &point.CacheReadTokens, &point.CacheWriteTokens, &point.TotalTokens,
-			&point.RequestCount, &point.ErrorCount, &point.CostCents, &point.AvgLatencyMs,
+			&point.RequestCount, &point.PricedRequestCount, &point.ErrorCount, &point.CostCents, &point.AvgLatencyMs, &point.P95LatencyMs,
 		); err != nil {
 			return nil, fmt.Errorf("scan timeseries row: %w", err)
 		}

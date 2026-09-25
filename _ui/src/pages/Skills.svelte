@@ -10,8 +10,7 @@
     publishSkill,
     listSkillTemplates,
     installSkillTemplate,
-    exportSkill,
-    exportSkillMD,
+    downloadSkillPackage,
     importSkillFromURL,
     importSkillMD,
     importSkillFiles,
@@ -38,7 +37,7 @@
     type MarketplaceSource,
     type MarketplaceSkill,
   } from '@/lib/api/marketplace';
-  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users, BookOpen } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users, BookOpen } from 'lucide-svelte';
   import SkillFilesDialog from '@/lib/components/SkillFilesDialog.svelte';
   import { listGitCredentials, type GitCredential } from '@/lib/api/git-credentials';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -142,49 +141,6 @@
 
   function formatBytes(value: number): string {
     return value < 1024 ? `${value} B` : `${(value / 1024).toFixed(value < 10240 ? 1 : 0)} KB`;
-  }
-
-  // Copy / Paste via system clipboard (works across browsers/machines)
-
-  async function copySkill(skill: Skill) {
-    const exportData = {
-      name: skill.name,
-      description: skill.description,
-      system_prompt: skill.system_prompt,
-      context: skill.context || undefined,
-      agent: skill.agent || undefined,
-      background: skill.background || undefined,
-    };
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
-      addToast(`Copied "${skill.name}" to clipboard`);
-    } catch {
-      addToast('Failed to copy to clipboard', 'alert');
-    }
-  }
-
-  async function pasteSkill() {
-    try {
-      const text = await navigator.clipboard.readText();
-      const src = JSON.parse(text);
-      if (!src.name || typeof src.name !== 'string') {
-        addToast('Clipboard does not contain a valid skill', 'warn');
-        return;
-      }
-      resetForm();
-      formName = src.name + '_copy';
-      formDescription = src.description || '';
-      formCategory = src.category || '';
-      formTags = Array.isArray(src.tags) ? [...src.tags] : [];
-      formSystemPrompt = src.system_prompt || '';
-      formContext = src.context === 'fork' ? 'fork' : '';
-      formAgent = formContext === 'fork' ? (src.agent || '') : '';
-      formBackground = formContext === 'fork' && Boolean(src.background);
-      editingId = null;
-      showForm = true;
-    } catch {
-      addToast('Nothing to paste — copy a skill first or check clipboard permissions', 'warn');
-    }
   }
 
   // ─── Load ───
@@ -539,23 +495,22 @@
     return existingVars.has(provider + '_refresh_token') || oauthConnected[provider];
   }
 
-  // ─── Export ───
+  // ─── Download ───
 
-  async function handleExport(skill: Skill) {
+  async function handleDownload(skill: Skill) {
     try {
-      const mdContent = await exportSkillMD(skill.id);
-      const blob = new Blob([mdContent], { type: 'text/markdown' });
+      const blob = await downloadSkillPackage(skill.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${skill.name}.md`;
+      a.download = `${skill.name}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      addToast(`Exported "${skill.name}" as ${skill.name}.md`);
+      addToast(`Downloaded ${skill.name}.zip`);
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to export skill', 'alert');
+      addToast(e?.response?.data?.message || 'Failed to download skill', 'alert');
     }
   }
 
@@ -975,22 +930,9 @@
       {#if showForm}
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
           <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
-                {editingId ? `Edit: ${formName}` : 'New Skill'}
-              </span>
-              {#if !editingId}
-                <button
-                  type="button"
-                  onclick={pasteSkill}
-                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text "
-                  title="Paste skill from clipboard"
-                >
-                  <ClipboardPaste size={12} />
-                  Paste
-                </button>
-              {/if}
-            </div>
+            <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+              {editingId ? `Edit: ${formName}` : 'New Skill'}
+            </span>
             <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
@@ -1278,18 +1220,12 @@
                     <FolderOpen size={14} />
                   </button>
                   <button
-                    onclick={() => handleExport(skill)}
+                    onclick={() => handleDownload(skill)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
-                    title="Export skill as JSON"
+                    title="Download skill package"
+                    aria-label={`Download ${skill.name} as a ZIP package`}
                   >
                     <Download size={14} />
-                  </button>
-                  <button
-                    onclick={() => copySkill(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
-                    title="Copy skill"
-                  >
-                    <Copy size={14} />
                   </button>
                   {#if skill.owner_user_id || mayPublish}
                   <button

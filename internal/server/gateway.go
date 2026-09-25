@@ -1560,8 +1560,9 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 		providerKey, actualModel := splitProviderModel(fullModel)
 
 		var costCents float64
+		var costAvailable bool
 		if hasUsage {
-			costCents = s.estimateGatewayUsageCostCents(context.WithoutCancel(ctx), providerKey, actualModel, fullModel, usage)
+			costCents, costAvailable = s.estimateGatewayUsageCost(context.WithoutCancel(ctx), providerKey, actualModel, fullModel, usage)
 		}
 
 		// There is no billing_code on APIToken today; use the token Name as a
@@ -1591,6 +1592,7 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 				CacheReadTokens:  int64(usage.CacheReadTokens),
 				CacheWriteTokens: int64(usage.CacheWriteTokens),
 				CostCents:        costCents,
+				CostAvailable:    costAvailable,
 				LatencyMs:        latencyMs,
 				Status:           status,
 				ErrorCode:        errCode,

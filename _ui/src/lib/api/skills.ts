@@ -161,6 +161,11 @@ export async function exportSkillMD(id: string): Promise<string> {
   return res.data;
 }
 
+export async function downloadSkillPackage(id: string): Promise<Blob> {
+  const res = await api.get<Blob>(`/skills/${id}/export-package`, { responseType: 'blob' });
+  return res.data;
+}
+
 export interface SkillImportOptions {
   repository?: boolean;
   ref?: string;

@@ -230,6 +230,9 @@ type CostEvent struct {
 	CacheReadTokens  int64   `json:"cache_read_tokens"`
 	CacheWriteTokens int64   `json:"cache_write_tokens"`
 	CostCents        float64 `json:"cost_cents"`
+	// CostAvailable distinguishes a calculable zero cost from a call whose usage
+	// or model pricing was unavailable.
+	CostAvailable bool `json:"cost_available"`
 	// LatencyMs is the wall-clock duration of the LLM call, in milliseconds.
 	// Zero for externally-ingested events that don't report latency.
 	LatencyMs int64 `json:"latency_ms"`
@@ -267,46 +270,54 @@ type UsageFilter struct {
 // Used both for the /usage/summary endpoint (single row) and as the row shape
 // returned by /usage/grouped (keyed by the requested GroupBy dimension).
 type UsageSummary struct {
-	Key              string  `json:"key,omitempty"`
-	Label            string  `json:"label,omitempty"`
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	CacheReadTokens  int64   `json:"cache_read_tokens"`
-	CacheWriteTokens int64   `json:"cache_write_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	RequestCount     int64   `json:"request_count"`
-	ErrorCount       int64   `json:"error_count"`
-	CostCents        float64 `json:"cost_cents"`
-	AvgLatencyMs     float64 `json:"avg_latency_ms"`
-	MaxLatencyMs     int64   `json:"max_latency_ms"`
-	TotalLatencyMs   int64   `json:"total_latency_ms"`
-	FirstEventAt     string  `json:"first_event_at,omitempty"`
-	LastEventAt      string  `json:"last_event_at,omitempty"`
+	Key                string  `json:"key,omitempty"`
+	Label              string  `json:"label,omitempty"`
+	InputTokens        int64   `json:"input_tokens"`
+	OutputTokens       int64   `json:"output_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`
+	CacheWriteTokens   int64   `json:"cache_write_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	RequestCount       int64   `json:"request_count"`
+	PricedRequestCount int64   `json:"priced_request_count"`
+	ErrorCount         int64   `json:"error_count"`
+	CostCents          float64 `json:"cost_cents"`
+	AvgLatencyMs       float64 `json:"avg_latency_ms"`
+	P50LatencyMs       float64 `json:"p50_latency_ms"`
+	P95LatencyMs       float64 `json:"p95_latency_ms"`
+	P99LatencyMs       float64 `json:"p99_latency_ms"`
+	MaxLatencyMs       int64   `json:"max_latency_ms"`
+	TotalLatencyMs     int64   `json:"total_latency_ms"`
+	FirstEventAt       string  `json:"first_event_at,omitempty"`
+	LastEventAt        string  `json:"last_event_at,omitempty"`
 }
 
 // UsageTimeSeriesPoint is one bucket in a time series.
 type UsageTimeSeriesPoint struct {
-	Bucket           string  `json:"bucket"` // RFC3339 timestamp at bucket start
-	InputTokens      int64   `json:"input_tokens"`
-	OutputTokens     int64   `json:"output_tokens"`
-	CacheReadTokens  int64   `json:"cache_read_tokens"`
-	CacheWriteTokens int64   `json:"cache_write_tokens"`
-	TotalTokens      int64   `json:"total_tokens"`
-	RequestCount     int64   `json:"request_count"`
-	ErrorCount       int64   `json:"error_count"`
-	CostCents        float64 `json:"cost_cents"`
-	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+	Bucket             string  `json:"bucket"` // RFC3339 timestamp at bucket start
+	InputTokens        int64   `json:"input_tokens"`
+	OutputTokens       int64   `json:"output_tokens"`
+	CacheReadTokens    int64   `json:"cache_read_tokens"`
+	CacheWriteTokens   int64   `json:"cache_write_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	RequestCount       int64   `json:"request_count"`
+	PricedRequestCount int64   `json:"priced_request_count"`
+	ErrorCount         int64   `json:"error_count"`
+	CostCents          float64 `json:"cost_cents"`
+	AvgLatencyMs       float64 `json:"avg_latency_ms"`
+	P95LatencyMs       float64 `json:"p95_latency_ms"`
 }
 
 // BudgetUtilization combines an agent's budget with its current spend.
 type BudgetUtilization struct {
 	BudgetSchedule
-	AgentID      string  `json:"agent_id"`
-	AgentName    string  `json:"agent_name,omitempty"`
-	MonthlyLimit float64 `json:"monthly_limit"`
-	CurrentSpend float64 `json:"current_spend"`
-	PeriodStart  string  `json:"period_start,omitempty"`
-	PeriodEnd    string  `json:"period_end,omitempty"`
+	AgentID            string  `json:"agent_id"`
+	AgentName          string  `json:"agent_name,omitempty"`
+	MonthlyLimit       float64 `json:"monthly_limit"`
+	CurrentSpend       float64 `json:"current_spend"`
+	PeriodStart        string  `json:"period_start,omitempty"`
+	PeriodEnd          string  `json:"period_end,omitempty"`
+	RequestCount       int64   `json:"request_count"`
+	PricedRequestCount int64   `json:"priced_request_count"`
 	// UsagePercent is (CurrentSpend / MonthlyLimit) * 100, capped by clients for display.
 	UsagePercent float64 `json:"usage_percent"`
 }
@@ -346,7 +357,7 @@ type CostEventStorer interface {
 	GetUsageSummary(ctx context.Context, filter UsageFilter) (UsageSummary, error)
 	// GetUsageGrouped returns one aggregated row per distinct value of groupBy.
 	// Allowed groupBy values: "provider", "model", "agent", "organization",
-	// "project", "goal", "billing_code", "status".
+	// "project", "goal", "billing_code", "status", "error_code", "user", "source".
 	GetUsageGrouped(ctx context.Context, filter UsageFilter, groupBy string, limit int) ([]UsageSummary, error)
 	// GetUsageTimeSeries returns aggregated buckets.
 	// Allowed bucket values: "hour", "day".

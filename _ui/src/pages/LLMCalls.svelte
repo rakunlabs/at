@@ -36,7 +36,10 @@
   // ─── State ───
 
   type ViewMode = 'conversations' | 'traces' | 'calls';
-  let view = $state<ViewMode>('conversations');
+  const initialQuery = new URLSearchParams($querystring || '');
+  const requestedInitialView = initialQuery.get('view');
+  const initialView: ViewMode = requestedInitialView === 'calls' || requestedInitialView === 'traces' ? requestedInitialView : 'conversations';
+  let view = $state<ViewMode>(initialView);
   let conversations = $state<LLMCallConversation[]>([]);
   let conversationsLoading = $state(true);
   let conversationsOffset = $state(0);
@@ -69,11 +72,14 @@
   let sorts = $state<SortEntry[]>([]);
 
   // Filters (shared between views where applicable)
-  let providerFilter = $state('');
-  let modelFilter = $state('');
-  let statusFilter = $state('');
-  let sourceFilter = $state('');
-  let typeFilter = $state('');
+  let providerFilter = $state(initialQuery.get('provider') || '');
+  let modelFilter = $state(initialQuery.get('model') || '');
+  let statusFilter = $state(initialQuery.get('status') || '');
+  let sourceFilter = $state(initialQuery.get('source') || '');
+  let typeFilter = $state(initialQuery.get('type') || '');
+  let errorCodeFilter = $state(initialQuery.get('error_code') || '');
+  let createdFrom = $state(initialQuery.get('from') || '');
+  let createdTo = $state(initialQuery.get('to') || '');
 
   // Detail drawer
   let selected = $state<LLMCall | null>(null);
@@ -81,7 +87,7 @@
 
   // ?task_ids=A,B,C — when present, scope both views to that task set so
   // the page can be deep-linked from TaskDetail's cost/trace button.
-  let taskFilter = $state<string[]>([]);
+  let taskFilter = $state<string[]>((initialQuery.get('task_ids') || '').split(',').map((s) => s.trim()).filter(Boolean));
 
   // Watch URL changes and re-derive the task filter. Clearing the filter
   // pushes back to the bare /llm-calls URL.
@@ -251,6 +257,9 @@
       if (statusFilter) params['status'] = statusFilter;
       if (sourceFilter) params['source'] = sourceFilter;
       if (typeFilter) params['observation_type'] = typeFilter;
+      if (errorCodeFilter) params['error_code'] = errorCodeFilter;
+      if (createdFrom) params['created_at[gte]'] = createdFrom;
+      if (createdTo) params['created_at[lt]'] = createdTo;
       if (taskFilter.length > 0) params['task_id[in]'] = taskFilter.join(',');
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
@@ -295,6 +304,9 @@
     statusFilter = '';
     sourceFilter = '';
     typeFilter = '';
+    errorCodeFilter = '';
+    createdFrom = '';
+    createdTo = '';
     applyFilters();
   }
 
@@ -334,7 +346,9 @@
     }
   }
 
-  loadConversations();
+  if (initialView === 'conversations') loadConversations();
+  else if (initialView === 'traces') loadTraces();
+  else load();
 
   // ─── Formatting ───
 
@@ -457,6 +471,13 @@
         class="ml-auto flex items-center gap-1 hover:underline"
         title="Clear task filter"
       ><X size={12} /> Clear</button>
+    </div>
+  {/if}
+
+  {#if errorCodeFilter || createdFrom || createdTo}
+    <div class="mb-3 flex items-center gap-2 border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-xs text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan-900/10 dark:text-cyan-200">
+      <span>Usage drill-down{createdFrom && createdTo ? ` · ${new Date(createdFrom).toLocaleString()} – ${new Date(createdTo).toLocaleString()}` : ''}{errorCodeFilter ? ` · error: ${errorCodeFilter}` : ''}</span>
+      <button onclick={clearFilters} class="ml-auto flex items-center gap-1 hover:underline" title="Clear usage filters"><X size={12} /> Clear</button>
     </div>
   {/if}
 

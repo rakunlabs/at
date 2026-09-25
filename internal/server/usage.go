@@ -29,7 +29,7 @@ import (
 //   billing_code  = repeated
 //
 // Additional params:
-//   group_by  (for /usage/grouped) = provider|model|agent|org|project|goal|billing_code|status|user|source
+//   group_by  (for /usage/grouped) = provider|model|agent|org|project|goal|billing_code|status|error_code|user|source
 //   bucket    (for /usage/timeseries) = hour|day (default day)
 //   limit     (for /usage/grouped)  = top-N cap; 0 means no cap
 
@@ -87,7 +87,7 @@ func (s *Server) GetUsageGroupedAPI(w http.ResponseWriter, r *http.Request) {
 
 	groupBy := r.URL.Query().Get("group_by")
 	if groupBy == "" {
-		httpResponse(w, "group_by is required (provider|model|agent|org|project|goal|billing_code|status|user|source)", http.StatusBadRequest)
+		httpResponse(w, "group_by is required (provider|model|agent|org|project|goal|billing_code|status|error_code|user|source)", http.StatusBadRequest)
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) GetUsageBudgetsAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		derived, err := s.deriveAgentBudget(r.Context(), &b, time.Now())
+		derived, usage, err := s.deriveAgentBudgetUsage(r.Context(), &b, time.Now())
 		if err != nil {
 			slog.Error("derive agent budget utilization failed", "agent_id", b.AgentID, "error", err)
 			httpResponse(w, fmt.Sprintf("failed to get budget utilization: %v", err), http.StatusInternalServerError)
@@ -190,14 +190,16 @@ func (s *Server) GetUsageBudgetsAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		out = append(out, service.BudgetUtilization{
-			BudgetSchedule: derived.BudgetSchedule,
-			AgentID:        b.AgentID,
-			AgentName:      name,
-			MonthlyLimit:   b.MonthlyLimit,
-			CurrentSpend:   derived.CurrentSpend,
-			PeriodStart:    derived.PeriodStart,
-			PeriodEnd:      derived.PeriodEnd,
-			UsagePercent:   pct,
+			BudgetSchedule:     derived.BudgetSchedule,
+			AgentID:            b.AgentID,
+			AgentName:          name,
+			MonthlyLimit:       b.MonthlyLimit,
+			CurrentSpend:       derived.CurrentSpend,
+			PeriodStart:        derived.PeriodStart,
+			PeriodEnd:          derived.PeriodEnd,
+			RequestCount:       usage.RequestCount,
+			PricedRequestCount: usage.PricedRequestCount,
+			UsagePercent:       pct,
 		})
 	}
 

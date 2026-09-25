@@ -899,6 +899,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/skills/{id}/publish", s.PublishSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export-md", s.ExportSkillMDAPI)
+	apiGroup.GET("/v1/skills/{id}/export-package", s.ExportSkillPackageAPI)
 	apiGroup.GET("/v1/skills/{id}/files", s.ListSkillFilesAPI)
 	apiGroup.PUT("/v1/skills/{id}/files", s.PutSkillFilesAPI)
 	apiGroup.DELETE("/v1/skills/{id}/files", s.DeleteSkillFileAPI)
@@ -1542,6 +1543,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 		defer cancel()
 		// Look up model pricing to estimate cost.
 		var costCents float64
+		var costAvailable bool
 		if s.agentBudgetStore != nil {
 			pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
 			if err == nil {
@@ -1549,7 +1551,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				if event.Provider != "" && !strings.Contains(event.Model, "/") {
 					fullModel = event.Provider + "/" + event.Model
 				}
-				costCents = estimateUsageCostCents(pricingList, event.Provider, event.Model, fullModel, event.Usage)
+				costCents, costAvailable = estimateUsageCost(pricingList, event.Provider, event.Model, fullModel, event.Usage)
 			}
 		}
 
@@ -1579,6 +1581,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				CacheReadTokens:  int64(event.Usage.CacheReadTokens),
 				CacheWriteTokens: int64(event.Usage.CacheWriteTokens),
 				CostCents:        costCents,
+				CostAvailable:    costAvailable,
 				LatencyMs:        event.LatencyMs,
 				Status:           status,
 				ErrorCode:        event.ErrorCode,

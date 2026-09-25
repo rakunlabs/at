@@ -1,6 +1,9 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,6 +11,77 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+func TestExportSkillPackageAPIWrapsFilesInNamedDirectory(t *testing.T) {
+	store := newFakeSkillStore()
+	store.skills["skill-1"] = &service.Skill{
+		ID:           "skill-1",
+		Name:         "docs helper",
+		Description:  "Documentation helper",
+		SystemPrompt: "Follow the guide.",
+		Resources: []service.SkillResource{
+			{Path: "references/guide.md", Content: "Guide content"},
+		},
+	}
+	s := &Server{skillStore: store}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/skill-1/export-package", nil)
+	req.SetPathValue("id", "skill-1")
+	w := httptest.NewRecorder()
+
+	s.ExportSkillPackageAPI(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("content-type = %q", got)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("read zip: %v", err)
+	}
+	files := make(map[string]string, len(zr.File))
+	for _, file := range zr.File {
+		r, err := file.Open()
+		if err != nil {
+			t.Fatalf("open %q: %v", file.Name, err)
+		}
+		data, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatalf("read %q: %v", file.Name, err)
+		}
+		files[file.Name] = string(data)
+	}
+	if !strings.Contains(files["docs helper/SKILL.md"], "Follow the guide.") {
+		t.Fatalf("SKILL.md = %q", files["docs helper/SKILL.md"])
+	}
+	if files["docs helper/references/guide.md"] != "Guide content" {
+		t.Fatalf("resource = %q", files["docs helper/references/guide.md"])
+	}
+}
+
+func TestExportSkillPackageAPISingleFileStillUsesDirectory(t *testing.T) {
+	store := newFakeSkillStore()
+	store.skills["skill-1"] = &service.Skill{ID: "skill-1", Name: "solo", SystemPrompt: "Only file."}
+	s := &Server{skillStore: store}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/skill-1/export-package", nil)
+	req.SetPathValue("id", "skill-1")
+	w := httptest.NewRecorder()
+
+	s.ExportSkillPackageAPI(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("read zip: %v", err)
+	}
+	if len(zr.File) != 1 || zr.File[0].Name != "solo/SKILL.md" {
+		t.Fatalf("zip entries = %+v", zr.File)
+	}
+}
 
 func TestSkillFilesAPIUploadOverwritesMatchingPath(t *testing.T) {
 	store := newFakeSkillStore()
