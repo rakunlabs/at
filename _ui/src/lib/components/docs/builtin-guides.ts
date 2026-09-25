@@ -108,20 +108,11 @@ result = model.transcribe("audio.ogg")
 print(result["text"])
 \`\`\`
 
-#### Integrate with AT as a Skill
+#### Document the process as an AT Skill
 
-Create a custom skill that uses local Whisper:
-
-\`\`\`bash
-# In the skill handler:
-pip install openai-whisper --break-system-packages -q 2>/dev/null
-python3 -c "
-import whisper
-model = whisper.load_model('base')
-result = model.transcribe('/path/to/audio.ogg')
-print(result['text'])
-"
-\`\`\`
+Create a documentation skill that explains when and how an agent should use an
+existing workflow or approved shell tool. Code blocks in skills are examples;
+AT never executes them or registers them as tools.
 
 #### Integrate with AT as an Exec Workflow Node
 

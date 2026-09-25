@@ -1,6 +1,6 @@
 // Studio helpers: typed access to the persistent asset-library manifests
 // (character bible, voices, series/episodes) through the generic files API.
-// State lives on disk as JSON manifests written by skill handlers; the UI
+// State lives on disk as JSON manifests written by production workflows; the UI
 // reads the same files and writes metadata-only changes directly.
 
 import { browseFiles, fetchFileText, uploadFile, type FileEntry } from './files';

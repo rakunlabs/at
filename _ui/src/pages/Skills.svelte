@@ -18,7 +18,6 @@
     getOAuthStartURL,
     type Skill,
     type SkillFile,
-    type SkillTool,
     type SkillTemplate,
   } from '@/lib/api/skills';
   import {
@@ -39,8 +38,7 @@
     type MarketplaceSource,
     type MarketplaceSkill,
   } from '@/lib/api/marketplace';
-  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users } from 'lucide-svelte';
-  import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
+  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users, BookOpen } from 'lucide-svelte';
   import SkillFilesDialog from '@/lib/components/SkillFilesDialog.svelte';
   import { listGitCredentials, type GitCredential } from '@/lib/api/git-credentials';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -87,7 +85,6 @@
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
-  let showAIPanel = $state(false);
   let folderSkill = $state<Skill | null>(null);
   let folderInitialPath = $state<string | undefined>(undefined);
   // The record being edited, so the form can show its folder and keep the
@@ -105,14 +102,13 @@
   let formCategory = $state('');
   let formTags = $state<string[]>([]);
   let formSystemPrompt = $state('');
-  let formTools = $state<SkillTool[]>([]);
   let formContext = $state<'' | 'fork'>('');
   let formAgent = $state('');
   let formBackground = $state(false);
   let saving = $state(false);
 
   function formSignature(): string {
-    return JSON.stringify([formName, formDescription, formCategory, formTags, formSystemPrompt, formTools, formContext, formAgent, formBackground]);
+    return JSON.stringify([formName, formDescription, formCategory, formTags, formSystemPrompt, formContext, formAgent, formBackground]);
   }
   let formDirty = $derived(showForm && formSignature() !== formSnapshot);
 
@@ -155,7 +151,6 @@
       name: skill.name,
       description: skill.description,
       system_prompt: skill.system_prompt,
-      tools: skill.tools || [],
       context: skill.context || undefined,
       agent: skill.agent || undefined,
       background: skill.background || undefined,
@@ -182,13 +177,6 @@
       formCategory = src.category || '';
       formTags = Array.isArray(src.tags) ? [...src.tags] : [];
       formSystemPrompt = src.system_prompt || '';
-      formTools = (src.tools || []).map((t: any) => ({
-        name: t.name || '',
-        description: t.description || '',
-        inputSchema: t.inputSchema || {},
-        handler: t.handler || '',
-        handler_type: t.handler_type || 'js',
-      }));
       formContext = src.context === 'fork' ? 'fork' : '';
       formAgent = formContext === 'fork' ? (src.agent || '') : '';
       formBackground = formContext === 'fork' && Boolean(src.background);
@@ -250,7 +238,6 @@
     formCategory = '';
     formTags = [];
     formSystemPrompt = '';
-    formTools = [];
     formContext = '';
     formAgent = '';
     formBackground = false;
@@ -274,18 +261,12 @@
     formCategory = skill.category || '';
     formTags = skill.tags ? [...skill.tags] : [];
     formSystemPrompt = skill.system_prompt;
-    formTools = (skill.tools || []).map((t) => ({ ...t }));
     formContext = skill.context === 'fork' ? 'fork' : '';
     formAgent = skill.agent || '';
     formBackground = Boolean(skill.background);
     editingSkill = skill;
     showForm = true;
     formSnapshot = formSignature();
-  }
-
-  function openEditWithAI(skill: Skill) {
-    openEdit(skill);
-    showAIPanel = true;
   }
 
   /** Returns whether the skill was saved. `keepOpen` keeps editing the saved record. */
@@ -307,7 +288,6 @@
         category: formCategory.trim() || undefined,
         tags: formTags.length > 0 ? formTags : undefined,
         system_prompt: formSystemPrompt,
-        tools: formTools.filter((t) => t.name.trim()),
         context: formContext || undefined,
         agent: formContext === 'fork' ? formAgent : undefined,
         background: formContext === 'fork' ? formBackground : undefined,
@@ -439,25 +419,6 @@
       await load();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to publish skill', 'alert');
-    }
-  }
-
-  // ─── Tools Management ───
-
-  function addTool() {
-    const tool: SkillTool = { name: '', description: '', inputSchema: {}, handler: '', handler_type: 'js' };
-    formTools = [...formTools, tool];
-  }
-
-  function removeTool(index: number) {
-    formTools = formTools.filter((_, i) => i !== index);
-  }
-
-  function updateToolSchema(index: number, value: string) {
-    try {
-      formTools[index].inputSchema = JSON.parse(value);
-    } catch {
-      // Keep old value on invalid JSON
     }
   }
 
@@ -867,14 +828,6 @@
         <div class="flex items-center gap-2">
           {#if activeTab === 'my-skills'}
           <button
-            onclick={() => { showAIPanel = !showAIPanel; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-            title="Toggle AI Skill Builder"
-          >
-            <Bot size={12} />
-            AI Builder
-          </button>
-          <button
             onclick={() => { showImportURL = !showImportURL; if (showImportURL) showImportRaw = false; }}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
             title="Import skill from URL"
@@ -1187,16 +1140,22 @@
               />
             </div>
 
-            <!-- System Prompt -->
+            <!-- Markdown instructions -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">System Prompt</label>
-              <textarea
-                id="form-system-prompt"
-                bind:value={formSystemPrompt}
-                rows={3}
-                placeholder="Instructions for the agent when using this skill"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              ></textarea>
+              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Instructions</label>
+              <div class="col-span-3 space-y-2">
+                <textarea
+                  id="form-system-prompt"
+                  bind:value={formSystemPrompt}
+                  rows={12}
+                  placeholder={'Write Markdown guidance for the agent.\n\nDescribe which existing built-in, MCP, or workflow tools to use when needed.'}
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                ></textarea>
+                <div class="flex gap-2 border border-blue-200 dark:border-accent/30 bg-blue-50 dark:bg-accent-muted px-3 py-2 text-xs text-blue-800 dark:text-accent-text">
+                  <BookOpen size={14} class="mt-0.5 shrink-0" />
+                  <p>Skills are documentation only. Code blocks are examples and are never executed. Executable capabilities must be configured as built-in tools, MCP tools, or workflows.</p>
+                </div>
+              </div>
             </div>
 
             <!-- Execution Context -->
@@ -1228,80 +1187,6 @@
                   </label>
                   <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">The calling agent must include this target in its Subagents allowlist.</p>
                 {/if}
-              </div>
-            </div>
-
-            <!-- Tools -->
-            <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Tools</span>
-              <div class="col-span-3 space-y-3">
-                {#each formTools as tool, i}
-                  <div class="border border-gray-200 dark:border-dark-border p-3 bg-gray-50/50 dark:bg-dark-base/30 space-y-2">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tool {i + 1}</span>
-                      <button
-                        type="button"
-                        onclick={() => removeTool(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
-                        title="Remove tool"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <div class="space-y-2">
-                      <input
-                        type="text"
-                        bind:value={tool.name}
-                        placeholder="Tool name (e.g., search_web)"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                      />
-                      <input
-                        type="text"
-                        bind:value={tool.description}
-                        placeholder="Tool description"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                      />
-                      <div>
-                        <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-0.5">Input Schema (JSON)</div>
-                        <textarea
-                          value={JSON.stringify(tool.inputSchema || {}, null, 2)}
-                          oninput={(e) => updateToolSchema(i, (e.target as HTMLTextAreaElement).value)}
-                          rows={3}
-                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                          placeholder={'{\n  "type": "object",\n  "properties": { ... }\n}'}
-                        ></textarea>
-                      </div>
-                      <div>
-                        <div class="flex items-center gap-2 mb-0.5">
-                          <span class="text-xs text-gray-500 dark:text-dark-text-muted">Handler</span>
-                          <select
-                            bind:value={tool.handler_type}
-                            class="text-xs border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/30 dark:text-dark-text"
-                          >
-                            <option value="js">JavaScript</option>
-                            <option value="bash">Bash</option>
-                          </select>
-                        </div>
-                        <textarea
-                          bind:value={tool.handler}
-                          rows={3}
-                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                          placeholder={tool.handler_type === 'bash'
-                            ? '#!/bin/bash\ncurl -s "$ARG_URL" | jq .'
-                            : '// Access tool arguments as "args"\nvar result = httpGet(args.url);\nreturn result.body;'}
-                        ></textarea>
-                      </div>
-                    </div>
-                  </div>
-                {/each}
-                <button
-                  type="button"
-                  onclick={addTool}
-                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
-                >
-                  <Plus size={12} />
-                  Add tool
-                </button>
               </div>
             </div>
 
@@ -1344,12 +1229,12 @@
           searchPlaceholder="Search by name..."
           emptyIcon={Wand2}
           emptyTitle="No skills configured"
-          emptyDescription="Skills define reusable tool sets for agent workflows"
+          emptyDescription="Skills provide reusable Markdown instructions and reference resources"
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Tools</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Content</th>
             <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
 
@@ -1367,15 +1252,11 @@
                 {skill.description || '-'}
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {#if skill.tools && skill.tools.length > 0}
-                  <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
-                    {skill.tools.length} tool{skill.tools.length !== 1 ? 's' : ''}
-                  </span>
-                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
-                    {skill.tools.map((t) => t.name).join(', ')}
-                  </span>
-                {:else}
-                  <span class="text-gray-400 dark:text-dark-text-muted">none</span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+                  <BookOpen size={11} /> Markdown
+                </span>
+                {#if skill.resources?.length}
+                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">{skill.resources.length} resource{skill.resources.length === 1 ? '' : 's'}</span>
                 {/if}
               </td>
               <td class="px-4 py-2.5 text-right">
@@ -1411,13 +1292,6 @@
                     <Copy size={14} />
                   </button>
                   {#if skill.owner_user_id || mayPublish}
-                  <button
-                    onclick={() => openEditWithAI(skill)}
-                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text dark:hover:text-accent-text "
-                    title="Edit with AI"
-                  >
-                    <Bot size={14} />
-                  </button>
                   <button
                     onclick={() => openEdit(skill)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
@@ -1528,10 +1402,8 @@
                   </div>
                 {/if}
 
-                <!-- Tools preview -->
-                <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-3">
-                  <span class="font-mono">{tmpl.skill.tools.length} tool{tmpl.skill.tools.length !== 1 ? 's' : ''}</span>:
-                  {tmpl.skill.tools.map((t) => t.name).join(', ')}
+                <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted mb-3">
+                  <BookOpen size={12} /> Markdown instructions and reference resources
                 </div>
 
                 <!-- OAuth setup flow -->
@@ -1842,23 +1714,8 @@
                     {/if}
                     {#if previewData.system_prompt}
                       <div>
-                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">System Prompt / Instructions</span>
+                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Markdown instructions</span>
                         <pre class="mt-1 p-3 bg-gray-50 dark:bg-dark-base/50 border border-gray-200 dark:border-dark-border text-xs text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap max-h-64 overflow-y-auto">{previewData.system_prompt}</pre>
-                      </div>
-                    {/if}
-                    {#if previewData.tools && previewData.tools.length > 0}
-                      <div>
-                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tools ({previewData.tools.length})</span>
-                        <div class="mt-1 space-y-1">
-                          {#each previewData.tools as tool}
-                            <div class="px-2 py-1 bg-gray-50 dark:bg-dark-base/50 border border-gray-100 dark:border-dark-border">
-                              <span class="text-xs font-mono text-gray-900 dark:text-dark-text">{tool.name}</span>
-                              {#if tool.description}
-                                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted ml-2">{tool.description}</span>
-                              {/if}
-                            </div>
-                          {/each}
-                        </div>
                       </div>
                     {/if}
                   </div>
@@ -1891,19 +1748,6 @@
     </div>
   </div>
 
-  <!-- AI Panel (slides in from right) -->
-  {#if showAIPanel}
-    <SkillBuilderPanel
-      onclose={() => { showAIPanel = false; }}
-      bind:formName
-      bind:formDescription
-      bind:formSystemPrompt
-      bind:formTools
-      bind:editingId
-      bind:showForm
-      onSaved={load}
-    />
-  {/if}
 </div>
 
 {#if folderSkill}

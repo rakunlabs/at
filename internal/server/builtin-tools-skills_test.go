@@ -111,14 +111,12 @@ func TestDispatch_SkillCRUD(t *testing.T) {
 	if created.Name != "weather" {
 		t.Errorf("name = %q, want %q", created.Name, "weather")
 	}
-	if len(created.Tools) != 1 || created.Tools[0].Name != "get_weather" {
-		t.Errorf("tools not decoded correctly: %+v", created.Tools)
+	if len(created.Tools) != 0 {
+		t.Fatalf("legacy tools remained executable: %+v", created.Tools)
 	}
-	if created.Tools[0].Handler != "return 'sunny';" {
-		t.Errorf("handler not preserved: %q", created.Tools[0].Handler)
-	}
-	if created.Tools[0].InputSchema == nil {
-		t.Error("input_schema should be decoded into InputSchema")
+	if !strings.Contains(created.SystemPrompt, service.LegacySkillToolsHeading) ||
+		!strings.Contains(created.SystemPrompt, "return 'sunny';") {
+		t.Errorf("legacy tool was not preserved as documentation: %q", created.SystemPrompt)
 	}
 
 	// Pull the ID out of the result so subsequent calls reference the same record.
@@ -175,9 +173,8 @@ func TestDispatch_SkillCreate_RequiresName(t *testing.T) {
 	}
 }
 
-// TestDecodeSkillTools_AcceptsBothSchemaKeys ensures that LLMs which emit
-// `inputSchema` (the canonical service.Tool JSON tag) and LLMs which emit
-// `input_schema` (what the at-management tool docs publish) both work.
+// TestDecodeSkillTools_AcceptsBothSchemaKeys protects legacy import
+// compatibility. Decoded definitions are normalized into inert Markdown.
 func TestDecodeSkillTools_AcceptsBothSchemaKeys(t *testing.T) {
 	cases := []struct{ name, key string }{
 		{"snake_case", "input_schema"},
@@ -421,7 +418,7 @@ func TestAtManagementTemplate_HasNewTools(t *testing.T) {
 	expected := []string{
 		// Phase 1: Skills authoring
 		"skill_get", "skill_create", "skill_update", "skill_delete",
-		"skill_test_handler", "skill_export", "skill_import",
+		"skill_export", "skill_import",
 		"skill_import_url", "skill_import_skillmd",
 		// Phase 1: MCP server / set CRUD
 		"mcp_server_list", "mcp_server_get", "mcp_server_create",
@@ -500,7 +497,7 @@ func TestDispatch_NewToolsHaveDefinitions(t *testing.T) {
 	wanted := []string{
 		// Phase 1
 		"skill_get", "skill_create", "skill_update", "skill_delete",
-		"skill_test_handler", "skill_export", "skill_import",
+		"skill_export", "skill_import",
 		"skill_import_url", "skill_import_skillmd",
 		"mcp_server_list", "mcp_server_get", "mcp_server_create",
 		"mcp_server_update", "mcp_server_delete",

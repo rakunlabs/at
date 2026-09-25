@@ -184,7 +184,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureSkills,
 		Name:        "Skills",
-		Description: "Skill definitions, skill templates, import/export and handler testing.",
+		Description: "Documentation skills, templates, resources and import/export.",
 		Group:       "workspace",
 	},
 	{
@@ -256,7 +256,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureMCPTools,
 		Name:        "MCP Tool Calls",
-		Description: "The tool-listing and tool-calling proxy the chat loops use to reach MCP and skill tools.",
+		Description: "The tool-listing and tool-calling proxy the chat loops use to reach MCP tools.",
 		Group:       "tools",
 	},
 	{

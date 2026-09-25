@@ -21,11 +21,6 @@ export interface MCPCallToolResponse {
   error?: string;
 }
 
-export interface SkillCallToolResponse {
-  result: string;
-  error?: string;
-}
-
 export interface BuiltinToolDef {
   name: string;
   description: string;
@@ -75,23 +70,6 @@ export async function callMCPTool(
     name,
     arguments: args,
     ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
-  });
-  return res.data;
-}
-
-/**
- * Call a skill tool handler via the backend.
- * Looks up the skill by name, finds the tool, and executes its handler.
- */
-export async function callSkillTool(
-  skillName: string,
-  toolName: string,
-  args: Record<string, any>,
-): Promise<SkillCallToolResponse> {
-  const res = await api.post<SkillCallToolResponse>('/mcp/call-skill-tool', {
-    skill_name: skillName,
-    tool_name: toolName,
-    arguments: args,
   });
   return res.data;
 }

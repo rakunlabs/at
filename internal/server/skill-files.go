@@ -248,7 +248,7 @@ func mergeSkillFiles(skill service.Skill, files []skillFile) (service.Skill, err
 			skill.Agent = export.Agent
 			skill.Background = export.Background
 			skill.SystemPrompt = export.SystemPrompt
-			skill.Tools = export.Tools
+			skill.Tools = nil
 			continue
 		}
 

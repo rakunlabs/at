@@ -59,6 +59,7 @@ type RequiredVariable struct {
 // parser; extracting those scripts into standalone assets is a separate
 // migration.
 func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) error {
+	_ = validateBash // Code fences are documentation and are never shell-parsed.
 	var errs []error
 	require := func(path, value string) {
 		if strings.TrimSpace(value) == "" {
@@ -73,6 +74,9 @@ func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) 
 	require("skill.name", tmpl.Skill.Name)
 	require("skill.description", tmpl.Skill.Description)
 	require("skill.system_prompt", tmpl.Skill.SystemPrompt)
+	if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+		errs = append(errs, err)
+	}
 
 	variableKeys := make(map[string]struct{}, len(tmpl.RequiredVariables))
 	for i, variable := range tmpl.RequiredVariables {
@@ -85,39 +89,20 @@ func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) 
 		variableKeys[variable.Key] = struct{}{}
 	}
 
-	toolNames := make(map[string]struct{}, len(tmpl.Skill.Tools))
-	for i, tool := range tmpl.Skill.Tools {
-		path := fmt.Sprintf("skill.tools[%d]", i)
-		require(path+".name", tool.Name)
-		require(path+".description", tool.Description)
-		require(path+".handler_type", tool.HandlerType)
-		require(path+".handler", tool.Handler)
-		if _, exists := toolNames[tool.Name]; exists && tool.Name != "" {
-			errs = append(errs, fmt.Errorf("%s.name %q is duplicated", path, tool.Name))
-		}
-		toolNames[tool.Name] = struct{}{}
-
-		if tool.InputSchema == nil {
-			errs = append(errs, fmt.Errorf("%s.inputSchema is required", path))
-		} else if schemaType, ok := tool.InputSchema["type"].(string); !ok || schemaType != "object" {
-			errs = append(errs, fmt.Errorf("%s.inputSchema.type must be %q", path, "object"))
-		}
-
-		switch tool.HandlerType {
-		case "bash":
-			if validateBash != nil && strings.TrimSpace(tool.Handler) != "" {
-				if err := validateBash(tool.Handler); err != nil {
-					errs = append(errs, fmt.Errorf("%s.handler has invalid bash syntax: %w", path, err))
-				}
-			}
-		case "js":
-		case "":
-		default:
-			errs = append(errs, fmt.Errorf("%s.handler_type %q is unsupported", path, tool.HandlerType))
-		}
-	}
-
 	return errors.Join(errs...)
+}
+
+func normalizeSkillTemplateData(data *SkillTemplateData) error {
+	if data == nil || len(data.Tools) == 0 {
+		return nil
+	}
+	skill := service.Skill{SystemPrompt: data.SystemPrompt, Tools: data.Tools}
+	if err := service.NormalizeDocumentationSkill(&skill); err != nil {
+		return err
+	}
+	data.SystemPrompt = skill.SystemPrompt
+	data.Tools = nil
+	return nil
 }
 
 // skillTemplateManagedChecksum is the deterministic version of content owned
@@ -125,6 +110,9 @@ func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) 
 // every Tool field (including future fields) participates without depending on
 // map iteration order. User-owned skill metadata is deliberately excluded.
 func skillTemplateManagedChecksum(tmpl SkillTemplateData) (string, error) {
+	if err := normalizeSkillTemplateData(&tmpl); err != nil {
+		return "", err
+	}
 	payload := struct {
 		SystemPrompt string         `json:"system_prompt"`
 		Tools        []service.Tool `json:"tools"`
@@ -175,6 +163,10 @@ func (s *Server) loadSkillTemplates() {
 			slog.Warn("failed to parse skill template", "file", entry.Name(), "error", err)
 			continue
 		}
+		if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+			slog.Warn("failed to normalize skill template", "file", entry.Name(), "error", err)
+			continue
+		}
 
 		s.skillTemplates = append(s.skillTemplates, tmpl)
 	}
@@ -182,16 +174,20 @@ func (s *Server) loadSkillTemplates() {
 	slog.Info("loaded skill templates", "count", len(s.skillTemplates))
 }
 
-// syncInstalledSkillHandlers updates only template-owned skills whose managed
+// syncInstalledSkillTemplates updates only template-owned skills whose managed
 // payload still matches the checksum installed by the previous template
-// version. A mismatch means the user changed the prompt or tools, so startup
+// version. A mismatch means the user changed the Markdown instructions, so startup
 // preserves that customization rather than treating it as template drift.
-func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
+func (s *Server) syncInstalledSkillTemplates(ctx context.Context) {
 	if s.skillStore == nil || len(s.skillTemplates) == 0 {
 		return
 	}
 
 	for _, tmpl := range s.skillTemplates {
+		if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+			slog.Warn("skill-templates: failed to normalize embedded template", "skill", tmpl.Skill.Name, "error", err)
+			continue
+		}
 		installed, err := s.skillStore.GetSkillByName(ctx, tmpl.Skill.Name)
 		if err != nil {
 			continue // lookup error — skip
@@ -251,7 +247,7 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 			continue
 		}
 
-		// Update the installed skill with the template's tools and prompt.
+		// Update the installed skill with the template's normalized Markdown.
 		// Keep all other existing fields (name, description, category,
 		// tags, provenance metadata, etc.).
 		updated := *installed
@@ -261,10 +257,10 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 		updated.UpdatedBy = "system"
 		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, updated)
 		if err != nil {
-			slog.Warn("skill-templates: failed to sync skill handlers",
+			slog.Warn("skill-templates: failed to sync skill documentation",
 				"skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
 		} else {
-			slog.Info("skill-templates: synced skill handlers from template",
+			slog.Info("skill-templates: synced skill documentation from template",
 				"skill", tmpl.Skill.Name, "id", installed.ID)
 		}
 	}
@@ -318,6 +314,10 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 	}
 	if tmpl == nil {
 		httpResponse(w, fmt.Sprintf("template %q not found", slug), http.StatusNotFound)
+		return
+	}
+	if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+		httpResponse(w, fmt.Sprintf("failed to normalize template: %v", err), http.StatusInternalServerError)
 		return
 	}
 

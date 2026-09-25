@@ -577,8 +577,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	s.loadSkillTemplates()
 	// Load built-in connector definitions (external-service connection types).
 	s.loadConnectors()
-	// Sync installed skill handlers with current templates (applies handler bug fixes).
-	s.syncInstalledSkillHandlers(ctx)
+	// Sync untouched installed documentation skills with current templates.
+	s.syncInstalledSkillTemplates(ctx)
 	s.loadMCPTemplates()
 
 	// One-shot migration: rewrite any agent_call.max_iterations == 0
@@ -658,27 +658,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		var schedulerVarLookup workflow.VarLookup
 		var schedulerVarLister workflow.VarLister
 		if store != nil {
-			schedulerVarLookup = func(key string) (string, error) {
-				v, err := store.GetVariableByKey(ctx, key)
-				if err != nil {
-					return "", err
-				}
-				if v == nil {
-					return "", fmt.Errorf("variable %q not found", key)
-				}
-				return v.Value, nil
-			}
-			schedulerVarLister = func() (map[string]string, error) {
-				vars, err := store.ListVariables(ctx, nil)
-				if err != nil {
-					return nil, err
-				}
-				m := make(map[string]string, len(vars.Data))
-				for _, v := range vars.Data {
-					m[v.Key] = v.Value
-				}
-				return m, nil
-			}
+			schedulerVarLookup = nonSecretVariableLookup(ctx, store)
+			schedulerVarLister = nonSecretVariableLister(ctx, store)
 		}
 
 		// Build a node config lookup for the scheduler.
@@ -907,7 +888,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Skill management
 	apiGroup.GET("/v1/skills", s.ListSkillsAPI)
 	apiGroup.POST("/v1/skills", s.CreateSkillAPI)
-	apiGroup.POST("/v1/skills/test-handler", s.TestHandlerAPI) // before wildcard
 	apiGroup.POST("/v1/skills/import", s.ImportSkillAPI)
 	apiGroup.POST("/v1/skills/import-url", s.ImportSkillFromURLAPI)
 	apiGroup.POST("/v1/skills/import-url/preview", s.PreviewImportURLAPI)
@@ -1303,7 +1283,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// MCP proxy endpoints (used by Chat UI for tool-calling loop)
 	apiGroup.POST("/v1/mcp/list-tools", s.MCPListToolsAPI)
 	apiGroup.POST("/v1/mcp/call-tool", s.MCPCallToolAPI)
-	apiGroup.POST("/v1/mcp/call-skill-tool", s.SkillCallToolAPI)
 
 	// Built-in tools (server-side tools for Chat UI: http, bash, js, url_fetch)
 	apiGroup.GET("/v1/mcp/builtin-tools", s.BuiltinToolListAPI)

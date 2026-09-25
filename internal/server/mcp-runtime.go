@@ -325,11 +325,10 @@ func (s *Server) newMCPRuntimeBuilder() *mcpRuntimeBuilder {
 }
 
 // buildGateway preserves gateway dispatch precedence:
-// HTTP > skill > upstream > referenced set > URL > builtin > workflow.
+// HTTP > upstream > referenced set > URL > builtin > workflow.
 func (b *mcpRuntimeBuilder) buildGateway(ctx context.Context, srv *service.MCPServer) *mcpRuntime {
 	runtime := newMCPRuntime()
 	b.addHTTPTools(runtime, srv, true)
-	b.addSkills(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 
 	for _, setName := range srv.Servers {
@@ -367,7 +366,7 @@ func (b *mcpRuntimeBuilder) buildGateway(ctx context.Context, srv *service.MCPSe
 }
 
 // buildSet preserves direct MCP-set dispatch precedence:
-// skill > builtin > workflow > upstream > HTTP.
+// builtin > workflow > upstream > HTTP.
 func (b *mcpRuntimeBuilder) buildSet(ctx context.Context, setName string) (*mcpRuntime, error) {
 	srv, err := b.server.mcpSetToVirtualServer(ctx, setName)
 	if err != nil {
@@ -375,7 +374,6 @@ func (b *mcpRuntimeBuilder) buildSet(ctx context.Context, setName string) (*mcpR
 	}
 
 	runtime := newMCPRuntime()
-	b.addSkills(ctx, runtime, srv.Config)
 	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
@@ -397,33 +395,6 @@ func (b *mcpRuntimeBuilder) addHTTPTools(runtime *mcpRuntime, srv *service.MCPSe
 			}
 			return b.server.callHTTPToolInline(ctx, httpTool, args, srv)
 		})
-	}
-}
-
-func (b *mcpRuntimeBuilder) addSkills(ctx context.Context, runtime *mcpRuntime, config service.MCPServerConfig) {
-	if b.server.skillStore == nil {
-		return
-	}
-	for _, skillName := range config.EnabledSkills {
-		skill, err := b.server.skillStore.GetSkillByName(ctx, skillName)
-		if err != nil {
-			runtime.addDiagnostic(fmt.Errorf("load skill %q: %w", skillName, err))
-			continue
-		}
-		if skill == nil {
-			continue
-		}
-		for _, skillTool := range skill.Tools {
-			skillTool := skillTool
-			definition := service.Tool{Name: skillTool.Name, Description: skillTool.Description, InputSchema: skillTool.InputSchema}
-			runtime.addTool(definition, fmt.Sprintf("skill %q", skillName), func(ctx context.Context, args map[string]any) (string, error) {
-				result, err := b.server.executeSkillTool(ctx, &skillTool, args)
-				if err != nil {
-					return "", fmt.Errorf("skill tool execution failed: %w", err)
-				}
-				return result, nil
-			})
-		}
 	}
 }
 

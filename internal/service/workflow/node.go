@@ -270,7 +270,7 @@ type Dependencies struct {
 	ScopedProviderLookup func(context.Context, string) (service.LLMProvider, string, error)
 
 	// SkillLookup resolves a skill name or ID to a Skill definition.
-	// Used by agent_call nodes to load skill tools and system prompts.
+	// Used by agent_call nodes to load documentation skill instructions.
 	SkillLookup SkillLookup
 
 	// VarLookup resolves a variable key to its plaintext value.

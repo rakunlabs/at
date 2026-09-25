@@ -174,7 +174,7 @@ server:
 A nonblank explicit `server.workspace.root` places the persistent media library
 at `<root>/assets` (in this example `/mnt/at-workspace/assets`). Relative roots
 resolve against the process working directory. Uploads, Studio, backend media
-helpers, and skill handlers (`AT_ASSETS_DIR`) all use this same absolute path.
+helpers and production workflows (`AT_ASSETS_DIR`) all use this same absolute path.
 The library contains `avatars/`, `voices/`, `uploads/`, and `series/` and is
 excluded from workspace TTL cleanup, including when `ttl_hours` is set.
 

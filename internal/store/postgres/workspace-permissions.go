@@ -21,11 +21,11 @@ type workspaceBundleRow struct {
 	Bundle      string `db:"bundle"`
 }
 type workspaceMappingRow struct {
-	ID           string `db:"id"`
-	WorkspaceID  string `db:"workspace_id"`
-	ProviderID   string `db:"provider_id"`
-	ClaimKind    string `db:"claim_kind"`
-	ClaimValue string `db:"claim_value"`
+	ID          string `db:"id"`
+	WorkspaceID string `db:"workspace_id"`
+	ProviderID  string `db:"provider_id"`
+	ClaimKind   string `db:"claim_kind"`
+	ClaimValue  string `db:"claim_value"`
 	// Null when the mapping only admits and grants no bundle. The service type
 	// keeps a plain string, so the wire shape is unchanged and "" means none.
 	PermissionID sql.NullString `db:"permission_id"`

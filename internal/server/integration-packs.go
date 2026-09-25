@@ -241,7 +241,7 @@ func loadPackSkills(fsys fs.FS, slug string) []IntegrationSkill {
 		name := entry.Name()
 		switch {
 		case strings.HasSuffix(name, ".md"):
-			parsed, tools, err := skillmd.ParseWithTools(data)
+			parsed, err := skillmd.Parse(data)
 			if err != nil {
 				slog.Warn("failed to parse skill markdown", "file", name, "error", err)
 				continue
@@ -252,15 +252,6 @@ func loadPackSkills(fsys fs.FS, slug string) []IntegrationSkill {
 				Category:     parsed.Category,
 				Tags:         parsed.Tags,
 				SystemPrompt: parsed.Body,
-			}
-			for _, t := range tools {
-				sk.Tools = append(sk.Tools, service.Tool{
-					Name:        t.Name,
-					Description: t.Description,
-					InputSchema: t.InputSchema,
-					Handler:     t.Handler,
-					HandlerType: t.HandlerType,
-				})
 			}
 			skills = append(skills, sk)
 

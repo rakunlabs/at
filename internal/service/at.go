@@ -134,9 +134,9 @@ type MarketplaceStorer interface {
 
 // ─── Skill Management ───
 
-// Skill represents a reusable skill that bundles a system prompt fragment
-// and a set of tools. Skills can be attached to agent_call workflow nodes
-// to provide the agent with domain-specific capabilities.
+// Skill represents reusable Markdown instructions and bundled text resources.
+// Executable capabilities belong to agents, MCP sets, workflows, and built-in
+// tools; loading a skill never grants or registers a new tool.
 type Skill struct {
 	WorkspaceID  string          `json:"workspace_id"`
 	OwnerUserID  string          `json:"owner_user_id,omitempty"`
@@ -147,7 +147,7 @@ type Skill struct {
 	Category     string          `json:"category,omitempty"`
 	Tags         []string        `json:"tags,omitempty"`
 	SystemPrompt string          `json:"system_prompt"`       // Prompt fragment appended to the agent's system prompt
-	Tools        []Tool          `json:"tools"`               // Built-in tool definitions (may include JS handlers)
+	Tools        []Tool          `json:"tools,omitempty"`     // Deprecated import compatibility; normalized into Markdown before persistence.
 	Resources    []SkillResource `json:"resources,omitempty"` // Text files bundled beside SKILL.md
 	// Claude-compatible execution metadata. Context="fork" runs the skill in
 	// the named agent's isolated context instead of injecting it into the caller.
@@ -241,7 +241,8 @@ type PackSourceStorer interface {
 // Variable represents a key-value variable stored in the database.
 // Variables can be secret (encrypted at rest, redacted in list responses)
 // or non-secret (stored as plaintext, shown in list responses).
-// Accessed from workflow JS handlers via getVar() and bash handlers via $VAR_<KEY>.
+// Non-secret values may be exposed to workflow handlers. Secret values resolve
+// only through approved typed references at controlled tool boundaries.
 type Variable struct {
 	WorkspaceID  string   `json:"workspace_id"`
 	ID           string   `json:"id"`

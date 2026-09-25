@@ -225,35 +225,20 @@ var builtinTools = []builtinToolDef{
 
 	// ─── Skill Management Tools ───
 	{Name: "skill_list", Description: "List installed skills and available skill templates. Shows both what's already installed and what templates can be installed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"category": map[string]any{"type": "string", "description": "Filter templates by category (e.g. 'Content Creation', 'Development', 'Utilities')"}}}},
-	{Name: "skill_get", Description: "Get a skill's full details by ID, including its system prompt and the complete list of tool definitions (with handlers).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("The skill ID.")}, "required": []string{"id"}}},
+	{Name: "skill_get", Description: "Get a documentation skill by ID, including its Markdown instructions and resources.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("The skill ID.")}, "required": []string{"id"}}},
 	{Name: "skill_install_template", Description: "Install a skill from a built-in template. After installation, the skill can be assigned to agents. Check required variables in the response.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"slug": map[string]any{"type": "string", "description": "Template slug identifier (use skill_list to see available templates)"}}, "required": []string{"slug"}}},
-	{Name: "skill_create", Description: "Create a new custom skill with a system prompt fragment and a list of tools. Each tool has a name, description, JSON-schema input_schema, and a handler (JavaScript code by default, or bash if handler_type='bash'). Skills are reusable: once created, they can be assigned to any agent. Useful when an agent needs to author a domain-specific capability set rather than a single tool.", InputSchema: map[string]any{
+	{Name: "skill_create", Description: "Create a reusable documentation skill with Markdown instructions. Skills never register executable tools; instruct the agent to use built-in, MCP, or workflow tools that are configured separately.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":          map[string]any{"type": "string", "description": "Skill name (unique). Lowercase letters, numbers, underscores recommended."},
 			"description":   map[string]any{"type": "string", "description": "Short description shown in skill listings"},
 			"category":      map[string]any{"type": "string", "description": "Optional category (e.g. 'Content Creation', 'Development', 'Utilities')"},
 			"tags":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags for grouping/filtering"},
-			"system_prompt": map[string]any{"type": "string", "description": "Prompt fragment appended to the agent's system prompt when this skill is loaded"},
-			"tools": map[string]any{
-				"type":        "array",
-				"description": "Tool definitions exposed by this skill. Each tool may include a JS or bash handler that runs when an agent calls it.",
-				"items": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"name":         map[string]any{"type": "string", "description": "Tool name (unique within the skill)"},
-						"description":  map[string]any{"type": "string", "description": "Description shown to the LLM when picking tools"},
-						"input_schema": map[string]any{"type": "object", "description": "JSON Schema describing the tool's arguments"},
-						"handler":      map[string]any{"type": "string", "description": "Handler source. JS by default: write a function body; arguments are available as the `args` object; return a string. Bash: write a shell script; arguments are exposed as ARG_<UPPER_KEY> env vars; stdout becomes the result."},
-						"handler_type": map[string]any{"type": "string", "description": "'js' (default) or 'bash'", "enum": []string{"js", "bash"}},
-					},
-					"required": []string{"name", "description"},
-				},
-			},
+			"system_prompt": map[string]any{"type": "string", "description": "Markdown instructions loaded into the agent context. Code fences are documentation only."},
 		},
 		"required": []string{"name"},
 	}},
-	{Name: "skill_update", Description: "Update an existing skill. The full skill (name, description, system_prompt, tools) is replaced; pass the complete intended state. To make a small edit, fetch with skill_get first, modify the returned object, and pass the result back.", InputSchema: map[string]any{
+	{Name: "skill_update", Description: "Update an existing documentation skill. The full metadata and Markdown instructions are replaced; fetch with skill_get before making a small edit.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"id":            map[string]any{"type": "string", "description": "The skill ID to update"},
@@ -261,46 +246,21 @@ var builtinTools = []builtinToolDef{
 			"description":   map[string]any{"type": "string", "description": "Short description"},
 			"category":      map[string]any{"type": "string", "description": "Category"},
 			"tags":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tags"},
-			"system_prompt": map[string]any{"type": "string", "description": "Prompt fragment appended to the agent's system prompt"},
+			"system_prompt": map[string]any{"type": "string", "description": "Markdown instructions loaded into the agent context"},
 			"version":       map[string]any{"type": "string", "description": "Skill version (kept from the existing skill when omitted)"},
 			"author":        map[string]any{"type": "string", "description": "Author attribution (kept from the existing skill when omitted)"},
 			"license":       map[string]any{"type": "string", "description": "License identifier (kept from the existing skill when omitted)"},
-			"tools": map[string]any{
-				"type":        "array",
-				"description": "Full replacement of the tool list. Same shape as skill_create.",
-				"items": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"name":         map[string]any{"type": "string"},
-						"description":  map[string]any{"type": "string"},
-						"input_schema": map[string]any{"type": "object"},
-						"handler":      map[string]any{"type": "string"},
-						"handler_type": map[string]any{"type": "string", "enum": []string{"js", "bash"}},
-					},
-					"required": []string{"name", "description"},
-				},
-			},
 		},
 		"required": []string{"id", "name"},
 	}},
-	{Name: "skill_delete", Description: "Delete a skill by ID. Agents using this skill will lose access to its tools and system-prompt fragment on their next run.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID to delete"}}, "required": []string{"id"}}},
-	{Name: "skill_test_handler", Description: "Test-execute a single tool handler (JS or bash) with sample arguments without persisting it. Useful for iterating on a handler before saving the skill. Returns the handler's stdout/return value plus duration.", InputSchema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"handler":      map[string]any{"type": "string", "description": "Handler source code (JS body or bash script)"},
-			"handler_type": map[string]any{"type": "string", "description": "'js' (default) or 'bash'", "enum": []string{"js", "bash"}},
-			"arguments":    map[string]any{"type": "object", "description": "Sample arguments object to pass to the handler"},
-		},
-		"required": []string{"handler"},
-	}},
+	{Name: "skill_delete", Description: "Delete a documentation skill by ID. Agents using it will lose its instructions on their next run.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID to delete"}}, "required": []string{"id"}}},
 	{Name: "skill_export", Description: "Export a skill as a portable JSON document (no IDs/timestamps). Use the result as input to skill_import on another instance, or to back up a skill before editing.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID to export"}}, "required": []string{"id"}}},
 	{Name: "skill_import", Description: "Import a skill from a portable JSON document (the shape produced by skill_export). Creates a new skill with a fresh ID. Pass the export object directly.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":          map[string]any{"type": "string", "description": "Skill name"},
 			"description":   map[string]any{"type": "string", "description": "Description"},
-			"system_prompt": map[string]any{"type": "string", "description": "System prompt fragment"},
-			"tools":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Tool definitions (same shape as skill_create.tools)"},
+			"system_prompt": map[string]any{"type": "string", "description": "Markdown instructions; code fences are documentation only"},
 			"resources":     map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}, "content": map[string]any{"type": "string"}, "media_type": map[string]any{"type": "string"}}, "required": []string{"path", "content"}}, "description": "Text resources bundled beside SKILL.md"},
 			"version":       map[string]any{"type": "string", "description": "Skill version declared by the author (semver recommended)"},
 			"author":        map[string]any{"type": "string", "description": "Author attribution"},
@@ -312,9 +272,9 @@ var builtinTools = []builtinToolDef{
 	{Name: "skill_import_skillmd", Description: "Import a skill by parsing raw Anthropic SKILL.md content. Frontmatter must contain at least `name` and `description`; the body becomes the skill's system_prompt.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"content": map[string]any{"type": "string", "description": "Raw SKILL.md content"}}, "required": []string{"content"}}},
 
 	// ─── MCP Server / MCP Set Management Tools ───
-	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, skills, builtins, workflows) over a gateway MCP endpoint. Endpoints require bearer auth unless public is true.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its config (HTTP tools, upstream MCPs, enabled skills/builtins).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("The MCP server ID.")}, "required": []string{"id"}}},
-	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled skill names, enabled builtin tool names, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
+	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, builtins, workflows) over a gateway MCP endpoint. Endpoints require bearer auth unless public is true.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its HTTP tools, upstream MCPs, builtins, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("The MCP server ID.")}, "required": []string{"id"}}},
+	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled builtin tool names, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":        map[string]any{"type": "string", "description": "MCP server name (unique, used in the public URL)"},
@@ -327,7 +287,6 @@ var builtinTools = []builtinToolDef{
 					"description":           map[string]any{"type": "string"},
 					"http_tools":            map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Custom HTTP tools: [{name, description, method, url, headers?, body_template?, input_schema}]"},
 					"mcp_upstreams":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Upstream MCP servers to proxy: [{url, headers?} or {command, args?, env?}]"},
-					"enabled_skills":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Skill names whose tools should be exposed"},
 					"enabled_builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Builtin tool names to expose (e.g. 'http_request', 'task_create')"},
 					"workflow_ids":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workflow IDs to expose as named tools"},
 					"fetch_mode":            map[string]any{"type": "string"},
@@ -357,7 +316,7 @@ var builtinTools = []builtinToolDef{
 	}},
 	{Name: "mcp_server_delete", Description: "Delete a gateway-facing MCP server by ID. Existing MCP clients pointed at its URL will start receiving 404 on their next request.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID to delete"}}, "required": []string{"id"}}},
 
-	{Name: "mcp_set_list", Description: "List all MCP Sets — internal MCP configurations agents can be assigned via the `mcp_sets` field on agent_create/agent_update. Each set composes builtins, skills, HTTP tools, upstream MCPs, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_set_list", Description: "List all MCP Sets — internal MCP configurations agents can be assigned via the `mcp_sets` field on agent_create/agent_update. Each set composes builtins, HTTP tools, upstream MCPs, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 	{Name: "mcp_set_get", Description: "Get full details of an MCP Set by ID, including its config.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": multiIDSchema("The MCP Set ID.")}, "required": []string{"id"}}},
 	{Name: "mcp_set_create", Description: "Create a new MCP Set. Same config shape as mcp_server_create — the difference is that MCP Sets are consumed internally by agents (referenced by name in agent.mcp_sets) rather than exposed as a public gateway endpoint.", InputSchema: map[string]any{
 		"type": "object",
@@ -610,7 +569,7 @@ var builtinTools = []builtinToolDef{
 	{Name: "apitoken_reset_usage", Description: "Reset usage counters for an API token (zero out the rolling counters used by `total_token_limit`). Used to manually reopen a token that hit its limit.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
 
 	// ─── Variable Management Tools (Phase 2) ───
-	// Variables are the key-value store backing skill/workflow handlers.
+	// Variables are the key-value store backing controlled tool references and workflows.
 	// Secret variables are encrypted at rest and always redacted from
 	// model-facing list/get responses. Create is an upsert by key — if a variable with the
 	// same key exists, it's updated instead of erroring (mirrors HTTP).
@@ -1075,18 +1034,12 @@ func (s *Server) execJS(ctx context.Context, args map[string]any) (string, error
 	// Build variable lookup (if variable store available).
 	var varLookup workflow.VarLookup
 	if s.variableStore != nil {
+		baseLookup := nonSecretVariableLookup(ctx, s.variableStore)
 		varLookup = func(key string) (string, error) {
 			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
 				return "", err
 			}
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
+			return baseLookup(key)
 		}
 	}
 

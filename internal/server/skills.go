@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/at/internal/skillmd"
 	"github.com/rakunlabs/query"
 )
@@ -253,7 +252,7 @@ type skillExportData struct {
 	Author       string                  `json:"author,omitempty"`
 	License      string                  `json:"license,omitempty"`
 	SystemPrompt string                  `json:"system_prompt"`
-	Tools        []service.Tool          `json:"tools"`
+	Tools        []service.Tool          `json:"tools,omitempty"` // Legacy import compatibility only.
 	Resources    []service.SkillResource `json:"resources,omitempty"`
 	Context      string                  `json:"context,omitempty"`
 	Agent        string                  `json:"agent,omitempty"`
@@ -300,32 +299,24 @@ func skillToExportData(skill *service.Skill) skillExportData {
 }
 
 func skillToMarkdown(skill *service.Skill) ([]byte, error) {
+	copy := *skill
+	if err := service.NormalizeDocumentationSkill(&copy); err != nil {
+		return nil, err
+	}
 	sm := &skillmd.SkillMD{
-		Name:        skill.Name,
-		Description: skill.Description,
-		Category:    skill.Category,
-		Tags:        skill.Tags,
-		Version:     skill.Version,
-		Author:      skill.Author,
-		License:     skill.License,
-		Context:     skill.Context,
-		Agent:       skill.Agent,
-		Background:  skill.Background,
-		Body:        skill.SystemPrompt,
+		Name:        copy.Name,
+		Description: copy.Description,
+		Category:    copy.Category,
+		Tags:        copy.Tags,
+		Version:     copy.Version,
+		Author:      copy.Author,
+		License:     copy.License,
+		Context:     copy.Context,
+		Agent:       copy.Agent,
+		Background:  copy.Background,
+		Body:        copy.SystemPrompt,
 	}
-
-	tools := make([]skillmd.ToolDef, 0, len(skill.Tools))
-	for _, t := range skill.Tools {
-		tools = append(tools, skillmd.ToolDef{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-			Handler:     t.Handler,
-			HandlerType: t.HandlerType,
-		})
-	}
-
-	return skillmd.Generate(sm, tools)
+	return skillmd.Generate(sm, nil)
 }
 
 func (s *Server) getSkillByIDOrName(ctx context.Context, ref string) (*service.Skill, error) {
@@ -367,7 +358,7 @@ func (s *Server) ExportSkillAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // ExportSkillMDAPI handles GET /api/v1/skills/{id}/export-md.
-// Returns the skill as a downloadable SKILL.md file with tools in the body.
+// Returns the skill as a downloadable SKILL.md documentation file.
 func (s *Server) ExportSkillMDAPI(w http.ResponseWriter, r *http.Request) {
 	if s.skillStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -669,26 +660,13 @@ func parseSkillPayload(url string, data []byte) (*skillExportData, error) {
 }
 
 // skillExportFromSkillMD parses SKILL.md content (frontmatter + body +
-// optional ## Tools section) into the portable export shape. Frontmatter
+// Markdown body) into the portable export shape. Code fences remain ordinary
+// documentation and are never interpreted as executable tools. Frontmatter
 // metadata (category, tags, license, version, author) is preserved.
 func skillExportFromSkillMD(data []byte) (*skillExportData, error) {
-	parsed, toolDefs, err := skillmd.ParseWithTools(data)
+	parsed, err := skillmd.Parse(data)
 	if err != nil {
 		return nil, err
-	}
-
-	tools := make([]service.Tool, 0, len(toolDefs))
-	for _, t := range toolDefs {
-		tools = append(tools, service.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-			Handler:     t.Handler,
-			HandlerType: t.HandlerType,
-		})
-	}
-	if len(tools) == 0 {
-		tools = nil
 	}
 
 	return &skillExportData{
@@ -703,7 +681,7 @@ func skillExportFromSkillMD(data []byte) (*skillExportData, error) {
 		Agent:        parsed.Agent,
 		Background:   parsed.Background,
 		SystemPrompt: parsed.Body,
-		Tools:        tools,
+		Tools:        nil,
 		Resources:    nil,
 	}, nil
 }
@@ -829,92 +807,4 @@ func (s *Server) ApplySkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, result, http.StatusOK)
-}
-
-// ─── Test Handler API ───
-
-// testHandlerRequest is the request body for TestHandlerAPI.
-type testHandlerRequest struct {
-	Handler     string         `json:"handler"`
-	HandlerType string         `json:"handler_type"` // "js" (default) or "bash"
-	Arguments   map[string]any `json:"arguments"`
-}
-
-// testHandlerResponse is the response body for TestHandlerAPI.
-type testHandlerResponse struct {
-	Result     string `json:"result"`
-	Error      string `json:"error,omitempty"`
-	DurationMs int64  `json:"duration_ms"`
-}
-
-// TestHandlerAPI handles POST /api/v1/skills/test-handler.
-// It executes a tool handler (JS or bash) server-side with sample arguments
-// and returns the result. Used by the Skill Builder AI panel to test handlers.
-func (s *Server) TestHandlerAPI(w http.ResponseWriter, r *http.Request) {
-	var req testHandlerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Handler == "" {
-		httpResponse(w, "handler is required", http.StatusBadRequest)
-		return
-	}
-
-	if req.Arguments == nil {
-		req.Arguments = make(map[string]any)
-	}
-
-	start := time.Now()
-	var result string
-	var execErr error
-
-	if req.HandlerType == "bash" {
-		// Build a VarLister from the variable store.
-		var varLister workflow.VarLister
-		if s.variableStore != nil {
-			varLister = func() (map[string]string, error) {
-				vars, err := s.variableStore.ListVariables(context.Background(), nil)
-				if err != nil {
-					return nil, err
-				}
-				m := make(map[string]string, len(vars.Data))
-				for _, v := range vars.Data {
-					m[v.Key] = v.Value
-				}
-				return m, nil
-			}
-		}
-		result, execErr = workflow.ExecuteBashHandler(r.Context(), req.Handler, req.Arguments, varLister, 0)
-	} else {
-		// Default: JS handler.
-		var varLookup workflow.VarLookup
-		if s.variableStore != nil {
-			varLookup = func(key string) (string, error) {
-				v, err := s.variableStore.GetVariableByKey(context.Background(), key)
-				if err != nil {
-					return "", err
-				}
-				if v == nil {
-					return "", fmt.Errorf("variable %q not found", key)
-				}
-				return v.Value, nil
-			}
-		}
-		result, execErr = workflow.ExecuteJSHandler(req.Handler, req.Arguments, varLookup)
-	}
-
-	durationMs := time.Since(start).Milliseconds()
-
-	resp := testHandlerResponse{
-		Result:     result,
-		DurationMs: durationMs,
-	}
-	if execErr != nil {
-		resp.Error = execErr.Error()
-		slog.Warn("test handler failed", "handler_type", req.HandlerType, "error", execErr, "duration_ms", durationMs)
-	}
-
-	httpResponseJSON(w, resp, http.StatusOK)
 }

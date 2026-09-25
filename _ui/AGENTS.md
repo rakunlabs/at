@@ -24,7 +24,7 @@ src/
   pages/               → page components (one per route)
   lib/
     api/               → axios wrappers per domain (gateway.ts, providers.ts, workflows.ts, ...)
-    components/        → reusable UI (Sidebar, Navbar, Toast, ChatPanel, SkillBuilderPanel)
+    components/        → reusable UI (Sidebar, Navbar, Toast, ChatPanel)
     components/workflow/ → 19 workflow node editor components (one per node type)
     store/             → global stores (store.svelte.ts, toast.svelte.ts)
     helper/            → utilities (chat, codec, config snippets)

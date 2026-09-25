@@ -7,6 +7,7 @@ const api = axios.create({
 
 // ─── Types ───
 
+/** @deprecated Imported only for compatibility with old JSON payloads. */
 export interface SkillTool {
   name: string;
   description: string;
@@ -36,7 +37,7 @@ export interface Skill {
   category?: string;
   tags?: string[];
   system_prompt: string;
-  tools: SkillTool[];
+  tools?: SkillTool[];
   resources?: SkillResource[];
   context?: '' | 'fork';
   agent?: string;
@@ -205,24 +206,5 @@ export async function checkSkillUpdate(id: string): Promise<SkillUpdateCheck> {
 
 export async function applySkillUpdate(id: string): Promise<Skill> {
   const res = await api.post<Skill>(`/skills/${id}/update`);
-  return res.data;
-}
-
-// ─── Test Handler ───
-
-export interface TestHandlerRequest {
-  handler: string;
-  handler_type: string;
-  arguments: Record<string, any>;
-}
-
-export interface TestHandlerResponse {
-  result: string;
-  error: string;
-  duration_ms: number;
-}
-
-export async function testHandler(req: TestHandlerRequest): Promise<TestHandlerResponse> {
-  const res = await api.post<TestHandlerResponse>('/skills/test-handler', req);
   return res.data;
 }

@@ -929,7 +929,7 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			// execute — searches silently fail and the model falls back to
 			// stale training data. There we instead leave the caller's own
 			// web_search tool as a normal function tool and let the agent
-			// loop dispatch it (e.g. the openai_web_search skill handler),
+			// loop dispatch it as an independently configured function tool,
 			// which is provider-agnostic and actually runs.
 			if p.tokenSource == nil {
 				if !webSearchAdded {

@@ -4,11 +4,11 @@ import { test } from 'node:test';
 
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 
-test('Chats configures skills directly without an agent binding', () => {
+test('Chats configures documentation skills directly without an agent binding', () => {
   assert.doesNotMatch(source, /agent_id|boundAgent|Choose an agent/);
   assert.match(source, /type WorkbenchTab = 'prompt' \| 'skills' \| 'tools' \| 'chat'/);
   assert.match(source, /\{ id: 'skills', label: 'Skills' \}/);
-  assert.match(source, /Add reusable instructions and tools directly to this conversation/);
+  assert.match(source, /Add reusable Markdown instructions and reference resources\. Skills do not grant tools\./);
   assert.match(source, /skills: \[\.\.\.selectedSkillNames\]/);
 });
 

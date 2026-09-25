@@ -15,9 +15,9 @@ import (
 // Config holds container configuration for an organization.
 type Config struct {
 	Enabled bool   `json:"enabled"`
-	Image   string `json:"image,omitempty"`   // Docker image (default: at-agent-runtime:latest)
-	CPU     string `json:"cpu,omitempty"`     // CPU limit (e.g., "2")
-	Memory  string `json:"memory,omitempty"`  // Memory limit (e.g., "4g")
+	Image   string `json:"image,omitempty"`  // Docker image (default: at-agent-runtime:latest)
+	CPU     string `json:"cpu,omitempty"`    // CPU limit (e.g., "2")
+	Memory  string `json:"memory,omitempty"` // Memory limit (e.g., "4g")
 	Network bool   `json:"network"`          // Allow network access
 }
 

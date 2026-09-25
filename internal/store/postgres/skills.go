@@ -170,6 +170,9 @@ func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Sk
 }
 
 func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.Skill, error) {
+	if err := service.NormalizeDocumentationSkill(&sk); err != nil {
+		return nil, err
+	}
 	if err := service.ValidateSkillExecution(sk); err != nil {
 		return nil, err
 	}
@@ -282,6 +285,9 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 }
 
 func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill) (*service.Skill, error) {
+	if err := service.NormalizeDocumentationSkill(&sk); err != nil {
+		return nil, err
+	}
 	if err := service.ValidateSkillExecution(sk); err != nil {
 		return nil, err
 	}

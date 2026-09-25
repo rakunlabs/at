@@ -14,7 +14,7 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { callSkillTool, listBuiltinTools, callBuiltinTool, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { listBuiltinTools, callBuiltinTool, type BuiltinToolDef } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
@@ -116,11 +116,9 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension';
+    type: 'mcp' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
-    /** Skill name (when type === 'skill') */
-    skillName?: string;
     /** MCP Set name (when type === 'mcpset') */
     mcpSetName?: string;
     /**
@@ -1196,7 +1194,7 @@
   async function loadSkills() {
     try {
       const res = await listSkills();
-      skills = (res.data ?? []).map(s => ({ ...s, tools: s.tools ?? [] }));
+      skills = res.data ?? [];
     } catch {
       // Skills may not be available
     }
@@ -1611,7 +1609,7 @@
     }
   }
 
-  /** Discover tools from MCP sets, selected skills, enabled builtins, and frontend tools. Build the dispatch map. */
+  /** Discover tools from MCP sets, enabled builtins, and frontend tools. Build the dispatch map. */
   let toolDiscoveryVersion = 0;
   async function refreshTools() {
     const version = ++toolDiscoveryVersion;
@@ -1661,16 +1659,6 @@
             });
             newSourceMap[t.name] = { type: 'mcpset', mcpSetName: setName };
           }
-          // Also load system prompts from MCP Set's enabled skills
-          const mcpSet = availableMCPSets.find(s => s.name === setName);
-          if (mcpSet?.config?.enabled_skills) {
-            for (const skillName of mcpSet.config.enabled_skills) {
-              const skill = skills.find(s => s.name === skillName);
-              if (skill?.system_prompt) {
-                newSkillPrompts.push(skill.system_prompt);
-              }
-            }
-          }
         } catch (e: any) {
           if (version !== toolDiscoveryVersion) return;
           const message = e?.response?.data?.message || e.message || 'failed to discover tools';
@@ -1679,7 +1667,7 @@
         }
       }
 
-      // 3. Discover skill tools
+      // 3. Load documentation skill instructions. Skills never register tools.
       for (const skillName of selections.skills) {
         const skill = skills.find(s => s.name === skillName);
         if (!skill) continue;
@@ -1688,18 +1676,6 @@
           newSkillPrompts.push(skill.system_prompt);
         }
 
-        for (const tool of skill.tools) {
-          if (newSourceMap[tool.name]) continue;
-          newTools.push({
-            type: 'function',
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.inputSchema || { type: 'object', properties: {} },
-            },
-          });
-          newSourceMap[tool.name] = { type: 'skill', skillName: skill.name };
-        }
       }
 
       // 4. Add enabled built-in server tools
@@ -1818,10 +1794,6 @@
         const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args);
         const text = res.content?.map(c => c.text).join('\n') ?? '';
         return text || 'Tool executed successfully (no output)';
-      } else if (source.type === 'skill' && source.skillName) {
-        const res = await callSkillTool(source.skillName, tc.function.name, args);
-        if (res.error) return `Error: ${res.error}`;
-        return res.result;
       } else if (source.type === 'builtin') {
         const res = await callBuiltinTool(tc.function.name, args, '', turnTraceId);
         if (res.error) return `Error: ${res.error}`;
@@ -2932,7 +2904,7 @@
           {#if skills.length > 0}
             <div role="group" aria-label="Skills" class="block">
               <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
-              <p class="mb-2 text-xs text-gray-500 dark:text-dark-text-muted">Add reusable instructions and tools directly to this conversation.</p>
+              <p class="mb-2 text-xs text-gray-500 dark:text-dark-text-muted">Add reusable Markdown instructions and reference resources. Skills do not grant tools.</p>
               <div class="flex flex-wrap gap-1.5">
                 {#each skills as skill}
                   <button
@@ -2945,9 +2917,6 @@
                     title={skill.description || skill.name}
                   >
                     {skill.name}
-                    {#if skill.tools.length > 0}
-                      <span class="ml-1 opacity-60">({skill.tools.length})</span>
-                    {/if}
                   </button>
                 {/each}
               </div>
@@ -3393,7 +3362,7 @@
                           result={toolResults.get(i)?.get(tc.id)}
                           running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                           queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
+                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
                         />
                       {/if}
                     {/each}

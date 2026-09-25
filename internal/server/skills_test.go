@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -44,14 +45,11 @@ Do useful things.
 	if export.Category != "Utilities" {
 		t.Errorf("category = %q, want Utilities", export.Category)
 	}
-	if len(export.Tools) != 1 || export.Tools[0].Name != "tool_a" {
-		t.Fatalf("tools = %+v, want one tool named tool_a", export.Tools)
+	if len(export.Tools) != 0 {
+		t.Fatalf("tools = %+v, want none", export.Tools)
 	}
-	if export.Tools[0].Handler != "return 1;" {
-		t.Errorf("tool handler = %q, want return 1;", export.Tools[0].Handler)
-	}
-	if export.SystemPrompt == "" || export.SystemPrompt != "Do useful things." {
-		t.Errorf("system prompt = %q, want body without tools section", export.SystemPrompt)
+	if !strings.Contains(export.SystemPrompt, "Do useful things.") || !strings.Contains(export.SystemPrompt, `"tool_a"`) {
+		t.Errorf("system prompt did not preserve tool-looking Markdown: %q", export.SystemPrompt)
 	}
 }
 

@@ -15,7 +15,6 @@ import (
 
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // GatewayMCPSSEHandler handles GET requests to MCP endpoints using the SSE transport.
@@ -68,7 +67,7 @@ func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GatewayMCPHandler handles MCP protocol requests at /gateway/v1/mcp/{name}.
-// Each named endpoint can expose custom HTTP tools, skills, builtins, upstreams, or workflows.
+// Each named endpoint can expose custom HTTP tools, builtins, upstreams, or workflows.
 // Auth uses the same Bearer token mechanism as the gateway chat completions endpoint unless the named server is public.
 func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	if s.mcpServerStore == nil {
@@ -442,57 +441,6 @@ func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTT
 
 	resultJSON, _ := json.Marshal(result)
 	return string(resultJSON), nil
-}
-
-// executeSkillTool runs a skill tool's handler (bash or JS) and returns the result.
-func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args map[string]any) (string, error) {
-	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "inline_tool", Name: tool.Name}); err != nil {
-		return "", err
-	}
-	if tool.Handler == "" {
-		return "", fmt.Errorf("tool %q has no handler", tool.Name)
-	}
-
-	if tool.HandlerType == "bash" {
-		var varLister workflow.VarLister
-		if s.variableStore != nil {
-			varLister = func() (map[string]string, error) {
-				q, err := runtimeWorkspaceQuery(ctx)
-				if err != nil {
-					return nil, err
-				}
-				vars, err := s.variableStore.ListVariables(ctx, q)
-				if err != nil {
-					return nil, err
-				}
-				m := make(map[string]string, len(vars.Data))
-				for _, v := range vars.Data {
-					m[v.Key] = v.Value
-				}
-				return m, nil
-			}
-		}
-		return workflow.ExecuteBashHandler(ctx, tool.Handler, args, varLister, 0)
-	}
-
-	// Default: JS handler.
-	var varLookup workflow.VarLookup
-	if s.variableStore != nil {
-		varLookup = func(key string) (string, error) {
-			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
-				return "", err
-			}
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
-		}
-	}
-	return workflow.ExecuteJSHandlerContext(ctx, tool.Handler, args, varLookup)
 }
 
 // resolveVarRefs resolves {{var:key}} references in val against the

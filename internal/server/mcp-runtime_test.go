@@ -193,17 +193,11 @@ func TestMCPSetRuntimePropagatesContextAndPreservesPrecedence(t *testing.T) {
 	setStore := &runtimeMCPSetStore{set: &service.MCPSet{
 		Name: "media",
 		Config: service.MCPServerConfig{
-			EnabledSkills: []string{"media-skill"},
-			MCPUpstreams:  []service.MCPUpstream{{URL: "https://mcp.example"}},
-			HTTPTools:     []service.MCPHTTPTool{{Name: "render"}},
+			MCPUpstreams: []service.MCPUpstream{{URL: "https://mcp.example"}},
 		},
 	}}
-	skillStore := &runtimeSkillStore{skill: &service.Skill{
-		Name:  "media-skill",
-		Tools: []service.Tool{{Name: "render", Handler: `return "skill";`}},
-	}}
 	upstream := &fakeRuntimeMCPClient{tools: []service.Tool{{Name: "render"}}, callResult: "upstream"}
-	s := &Server{mcpSetStore: setStore, skillStore: skillStore}
+	s := &Server{mcpSetStore: setStore}
 	builder := s.newMCPRuntimeBuilder()
 	builder.acquireUpstream = func(got context.Context, _ service.MCPUpstream) (mcpClientLease, error) {
 		if got != ctx {
@@ -217,18 +211,19 @@ func TestMCPSetRuntimePropagatesContextAndPreservesPrecedence(t *testing.T) {
 		t.Fatalf("buildSet: %v", err)
 	}
 	defer runtime.Close(context.Background())
-	if setStore.ctx != ctx || skillStore.ctx != ctx {
-		t.Fatal("set lookup or skill lookup lost caller context")
+	if setStore.ctx != ctx {
+		t.Fatal("set lookup lost caller context")
 	}
-	if len(runtime.Tools()) != 1 || runtime.routes["render"][0].source != `skill "media-skill"` {
-		t.Fatalf("render route = %#v, want skill to win direct-set precedence", runtime.routes["render"])
+	tools := runtime.ListTools(ctx)
+	if len(tools) != 1 || runtime.routes["render"][0].source != `MCP upstream "https://mcp.example"` {
+		t.Fatalf("render route = %#v, want upstream route", runtime.routes["render"])
 	}
 	result, err := runtime.CallTool(ctx, "render", nil)
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
-	if result != "skill" || len(upstream.calls) != 0 {
-		t.Fatalf("result = %q, upstream calls = %v; want skill route", result, upstream.calls)
+	if result != "upstream" || len(upstream.calls) != 1 {
+		t.Fatalf("result = %q, upstream calls = %v; want upstream route", result, upstream.calls)
 	}
 	runtime.ListTools(ctx)
 	if upstream.listCtx != ctx {
@@ -268,20 +263,15 @@ func TestMCPSetRuntimeUsesUnredactedExecutionConfig(t *testing.T) {
 }
 
 func TestGatewayMCPRuntimeHTTPToolWinsDuplicateName(t *testing.T) {
-	skillStore := &runtimeSkillStore{skill: &service.Skill{
-		Name:  "duplicate-skill",
-		Tools: []service.Tool{{Name: "duplicate", Handler: `return "skill";`}},
-	}}
 	upstream := &fakeRuntimeMCPClient{tools: []service.Tool{{Name: "duplicate"}}}
-	s := &Server{skillStore: skillStore}
+	s := &Server{}
 	builder := s.newMCPRuntimeBuilder()
 	builder.acquireUpstream = func(context.Context, service.MCPUpstream) (mcpClientLease, error) {
 		return mcpClientLease{client: upstream, owned: true}, nil
 	}
 	srv := &service.MCPServer{Config: service.MCPServerConfig{
-		HTTPTools:     []service.MCPHTTPTool{{Name: "duplicate"}},
-		EnabledSkills: []string{"duplicate-skill"},
-		MCPUpstreams:  []service.MCPUpstream{{URL: "https://mcp.example"}},
+		HTTPTools:    []service.MCPHTTPTool{{Name: "duplicate"}},
+		MCPUpstreams: []service.MCPUpstream{{URL: "https://mcp.example"}},
 	}}
 
 	runtime := builder.buildGateway(context.Background(), srv)
@@ -291,33 +281,22 @@ func TestGatewayMCPRuntimeHTTPToolWinsDuplicateName(t *testing.T) {
 	}
 }
 
-func TestGatewayMCPRuntimeLocalToolSkipsUnavailableUpstream(t *testing.T) {
+func TestGatewayMCPRuntimeIgnoresLegacySkillTools(t *testing.T) {
 	skillStore := &runtimeSkillStore{skill: &service.Skill{
 		Name:  "local-skill",
 		Tools: []service.Tool{{Name: "local", Handler: `return "local result";`}},
 	}}
 	s := &Server{skillStore: skillStore}
 	builder := s.newMCPRuntimeBuilder()
-	acquired := false
-	builder.acquireUpstream = func(ctx context.Context, _ service.MCPUpstream) (mcpClientLease, error) {
-		acquired = true
-		<-ctx.Done()
-		return mcpClientLease{}, ctx.Err()
-	}
 	runtime := builder.buildGateway(context.Background(), &service.MCPServer{Config: service.MCPServerConfig{
 		EnabledSkills: []string{"local-skill"},
-		MCPUpstreams:  []service.MCPUpstream{{URL: "https://unavailable.example"}},
 	}})
 	defer runtime.Close(context.Background())
-
-	ctx, cancel := context.WithTimeout(executiontest.Context(t), 100*time.Millisecond)
-	defer cancel()
-	result, err := runtime.CallTool(ctx, "local", nil)
-	if err != nil {
-		t.Fatalf("CallTool: %v", err)
+	if tools := runtime.ListTools(executiontest.Context(t)); len(tools) != 0 {
+		t.Fatalf("legacy skill exposed tools: %+v", tools)
 	}
-	if result != "local result" || acquired {
-		t.Fatalf("result = %q, upstream acquired = %v; want prompt local dispatch", result, acquired)
+	if _, err := runtime.CallTool(executiontest.Context(t), "local", nil); err == nil {
+		t.Fatal("legacy skill tool unexpectedly callable")
 	}
 }
 

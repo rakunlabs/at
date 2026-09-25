@@ -586,27 +586,8 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	var varLookup workflow.VarLookup
 	var varLister workflow.VarLister
 	if s.variableStore != nil {
-		varLookup = func(key string) (string, error) {
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
-		}
-		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx, nil)
-			if err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(vars.Data))
-			for _, v := range vars.Data {
-				m[v.Key] = v.Value
-			}
-			return m, nil
-		}
+		varLookup = nonSecretVariableLookup(ctx, s.variableStore)
+		varLister = nonSecretVariableLister(ctx, s.variableStore)
 	}
 
 	// Build a node config lookup function for nodes that reference external configs.

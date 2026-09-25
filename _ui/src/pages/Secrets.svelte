@@ -377,7 +377,7 @@
       searchPlaceholder="Search by key..."
       emptyIcon={Braces}
       emptyTitle="No variables configured"
-      emptyDescription="Variables store configuration values and credentials for use in skill handlers"
+      emptyDescription="Variables store configuration values and controlled credential references for approved tools"
     >
       {#snippet header()}
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />

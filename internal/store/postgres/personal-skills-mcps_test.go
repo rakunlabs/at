@@ -45,13 +45,6 @@ func TestPersonalSkillsAndMCPSetsVisibilityAndPublish(t *testing.T) {
 	if err != nil || personalMCP.Scope != "personal" {
 		t.Fatalf("create personal MCP: %+v %v", personalMCP, err)
 	}
-	privateOnlySkill, err := p.CreateSkill(aliceCtx, service.Skill{Name: "private-mcp-skill", OwnerUserID: alice.ID})
-	if err != nil {
-		t.Fatalf("create private MCP skill: %v", err)
-	}
-	if _, err := p.CreateMCPSet(aliceCtx, service.MCPSet{Name: "bad-workspace-mcp", Config: service.MCPServerConfig{EnabledSkills: []string{privateOnlySkill.Name}}}); !errors.Is(err, service.ErrAccessResourceNotFound) {
-		t.Fatalf("workspace MCP accepted personal skill: %v", err)
-	}
 	if got, err := p.GetMCPSet(bobCtx, personalMCP.ID); err != nil || got != nil {
 		t.Fatalf("foreign personal MCP visible: %+v %v", got, err)
 	}

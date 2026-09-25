@@ -2,7 +2,6 @@ package skillmd
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
@@ -19,11 +18,14 @@ type ToolDef struct {
 
 // Generate produces the markdown representation of a skill:
 // YAML frontmatter (metadata) separated by --- delimiters, followed by
-// the system prompt body. If tools are provided, they are appended as a
-// ## Tools section with a JSON code block at the end of the body.
+// the Markdown body. Executable tool definitions are deliberately rejected;
+// callers migrating legacy records must first preserve them as inert Markdown.
 func Generate(s *SkillMD, tools []ToolDef) ([]byte, error) {
 	if s == nil {
 		return nil, fmt.Errorf("skillmd: nil skill")
+	}
+	if len(tools) > 0 {
+		return nil, fmt.Errorf("skillmd: executable tool definitions are not supported")
 	}
 
 	yamlBytes, err := yaml.Marshal(s.frontmatterOnly())
@@ -39,25 +41,10 @@ func Generate(s *SkillMD, tools []ToolDef) ([]byte, error) {
 	if s.Body != "" {
 		buf.WriteString("\n")
 		buf.WriteString(s.Body)
-		// Ensure trailing newline before tools section.
+		// Keep generated files POSIX-friendly.
 		if len(s.Body) > 0 && s.Body[len(s.Body)-1] != '\n' {
 			buf.WriteString("\n")
 		}
-	}
-
-	if len(tools) > 0 {
-		toolsJSON, err := json.MarshalIndent(tools, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("skillmd: marshal tools: %w", err)
-		}
-
-		if s.Body != "" {
-			buf.WriteString("\n")
-		}
-		buf.WriteString("## Tools\n\n")
-		buf.WriteString("```json\n")
-		buf.Write(toolsJSON)
-		buf.WriteString("\n```\n")
 	}
 
 	return buf.Bytes(), nil

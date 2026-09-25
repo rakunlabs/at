@@ -29,7 +29,7 @@ type MCPServerConfig struct {
 	// Upstream MCP servers to proxy tools from.
 	MCPUpstreams []MCPUpstream `json:"mcp_upstreams,omitempty"`
 
-	// Skill tools — names of skills whose tools should be exposed.
+	// Deprecated: retained only to decode existing records. MCP runtimes ignore it.
 	EnabledSkills []string `json:"enabled_skills,omitempty"`
 
 	// Builtin tools — names of server-side builtin tools to expose.

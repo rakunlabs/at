@@ -299,25 +299,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 	consultTool := s.orgConsultationTool(ctx, org.ID, agentID)
 
-	// e2) Load skill tools for this agent.
-	type skillToolHandler struct {
-		handler     string
-		handlerType string
-		skillID     string
-	}
-	skillToolMap := make(map[string]skillToolHandler)
-	var skillTools []service.Tool
+	// e2) Load documentation skill instructions and resources for this agent.
 	skillResources := map[string]*service.Skill{}
 	var skillPromptFragments []string
-
-	// skillConnOverrides maps skill ID to per-skill connection bindings
-	// declared on the agent's SkillRef entries.
-	skillConnOverrides := map[string]map[string]string{}
-	for _, sr := range agent.Config.Skills {
-		if sr.ID != "" && len(sr.Connections) > 0 {
-			skillConnOverrides[sr.ID] = sr.Connections
-		}
-	}
 
 	if s.skillStore != nil {
 		for _, skillRef := range agent.Config.Skills {
@@ -359,16 +343,6 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				}
 				sort.Strings(paths)
 				skillPromptFragments = append(skillPromptFragments, fmt.Sprintf("Bundled resources for skill %q are available on demand through `%s`: %s", canonical, workflow.ReadSkillResourceToolName, strings.Join(paths, ", ")))
-			}
-			for _, t := range skill.Tools {
-				if t.Handler != "" {
-					skillToolMap[t.Name] = skillToolHandler{
-						handler:     t.Handler,
-						handlerType: t.HandlerType,
-						skillID:     skill.ID,
-					}
-				}
-				skillTools = append(skillTools, t)
 			}
 		}
 	}
@@ -451,10 +425,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			mcpURLs = append(mcpURLs, set.URLs...)
 			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
 
-			// Server-side tools (skills/builtins/HTTP/workflows) resolve
+			// Server-side tools (builtins/HTTP/workflows) resolve
 			// directly through callMCPSetTool — no HTTP round-trip needed.
-			if len(set.Config.HTTPTools) > 0 ||
-				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
+			if len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
 				len(set.Config.WorkflowIDs) > 0 {
 				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
@@ -509,28 +482,6 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 	}
 
-	// Build variable lookup/lister for skill tool execution.
-	var varLookup workflow.VarLookup
-	if s.variableStore != nil {
-		varLookup = func(key string) (string, error) {
-			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
-				return "", err
-			}
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
-		}
-	}
-	var varLister workflow.VarLister
-	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
-	// Only explicit, authorized connection bindings are injected into shell
-	// handlers. Do not enumerate every workspace's global credentials.
-
 	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
 	if toolTimeout <= 0 {
 		toolTimeout = 60 * time.Second
@@ -539,7 +490,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// f) Build enriched system prompt.
 	systemPrompt := agent.Config.SystemPrompt
 
-	// Append skill system prompt fragments.
+	// Append documentation skill instructions.
 	if len(skillPromptFragments) > 0 {
 		systemPrompt += "\n\n" + strings.Join(skillPromptFragments, "\n\n")
 	}
@@ -782,16 +733,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// Strip Handler/HandlerType from tools before sending to LLM.
-	// Include delegate tools, skill tools, and builtin tools.
-	llmTools := make([]service.Tool, 0, len(delegateTools)+len(skillTools)+len(builtinToolDefs))
+	// Include delegate and explicitly configured builtin tools. Skills add
+	// documentation, never executable capabilities.
+	llmTools := make([]service.Tool, 0, len(delegateTools)+len(builtinToolDefs))
 	for _, t := range delegateTools {
-		llmTools = append(llmTools, service.Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		})
-	}
-	for _, t := range skillTools {
 		llmTools = append(llmTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,
@@ -1098,9 +1043,6 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			if target, ok := delegateToolMap[tc.Name]; ok {
 				actionErr = workflow.AuthorizeToolHandler(ctx, tc.Name, "delegate", "", target)
 			}
-			if hi, ok := skillToolMap[tc.Name]; ok {
-				actionErr = workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler)
-			}
 			if set, ok := mcpSetToolMap[tc.Name]; ok {
 				actionErr = workflow.AuthorizeMCPSetTool(ctx, set, tc.Name)
 			}
@@ -1208,60 +1150,6 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						}))
 					}
 				}(i, tc, reportAgentID, toolStarted)
-			} else if hi, ok := skillToolMap[tc.Name]; ok {
-				// Skill tool — execute the handler synchronously.
-				var result string
-				var callErr error
-
-				// Wrap VarLookup/VarLister with connection bindings so that
-				// provider-scoped keys resolve through the agent's bound
-				// Connection, falling back to global variables.
-				toolVarLookup := varLookup
-				toolVarLister := varLister
-				if s.connectionStore != nil {
-					var perSkill map[string]string
-					if hi.skillID != "" {
-						perSkill = skillConnOverrides[hi.skillID]
-					}
-					bindings := workflow.ResolveAgentConnectionBindings(
-						ctx, s.connectionLookupFunc(),
-						agent.Config.Connections, perSkill,
-					)
-					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, varLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, varLister, bindings)
-					}
-				}
-
-				if hi.handlerType == "bash" {
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
-				} else {
-					result, callErr = workflow.ExecuteJSHandlerContext(ctx, hi.handler, tc.Arguments, toolVarLookup)
-				}
-
-				if callErr != nil {
-					slog.Error("org-delegation: skill tool call failed",
-						"tool", tc.Name, "task_id", task.ID, "error", callErr)
-					result = fmt.Sprintf("Error: %v", callErr)
-				} else {
-					logResult := result
-					if len(logResult) > 500 {
-						logResult = logResult[:500] + "..."
-					}
-					slog.Debug("org-delegation: skill tool call result",
-						"tool", tc.Name, "task_id", task.ID, "result_length", len(result), "result", logResult)
-				}
-
-				// Apply governor truncation before the result is
-				// appended to the message history. Skill JS handlers
-				// are unbounded by default; this cap is the only
-				// thing standing between a noisy handler and a O(K²)
-				// context blow-up.
-				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
-
-				// Observation: skill tool call (JS/bash handler) with its
-				// arguments and (post-truncation) result.
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
 			} else if _, ok := builtinToolMap[tc.Name]; ok {
 				// Builtin tool — execute via dispatchBuiltinTool.
 				var result string

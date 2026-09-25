@@ -554,7 +554,7 @@
                           <div class="flex items-center gap-2">
                             <WandSparkles size={12} class="text-gray-400 dark:text-dark-text-muted" />
                             <span class="text-xs font-mono font-medium text-gray-800 dark:text-dark-text">{skill.name}</span>
-                            <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">{(skill.tools || []).length} tools</span>
+                            <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">{(skill.resources || []).length} resources</span>
                           </div>
                           {#if skill.description}
                             <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 line-clamp-2">{skill.description}</p>

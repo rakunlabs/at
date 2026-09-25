@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -37,39 +36,6 @@ func (s *Server) buildExecutionMCPSet(ctx context.Context, setName string) (*mcp
 
 func (s *Server) buildExecutionMCPConfig(ctx context.Context, srv *service.MCPServer) (*mcpRuntime, error) {
 	runtime := newMCPRuntime()
-	for _, name := range srv.Config.EnabledSkills {
-		if s.skillStore == nil {
-			continue
-		}
-		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: name}); err != nil {
-			return nil, err
-		}
-		skill, err := s.skillStore.GetSkillByName(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		if skill == nil {
-			continue
-		}
-		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
-			return nil, err
-		}
-		for _, tool := range skill.Tools {
-			runtime.addTool(service.Tool{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema}, "scoped skill", func(ctx context.Context, args map[string]any) (string, error) {
-				if err := workflow.AuthorizeToolHandler(ctx, tool.Name, tool.HandlerType, skill.ID, tool.Handler); err != nil {
-					return "", err
-				}
-				lookup, lister, err := s.runtimeHandlerLookups(ctx, skill.ID)
-				if err != nil {
-					return "", err
-				}
-				if tool.HandlerType == "bash" {
-					return workflow.ExecuteBashHandler(ctx, tool.Handler, args, lister, 60*time.Second)
-				}
-				return workflow.ExecuteJSHandlerContext(ctx, tool.Handler, args, lookup)
-			})
-		}
-	}
 	for _, id := range srv.Config.WorkflowIDs {
 		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: id}); err != nil {
 			return nil, err

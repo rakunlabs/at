@@ -76,7 +76,6 @@
         "skill_create",
         "skill_update",
         "skill_delete",
-        "skill_test_handler",
         "skill_export",
         "skill_import",
         "skill_import_url",

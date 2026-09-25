@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -57,44 +55,6 @@ func TestSkillTemplatesParse(t *testing.T) {
 	}
 }
 
-// TestSkillTemplateBashSyntax parses bash handlers without executing bash or
-// embedded Python bodies. Required-field validation remains covered above on
-// platforms that do not provide bash.
-func TestSkillTemplateBashSyntax(t *testing.T) {
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skipf("bash unavailable; skipping embedded handler syntax validation: %v", err)
-	}
-
-	entries, err := skillTemplateFS.ReadDir("skill_templates")
-	if err != nil {
-		t.Fatalf("read skill_templates dir: %v", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := skillTemplateFS.ReadFile("skill_templates/" + entry.Name())
-		if err != nil {
-			t.Fatalf("read %s: %v", entry.Name(), err)
-		}
-		var tmpl SkillTemplate
-		if err := json.Unmarshal(data, &tmpl); err != nil {
-			t.Fatalf("parse %s: %v", entry.Name(), err)
-		}
-		for _, tool := range tmpl.Skill.Tools {
-			if tool.HandlerType != "bash" {
-				continue
-			}
-			cmd := exec.Command(bash, "-n")
-			cmd.Stdin = strings.NewReader(tool.Handler)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				t.Errorf("%s tool %q has invalid bash syntax: %v: %s", entry.Name(), tool.Name, err, strings.TrimSpace(string(output)))
-			}
-		}
-	}
-}
-
 func TestValidateSkillTemplateRejectsMalformedDefinitions(t *testing.T) {
 	valid := SkillTemplate{
 		Slug:        "example",
@@ -122,11 +82,6 @@ func TestValidateSkillTemplateRejectsMalformedDefinitions(t *testing.T) {
 	}{
 		{"template field", func(tmpl *SkillTemplate) { tmpl.Description = "" }, "description is required"},
 		{"skill field", func(tmpl *SkillTemplate) { tmpl.Skill.SystemPrompt = "" }, "skill.system_prompt is required"},
-		{"tool description", func(tmpl *SkillTemplate) { tmpl.Skill.Tools[0].Description = "" }, "skill.tools[0].description is required"},
-		{"tool input schema", func(tmpl *SkillTemplate) { tmpl.Skill.Tools[0].InputSchema = nil }, "skill.tools[0].inputSchema is required"},
-		{"tool schema root", func(tmpl *SkillTemplate) { tmpl.Skill.Tools[0].InputSchema["type"] = "string" }, "inputSchema.type must be"},
-		{"tool handler type", func(tmpl *SkillTemplate) { tmpl.Skill.Tools[0].HandlerType = "python" }, "handler_type \"python\" is unsupported"},
-		{"bash syntax", func(tmpl *SkillTemplate) { tmpl.Skill.Tools[0].Handler = "invalid" }, "invalid bash syntax"},
 	}
 
 	for _, tt := range tests {
@@ -135,12 +90,7 @@ func TestValidateSkillTemplateRejectsMalformedDefinitions(t *testing.T) {
 			tmpl.Skill.Tools = append([]service.Tool(nil), valid.Skill.Tools...)
 			tmpl.Skill.Tools[0].InputSchema = map[string]any{"type": "object"}
 			tt.mutate(&tmpl)
-			err := validateSkillTemplate(tmpl, func(handler string) error {
-				if handler == "invalid" {
-					return fmt.Errorf("parse failure")
-				}
-				return nil
-			})
+			err := validateSkillTemplate(tmpl, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("validateSkillTemplate() error = %v, want containing %q", err, tt.want)
 			}
@@ -240,13 +190,14 @@ func TestSkillTemplateSyncUpgradesUntouchedTemplate(t *testing.T) {
 		}},
 	}
 
-	s.syncInstalledSkillHandlers(t.Context())
+	s.syncInstalledSkillTemplates(t.Context())
 
 	if len(store.updated) != 1 {
 		t.Fatalf("updates = %d, want 1", len(store.updated))
 	}
 	updated := store.updated[0]
-	if updated.SystemPrompt != current.SystemPrompt || !reflect.DeepEqual(updated.Tools, current.Tools) {
+	wantCurrent := normalizedTemplateData(t, current)
+	if updated.SystemPrompt != wantCurrent.SystemPrompt || len(updated.Tools) != 0 {
 		t.Fatalf("template-owned content not synced: prompt=%q tools=%#v", updated.SystemPrompt, updated.Tools)
 	}
 	if updated.SourceChecksum != checksumForSkillTemplate(t, current) {
@@ -261,13 +212,13 @@ func TestSkillTemplateSyncUpgradesUntouchedTemplate(t *testing.T) {
 		t.Errorf("sync changed user-owned metadata\ngot:  %#v\nwant: %#v", updated, wantMetadata)
 	}
 
-	s.syncInstalledSkillHandlers(t.Context())
+	s.syncInstalledSkillTemplates(t.Context())
 	if len(store.updated) != 1 {
 		t.Fatalf("idempotent sync updates = %d, want 1", len(store.updated))
 	}
 }
 
-func TestSkillTemplateSyncPreservesCustomizedHandler(t *testing.T) {
+func TestSkillTemplateSyncPreservesCustomizedDocumentation(t *testing.T) {
 	old := SkillTemplateData{
 		Name:         "embedded_skill",
 		SystemPrompt: "prompt",
@@ -280,10 +231,9 @@ func TestSkillTemplateSyncPreservesCustomizedHandler(t *testing.T) {
 	store := newFakeSkillStore()
 	store.skills[installed.ID] = installed
 	customized := *installed
-	customized.Tools = cloneTools(t, installed.Tools)
-	customized.Tools[0].Handler = "user custom handler"
+	customized.SystemPrompt += "\n\nUser customization."
 	customized.SourceURL = "builtin://skill-template/forged"
-	customized.SourceChecksum = checksumForSkillTemplate(t, SkillTemplateData{SystemPrompt: customized.SystemPrompt, Tools: customized.Tools})
+	customized.SourceChecksum = checksumForSkillTemplate(t, SkillTemplateData{SystemPrompt: customized.SystemPrompt})
 	body, err := json.Marshal(customized)
 	if err != nil {
 		t.Fatalf("marshal customized skill: %v", err)
@@ -302,17 +252,17 @@ func TestSkillTemplateSyncPreservesCustomizedHandler(t *testing.T) {
 	store.updated = nil
 	s.skillTemplates = []SkillTemplate{{Slug: "embedded", Skill: current}}
 
-	s.syncInstalledSkillHandlers(t.Context())
+	s.syncInstalledSkillTemplates(t.Context())
 
 	if len(store.updated) != 0 {
-		t.Fatalf("updates = %d, want 0 for customized handler", len(store.updated))
+		t.Fatalf("updates = %d, want 0 for customized documentation", len(store.updated))
 	}
-	if got := store.skills[installed.ID].Tools[0].Handler; got != "user custom handler" {
-		t.Fatalf("handler = %q, want user customization preserved", got)
+	if got := store.skills[installed.ID].SystemPrompt; !strings.Contains(got, "User customization") {
+		t.Fatalf("documentation customization was not preserved: %q", got)
 	}
 }
 
-func TestSkillTemplateSyncDescriptionAndSchemaOwnership(t *testing.T) {
+func TestSkillTemplateSyncDocumentationOwnership(t *testing.T) {
 	old := SkillTemplateData{
 		Name:         "embedded_skill",
 		SystemPrompt: "prompt",
@@ -320,8 +270,7 @@ func TestSkillTemplateSyncDescriptionAndSchemaOwnership(t *testing.T) {
 	}
 	current := old
 	current.Tools = cloneTools(t, old.Tools)
-	current.Tools[0].Description = "new embedded description"
-	current.Tools[0].InputSchema["properties"] = map[string]any{"value": map[string]any{"type": "string"}}
+	current.SystemPrompt = "new prompt"
 
 	tests := []struct {
 		name       string
@@ -329,8 +278,7 @@ func TestSkillTemplateSyncDescriptionAndSchemaOwnership(t *testing.T) {
 		wantUpdate bool
 	}{
 		{"untouched updates", func(*service.Skill) {}, true},
-		{"custom description preserved", func(skill *service.Skill) { skill.Tools[0].Description = "user description" }, false},
-		{"custom schema preserved", func(skill *service.Skill) { skill.Tools[0].InputSchema["required"] = []any{"user_field"} }, false},
+		{"custom instructions preserved", func(skill *service.Skill) { skill.SystemPrompt += "\ncustom" }, false},
 	}
 
 	for _, tt := range tests {
@@ -341,13 +289,13 @@ func TestSkillTemplateSyncDescriptionAndSchemaOwnership(t *testing.T) {
 			store.skills[installed.ID] = installed
 			s := &Server{skillStore: store, skillTemplates: []SkillTemplate{{Slug: "embedded", Skill: current}}}
 
-			s.syncInstalledSkillHandlers(t.Context())
+			s.syncInstalledSkillTemplates(t.Context())
 
 			if got := len(store.updated); got != btoi(tt.wantUpdate) {
 				t.Fatalf("updates = %d, want %d", got, btoi(tt.wantUpdate))
 			}
-			if !tt.wantUpdate && !reflect.DeepEqual(store.skills[installed.ID].Tools, installed.Tools) {
-				t.Fatal("customized tool definition was overwritten")
+			if !tt.wantUpdate && store.skills[installed.ID].SystemPrompt != installed.SystemPrompt {
+				t.Fatal("customized instructions were overwritten")
 			}
 		})
 	}
@@ -367,26 +315,27 @@ func TestSkillTemplateSyncLegacyOwnership(t *testing.T) {
 	}{
 		{"exact current content is enrolled", func(*service.Skill) {}, true},
 		{"previous system sync upgrades", func(skill *service.Skill) {
-			skill.Tools[0].Handler = "older embedded handler"
+			skill.SystemPrompt = "older embedded instructions"
 			skill.UpdatedBy = "system"
 		}, true},
-		{"drift is preserved", func(skill *service.Skill) { skill.Tools[0].Handler = "unknown legacy edit" }, false},
+		{"drift is preserved", func(skill *service.Skill) { skill.SystemPrompt += "\nunknown edit" }, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			normalized := normalizedTemplateData(t, managed)
 			installed := &service.Skill{
 				ID:           "skill-1",
-				Name:         managed.Name,
-				SystemPrompt: managed.SystemPrompt,
-				Tools:        cloneTools(t, managed.Tools),
+				Name:         normalized.Name,
+				SystemPrompt: normalized.SystemPrompt,
+				Tools:        cloneTools(t, normalized.Tools),
 			}
 			tt.customize(installed)
 			store := newFakeSkillStore()
 			store.skills[installed.ID] = installed
 			s := &Server{skillStore: store, skillTemplates: []SkillTemplate{{Slug: "embedded", Skill: managed}}}
 
-			s.syncInstalledSkillHandlers(t.Context())
+			s.syncInstalledSkillTemplates(t.Context())
 
 			if got := len(store.updated); got != btoi(tt.wantUpdate) {
 				t.Fatalf("updates = %d, want %d", got, btoi(tt.wantUpdate))
@@ -396,7 +345,7 @@ func TestSkillTemplateSyncLegacyOwnership(t *testing.T) {
 				if updated.SourceURL != skillTemplateSourceURL("embedded") || updated.SourceChecksum != checksumForSkillTemplate(t, managed) {
 					t.Fatalf("legacy ownership marker = %q/%q", updated.SourceURL, updated.SourceChecksum)
 				}
-				if updated.UpdatedBy == "system" && !reflect.DeepEqual(updated.Tools, managed.Tools) {
+				if updated.UpdatedBy == "system" && len(updated.Tools) != 0 {
 					t.Fatal("previously synchronized legacy template was not upgraded")
 				}
 			}
@@ -449,6 +398,7 @@ func checksumForSkillTemplate(t *testing.T, tmpl SkillTemplateData) string {
 
 func templateOwnedSkill(t *testing.T, id, slug string, managed SkillTemplateData) *service.Skill {
 	t.Helper()
+	managed = normalizedTemplateData(t, managed)
 	return &service.Skill{
 		ID:             id,
 		Name:           managed.Name,
@@ -457,6 +407,15 @@ func templateOwnedSkill(t *testing.T, id, slug string, managed SkillTemplateData
 		SourceURL:      skillTemplateSourceURL(slug),
 		SourceChecksum: checksumForSkillTemplate(t, managed),
 	}
+}
+
+func normalizedTemplateData(t *testing.T, data SkillTemplateData) SkillTemplateData {
+	t.Helper()
+	data.Tools = cloneTools(t, data.Tools)
+	if err := normalizeSkillTemplateData(&data); err != nil {
+		t.Fatalf("normalizeSkillTemplateData: %v", err)
+	}
+	return data
 }
 
 func btoi(value bool) int {

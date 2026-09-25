@@ -136,17 +136,24 @@ To override, edit the constants in `internal/service/loopgov/config.go` or add U
 
 **Breaking change**: workflow `agent_call` nodes no longer accept `max_iterations: 0` (legacy "unlimited" mode). Existing graphs are migrated to the platform ceiling on server startup.
 
-## Bash skill handler controls
+## Documentation-only skills and shell controls
 
-Skill bash handlers (`internal/service/workflow/handler.go`) run under three resource controls so a runaway video pipeline can't peg the host:
+Skills are Markdown instructions and resources. They never register or execute
+tools, and code fences are inert. Legacy `Skill.Tools` payloads are converted to
+Markdown references by `NormalizeDocumentationSkill` and migration 73.
+
+Independently configured shell handlers (`internal/service/workflow/handler.go`)
+still run under resource controls so a runaway workflow cannot peg the host:
 
 1. **Process-group kill on cancel** — every bash handler is started in its own POSIX process group (`Setpgid: true`). When the surrounding context is cancelled (timeout, user Stop click, server shutdown), the watcher goroutine sends `SIGKILL` to the *entire group*, not just bash. This is what reaps long-running ffmpeg / python / curl children that would otherwise keep running after the agent task ended. Linux + Darwin only; Windows is a no-op stub (`handler_windows.go`).
 
-2. **FFmpeg concurrency cap** — a process-wide `semaphore.Weighted` throttles bash handlers whose script body contains `ffmpeg` or `ffprobe`. The cap is `max(1, runtime.NumCPU()/2)`; on a 4 vCPU GCE box that's 2 concurrent encodes, with the rest queueing on `Acquire(ctx, 1)`. Auto-detected, not configurable today. Substring matching is intentionally broad — user-installed skills get the same protection as the built-in video templates.
+2. **FFmpeg concurrency cap** — a process-wide `semaphore.Weighted` throttles bash handlers whose script body contains `ffmpeg` or `ffprobe`. The cap is `max(1, runtime.NumCPU()/2)`; on a 4 vCPU GCE box that's 2 concurrent encodes, with the rest queueing on `Acquire(ctx, 1)`. Auto-detected, not configurable today.
 
 3. **Workspace janitor** — `internal/server/workspace-janitor.go` sweeps `WorkspaceRoot` once per hour and removes `<task-id>/` dirs whose owning task is in a terminal status (`done`, `completed`, `cancelled`, `blocked`) AND whose terminal timestamp is older than `loopgov.Config.WorkspaceTTL` (default 24h). Also sweeps `<WorkspaceRoot>/.at-tool-output/<run-id>/` dump dirs by mtime under the same TTL. Set `WorkspaceTTL: -1` to disable. Unknown task IDs (workspaces from a different deployment on shared FS) are *kept*, not nuked.
 
-The built-in video skill templates (`internal/server/skill_templates/{fal-video,video-composer,ffmpeg-guide}.json`) standardize on `-c:v libx264 -preset veryfast -crf 23 -threads 2` and cap `compose_short_v2`'s Phase 1 worker pool to `max(1, min(3, NumCPU/2))` so per-encode CPU stays bounded too.
+Arbitrary JS and Bash handlers receive only non-secret variables. Secret values
+resolve only through typed references at controlled tool boundaries; initially,
+HTTPS `http_request` headers with per-variable tool and host allowlists.
 
 ## Host terminals: watching and control
 
@@ -894,7 +901,7 @@ installation administrator:
 `models.use`, but every endpoint its browser-side loop dispatches through had no
 `BusinessRoutePolicy` and fell through to `requireWorkspacePlatform(true)`, so a
 member got chat and no tools. They now ride the same entry capability
-(`models.use` for built-ins and skill tools, `mcp.read`/`mcp.use` for MCP sets),
+(`models.use` for built-ins and documentation skills, `mcp.read`/`mcp.use` for MCP sets),
 with the read-only catalogs they need to offer a choice — `GET /skills`,
 `GET /mcp/sets`, `GET /connections` — opened at the capability the store already
 enforces on those tables. `ListConnections` blanks credentials without
@@ -909,13 +916,10 @@ action and revalidates the workspace execution policy before loading the
 unredacted runtime config. Host binaries and stdio lifecycle remain installation
 administration.
 
-**Nothing bound a runtime identity.** `executeSkillTool` admits through
-`CheckExecution`, which is fail-closed on an unbound context, so
-`POST /mcp/call-skill-tool` and the skill tools inside an MCP set denied every
-call — including an administrator's. `SkillCallToolAPI` and `CallMCPSetToolAPI`
-now bind the caller's runtime principal the way `dispatchBuiltinTool` always
-did, and the set is additionally gated by `mcp.use` against its own record. What
-a caller may actually run is therefore decided by the workspace execution policy
+**Runtime calls bind an execution identity.** `CallMCPSetToolAPI` binds the
+caller's runtime principal the way `dispatchBuiltinTool` does, and the set is
+additionally gated by `mcp.use` against its own record. What a caller may
+actually run is therefore decided by the workspace execution policy
 (tool/inline_tool class, trusted-host for host tools, `platform.files` for the
 legacy host-path file tools) rather than by route configuration. Admission says
 "may use the workbench"; the policy says "may run this".
@@ -1991,27 +1995,29 @@ caches remain host concerns. Regression: `internal/server/mcp-binaries_test.go`.
 External-service credentials are modeled in two layers:
 
 - **Connectors** (`internal/service/types-connector.go`, `internal/server/connectors-registry.go`) — data-driven definitions of a connection *type* (the provider catalog). A connector carries an `auth_kind` (`oauth2` | `token` | `custom`), an optional OAuth2 block (`auth_url`, `token_url`, `scopes`, `use_pkce`, `userinfo_url`, `account_label_path`, …), and a `fields[]` credential schema that drives the UI form. Connectors hold **no secrets**, so the `connectors` table is unencrypted. The catalog is the merge of built-in JSON definitions (`internal/server/connectors/*.json`, embedded) and user-defined / override rows in the `connectors` table — **a DB row overrides a built-in by slug**. CRUD: `/api/v1/connectors` (+ inline "Manage providers" UI on the Connections page). This replaced the formerly hardcoded `google`/`youtube` OAuth map — new providers (GitHub, Spotify, …) are added by shipping a JSON file or creating one in the UI, no code change.
-- **Connections** (`internal/service/types-connection.go`, `internal/server/connections.go`) — named, AES-256-GCM-encrypted credential *instances* bound to a connector by its slug (`Connection.Provider == Connector.Slug`). Multiple accounts per provider; agents/skills reference them by ID. The connection create/update API accepts a dynamic `fields` map (keyed by full var name, e.g. `spotify_client_id`); `connectorCredentialsFromValues` folds well-known suffixes (`_client_id` / `_client_secret` / `_refresh_token` / `_api_key`) onto the struct and the rest into `Extra`.
+- **Connections** (`internal/service/types-connection.go`, `internal/server/connections.go`) — named, AES-256-GCM-encrypted credential *instances* bound to a connector by its slug (`Connection.Provider == Connector.Slug`). Multiple accounts per provider; executable integrations reference them independently from documentation skills. The connection create/update API accepts a dynamic `fields` map (keyed by full var name, e.g. `spotify_client_id`); `connectorCredentialsFromValues` folds well-known suffixes (`_client_id` / `_client_secret` / `_refresh_token` / `_api_key`) onto the struct and the rest into `Extra`.
 
 The OAuth2 flow (`internal/server/oauth.go`) is fully connector-driven and **supports PKCE** (verifier cached on `Server.oauthPKCE`, keyed by state for the callback flow or `provider+connection` for the manual paste-code flow). Token exchange sends `Accept: application/json` (so GitHub-style endpoints return JSON), omits `client_secret` for PKCE public clients, and no longer hard-requires a refresh token — when a provider returns only an access token it is stored under `<slug>_access_token`. Account labels are fetched generically via the connector's `userinfo_url` + `account_label_path` (a dot-path supporting array indices, e.g. `items.0.snippet.title`).
 
-Skills can ship their own connector: `SkillTemplate.connector` (`internal/server/skill-templates.go`) is upserted into the registry on install when no connector with that slug exists, so a user-added skill brings its own connection type. Runtime credential resolution for skill handlers is unchanged (`internal/service/workflow/connection_resolver.go`): `getVar("<provider>_<suffix>")` resolves through per-skill → per-agent connection bindings → global variable.
+Built-in skill templates may declare a connector, which is upserted into the
+registry on install. This is setup metadata only: loading the skill does not
+grant credential access or create an executable handler.
 
 ## Persistent Assets & Avatar Studio
 
-Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`). A nonblank explicit `server.workspace.root` selects absolute `<root>/assets`; unset or blank preserves shipped `./data/assets`, resolved against the process working directory. Unlike per-task workspaces it is NOT swept by the workspace janitor: `assets` is reserved before task lookups, and symlink entries are skipped. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.
+Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`). A nonblank explicit `server.workspace.root` selects absolute `<root>/assets`; unset or blank preserves shipped `./data/assets`, resolved against the process working directory. Unlike per-task workspaces it is NOT swept by the workspace janitor: `assets` is reserved before task lookups, and symlink entries are skipped. Approved workflow/shell handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.
 
 `Server.New` calls the thread-safe `ConfigureAssetsDir` before starting janitors/bots. `EnsureAssetsDirReady` checks creation and actual writability with temporary probe files; startup errors include the path and `server.workspace.root` guidance but leave the gateway available. No temporary fallback or automatic migration is performed. Configure `server: {workspace: {root: /mnt/at-workspace}}` and mount that root on a persistent volume writable by the service user; `/tmp` does not guarantee reboot persistence. Existing installations leaving root unset must keep their `./data` mount. Moving an old `data/assets` library is manual: back it up, stop media producers, and review manifests/records for absolute path references before resuming; setting root never moves, copies, or deletes old media.
 
 The HeyGen-style avatar pipeline is built from three pieces:
 
-- **Skill templates**: `fal-avatar` (`create_avatar` Nano Banana 2 portrait/edit, `character_sheet` front/profile/back identity references, `update_character` bible metadata + voice binding, `talking_video` ByteDance OmniHuman v1.5 lip-sync — 60s@720p / 30s@1080p, `talking_video_budget` InfiniTalk, `lipsync_video` Sync Lipsync 2.0, library ops) and `elevenlabs-voice` (`clone_voice` IVC, `list_voices`, `generate_speech`). Both ship embedded `connector` blocks (`fal`, `elevenlabs`) so credentials are manageable as Connections; handlers are bash-wrapped python using the queue.fal.run submit→poll→download pattern with FAL CDN upload (data-URI fallback) for local inputs. Avatar manifests are backward-compatible character bibles: v2 optionally adds `turnarounds`, ordered `reference_images`, bound `voice`, `sora_character_id`, `lora_url`, `style_notes`, `wardrobe`, and `persona`.
+- **Skill templates**: `fal-avatar` and `elevenlabs-voice` provide documentation and connector setup metadata. Their legacy handler definitions are preserved as inert Markdown references; production execution must use separately configured MCP or workflow tools. Avatar manifests are backward-compatible character bibles: v2 optionally adds `turnarounds`, ordered `reference_images`, bound `voice`, `sora_character_id`, `lora_url`, `style_notes`, `wardrobe`, and `persona`.
 - **Integration pack** `avatar-studio` (`internal/server/integration_packs/avatar-studio/`): org "Avatar Studio" with Studio Director (head) → Avatar Designer + Video Producer. Agents ship with empty provider/model (assigned at install by the Studio UI setup, or manually).
 - **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`, sidebar "Studio"): one-click setup installs both studio packs + all media skills and patches agent providers. Tabs: Characters (portrait gallery, v2 bible editor, turnaround/Sora actions, quick talking-head video), Series (style/cast editor, episodes, live-polled shot storyboard with still/clip/provenance), Productions (structured `episode.json.final_video` playback plus regex fallback for legacy one-offs).
 
 ## Series Studio
 
-Episodic production is filesystem-backed so bash skill handlers and the UI share one durable contract without new REST endpoints:
+Episodic production is filesystem-backed so production workflows and the UI share one durable contract without new REST endpoints:
 
 ```
 <assets-root>/series/<series-slug>/

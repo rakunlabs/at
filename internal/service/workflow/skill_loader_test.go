@@ -37,9 +37,6 @@ func TestSkillRuntime_EmptyAttachment(t *testing.T) {
 	if got := rt.CatalogSystemPrompt(); got != "" {
 		t.Errorf("CatalogSystemPrompt() = %q, want empty", got)
 	}
-	if got := rt.ActiveSkillTools(); len(got) != 0 {
-		t.Errorf("ActiveSkillTools() len = %d, want 0", len(got))
-	}
 }
 
 func TestSkillRuntime_CatalogContainsAttachedSkills(t *testing.T) {
@@ -135,10 +132,6 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 		makeLookup(map[string]*service.Skill{"youtube": yt}),
 		[]service.SkillRef{{ID: "youtube"}}, nil, nil)
 
-	// Before load: no active skill tools.
-	if got := rt.ActiveSkillTools(); len(got) != 0 {
-		t.Errorf("pre-load ActiveSkillTools len = %d, want 0", len(got))
-	}
 	if rt.IsSkillLoaded("youtube") {
 		t.Errorf("IsSkillLoaded(youtube) = true before load, want false")
 	}
@@ -147,7 +140,7 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleLoadSkill: %v", err)
 	}
-	for _, want := range []string{"youtube", "yt_upload", "You are a YouTube publisher"} {
+	for _, want := range []string{"youtube", "documentation only", "You are a YouTube publisher"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("result missing %q: %q", want, result)
 		}
@@ -157,23 +150,8 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 		t.Errorf("IsSkillLoaded(youtube) = false after load, want true")
 	}
 
-	// After load: skill tools become visible.
-	tools := rt.ActiveSkillTools()
-	if len(tools) != 1 || tools[0].Name != "yt_upload" {
-		t.Errorf("post-load tools = %+v, want [yt_upload]", tools)
-	}
-	// LLM-facing tool definitions must NOT include the handler body.
-	if tools[0].Handler != "" {
-		t.Errorf("ActiveSkillTools leaked handler body: %q", tools[0].Handler)
-	}
-
-	// HandlerFor returns the dispatch info.
-	hi, ok := rt.HandlerFor("yt_upload")
-	if !ok {
-		t.Fatalf("HandlerFor(yt_upload) not found after load")
-	}
-	if hi.Handler != "return 'ok'" || hi.HandlerType != "js" || hi.SkillID != "skill_yt" {
-		t.Errorf("HandlerFor result = %+v", hi)
+	if !strings.Contains(result, service.LegacySkillToolsHeading) || !strings.Contains(result, "return 'ok'") {
+		t.Fatalf("legacy tool was not preserved as documentation: %q", result)
 	}
 }
 
@@ -258,53 +236,6 @@ func TestSkillRuntime_ReadBundledResource(t *testing.T) {
 	}
 	if _, err := rt.HandleReadSkillResource(map[string]any{"skill_name": "docs", "path": "../secret"}); err == nil {
 		t.Fatal("expected traversal error")
-	}
-}
-
-func TestSkillRuntime_HandlerFor_OnlyLoadedSkillsVisible(t *testing.T) {
-	yt := &service.Skill{
-		ID: "skill_yt", Name: "youtube",
-		Tools: []service.Tool{{Name: "yt_upload", Handler: "return 'ok'", HandlerType: "js"}},
-	}
-	sl := &service.Skill{
-		ID: "skill_sl", Name: "slack",
-		Tools: []service.Tool{{Name: "slack_post", Handler: "return 'sent'", HandlerType: "js"}},
-	}
-	rt, _ := NewSkillRuntime(executiontest.Context(t),
-		makeLookup(map[string]*service.Skill{"youtube": yt, "slack": sl}),
-		[]service.SkillRef{{ID: "youtube"}, {ID: "slack"}}, nil, nil)
-
-	// Load only YouTube.
-	if _, err := rt.HandleLoadSkill(map[string]any{"skill_name": "youtube"}); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-
-	if _, ok := rt.HandlerFor("yt_upload"); !ok {
-		t.Errorf("yt_upload should be dispatchable after youtube loaded")
-	}
-	if _, ok := rt.HandlerFor("slack_post"); ok {
-		t.Errorf("slack_post should NOT be dispatchable before slack is loaded")
-	}
-}
-
-func TestSkillRuntime_ConnOverrides(t *testing.T) {
-	yt := &service.Skill{ID: "skill_yt", Name: "youtube"}
-	refs := []service.SkillRef{
-		{ID: "youtube", Connections: map[string]string{"youtube": "conn_acc1"}},
-	}
-	rt, _ := NewSkillRuntime(executiontest.Context(t),
-		makeLookup(map[string]*service.Skill{"youtube": yt}),
-		refs, nil, nil)
-
-	got := rt.SkillConnOverrides("skill_yt")
-	if got["youtube"] != "conn_acc1" {
-		t.Errorf("SkillConnOverrides = %+v, want youtube=conn_acc1", got)
-	}
-	if rt.SkillConnOverrides("") != nil {
-		t.Errorf("empty skillID should yield nil overrides")
-	}
-	if rt.SkillConnOverrides("unknown") != nil {
-		t.Errorf("unknown skillID should yield nil overrides")
 	}
 }
 

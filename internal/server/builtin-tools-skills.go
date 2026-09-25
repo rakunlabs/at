@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // ─── Skill Management Tool Executors ───
@@ -24,21 +22,21 @@ func (s *Server) execSkillList(ctx context.Context, args map[string]any) (string
 		}
 
 		type skillSummary struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description,omitempty"`
-			ToolCount   int    `json:"tool_count"`
-			CreatedAt   string `json:"created_at"`
+			ID            string `json:"id"`
+			Name          string `json:"name"`
+			Description   string `json:"description,omitempty"`
+			ResourceCount int    `json:"resource_count"`
+			CreatedAt     string `json:"created_at"`
 		}
 
 		summaries := make([]skillSummary, len(skills.Data))
 		for i, sk := range skills.Data {
 			summaries[i] = skillSummary{
-				ID:          sk.ID,
-				Name:        sk.Name,
-				Description: sk.Description,
-				ToolCount:   len(sk.Tools),
-				CreatedAt:   sk.CreatedAt,
+				ID:            sk.ID,
+				Name:          sk.Name,
+				Description:   sk.Description,
+				ResourceCount: len(sk.Resources),
+				CreatedAt:     sk.CreatedAt,
 			}
 		}
 		result["installed_skills"] = summaries
@@ -103,13 +101,15 @@ func (s *Server) execSkillInstallTemplate(ctx context.Context, args map[string]a
 	if tmpl == nil {
 		return "", fmt.Errorf("template %q not found", slug)
 	}
+	if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+		return "", fmt.Errorf("normalize skill template: %w", err)
+	}
 
 	// Create the skill from the template.
 	skill := service.Skill{
 		Name:         tmpl.Skill.Name,
 		Description:  tmpl.Skill.Description,
 		SystemPrompt: tmpl.Skill.SystemPrompt,
-		Tools:        tmpl.Skill.Tools,
 	}
 
 	record, err := s.skillStore.CreateSkill(ctx, skill)
@@ -143,9 +143,7 @@ func (s *Server) execSkillInstallTemplate(ctx context.Context, args map[string]a
 // SkillStorer methods and skillmd parser the HTTP handlers use, so any
 // invariant enforced there (e.g. CreateSkill timestamping) applies here too.
 
-// execSkillGet returns a single skill's full record (system prompt + tools
-// with their handlers). The handler source is included verbatim so the
-// agent can clone-and-edit a skill before calling skill_update.
+// execSkillGet returns a documentation skill and its resources.
 func (s *Server) execSkillGet(ctx context.Context, args map[string]any) (string, error) {
 	if s.skillStore == nil {
 		return "", fmt.Errorf("skill store not configured")
@@ -277,6 +275,9 @@ func (s *Server) execSkillCreate(ctx context.Context, args map[string]any) (stri
 		CreatedBy:    "mcp",
 		UpdatedBy:    "mcp",
 	}
+	if err := service.NormalizeDocumentationSkill(&skill); err != nil {
+		return "", fmt.Errorf("normalize skill documentation: %w", err)
+	}
 
 	record, err := s.skillStore.CreateSkill(ctx, skill)
 	if err != nil {
@@ -290,11 +291,8 @@ func (s *Server) execSkillCreate(ctx context.Context, args map[string]any) (stri
 	return string(out), nil
 }
 
-// execSkillUpdate replaces an existing skill's full state. We use full
-// replacement (rather than partial merge) because Skill.Tools is a slice
-// of definitions where "remove a tool" is a meaningful operation that
-// can't be expressed by a merge. Agents are expected to fetch with
-// skill_get, mutate, then submit.
+// execSkillUpdate replaces an existing documentation skill's full state.
+// Agents are expected to fetch with skill_get, mutate, then submit.
 func (s *Server) execSkillUpdate(ctx context.Context, args map[string]any) (string, error) {
 	if s.skillStore == nil {
 		return "", fmt.Errorf("skill store not configured")
@@ -330,6 +328,9 @@ func (s *Server) execSkillUpdate(ctx context.Context, args map[string]any) (stri
 		Author:       stringArg(args, "author"),
 		License:      stringArg(args, "license"),
 		UpdatedBy:    "mcp",
+	}
+	if err := service.NormalizeDocumentationSkill(&skill); err != nil {
+		return "", fmt.Errorf("normalize skill documentation: %w", err)
 	}
 
 	// Preserve system-managed provenance and unprovided metadata so a
@@ -368,9 +369,8 @@ func (s *Server) execSkillUpdate(ctx context.Context, args map[string]any) (stri
 	return string(out), nil
 }
 
-// execSkillDelete removes a skill. Agents currently referencing the
-// skill (by name in agent.skills) will lose its tools on their next run;
-// no cascade fixup is performed.
+// execSkillDelete removes a skill. Agents currently referencing it lose its
+// instructions on their next run; no cascade fixup is performed.
 func (s *Server) execSkillDelete(ctx context.Context, args map[string]any) (string, error) {
 	if s.skillStore == nil {
 		return "", fmt.Errorf("skill store not configured")
@@ -383,79 +383,6 @@ func (s *Server) execSkillDelete(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("delete skill %q: %w", id, err)
 	}
 	return fmt.Sprintf(`{"status":"deleted","id":%q}`, id), nil
-}
-
-// execSkillTestHandler runs a single tool handler in-process without
-// persisting it. Mirrors the TestHandlerAPI HTTP endpoint so agents can
-// iterate on a handler before saving the skill. We deliberately do NOT
-// allow setting a timeout here; the JS/bash sandboxes already enforce
-// their own bounds, and skill handlers shouldn't be long-running.
-func (s *Server) execSkillTestHandler(ctx context.Context, args map[string]any) (string, error) {
-	handler, _ := args["handler"].(string)
-	if handler == "" {
-		return "", fmt.Errorf("handler is required")
-	}
-
-	handlerType, _ := args["handler_type"].(string)
-
-	var arguments map[string]any
-	if raw, ok := args["arguments"].(map[string]any); ok {
-		arguments = raw
-	} else {
-		arguments = map[string]any{}
-	}
-
-	start := time.Now()
-	var (
-		result  string
-		execErr error
-	)
-
-	if handlerType == "bash" {
-		var varLister workflow.VarLister
-		if s.variableStore != nil {
-			varLister = func() (map[string]string, error) {
-				vars, err := s.variableStore.ListVariables(context.Background(), nil)
-				if err != nil {
-					return nil, err
-				}
-				m := make(map[string]string, len(vars.Data))
-				for _, v := range vars.Data {
-					m[v.Key] = v.Value
-				}
-				return m, nil
-			}
-		}
-		result, execErr = workflow.ExecuteBashHandler(ctx, handler, arguments, varLister, 0)
-	} else {
-		var varLookup workflow.VarLookup
-		if s.variableStore != nil {
-			varLookup = func(key string) (string, error) {
-				v, err := s.variableStore.GetVariableByKey(context.Background(), key)
-				if err != nil {
-					return "", err
-				}
-				if v == nil {
-					return "", fmt.Errorf("variable %q not found", key)
-				}
-				return v.Value, nil
-			}
-		}
-		result, execErr = workflow.ExecuteJSHandlerContext(ctx, handler, arguments, varLookup)
-	}
-
-	resp := map[string]any{
-		"result":      result,
-		"duration_ms": time.Since(start).Milliseconds(),
-	}
-	if execErr != nil {
-		resp["error"] = execErr.Error()
-	}
-	out, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal response: %w", err)
-	}
-	return string(out), nil
 }
 
 // execSkillExport returns a portable JSON document for a skill (no IDs
@@ -513,6 +440,9 @@ func (s *Server) execSkillImport(ctx context.Context, args map[string]any) (stri
 		License:      stringArg(args, "license"),
 		CreatedBy:    "mcp",
 		UpdatedBy:    "mcp",
+	}
+	if err := service.NormalizeDocumentationSkill(&skill); err != nil {
+		return "", fmt.Errorf("normalize imported skill documentation: %w", err)
 	}
 	record, err := s.skillStore.CreateSkill(ctx, skill)
 	if err != nil {

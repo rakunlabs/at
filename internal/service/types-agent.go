@@ -26,8 +26,8 @@ func AgentAllowsSubagent(parent, child *Agent) bool {
 
 // SkillRef references a skill attached to an agent. It behaves like a plain
 // string (the skill's name or ID) for backward compatibility but can also
-// carry a Connections map that overrides the agent's default connection
-// bindings for the duration of this skill's tool handlers.
+// carry a legacy Connections map. Documentation-only skills ignore connection
+// overrides; the field remains so existing agent records round-trip safely.
 //
 // JSON encoding:
 //   - Simple reference:    "youtube_publish"

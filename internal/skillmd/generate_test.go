@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestGenerate_FullSkill(t *testing.T) {
+func TestGenerate_RejectsExecutableTools(t *testing.T) {
 	s := &SkillMD{
 		Name:        "web-scraper",
 		Description: "Scrapes web pages for content",
@@ -28,36 +28,8 @@ func TestGenerate_FullSkill(t *testing.T) {
 		},
 	}
 
-	data, err := Generate(s, tools)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := string(data)
-
-	if !strings.HasPrefix(out, "---\n") {
-		t.Error("output should start with ---")
-	}
-	if !strings.Contains(out, "name: web-scraper") {
-		t.Error("output should contain name")
-	}
-	if !strings.Contains(out, "description: Scrapes web pages for content") {
-		t.Error("output should contain description")
-	}
-	if !strings.Contains(out, "license: MIT") {
-		t.Error("output should contain license")
-	}
-	if !strings.Contains(out, "You are a web scraping skill.") {
-		t.Error("output should contain body")
-	}
-	if !strings.Contains(out, "## Tools") {
-		t.Error("output should contain ## Tools section")
-	}
-	if !strings.Contains(out, "```json") {
-		t.Error("output should contain json code block")
-	}
-	if !strings.Contains(out, `"scrape_url"`) {
-		t.Error("output should contain tool name")
+	if _, err := Generate(s, tools); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("Generate() error = %v, want unsupported tools", err)
 	}
 }
 
@@ -117,15 +89,7 @@ func TestGenerate_Roundtrip(t *testing.T) {
 		Description: "Test roundtrip",
 		Body:        "System prompt content.\n",
 	}
-	tools := []ToolDef{
-		{
-			Name:        "my_tool",
-			Description: "Does things",
-			InputSchema: map[string]any{"type": "object"},
-		},
-	}
-
-	data, err := Generate(s, tools)
+	data, err := Generate(s, nil)
 	if err != nil {
 		t.Fatalf("generate failed: %v", err)
 	}
@@ -144,11 +108,8 @@ func TestGenerate_Roundtrip(t *testing.T) {
 	if strings.TrimSpace(parsed.Body) != strings.TrimSpace(s.Body) {
 		t.Errorf("roundtrip body = %q, want %q", parsed.Body, s.Body)
 	}
-	if len(parsedTools) != 1 {
-		t.Fatalf("roundtrip tools count = %d, want 1", len(parsedTools))
-	}
-	if parsedTools[0].Name != "my_tool" {
-		t.Errorf("roundtrip tool name = %q, want %q", parsedTools[0].Name, "my_tool")
+	if len(parsedTools) != 0 {
+		t.Fatalf("roundtrip tools count = %d, want 0", len(parsedTools))
 	}
 }
 

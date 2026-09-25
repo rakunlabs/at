@@ -21,23 +21,13 @@ func TestClaudeCodeMarketplaceAPI_PublicMCPServersOnly(t *testing.T) {
 		Name:        "Public Tools",
 		Description: "Shared writing tools",
 		Public:      true,
-		Config: service.MCPServerConfig{
-			EnabledSkills: []string{"writer"},
-		},
 	}
 	mcpServers.servers["private"] = &service.MCPServer{
 		ID:     "private",
 		Name:   "Private Tools",
 		Public: false,
 	}
-	skills := newFakeSkillStore()
-	skills.skills["writer-id"] = &service.Skill{
-		ID:           "writer-id",
-		Name:         "writer",
-		Description:  "Write better copy",
-		SystemPrompt: "Improve writing.",
-	}
-	s := &Server{mcpServerStore: mcpServers, skillStore: skills}
+	s := &Server{mcpServerStore: mcpServers}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.json", nil)
@@ -180,18 +170,8 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 		Name:        "Public Tools",
 		Description: "Shared writing tools",
 		Public:      true,
-		Config: service.MCPServerConfig{
-			EnabledSkills: []string{"writer"},
-		},
 	}
-	skills := newFakeSkillStore()
-	skills.skills["writer-id"] = &service.Skill{
-		ID:           "writer-id",
-		Name:         "writer",
-		Description:  "Write better copy",
-		SystemPrompt: "Improve writing.",
-	}
-	s := &Server{mcpServerStore: mcpServers, skillStore: skills}
+	s := &Server{mcpServerStore: mcpServers}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.zip", nil)
@@ -207,7 +187,6 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 	files := readZipEntries(t, rr.Body.Bytes())
 	assertZipContains(t, files, ".claude-plugin/marketplace.json")
 	assertZipContains(t, files, "plugins/public-tools/.claude-plugin/plugin.json")
-	assertZipContains(t, files, "plugins/public-tools/skills/writer/SKILL.md")
 
 	var manifest claudePluginManifest
 	if err := json.Unmarshal(files["plugins/public-tools/.claude-plugin/plugin.json"], &manifest); err != nil {
@@ -221,10 +200,6 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 		t.Fatalf("mcp url = %q", mcp.URL)
 	}
 
-	skillMD := string(files["plugins/public-tools/skills/writer/SKILL.md"])
-	if !strings.Contains(skillMD, "Improve writing.") {
-		t.Fatalf("skill md missing system prompt: %s", skillMD)
-	}
 }
 
 func TestClaudeCodePluginZip_PrivateMCPServerNotFound(t *testing.T) {

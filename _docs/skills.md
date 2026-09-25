@@ -1,170 +1,106 @@
 # Skills
 
-Skills are reusable bundles of a system prompt fragment and tools (JS/bash handlers) that agents can reference. They allow you to package integrations as portable, shareable units.
+Skills are reusable Markdown instructions and bundled text resources. Loading a
+skill adds guidance to an agent's context; it never registers or executes a
+tool. Code blocks are examples only.
 
-## Skill JSON Format
+Skills can tell an agent when and how to use capabilities configured elsewhere:
 
-A skill's portable JSON format (used for import/export and templates):
+- built-in tools enabled on the agent
+- tools supplied by an MCP server or MCP Set
+- workflows attached as tools
 
-```json
-{
-  "name": "my_skill",
-  "description": "What this skill does",
-  "system_prompt": "Instructions for the agent when using this skill",
-  "tools": [
-    {
-      "name": "tool_name",
-      "description": "What this tool does",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "param1": { "type": "string", "description": "A parameter" }
-        },
-        "required": ["param1"]
-      },
-      "handler": "var result = httpGet(args.param1); return result.body;",
-      "handler_type": "js"
-    }
-  ]
-}
+## SKILL.md format
+
+The preferred portable format is `SKILL.md`:
+
+```markdown
+---
+name: incident-review
+description: Review an incident and prepare follow-up actions
+version: 1.0.0
+---
+
+# Incident review
+
+Use the attached monitoring MCP tools to gather evidence. Summarize the
+timeline, contributing factors, and follow-up actions. Do not claim a tool ran
+unless its result is present in the conversation.
 ```
 
-## Handler API Reference
+A skill folder may include additional text resources. Agents can load those
+resources on demand with `read_skill_resource`. Markdown is never parsed for
+tool definitions.
 
-### JavaScript Handlers (`handler_type: "js"`)
+## Legacy imports
 
-Tool arguments are available as `args` (object). The handler must return a string.
+AT still accepts old JSON exports containing a `tools` array so installations
+can migrate without losing content. On import or persistence, each legacy tool
+definition is appended to the skill's Markdown under **Legacy tool references**
+and the executable tool list is cleared. The preserved handler source is inert
+reference material.
 
-Built-in functions:
-- `httpGet(url, headers)` — HTTP GET, returns `{status, body}`
-- `httpPost(url, body, headers)` — HTTP POST, returns `{status, body}`
-- `httpPut(url, body, headers)` — HTTP PUT, returns `{status, body}`
-- `httpDelete(url, headers)` — HTTP DELETE, returns `{status, body}`
-- `getVar(key)` — Get a variable by key from the AT variable store
-- `btoa(str)` / `atob(str)` — Base64 encode/decode
-- `JSON.parse()` / `JSON.stringify()` — JSON handling
-- `encodeURIComponent()` / `decodeURIComponent()` — URL encoding
+## Import and export
 
-### Bash Handlers (`handler_type: "bash"`)
+### UI
 
-Tool arguments are passed as environment variables prefixed with `ARG_` (uppercase). For example, argument `url` becomes `$ARG_URL`.
+- **Export** downloads `SKILL.md`.
+- **Import URL** accepts a `SKILL.md`, a compatible legacy JSON export, or a Git
+  repository containing skill folders.
+- The skill-folder editor manages `SKILL.md` and bundled resources together.
 
-All AT variables are also available as environment variables.
-
-The handler's stdout is captured as the tool result.
-
-## Import / Export
-
-### Via UI
-
-- **Export**: Click the download icon on any skill row → downloads a `.json` file
-- **Import from URL**: Click "Import URL" in the toolbar → paste a URL to a skill JSON file
-- **Copy/Paste**: Use the clipboard copy/paste buttons for quick sharing
-
-### Via API
+### API
 
 ```bash
-# Export a skill
-curl GET /api/v1/skills/{id}/export
+# Export SKILL.md
+curl -L /api/v1/skills/{id}/export -o SKILL.md
 
-# Import a skill from JSON body
+# Import a skill payload
 curl -X POST /api/v1/skills/import \
   -H 'Content-Type: application/json' \
   -d @skill.json
 
-# Import a skill from URL
+# Import SKILL.md or a repository
 curl -X POST /api/v1/skills/import-url \
   -H 'Content-Type: application/json' \
-  -d '{"url": "https://example.com/skill.json"}'
+  -d '{"url":"https://example.com/SKILL.md"}'
 ```
 
-## Public MCP Servers and Claude Code
+## Skill Store
 
-MCP Servers can be marked `public` to expose their MCP endpoint without a Bearer token. Public servers are also exported as Claude Code plugin packages:
+AT ships built-in documentation templates in the **Skill Store** tab. Installing
+a template creates an ordinary skill record. Older embedded templates may still
+contain legacy tool JSON; AT normalizes it into inert Markdown before display or
+persistence.
 
 ```bash
-# Download a Claude Code marketplace layout for all public MCP Servers
-curl -L https://your-at-host/gateway/v1/claude-code/marketplace.zip -o at-claude-marketplace.zip
-unzip at-claude-marketplace.zip -d at-claude-marketplace
+# List templates
+curl /api/v1/skill-templates
+
+# Install one
+curl -X POST /api/v1/skill-templates/{slug}/install
 ```
 
-Then inside Claude Code:
+## Variables and credentials
 
-```text
-/plugin marketplace add ./at-claude-marketplace
-/plugin install <plugin-name>@at-mcp-servers
-/reload-plugins
-```
+Agents may see variable names, descriptions, policy, and whether a variable is
+secret. Secret values are not exposed to skill Markdown, arbitrary JavaScript,
+or Bash. A secret can be resolved only through an approved typed reference at a
+controlled tool boundary. Initially this is supported for HTTPS `http_request`
+headers and requires both the tool and destination host to be allowed on the
+variable.
 
-The generated marketplace contains `.claude-plugin/marketplace.json`, one plugin per public MCP Server, local `SKILL.md` files for skills enabled by that MCP Server when available, and a plugin MCP configuration that points back to the public AT MCP endpoint. For a one-off Claude Code session, each public server also exposes a plugin ZIP at `/gateway/v1/claude-code/plugins/{name}/plugin.zip`, usable with `claude --plugin-url`.
-
-This is separate from direct MCP usage. Agents like opencode, Cursor, Claude MCP, or ChatGPT MCP can still connect directly to `/gateway/v1/mcp/{name}`; Claude Code plugin marketplaces need the generated plugin/marketplace package shape.
-
-## Skill Store (Predefined Templates)
-
-AT ships with built-in skill templates accessible from the **Skill Store** tab on the Skills page. Templates can be installed with one click.
-
-### Available Templates
-
-| Template | Category | Description |
-|----------|----------|-------------|
-| Gmail Reader | Email | Search and read Gmail messages |
-| Google Calendar | Productivity | List and create calendar events |
-| GitHub Issues | Development | List, create, and comment on issues |
-| Slack Messages | Communication | Read and send Slack messages |
-| Jira Tasks | Project Management | Search and create Jira issues |
-| Web Scraper | Utilities | Fetch and extract web content |
-| JSON API Client | Utilities | Generic REST API client |
-
-### Template API
-
-```bash
-# List all templates
-curl GET /api/v1/skill-templates
-
-# Filter by category
-curl GET /api/v1/skill-templates?category=Development
-
-# Get a single template
-curl GET /api/v1/skill-templates/github-issues
-
-# Install a template (creates a skill in the DB)
-curl -X POST /api/v1/skill-templates/github-issues/install
-```
-
-## Required Variables Convention
-
-Templates declare `required_variables` — variables the skill's handlers expect at runtime (fetched via `getVar()` in JS or environment variables in bash). Before using an installed template skill, create these variables in the AT Variables page. Variables marked `secret: true` should contain sensitive values like API tokens.
-
-## Contributing Built-in Templates
-
-To add a new predefined skill template:
-
-1. Create a JSON file in `internal/server/skill_templates/`
-2. Follow this format:
+Example header value:
 
 ```json
 {
-  "slug": "my-integration",
-  "name": "My Integration",
-  "description": "Short description",
-  "category": "Category Name",
-  "tags": ["tag1", "tag2"],
-  "required_variables": [
-    {
-      "key": "my_api_key",
-      "description": "API key for My Service",
-      "secret": true
-    }
-  ],
-  "skill": {
-    "name": "my_integration",
-    "description": "Description for the installed skill",
-    "system_prompt": "Instructions for agents using this skill",
-    "tools": [ ... ]
-  }
+  "$ref": "variable://api_token",
+  "prefix": "Bearer "
 }
 ```
 
-3. The file is automatically embedded in the binary at build time
-4. It will appear in the Skill Store after the next build
+## Contributing built-in templates
+
+Add a JSON file under `internal/server/skill_templates/` with template metadata
+and a documentation-only `skill.system_prompt`. Do not add executable handlers.
+Resources may be bundled for on-demand reading.

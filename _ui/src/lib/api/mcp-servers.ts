@@ -23,8 +23,6 @@ export interface MCPServerConfig {
   http_tools?: MCPHTTPTool[];
   // Upstream MCP servers
   mcp_upstreams?: MCPUpstream[];
-  // Skill tools
-  enabled_skills?: string[];
   // Builtin tools
   enabled_builtin_tools?: string[];
   // Workflow tools

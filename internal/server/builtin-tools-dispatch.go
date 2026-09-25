@@ -170,7 +170,7 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	case "agent_run_cancel":
 		return s.execAgentRunCancel(ctx, args)
 
-	// Skill tools.
+	// Documentation skill management.
 	case "skill_list":
 		return s.execSkillList(ctx, args)
 	case "skill_get":
@@ -183,8 +183,6 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execSkillUpdate(ctx, args)
 	case "skill_delete":
 		return s.execSkillDelete(ctx, args)
-	case "skill_test_handler":
-		return s.execSkillTestHandler(ctx, args)
 	case "skill_export":
 		return s.execSkillExport(ctx, args)
 	case "skill_import":

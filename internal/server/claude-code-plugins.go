@@ -325,16 +325,9 @@ func (s *Server) claudeMarketplacePluginItem(ctx context.Context, r *http.Reques
 }
 
 func (s *Server) claudeMCPServerPluginItem(ctx context.Context, r *http.Request, srv service.MCPServer, pluginSlug string) (claudePluginItem, error) {
-	skills, err := s.resolveMCPServerSkills(ctx, &srv)
-	if err != nil {
-		return claudePluginItem{}, err
-	}
-	sortSkills(skills)
-
 	return claudePluginItem{
 		MCPServer:  srv,
 		Kind:       claudePluginKindMCPServer,
-		Skills:     skills,
 		PluginSlug: pluginSlug,
 		MCPName:    "at-" + pluginSlug,
 		MCPURL:     s.publicMCPServerMCPURL(r, srv.Name),
@@ -357,40 +350,6 @@ func (s *Server) resolveMarketplaceSkills(ctx context.Context, market *service.M
 		skill, err := s.getSkillByIDOrName(ctx, ref)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get skill %q: %w", ref, err)
-		}
-		if skill == nil {
-			continue
-		}
-
-		key := skill.ID
-		if key == "" {
-			key = skill.Name
-		}
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		skills = append(skills, *skill)
-	}
-
-	return skills, nil
-}
-
-func (s *Server) resolveMCPServerSkills(ctx context.Context, srv *service.MCPServer) ([]service.Skill, error) {
-	if srv == nil || len(srv.Config.EnabledSkills) == 0 || s.skillStore == nil {
-		return nil, nil
-	}
-
-	seen := map[string]bool{}
-	skills := make([]service.Skill, 0, len(srv.Config.EnabledSkills))
-	for _, ref := range srv.Config.EnabledSkills {
-		ref = strings.TrimSpace(ref)
-		if ref == "" {
-			continue
-		}
-		skill, err := s.getSkillByIDOrName(ctx, ref)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get mcp server skill %q: %w", ref, err)
 		}
 		if skill == nil {
 			continue

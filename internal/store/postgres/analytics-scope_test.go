@@ -12,7 +12,7 @@ import (
 func insertCostEvent(t *testing.T, p *Postgres, workspace, provider string, cents int) {
 	t.Helper()
 	if _, err := p.goqu.Insert(p.tableCostEvents).Rows(goqu.Record{
-		"id": ulid.Make().String(),
+		"id":       ulid.Make().String(),
 		"agent_id": "", "workspace_id": workspace, "provider": provider, "model": "m1",
 		"input_tokens": 10, "output_tokens": 5, "cost_cents": cents,
 		"status": "ok", "latency_ms": 12, "created_at": "2026-09-01T00:00:00Z",

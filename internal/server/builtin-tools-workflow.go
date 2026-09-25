@@ -709,31 +709,8 @@ func (s *Server) buildWorkflowEngine(ctx context.Context) *workflow.Engine {
 	var varLookup workflow.VarLookup
 	var varLister workflow.VarLister
 	if s.variableStore != nil {
-		varLookup = func(key string) (string, error) {
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
-		}
-		varLister = func() (map[string]string, error) {
-			q, err := runtimeWorkspaceQuery(ctx)
-			if err != nil {
-				return nil, err
-			}
-			vars, err := s.variableStore.ListVariables(ctx, q)
-			if err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(vars.Data))
-			for _, v := range vars.Data {
-				m[v.Key] = v.Value
-			}
-			return m, nil
-		}
+		varLookup = nonSecretVariableLookup(ctx, s.variableStore)
+		varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
 	}
 
 	var nodeConfigLookup workflow.NodeConfigLookup

@@ -232,22 +232,16 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 
 	// skills/*.md
 	for _, skill := range skills {
+		if err := service.NormalizeDocumentationSkill(&skill); err != nil {
+			slog.Error("export org bundle: normalize skill failed", "name", skill.Name, "error", err)
+			continue
+		}
 		sm := &skillmd.SkillMD{
 			Name:        skill.Name,
 			Description: skill.Description,
 			Body:        skill.SystemPrompt,
 		}
-		var tools []skillmd.ToolDef
-		for _, t := range skill.Tools {
-			tools = append(tools, skillmd.ToolDef{
-				Name:        t.Name,
-				Description: t.Description,
-				InputSchema: t.InputSchema,
-				Handler:     t.Handler,
-				HandlerType: t.HandlerType,
-			})
-		}
-		data, err := skillmd.Generate(sm, tools)
+		data, err := skillmd.Generate(sm, nil)
 		if err != nil {
 			slog.Error("export org bundle: generate skill md failed", "name", skill.Name, "error", err)
 			continue
@@ -839,7 +833,7 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 			bundle.agents = append(bundle.agents, agent)
 
 		case strings.HasPrefix(f.Name, "skills/") && strings.HasSuffix(f.Name, ".md"):
-			parsed, tools, err := skillmd.ParseWithTools(data)
+			parsed, err := skillmd.Parse(data)
 			if err != nil {
 				slog.Error("parse bundle: parse skill md failed", "file", f.Name, "error", err)
 				continue
@@ -848,15 +842,6 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 				Name:         parsed.Name,
 				Description:  parsed.Description,
 				SystemPrompt: parsed.Body,
-			}
-			for _, t := range tools {
-				skill.Tools = append(skill.Tools, service.Tool{
-					Name:        t.Name,
-					Description: t.Description,
-					InputSchema: t.InputSchema,
-					Handler:     t.Handler,
-					HandlerType: t.HandlerType,
-				})
 			}
 			bundle.skills = append(bundle.skills, skill)
 

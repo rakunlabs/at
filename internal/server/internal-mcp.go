@@ -14,7 +14,7 @@ import (
 )
 
 // InternalMCPHandler handles MCP protocol requests at /internal/v1/mcp/{name}.
-// It serves tools from an MCP Set's own Config (HTTP/External/Skills/Builtins).
+// It serves tools from an MCP Set's own Config (HTTP/upstreams/builtins/workflows).
 // This endpoint has NO authentication — it is only reachable internally by agents
 // and is not exposed under /gateway/ so external clients cannot access it.
 func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
 // ─── REST API Endpoints for Chat UI ───
 
 // ListMCPSetToolsAPI handles GET /api/v1/mcp/sets/{name}/tools.
-// Returns the list of tools available in an MCP Set (skills, builtins, upstreams, HTTP).
+// Returns the tools available in an MCP Set (builtins, workflows, upstreams, HTTP).
 // Used by the Chat UI to discover tools when the user selects an MCP Set.
 func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
@@ -137,9 +137,8 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The set's own tools admit individually inside the runtime (skill tools
-	// through CheckExecution, built-ins through dispatchBuiltinTool), and all of
-	// those are fail-closed on an unbound context. Bind the caller's runtime
+	// The set's own tools admit individually inside the runtime and are
+	// fail-closed on an unbound context. Bind the caller's runtime
 	// identity here so the workspace execution policy decides, and gate the set
 	// itself the way the agent loops do.
 	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "tool")

@@ -174,7 +174,6 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// workbench", the policy says "may run this".
 		{"GET", "/mcp/builtin-tools", "models.use", "", ""},
 		{"POST", "/mcp/call-builtin-tool", "models.use", "", ""},
-		{"POST", "/mcp/call-skill-tool", "models.use", "", ""},
 		{"GET", "/mcp/set-tools/{name}", "mcp.use", "", ""},
 		{"POST", "/mcp/set-tools/{name}/call", "mcp.use", "", ""},
 		// MCP Sets can be personal or workspace-owned. Personal CRUD rides

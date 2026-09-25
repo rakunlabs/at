@@ -48,7 +48,7 @@ func resolvedAssetsDir() (string, error) {
 }
 
 // AssetsDir returns the persistent asset library root, injected into bash
-// skill handlers as AT_ASSETS_DIR. Unlike per-task workspaces (which live
+// workflow and approved shell handlers as AT_ASSETS_DIR. Unlike per-task workspaces (which live
 // under loopgov.WorkspaceRoot and are swept by the workspace janitor),
 // assets are durable: avatar images, cloned-voice manifests, and other
 // reusable media that must survive task completion live here.

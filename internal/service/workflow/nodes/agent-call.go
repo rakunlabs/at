@@ -15,7 +15,7 @@ import (
 )
 
 // agentCallNode runs an agentic loop: it sends a prompt to an LLM provider,
-// collects tool calls, executes them (via MCP, skill JS handlers, or inline JS
+// collects tool calls, executes them (via MCP or independently configured
 // handlers), feeds results back, and repeats until the LLM produces a final
 // answer or the iteration limit is reached.
 //
@@ -194,7 +194,7 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 		Type:        "agent_call",
 		Label:       "Agent Call",
 		Category:    "processing",
-		Description: "Agentic loop with tool calling (MCP, skills, inline tools)",
+		Description: "Agentic loop with documentation skills and independently configured tools",
 		Inputs: []workflow.PortMeta{
 			{Name: "prompt", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Prompt", Position: "left"},
 			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
@@ -290,17 +290,14 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// ─── Collect Tools ───
 
-	// toolHandlerInfo holds handler body and type for non-skill tools
-	// (builtin / workflow / sub-agent / inline). Skill tool handlers are
-	// owned by skillRuntime and resolved on the fly during dispatch — see
-	// progressive disclosure below.
+	// toolHandlerInfo holds handler body and type for executable tools configured
+	// independently from documentation skills.
 	type toolHandlerInfo struct {
 		handler     string
 		handlerType string // "builtin" | "workflow" | "agent" | inline JS body
-		skillID     string // empty for inline/builtin/sub-agent
 	}
 
-	// toolHandlers maps tool name → handler info for non-skill tools.
+	// toolHandlers maps tool names to independently configured handlers.
 	toolHandlers := make(map[string]toolHandlerInfo)
 	builtinAvailability := make(map[string]func(context.Context) bool)
 
@@ -387,10 +384,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	// 2. Skill tools — LAZY (progressive disclosure).
+	// 2. Skill instructions — LAZY (progressive disclosure).
 	//
 	// Skills are resolved into a SkillRuntime catalog up-front (single DB
-	// pass per attached skill), but their SystemPrompt + Tools are NOT
+	// pass per attached skill), but their Markdown instructions are not
 	// injected into the LLM context until the LLM activates each one via
 	// the `load_skill` meta-tool. The catalog and the meta-tool are added
 	// below in the system-prompt and llmTools build sections.
@@ -697,8 +694,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// Build the base tool set sent to the LLM — handlers stripped because
 	// LLM providers (OpenAI / Anthropic) only consume Name/Description/Schema.
-	// Active skill tools are appended per-iteration after the LLM activates
-	// each skill via load_skill (progressive disclosure).
+	// Documentation skills add only the load/read meta-tools below.
 	baseLLMTools := make([]service.Tool, 0, len(allTools)+1)
 	for _, t := range allTools {
 		baseLLMTools = append(baseLLMTools, service.Tool{
@@ -741,10 +737,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// loop runs at most maxIterations times and the platform ceiling
 	// is enforced by the governor's ClampIterations above.
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Rebuild tool list each iteration: base tools + tools from any
-		// skills the LLM has activated so far.
+		// Skills provide instructions only; executable tools come from the
+		// node, built-ins, MCP, workflows, or agent configuration.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
-		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
 		available := make([]service.Tool, 0, len(llmTools))
 		for _, tool := range llmTools {
 			if handler, ok := toolHandlers[tool.Name]; ok && handler.handlerType == "builtin" {
@@ -846,16 +841,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			var result string
 			var callErr error
 
-			// Resolve handler: skill tools (lazily loaded) take priority over
-			// statically registered handlers. Both are independent maps.
-			skillHi, isSkillTool := skillRuntime.HandlerFor(tc.Name)
-
 			if tc.Name == workflow.LoadSkillToolName {
 				// Activate a skill. Its SystemPrompt is embedded inline in
 				// the tool_result text so the LLM picks it up on the next
 				// turn — preserving correct assistant→user tool-call
-				// sequencing for Anthropic/OpenAI providers. Subsequent
-				// iterations expose the skill's tools via ActiveSkillTools.
+				// sequencing for Anthropic/OpenAI providers.
 				forkRequest, forked, forkErr := skillRuntime.ForkRequest(tc.Arguments)
 				if forkErr != nil {
 					callErr = forkErr
@@ -890,45 +880,15 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			} else if mcpToolNames[tc.Name] {
 				// Dispatch to MCP client.
 				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)
-			} else if hi, ok := toolHandlers[tc.Name]; ok || isSkillTool {
-				if isSkillTool {
-					hi = toolHandlerInfo{
-						handler:     skillHi.Handler,
-						handlerType: skillHi.HandlerType,
-						skillID:     skillHi.SkillID,
-					}
-				}
-				// Build per-tool VarLookup / VarLister that maps provider-scoped
-				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler); err != nil {
+			} else if hi, ok := toolHandlers[tc.Name]; ok {
+				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, "", hi.handler); err != nil {
 					_, block := agentloop.ToolResult(reg.LoopGov, toolResultRunID, tc, "Error: execution authority denied")
 					toolResults = append(toolResults, block)
 					continue
 				}
-				// keys (e.g. "youtube_refresh_token") to the agent's bound
-				// Connection, falling back to the registry's global lookup.
-				// Per-skill overrides on the owning SkillRef take priority.
-				var (
-					toolVarLookup = reg.VarLookup
-					toolVarLister = reg.VarLister
-				)
-				if reg.ConnectionLookup != nil && preset != nil {
-					var perSkill map[string]string
-					if hi.skillID != "" {
-						perSkill = skillRuntime.SkillConnOverrides(hi.skillID)
-					}
-					bindings := workflow.ResolveAgentConnectionBindings(
-						ctx, reg.ConnectionLookup,
-						preset.Config.Connections, perSkill,
-					)
-					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, reg.VarLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, reg.VarLister, bindings)
-					}
-				}
-
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					// Execute builtin tool via dispatcher.
 					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
@@ -964,13 +924,12 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 					result, callErr = runIsolatedSubagent(ctx, reg, subAgentID, task, "", "")
 				} else {
-					// Execute JS handler via Goja (default). Use the per-tool
-					// VarLookup so that provider-scoped keys resolve through
-					// the agent's connection bindings before global variables.
+					// Arbitrary handlers receive only the non-secret variable view
+					// prepared by the server. Secret references resolve only at
+					// approved tool boundaries.
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
-						Context:        ctx,
-						VarLookup:      toolVarLookup,
-						UserPrefLookup: reg.UserPrefLookup,
+						Context:   ctx,
+						VarLookup: reg.VarLookup,
 					})
 				}
 			} else {

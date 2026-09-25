@@ -528,14 +528,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 	// 6. Collect tools from agent config.
 	//
-	// toolHandlerInfo tracks non-skill tools (inline/builtin/delegate).
-	// Skill tool handlers live inside the SkillRuntime (built below) and
-	// only become discoverable after the LLM activates each skill via the
-	// `load_skill` meta-tool — progressive disclosure.
+	// toolHandlerInfo tracks executable tools configured independently from
+	// documentation skills (inline/builtin/delegate).
 	type toolHandlerInfo struct {
 		handler     string
 		handlerType string
-		skillID     string // empty for non-skill tools
 	}
 	toolHandlers := make(map[string]toolHandlerInfo)
 	mcpToolNames := make(map[string]bool)
@@ -583,10 +580,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			// Collect direct upstreams for stdio/HTTP resolution.
 			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
 
-			// If the MCP set has server-side tools (HTTP/Skills/Builtins),
+			// If the MCP set has server-side tools (HTTP/Builtins),
 			// resolve them directly — no HTTP loopback.
-			if len(set.Config.HTTPTools) > 0 ||
-				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
+			if len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
 				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
 					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
@@ -648,8 +644,8 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	//
 	// SkillRuntime resolves all attached SkillRefs into an in-memory catalog
 	// once. The catalog is rendered into the system prompt, and a single
-	// `load_skill` meta-tool is exposed. The skill's SystemPrompt + Tools
-	// are NOT injected until the LLM activates the skill.
+	// `load_skill` meta-tool is exposed. The skill's Markdown instructions
+	// are not injected until the LLM activates the skill.
 	var skillLookup workflow.SkillLookup
 	if s.skillStore != nil {
 		skillLookup = func(nameOrID string) (*service.Skill, error) {
@@ -933,9 +929,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		Content: chatMessageContent(data),
 	})
 
-	// Strip handlers from tools sent to the LLM. Skill tools are appended
-	// per-iteration via skillRuntime.ActiveSkillTools() once the LLM
-	// activates them with load_skill (progressive disclosure).
+	// Strip handlers from executable tools sent to the LLM.
 	baseLLMTools := make([]service.Tool, 0, len(allTools)+1)
 	for _, t := range allTools {
 		baseLLMTools = append(baseLLMTools, service.Tool{
@@ -984,34 +978,20 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		ctx = contextWithTaskID(ctx, taskLinked.ID)
 	}
 
-	// Build variable lookup/lister for skill tools.
-	// The lookup checks per-user preferences first, then per-user variables, then global.
-	baseVarLookup := s.userScopedVarLookup(ctx, sessionUserID)
+	// Arbitrary inline handlers may read only non-secret variables. Secret values
+	// resolve exclusively at approved tool boundaries such as http_request.
+	baseVarLookup := nonSecretVariableLookup(ctx, s.variableStore)
 	varLookup := func(key string) (string, error) {
 		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
 			return "", err
+		}
+		if baseVarLookup == nil {
+			return "", fmt.Errorf("variable store not configured")
 		}
 		return baseVarLookup(key)
 	}
 	var varLister workflow.VarLister
 	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
-	// Explicit connection bindings supply shell credentials; no global listing.
-
-	// Build user preference lookup for JS skill handlers.
-	var userPrefLookup workflow.UserPrefLookup
-	if s.userPrefStore != nil && sessionUserID != "" {
-		userPrefLookup = func(key string) (string, error) {
-			pref, err := s.userPrefStore.GetUserPreference(ctx, sessionUserID, key)
-			if err != nil {
-				return "", err
-			}
-			if pref == nil {
-				return "", fmt.Errorf("user preference %q not found", key)
-			}
-			return string(pref.Value), nil
-		}
-	}
-
 	// 9. Inject user preferences into system prompt (non-secret only).
 	if s.userPrefStore != nil && sessionUserID != "" {
 		prefs, err := s.userPrefStore.ListUserPreferences(ctx, sessionUserID)
@@ -1078,10 +1058,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	answerOnly := false
 	emptyReplyRetried := false
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Rebuild LLM tool list each iteration: base tools + tools from
-		// any skills the LLM has activated so far.
+		// Skills provide instructions only; executable capabilities are
+		// configured independently on the agent or MCP sets.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
-		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
 		// Reserve the final available iteration for a user-facing answer instead
 		// of spending the entire budget on tools and ending with no reply.
 		if iteration > 0 && iteration == maxIterations-1 && !answerOnly {
@@ -1314,10 +1293,6 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			var result string
 			var callErr error
 
-			// Resolve handler: skill tools (lazily loaded) take priority
-			// over statically registered handlers (builtin/delegate/etc).
-			skillHi, isSkillTool := skillRuntime.HandlerFor(tc.Name)
-
 			if session.Config.OrganizationChat && isOrganizationChatTool(tc.Name) {
 				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
 				result, callErr = s.executeOrganizationChatTool(toolCtx, session, tc.Name, tc.Arguments)
@@ -1351,41 +1326,14 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				}
 			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
-			} else if hi, ok := toolHandlers[tc.Name]; ok || isSkillTool {
-				if isSkillTool {
-					hi = toolHandlerInfo{
-						handler:     skillHi.Handler,
-						handlerType: skillHi.HandlerType,
-						skillID:     skillHi.SkillID,
-					}
-				}
-				// Build per-tool VarLookup/VarLister that maps provider-scoped
-				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler); err != nil {
+			} else if hi, ok := toolHandlers[tc.Name]; ok {
+				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, "", hi.handler); err != nil {
 					_, block := agentloop.ToolResult(resultGovernor, loopRunID, tc, "Error: execution authority denied")
 					toolResults = append(toolResults, block)
 					continue
 				}
-				// keys (e.g. "youtube_refresh_token") to the agent's bound
-				// Connection, falling back to the user-scoped / global lookups.
-				toolVarLookup := varLookup
-				toolVarLister := varLister
-				if s.connectionStore != nil {
-					var perSkill map[string]string
-					if hi.skillID != "" {
-						perSkill = skillRuntime.SkillConnOverrides(hi.skillID)
-					}
-					bindings := workflow.ResolveAgentConnectionBindings(
-						ctx, s.connectionLookupFunc(),
-						agent.Config.Connections, perSkill,
-					)
-					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, varLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, varLister, bindings)
-					}
-				}
-
 				if hi.handlerType == "bash" {
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
 					result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
@@ -1433,9 +1381,8 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					}
 				} else {
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
-						Context:        ctx,
-						VarLookup:      toolVarLookup,
-						UserPrefLookup: userPrefLookup,
+						Context:   ctx,
+						VarLookup: varLookup,
 					})
 				}
 			} else {

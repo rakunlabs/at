@@ -438,11 +438,6 @@ func (p *Postgres) approvalReferences(ctx context.Context, w *businessWrite, v s
 }
 
 func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string) error {
-	for _, name := range c.EnabledSkills {
-		if err := p.workspaceBusinessNamedReference(ctx, w, p.tableSkills, "name", name); err != nil {
-			return err
-		}
-	}
 	for _, id := range c.WorkflowIDs {
 		if err := p.businessReference(ctx, w, p.tableWorkflows, "id", id); err != nil {
 			return err
@@ -459,11 +454,6 @@ func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c servic
 func (p *Postgres) mcpSetReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string, personal bool) error {
 	if !personal {
 		return p.mcpReferences(ctx, w, c, sets)
-	}
-	for _, name := range c.EnabledSkills {
-		if err := p.ownedBusinessNamedReference(ctx, w, p.tableSkills, "name", name); err != nil {
-			return err
-		}
 	}
 	for _, id := range c.WorkflowIDs {
 		if err := p.businessReference(ctx, w, p.tableWorkflows, "id", id); err != nil {

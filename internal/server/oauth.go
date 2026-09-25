@@ -17,7 +17,6 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
-	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // ─── Connector-driven OAuth2 ───
@@ -880,49 +879,6 @@ func jsonDotPath(v any, path string) string {
 		return str
 	}
 	return ""
-}
-
-// userScopedVarLookup returns a VarLookup that checks:
-// 1. Per-user preferences (user_preferences table) — for per-user data like OAuth tokens
-// 2. Per-user variables (key::userID in variables table) — legacy per-user scope
-// 3. Global variables (variables table)
-// If userID is empty, it checks only global variables.
-func (s *Server) userScopedVarLookup(ctx context.Context, userID string) workflow.VarLookup {
-	if s.variableStore == nil {
-		return nil
-	}
-	return func(key string) (string, error) {
-		if userID != "" {
-			// 1. Check user_preferences first (for per-user tokens, etc.).
-			if s.userPrefStore != nil {
-				pref, err := s.userPrefStore.GetUserPreference(ctx, userID, key)
-				if err == nil && pref != nil {
-					// Unwrap JSON string value for backward compatibility.
-					var strVal string
-					if json.Unmarshal(pref.Value, &strVal) == nil {
-						return strVal, nil
-					}
-					return string(pref.Value), nil
-				}
-			}
-
-			// 2. Check per-user scoped variable (legacy: key::userID).
-			scopedKey := key + "::" + userID
-			v, err := s.variableStore.GetVariableByKey(ctx, scopedKey)
-			if err == nil && v != nil {
-				return v.Value, nil
-			}
-		}
-		// 3. Fall back to global variable.
-		v, err := s.variableStore.GetVariableByKey(ctx, key)
-		if err != nil {
-			return "", err
-		}
-		if v == nil {
-			return "", fmt.Errorf("variable %q not found", key)
-		}
-		return v.Value, nil
-	}
 }
 
 // buildOAuthLoginURL builds the full OAuth start URL for a bot user.

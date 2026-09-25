@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rakunlabs/query"
 
@@ -20,45 +21,42 @@ func runtimeWorkspaceQuery(ctx context.Context) (*query.Query, error) {
 	return query.New().AddWhere(query.NewExpressionCmp(query.OperatorEq, "workspace_id", p.WorkspaceID).Expression()), nil
 }
 
-func (s *Server) runtimeHandlerLookups(ctx context.Context, skillID string) (workflow.VarLookup, workflow.VarLister, error) {
-	lookup := func(key string) (string, error) {
-		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
-			return "", err
-		}
-		if s.variableStore == nil {
-			return "", service.ErrExecutionDenied
-		}
-		value, err := s.variableStore.GetVariableByKey(ctx, key)
-		if err != nil {
-			return "", err
-		}
-		if value == nil {
-			return "", service.ErrExecutionDenied
-		}
-		return value.Value, nil
+func nonSecretVariableLookup(ctx context.Context, store service.VariableStorer) workflow.VarLookup {
+	if store == nil {
+		return nil
 	}
-	lister := func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
-	if agentID := agentIDFromContext(ctx); agentID != "" && s.agentStore != nil {
-		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: agentID}); err != nil {
-			return nil, nil, err
-		}
-		agent, err := s.agentStore.GetAgent(ctx, agentID)
+	return func(key string) (string, error) {
+		v, err := store.GetVariableByKey(ctx, key)
 		if err != nil {
-			return nil, nil, err
+			return "", err
 		}
-		if agent == nil {
-			return nil, nil, service.ErrExecutionDenied
+		if v == nil {
+			return "", fmt.Errorf("variable %q not found", key)
 		}
-		var overrides map[string]string
-		for _, ref := range agent.Config.Skills {
-			if ref.ID == skillID {
-				overrides = ref.Connections
+		if v.Secret {
+			return "", fmt.Errorf("secret variable %q requires an approved variable reference", key)
+		}
+		return v.Value, nil
+	}
+}
+
+func nonSecretVariableLister(ctx context.Context, store service.VariableStorer) workflow.VarLister {
+	if store == nil {
+		return nil
+	}
+	return func() (map[string]string, error) {
+		vars, err := store.ListVariables(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		values := make(map[string]string, len(vars.Data))
+		for _, v := range vars.Data {
+			if !v.Secret {
+				values[v.Key] = v.Value
 			}
 		}
-		bindings := workflow.ResolveAgentConnectionBindings(ctx, s.connectionLookupFunc(), agent.Config.Connections, overrides)
-		return workflow.WrapVarLookupWithConnectionsContext(ctx, lookup, bindings), workflow.WrapVarListerWithConnectionsContext(ctx, lister, bindings), nil
+		return values, nil
 	}
-	return lookup, lister, nil
 }
 
 func (s *Server) runtimeVariableLister(ctx context.Context) (map[string]string, error) {
@@ -75,7 +73,7 @@ func (s *Server) runtimeVariableLister(ctx context.Context) (map[string]string, 
 		return nil, err
 	}
 	for _, v := range vars.Data {
-		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: v.ID}) == nil {
+		if !v.Secret && service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: v.ID}) == nil {
 			values[v.Key] = v.Value
 		}
 	}

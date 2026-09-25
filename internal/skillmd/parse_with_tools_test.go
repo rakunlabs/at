@@ -1,10 +1,11 @@
 package skillmd
 
 import (
+	"strings"
 	"testing"
 )
 
-func TestParseWithTools_FullSkill(t *testing.T) {
+func TestParseWithTools_PreservesToolLookingMarkdown(t *testing.T) {
 	input := `---
 name: web-scraper
 description: Scrapes web pages
@@ -33,17 +34,11 @@ You are a web scraping skill.
 	if s.Name != "web-scraper" {
 		t.Errorf("name = %q, want %q", s.Name, "web-scraper")
 	}
-	if s.Body != "You are a web scraping skill." {
-		t.Errorf("body = %q, want %q", s.Body, "You are a web scraping skill.")
+	if s.Body != input[strings.Index(input, "You are a web scraping skill."):] {
+		t.Errorf("body did not preserve Markdown verbatim: %q", s.Body)
 	}
-	if len(tools) != 1 {
-		t.Fatalf("tools count = %d, want 1", len(tools))
-	}
-	if tools[0].Name != "scrape_url" {
-		t.Errorf("tool name = %q, want %q", tools[0].Name, "scrape_url")
-	}
-	if tools[0].HandlerType != "js" {
-		t.Errorf("tool handler_type = %q, want %q", tools[0].HandlerType, "js")
+	if len(tools) != 0 {
+		t.Fatalf("tools count = %d, want 0", len(tools))
 	}
 }
 
@@ -70,7 +65,7 @@ Just a system prompt.`
 	}
 }
 
-func TestParseWithTools_MultipleTools(t *testing.T) {
+func TestParseWithTools_DoesNotInterpretMultipleTools(t *testing.T) {
 	input := `---
 name: multi-tool
 ---
@@ -90,14 +85,8 @@ System prompt here.
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(tools) != 2 {
-		t.Fatalf("tools count = %d, want 2", len(tools))
-	}
-	if tools[0].Name != "tool_a" {
-		t.Errorf("first tool name = %q, want %q", tools[0].Name, "tool_a")
-	}
-	if tools[1].Name != "tool_b" {
-		t.Errorf("second tool name = %q, want %q", tools[1].Name, "tool_b")
+	if len(tools) != 0 {
+		t.Fatalf("tools count = %d, want 0", len(tools))
 	}
 }
 
