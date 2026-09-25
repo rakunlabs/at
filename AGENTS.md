@@ -959,12 +959,11 @@ reader may instead choose Workspace and publish that derived setup under a new
 workspace-unique, case-insensitive name. Personal presets remain in
 `user_preferences` unchanged and the toolbar groups both sources.
 
-The toolbar switcher is controlled by a **derived** id, not a bound one: once
+The toolbar switcher is controlled by a **derived** id: once
 any selection diverges from the applied preset it reports "No preset" rather
 than a stale name, and selecting "No preset" is a state, not an action — it
-clears the claim, never the reader's selections. A preset naming a deleted
-agent or an unavailable model drops that reference and says so, because binding
-a missing agent blocks sending with a warning and silently rewriting the model
+clears the claim, never the reader's selections. A preset naming an unavailable
+model drops that reference and says so, because silently rewriting the model
 pair would be worse than a toast. `frontend_tools` is the one selection where
 nil and `[]` differ (shipped defaults vs. explicitly none), so normalization
 preserves an empty non-nil list. Regressions:
@@ -976,9 +975,10 @@ under the toolbar — system prompt and tools — each capped inside the chat
 column at `max-h-80`, so together they took a third of the page while still
 scrolling their own contents: the setup was cramped and the transcript was
 too. They are one modal now (`showWorkbench`), because they answer one
-question — what this conversation runs with. The system prompt leads it (a
-bound agent still makes it read-only), then presets, the agent binding and the
-five tool catalogues; the discovered-tool summary and **Clear my selections**
+question — what this conversation runs with. The top-aligned panel grows down
+within the viewport; its body scrolls only after reaching the available height.
+The system prompt leads it, followed by a dedicated Skills tab and the remaining
+tool catalogues; the discovered-tool summary and **Clear my selections**
 sit in a footer outside the scrolling body, since that summary is the answer to
 "did that work?" and the reader who has scrolled to the bottom of the
 catalogues is exactly who needs it. The toolbar keeps only the model select and
@@ -1006,19 +1006,12 @@ older — a bare `09:14` on a conversation resumed days later is actively
 misleading — and returns `''` rather than a placeholder when there is nothing
 to show.
 
-Selecting an agent **binds** it to the conversation (`config.agent_id`) and
-adopts its model. Its name appears beside the transcript trash action. The
-agent's system prompt is read-only while bound; the personal prompt is retained
-for unbinding. Skills, MCP sets and built-in tools are the deduplicated union of
-the agent's current configuration and separately persisted personal selections
-(`chat-agent.ts`). A purple left border and Agent label identify inherited
-choices; a filled background identifies personal choices, including both at
-once. Removing an agent drops only inherited contributions. **Copy to my
-settings** copies the effective prompt and union into personal settings and
-unbinds, making them editable. There is no Save as agent action in Chats.
-Older saved tool lists retain their explicit selections because their original
-provenance cannot be reconstructed. Tool discovery waits for catalogs and
-discards stale results. Regression: `_ui/tests/chat-agent.test.mjs`.
+Chats is an agent-independent workbench: its model, editable system prompt,
+skills, MCP sets, built-in tools and browser tools are selected directly and
+stored with the conversation/preset. Agents remain the reusable execution unit
+for Sessions, bots and automation; Chats does not read or write `agent_id`.
+Tool discovery waits for catalogs and discards stale results. Regression:
+`_ui/tests/chat-workbench.test.mjs`.
 
 Direct MCP URLs were removed from the Playground: tools come from registered MCP
 sets, which carry credentials, stdio processes and execution admission with

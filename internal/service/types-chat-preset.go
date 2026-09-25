@@ -7,9 +7,8 @@ import (
 	"strings"
 )
 
-// A Chats preset is a named, per-account workbench setup: the model, the bound
-// agent, the personal system prompt and the four tool selections the Chats page
-// already persists per conversation.
+// A Chats preset is a named, per-account workbench setup: the model, system
+// prompt and the four tool selections the Chats page persists per conversation.
 //
 // It is the same payload the singleton `/chats/defaults` preset carries, which
 // is why both share ChatWorkbenchSetup rather than declaring the fields twice.
@@ -21,10 +20,9 @@ import (
 // The server does not interpret these beyond bounding them — the Chats tool
 // loop runs in the browser, and validating a tool name here would mean
 // re-implementing that resolution twice, in a place that cannot see the
-// caller's skills, MCP sets or agents.
+// caller's skills or MCP sets.
 type ChatWorkbenchSetup struct {
 	Model        string   `json:"model,omitempty"`
-	AgentID      string   `json:"agent_id,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	MCPSets      []string `json:"mcp_sets,omitempty"`
 	Skills       []string `json:"skills,omitempty"`
@@ -125,7 +123,6 @@ func NormalizeChatPresets(presets []ChatPreset) ([]ChatPreset, error) {
 			return nil, fmt.Errorf("preset %q: system prompt is too long", p.Name)
 		}
 		p.Model = strings.TrimSpace(p.Model)
-		p.AgentID = strings.TrimSpace(p.AgentID)
 
 		var err error
 		if p.MCPSets, err = normalizePresetSelection(p.Name, "MCP sets", p.MCPSets); err != nil {

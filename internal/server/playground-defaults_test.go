@@ -53,7 +53,7 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 		t.Fatalf("empty preset: %d %s", w.Code, w.Body)
 	}
 
-	saved := `{"model":"test/text-model","agent_id":"agent-1","mcp_sets":["ops"],"builtin_tools":["todo_write"]}`
+	saved := `{"model":"test/text-model","mcp_sets":["ops"],"builtin_tools":["todo_write"]}`
 	if w = playgroundDefaultsRequest(s, tokens[0], "PUT", saved); w.Code != 200 {
 		t.Fatalf("save: %d %s", w.Code, w.Body)
 	}
@@ -63,7 +63,7 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Model != "test/text-model" || got.AgentID != "agent-1" || len(got.MCPSets) != 1 || got.MCPSets[0] != "ops" {
+	if got.Model != "test/text-model" || len(got.MCPSets) != 1 || got.MCPSets[0] != "ops" {
 		t.Fatalf("round trip: %+v", got)
 	}
 
@@ -98,6 +98,9 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	}
 
 	// Unknown fields are refused like the rest of the Playground surface.
+	if w = playgroundDefaultsRequest(s, tokens[0], "PUT", `{"agent_id":"retired"}`); w.Code != 400 {
+		t.Fatalf("retired agent binding field: %d %s", w.Code, w.Body)
+	}
 	if w = playgroundDefaultsRequest(s, tokens[0], "PUT", `{"nope":1}`); w.Code != 400 {
 		t.Fatalf("unknown field: %d %s", w.Code, w.Body)
 	}

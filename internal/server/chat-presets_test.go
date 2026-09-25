@@ -62,7 +62,7 @@ func TestChatPresetsOwnerScopeAndIdentity(t *testing.T) {
 
 	saved := `{"presets":[
 		{"id":"","name":"Research","model":"test/text-model","skills":["web"],"frontend_tools":[]},
-		{"id":"","name":"Coding","model":"test/text-model","agent_id":"agent-1","builtin_tools":["todo_write"]}
+		{"id":"","name":"Coding","model":"test/text-model","builtin_tools":["todo_write"]}
 	]}`
 	w = chatPresetsRequest(s, tokens[0], "PUT", saved)
 	if w.Code != 200 {
@@ -157,7 +157,7 @@ func TestChatPresetSharesDefaultsPayload(t *testing.T) {
 		t.Fatal("playgroundDefaults no longer shares the preset selection payload")
 	}
 
-	setup := service.ChatWorkbenchSetup{Model: "p/m", AgentID: "a", SystemPrompt: "s", Skills: []string{"x"}}
+	setup := service.ChatWorkbenchSetup{Model: "p/m", SystemPrompt: "s", Skills: []string{"x"}}
 	fromSetup, err := json.Marshal(setup)
 	if err != nil {
 		t.Fatal(err)

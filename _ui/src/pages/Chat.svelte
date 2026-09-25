@@ -20,8 +20,6 @@
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listAgents, type Agent } from '@/lib/api/agents';
-  import { agentSelections, mergeChatSelections } from '@/lib/helper/chat-agent';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import {
     listLocalMCPServers,
@@ -50,7 +48,7 @@
     type ExtensionDescriptor,
     type ExtensionTool,
   } from '@/lib/helper/extension-bridge';
-  import { FEATURE_AGENTS, FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_SHARING } from '@/lib/api/features';
+  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_SHARING } from '@/lib/api/features';
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
@@ -96,7 +94,7 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot, Share2 } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2 } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -156,7 +154,7 @@
     resolve: (answer: string) => void;
   }
 
-  type WorkbenchTab = 'prompt' | 'agent' | 'chat';
+  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat';
 
   /**
    * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
@@ -290,8 +288,8 @@
   // ─── Tools State ───
 
   /**
-   * The workbench — preset list, agent binding, system prompt and the five
-   * tool catalogues — opens as a modal.
+   * The workbench — preset list, system prompt, skills and tool catalogues —
+   * opens as a modal.
    *
    * It used to be two strips under the toolbar, one per concern, each capped
    * at a fixed height inside the chat column. Between them they took a third
@@ -305,7 +303,8 @@
   let workbenchBackdropPressStarted = false;
   const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
     { id: 'prompt', label: 'System prompt' },
-    { id: 'agent', label: 'Agent & server tools' },
+    { id: 'skills', label: 'Skills' },
+    { id: 'tools', label: 'Server tools' },
     { id: 'chat', label: 'Chat tools' },
   ];
 
@@ -330,11 +329,6 @@
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
   let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
-  let agents = $state<Agent[]>([]);
-  let agentsAvailable = $derived(isFeatureEnabled(FEATURE_AGENTS));
-  /** Agent bound to this conversation; supplies the base setup. */
-  let boundAgentId = $state('');
-  let agentPickerId = $state('');
   let skills = $state<Skill[]>([]);
   let selectedSkillNames = $state<string[]>([]);
   // Per-account preset bookkeeping: never save one back before it loaded, or
@@ -826,7 +820,6 @@
       skills: [...selectedSkillNames],
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
-      agent_id: boundAgentId,
     };
   }
 
@@ -838,7 +831,6 @@
     selectedSkillNames = names(c.skills);
     enabledBuiltinTools = names(c.builtin_tools);
     enabledFrontendTools = names(c.frontend_tools);
-    boundAgentId = typeof c.agent_id === 'string' ? c.agent_id : '';
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
       ? Object.fromEntries(Object.entries(headers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
@@ -1201,17 +1193,6 @@
     }
   }
 
-  async function loadAgents() {
-    if (!agentsAvailable) return;
-
-    try {
-      const res = await listAgents();
-      agents = res.data ?? [];
-    } catch {
-      // Agents may not be available
-    }
-  }
-
   async function loadSkills() {
     try {
       const res = await listSkills();
@@ -1252,7 +1233,6 @@
       if (conversationId || params.id) return;
       if (prefs.model && models.includes(prefs.model)) selectedModel = prefs.model;
       if (prefs.system_prompt && !systemPrompt.trim()) systemPrompt = prefs.system_prompt;
-      if (prefs.agent_id) boundAgentId = prefs.agent_id;
       if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
       if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
       if (prefs.builtin_tools?.length) enabledBuiltinTools = [...prefs.builtin_tools];
@@ -1277,7 +1257,6 @@
       defaultsTimer = null;
       void savePlaygroundDefaults({
         model: selectedModel,
-        agent_id: boundAgentId,
         system_prompt: systemPrompt,
         mcp_sets: [...selectedMCPSetNames],
         skills: [...selectedSkillNames],
@@ -1307,9 +1286,6 @@
   function currentSetup(): PlaygroundDefaults {
     return {
       model: selectedModel,
-      agent_id: boundAgentId,
-      // The personal prompt, not the effective one: a bound agent supplies its
-      // own at use, and storing that copy would freeze a stale version of it.
       system_prompt: systemPrompt,
       mcp_sets: [...selectedMCPSetNames],
       skills: [...selectedSkillNames],
@@ -1320,7 +1296,6 @@
 
   function presetMatchesCurrent(preset: ChatPreset): boolean {
     return (preset.model ?? '') === selectedModel
-      && (preset.agent_id ?? '') === boundAgentId
       && (preset.system_prompt ?? '') === systemPrompt
       && sameSelection(preset.mcp_sets, selectedMCPSetNames)
       && sameSelection(preset.skills, selectedSkillNames)
@@ -1362,23 +1337,13 @@
       return;
     }
 
-    // Both references can have gone stale since the preset was saved. Binding
-    // a missing agent blocks sending with a warning and selecting an absent
-    // model would silently rewrite the conversation's pair, so each is dropped
-    // and named rather than applied blind.
-    let agentId = preset.agent_id ?? '';
-    if (agentsAvailable && agentId && !agents.some(a => a.id === agentId)) {
-      addToast(`"${preset.name}" names an agent that is no longer available — applied without it.`, 'warn');
-      agentId = '';
-    }
+    // A missing model is named rather than silently replacing the current one.
     if (preset.model && !models.includes(preset.model)) {
       addToast(`"${preset.name}" names the model ${preset.model}, which this workspace does not offer — kept ${selectedModel}.`, 'warn');
     } else if (preset.model) {
       selectedModel = preset.model;
     }
 
-    boundAgentId = agentId;
-    agentPickerId = '';
     systemPrompt = preset.system_prompt ?? '';
     selectedMCPSetNames = [...(preset.mcp_sets ?? [])];
     selectedSkillNames = [...(preset.skills ?? [])];
@@ -1468,7 +1433,7 @@
   // against what this deployment actually offers.
   loadInfo().then(loadDefaults);
   loadPresets();
-  const catalogsReady = Promise.all([loadAgents(), loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
+  const catalogsReady = Promise.all([loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
 
   // ─── Scroll ───
@@ -1586,52 +1551,6 @@
     refreshTools();
   }
 
-  const boundAgent = $derived(agentsAvailable && boundAgentId ? agents.find(a => a.id === boundAgentId) : undefined);
-  const inherited = $derived(agentSelections(boundAgent?.config, skills));
-  const effectiveSelections = $derived(mergeChatSelections({
-    mcp_sets: selectedMCPSetNames,
-    skills: selectedSkillNames,
-    builtin_tools: enabledBuiltinTools,
-  }, inherited));
-  const effectiveSystemPrompt = $derived(agentsAvailable && boundAgentId ? (boundAgent?.config.system_prompt ?? '') : systemPrompt);
-
-  /** Keep inherited setup separate so unbinding restores only personal choices. */
-  function bindAgent(agentId: string) {
-    if (!agentsAvailable) return;
-
-    const agent = agents.find(a => a.id === agentId);
-    if (!agent) return;
-    boundAgentId = agent.id;
-    agentPickerId = '';
-
-    const model = joinModel(agent.config.provider, agent.config.model);
-    // Only adopt a model this deployment actually offers; an agent may point
-    // at a provider the caller's workspace cannot reach.
-    if (model && models.includes(model)) selectedModel = model;
-
-    refreshTools();
-    scheduleSettingsSave();
-    void saveDefaults();
-  }
-
-  function clearBoundAgent() {
-    boundAgentId = '';
-    void refreshTools();
-    scheduleSettingsSave();
-    void saveDefaults();
-  }
-
-  /** Copy the effective setup into personal choices, then remove the binding. */
-  function adoptAgentSettings() {
-    if (!boundAgent) return;
-    const selections = effectiveSelections;
-    systemPrompt = effectiveSystemPrompt;
-    selectedMCPSetNames = [...selections.mcp_sets];
-    selectedSkillNames = [...selections.skills];
-    enabledBuiltinTools = [...selections.builtin_tools];
-    clearBoundAgent();
-  }
-
   function toggleSkill(skillName: string) {
     if (selectedSkillNames.includes(skillName)) {
       selectedSkillNames = selectedSkillNames.filter(s => s !== skillName);
@@ -1699,7 +1618,11 @@
     loadingTools = true;
     await catalogsReady;
     if (version !== toolDiscoveryVersion) return;
-    const selections = effectiveSelections;
+    const selections = {
+      mcp_sets: selectedMCPSetNames,
+      skills: selectedSkillNames,
+      builtin_tools: enabledBuiltinTools,
+    };
     const frontendTools = [...enabledFrontendTools];
     void saveDefaults();
     const newTools: ToolDefinition[] = [];
@@ -1900,7 +1823,7 @@
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'builtin') {
-        const res = await callBuiltinTool(tc.function.name, args, boundAgentId, turnTraceId);
+        const res = await callBuiltinTool(tc.function.name, args, '', turnTraceId);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'local') {
@@ -2220,10 +2143,6 @@
       addToast('Wait for tool discovery to finish before sending.', 'warn');
       return false;
     }
-    if (agentsAvailable && boundAgentId && !boundAgent) {
-      addToast('The selected agent is unavailable. Remove it or reload before sending.', 'warn');
-      return false;
-    }
     return true;
   }
 
@@ -2351,8 +2270,8 @@
       // Build request messages
       const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
 
-      // Bound agent prompt (or personal prompt when unbound) plus skill prompts.
-      const fullSystemPrompt = [effectiveSystemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n');
+      // Conversation prompt plus the prompts contributed by selected skills.
+      const fullSystemPrompt = [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n');
       if (fullSystemPrompt) {
         reqMessages.push({ role: 'system', content: fullSystemPrompt });
       }
@@ -2694,13 +2613,13 @@
       aria-expanded={showWorkbench}
       aria-haspopup="dialog"
       class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showWorkbench ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-      title={agentsAvailable ? 'Workbench — system prompt, agent, presets and tools' : 'Workbench — system prompt, presets and tools'}
+      title="Workbench — system prompt, skills, presets and tools"
     >
       <Wrench size={14} />
       {#if toolCount > 0}
         <span class="tabular-nums">{toolCount}</span>
       {/if}
-      {#if effectiveSystemPrompt.trim()}
+      {#if systemPrompt.trim()}
         <span class="w-1.5 h-1.5 bg-gray-400 dark:bg-dark-text-muted" title="A system prompt is set"></span>
       {/if}
     </button>
@@ -2745,12 +2664,6 @@
         <div class="text-[11px] text-gray-400 dark:text-dark-text-muted font-mono tabular-nums" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">
           {totalTokens.toLocaleString()} tok
         </div>
-      {/if}
-
-      {#if agentsAvailable && boundAgentId}
-        <button onclick={() => (showWorkbench = true)} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" aria-expanded={showWorkbench} aria-haspopup="dialog" class="h-9 inline-flex min-w-0 max-w-40 items-center justify-center gap-1.5 px-2.5 border border-gray-300 dark:border-dark-border-subtle text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent ">
-          <Bot size={14} class="shrink-0" /><span class="truncate">{boundAgent?.name ?? 'Unavailable agent'}</span>
-        </button>
       {/if}
 
       {#if sharingAvailable && conversationId && shareBoundaries.length > 0}
@@ -2813,7 +2726,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:pt-8"
       onpointerdown={handleWorkbenchBackdropPointerDown}
       onpointercancel={() => (workbenchBackdropPressStarted = false)}
       onclick={handleWorkbenchBackdropClick}
@@ -2825,7 +2738,7 @@
         aria-modal="true"
         aria-label="Workbench"
         onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); showWorkbench = false; } }}
-        class="flex w-full max-w-3xl max-h-[85vh] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface focus:outline-none"
+        class="flex w-full max-w-3xl max-h-[calc(100dvh-2rem)] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface focus:outline-none sm:max-h-[calc(100dvh-4rem)]"
       >
         <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base shrink-0">
           <div class="min-w-0">
@@ -2922,7 +2835,7 @@
                   : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text',
               ]}
             >
-              {tab.id === 'agent' && !agentsAvailable ? 'Server tools' : tab.label}
+              {tab.label}
             </button>
           {/each}
         </div>
@@ -2933,69 +2846,26 @@
           aria-labelledby={`workbench-tab-${workbenchTab}`}
           class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
         >
-          <!-- System prompt. It leads because it is the instruction the tools
-               below serve, and because a bound agent makes it read-only — a fact
-               better learned before the reader types into it. -->
+          <!-- System prompt leads because it is the instruction the selected
+               skills and tools serve. -->
           {#if workbenchTab === 'prompt'}
           <div class="block max-w-2xl">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
-            {#if agentsAvailable && boundAgentId}
-              <p class="mb-1 text-xs text-purple-700 dark:text-purple-300">From {boundAgent?.name ?? 'agent'} · Read-only. Copy to your settings to edit.</p>
-            {/if}
             <textarea
-              value={effectiveSystemPrompt}
-              readonly={agentsAvailable && !!boundAgentId}
+              value={systemPrompt}
               oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
               aria-label="System prompt"
               placeholder="System prompt (optional)"
               rows={8}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 read-only:bg-gray-50 dark:read-only:bg-dark-base "
+              class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
             ></textarea>
           </div>
           <p class="text-xs text-gray-500 dark:text-dark-text-muted">
-            The prompt guides the whole conversation. Presets also capture the model, {agentsAvailable ? 'agent, ' : ''}prompt, and every tool selection without changing the transcript.
+            The prompt guides the whole conversation. Presets also capture the model, prompt, skills and every tool selection without changing the transcript.
           </p>
           {/if}
 
-          <!-- Agent contributions remain separate from personal selections. -->
-          {#if workbenchTab === 'agent'}
-          {#if agentsAvailable}
-          <div class="block">
-            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
-            {#if boundAgentId}
-              <div class="flex flex-wrap items-center gap-2">
-                <button onclick={clearBoundAgent} disabled={streaming} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Remove agent</button>
-                <button onclick={adoptAgentSettings} disabled={streaming || !boundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Copy to my settings</button>
-              </div>
-              <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Purple left border: from agent. Filled background: selected by you. Both marks mean both sources. Copying makes the prompt editable and removes the agent binding.</p>
-              {#if !boundAgent}<p role="status" class="mt-1 text-xs text-amber-700 dark:text-amber-300">Agent unavailable. Remove it or reload before sending a message.</p>{/if}
-            {:else}
-              <div class="flex gap-2">
-                <div class="relative flex-1">
-                  <select
-                    bind:value={agentPickerId}
-                    aria-label="Agent"
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
-                  >
-                    <option value="">Choose an agent…</option>
-                    {#each agents as agent}
-                      <option value={agent.id}>{agent.name}{agent.scope === 'personal' ? ' (personal)' : agent.scope === 'global' ? ' (global)' : ''}{agent.config.description ? ` — ${agent.config.description}` : ''}</option>
-                    {/each}
-                  </select>
-                  <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
-                </div>
-                <button
-                  onclick={() => bindAgent(agentPickerId)}
-                  disabled={!agentPickerId || streaming}
-                  class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
-                >
-                  Use
-                </button>
-              </div>
-            {/if}
-          </div>
-          {/if}
-
+          {#if workbenchTab === 'tools'}
           <!-- MCP Sets (Internal MCPs) -->
           {#if availableMCPSets.length > 0}
             <div role="group" aria-label="MCP" class="block">
@@ -3006,16 +2876,13 @@
                   <button
                     onclick={() => toggleMCPSet(mcpSet.name)}
                     aria-pressed={selectedMCPSetNames.includes(mcpSet.name)}
-                    aria-label={`${mcpSet.name}${inherited.mcp_sets.includes(mcpSet.name) ? ' · From agent' : ''}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected by you' : ''}`}
-                    style:border-left-width={inherited.mcp_sets.includes(mcpSet.name) ? '4px' : undefined}
-                    style:border-left-color={inherited.mcp_sets.includes(mcpSet.name) ? 'var(--color-purple-400)' : undefined}
+                    aria-label={`${mcpSet.name}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected' : ''}`}
                     class="px-2.5 py-1 text-xs border {selectedMCPSetNames.includes(mcpSet.name)
                       ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
                       : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                     title={mcpSet.description || mcpSet.name}
                   >
                     {mcpSet.name}
-                    {#if inherited.mcp_sets.includes(mcpSet.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
                     {#if status?.busy}
                       <Loader2 size={10} class="ml-1 inline animate-spin" />
                     {:else if status?.error || status?.warnings.length}
@@ -3051,25 +2918,33 @@
             </div>
           {/if}
 
-          <!-- Skills -->
+          <!-- Server Tools (built-in) -->
+          {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0}
+            <div role="group" aria-label="Server Tools" class="block">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
+              <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} onchange={refreshTools} />
+            </div>
+          {/if}
+          {/if}
+
+          <!-- Skills are a first-class part of the Chat setup. -->
+          {#if workbenchTab === 'skills'}
           {#if skills.length > 0}
             <div role="group" aria-label="Skills" class="block">
               <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
+              <p class="mb-2 text-xs text-gray-500 dark:text-dark-text-muted">Add reusable instructions and tools directly to this conversation.</p>
               <div class="flex flex-wrap gap-1.5">
                 {#each skills as skill}
                   <button
                     onclick={() => toggleSkill(skill.name)}
                     aria-pressed={selectedSkillNames.includes(skill.name)}
-                    aria-label={`${skill.name}${inherited.skills.includes(skill.name) ? ' · From agent' : ''}${selectedSkillNames.includes(skill.name) ? ' · Selected by you' : ''}`}
-                    style:border-left-width={inherited.skills.includes(skill.name) ? '4px' : undefined}
-                    style:border-left-color={inherited.skills.includes(skill.name) ? 'var(--color-purple-400)' : undefined}
+                    aria-label={`${skill.name}${selectedSkillNames.includes(skill.name) ? ' · Selected' : ''}`}
                     class="px-2.5 py-1 text-xs border {selectedSkillNames.includes(skill.name)
                       ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
                       : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                     title={skill.description || skill.name}
                   >
                     {skill.name}
-                    {#if inherited.skills.includes(skill.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
                     {#if skill.tools.length > 0}
                       <span class="ml-1 opacity-60">({skill.tools.length})</span>
                     {/if}
@@ -3077,14 +2952,8 @@
                 {/each}
               </div>
             </div>
-          {/if}
-
-          <!-- Server Tools (built-in) -->
-          {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0 || inherited.builtin_tools.length > 0}
-            <div role="group" aria-label="Server Tools" class="block">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
-              <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} inherited={inherited.builtin_tools} onchange={refreshTools} />
-            </div>
+          {:else}
+            <p class="text-xs text-gray-500 dark:text-dark-text-muted">No skills are available. Create or import a skill from the Skills page, then return here to add it.</p>
           {/if}
           {/if}
 
@@ -3342,14 +3211,14 @@
             {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
               <span>No tools discovered</span>
             {:else}
-              <span>Pick an agent, select MCP sets or skills, or toggle tools above</span>
+              <span>Select skills, MCP sets, or tools above</span>
             {/if}
           </div>
           {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
             <button
               onclick={clearAllToolSelections}
               class="shrink-0 px-2 py-1 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 focus-visible:outline-2 focus-visible:outline-accent "
-              title="Clear your selections; tools supplied by the agent stay available"
+              title="Clear all selected skills and tools"
             >
               Clear my selections
             </button>
@@ -3671,7 +3540,7 @@
       {:else}
         <button
           onclick={sendMessage}
-          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools || (agentsAvailable && !!boundAgentId && !boundAgent)}
+          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools}
           class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
           title="Send (Ctrl+Enter / ⌘+Enter)"
           aria-label="Send message"

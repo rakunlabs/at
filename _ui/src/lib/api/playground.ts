@@ -244,7 +244,6 @@ export function chatShareMediaURL(shareID: string, mediaID: string, workspaceID 
  */
 export interface PlaygroundDefaults {
   model?: string;
-  agent_id?: string;
   system_prompt?: string;
   mcp_sets?: string[];
   skills?: string[];
@@ -258,7 +257,7 @@ export async function getPlaygroundDefaults(): Promise<PlaygroundDefaults> {
   return res.data || {};
 }
 
-const DEFAULTS_FIELDS = ['model', 'agent_id', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
+const DEFAULTS_FIELDS = ['model', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
 
 /** Bodies are rebuilt from the allowlist: the endpoint rejects unknown fields. */
 export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise<PlaygroundDefaults> {

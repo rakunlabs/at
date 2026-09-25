@@ -341,7 +341,7 @@ test('per-account defaults round-trip and carry no user id', async () => {
   // always asks, so "no preset" must not be an error path.
   response = undefined;
   assert.deepEqual(await api.getPlaygroundDefaults(), {});
-  response = { model: 'openai/gpt-4o', agent_id: 'a1', mcp_sets: ['ops'] };
+  response = { model: 'openai/gpt-4o', mcp_sets: ['ops'] };
   assert.deepEqual(await api.getPlaygroundDefaults(), response);
 
   // Bodies are rebuilt from the allowlist: the endpoint rejects unknown
