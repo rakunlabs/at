@@ -9,5 +9,7 @@ SET system_prompt = concat(
         E'\n```'
     ),
     tools = '[]'::jsonb
-WHERE jsonb_typeof(tools) = 'array'
-  AND jsonb_array_length(tools) > 0;
+WHERE CASE
+    WHEN jsonb_typeof(tools) = 'array' THEN jsonb_array_length(tools) > 0
+    ELSE false
+END;
