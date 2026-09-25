@@ -89,6 +89,11 @@
   let deleteConfirm = $state<string | null>(null);
   let showAIPanel = $state(false);
   let folderSkill = $state<Skill | null>(null);
+  let folderInitialPath = $state<string | undefined>(undefined);
+  // The record being edited, so the form can show its folder and keep the
+  // SKILL.md metadata it has no fields for.
+  let editingSkill = $state<Skill | null>(null);
+  let formSnapshot = $state('');
   let createFolderFiles = $state<Array<{ file: globalThis.File; path: string }>>([]);
   let createFolderDragging = $state(false);
   let importingFolder = $state(false);
@@ -105,6 +110,43 @@
   let formAgent = $state('');
   let formBackground = $state(false);
   let saving = $state(false);
+
+  function formSignature(): string {
+    return JSON.stringify([formName, formDescription, formCategory, formTags, formSystemPrompt, formTools, formContext, formAgent, formBackground]);
+  }
+  let formDirty = $derived(showForm && formSignature() !== formSnapshot);
+
+  function openFolder(skill: Skill, path?: string) {
+    folderInitialPath = path;
+    folderSkill = skill;
+  }
+
+  /** Open the edited skill's folder. SKILL.md is generated from the form, so unsaved form edits are saved first. */
+  async function openFolderFromForm(path?: string) {
+    if (!editingSkill) return;
+    if (formDirty) {
+      if (!confirm('SKILL.md is generated from this form. Save your changes before opening the folder?')) return;
+      if (!(await handleSubmit(true))) return;
+    }
+    if (editingSkill) openFolder(editingSkill, path);
+  }
+
+  async function handleFolderChanged() {
+    const editedId = editingId;
+    await load();
+    if (!editedId || folderSkill?.id !== editedId) return;
+    const fresh = skills.find((skill) => skill.id === editedId);
+    if (!fresh) return;
+    if (formDirty) {
+      addToast('The folder changed while this form has unsaved edits. Cancel and reopen the form to see the new SKILL.md.', 'warn');
+      return;
+    }
+    openEdit(fresh);
+  }
+
+  function formatBytes(value: number): string {
+    return value < 1024 ? `${value} B` : `${(value / 1024).toFixed(value < 10240 ? 1 : 0)} KB`;
+  }
 
   // Copy / Paste via system clipboard (works across browsers/machines)
 
@@ -214,7 +256,9 @@
     formBackground = false;
     createFolderFiles = [];
     editingId = null;
+    editingSkill = null;
     showForm = false;
+    formSnapshot = formSignature();
   }
 
   function openCreate() {
@@ -234,7 +278,9 @@
     formContext = skill.context === 'fork' ? 'fork' : '';
     formAgent = skill.agent || '';
     formBackground = Boolean(skill.background);
+    editingSkill = skill;
     showForm = true;
+    formSnapshot = formSignature();
   }
 
   function openEditWithAI(skill: Skill) {
@@ -242,14 +288,15 @@
     showAIPanel = true;
   }
 
-  async function handleSubmit() {
+  /** Returns whether the skill was saved. `keepOpen` keeps editing the saved record. */
+  async function handleSubmit(keepOpen = false): Promise<boolean> {
     if (!formName.trim()) {
       addToast('Skill name is required', 'warn');
-      return;
+      return false;
     }
     if (formContext === 'fork' && !formAgent) {
       addToast('Select an agent for the forked skill', 'warn');
-      return;
+      return false;
     }
 
     saving = true;
@@ -264,20 +311,30 @@
         context: formContext || undefined,
         agent: formContext === 'fork' ? formAgent : undefined,
         background: formContext === 'fork' ? formBackground : undefined,
+        // The form has no fields for these SKILL.md frontmatter values; an
+        // update replaces the record, so omitting them would erase them.
+        ...(editingSkill ? { version: editingSkill.version, author: editingSkill.author, license: editingSkill.license } : {}),
       };
 
       if (editingId) {
-        await updateSkill(editingId, payload);
+        const updated = await updateSkill(editingId, payload);
         addToast(`Skill "${formName}" updated`);
+        if (keepOpen) {
+          openEdit(updated);
+          await load();
+          return true;
+        }
       } else {
         const created = await createSkill(payload);
         addToast(`Skill "${formName}" created`);
-        folderSkill = created;
+        openFolder(created);
       }
       resetForm();
       await load();
+      return true;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to save skill', 'alert');
+      return false;
     } finally {
       saving = false;
     }
@@ -355,7 +412,7 @@
       addToast(`Skill "${created.name}" created from folder`);
       resetForm();
       await load();
-      folderSkill = created;
+      openFolder(created);
     } catch (e: any) {
       addToast(e?.response?.data?.message || e?.message || 'Failed to import skill folder', 'alert');
     } finally {
@@ -987,6 +1044,48 @@
           </div>
 
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+            {#if editingSkill}
+              {@const resources = editingSkill.resources ?? []}
+              <div class="border border-gray-200 dark:border-dark-border">
+                <div class="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-border dark:bg-dark-base/50">
+                  <div class="flex min-w-0 items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-dark-text">
+                    <FolderOpen size={14} class="shrink-0" />
+                    Skill folder
+                    <span class="text-xs font-normal text-gray-500 dark:text-dark-text-muted">· {resources.length + 1} file{resources.length ? 's' : ''}</span>
+                  </div>
+                  <button type="button" onclick={() => openFolderFromForm()} disabled={saving} class="flex shrink-0 items-center gap-1.5 border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary dark:hover:bg-dark-border">
+                    <FolderOpen size={12} /> Open folder
+                  </button>
+                </div>
+                <ul class="divide-y divide-gray-100 text-xs dark:divide-dark-border">
+                  <li>
+                    <button type="button" onclick={() => openFolderFromForm('SKILL.md')} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated">
+                      <FileText size={12} class="shrink-0 text-gray-400 dark:text-dark-text-muted" />
+                      <span class="font-mono text-gray-800 dark:text-dark-text">SKILL.md</span>
+                      <span class="truncate text-gray-500 dark:text-dark-text-muted">— generated from the fields below</span>
+                    </button>
+                  </li>
+                  {#each resources.slice(0, 8) as resource (resource.path)}
+                    <li>
+                      <button type="button" onclick={() => openFolderFromForm(resource.path)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated" title={`Open ${resource.path}`}>
+                        <FileText size={12} class="shrink-0 text-gray-400 dark:text-dark-text-muted" />
+                        <span class="min-w-0 truncate font-mono text-gray-700 dark:text-dark-text-secondary">{resource.path}</span>
+                        <span class="ml-auto shrink-0 text-gray-400 dark:text-dark-text-muted">{formatBytes(new TextEncoder().encode(resource.content).length)}</span>
+                      </button>
+                    </li>
+                  {/each}
+                  {#if resources.length > 8}
+                    <li><button type="button" onclick={() => openFolderFromForm()} class="w-full px-3 py-1.5 text-left text-gray-500 hover:bg-gray-50 dark:text-dark-text-muted dark:hover:bg-dark-elevated">and {resources.length - 8} more…</button></li>
+                  {/if}
+                </ul>
+                <p class="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+                  {resources.length
+                    ? 'Updating this form rewrites SKILL.md only; the other files stay as they are. Edit them in the folder.'
+                    : 'Only SKILL.md so far. Add references, scripts or templates in the folder.'}
+                </p>
+              </div>
+            {/if}
+
             {#if !editingId}
               <div class="border border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-base/50">
                 <div class="mb-2 flex items-start justify-between gap-3">
@@ -1256,7 +1355,14 @@
 
           {#snippet row(skill)}
             <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</td>
+              <td class="px-4 py-2.5">
+                <div class="font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</div>
+                {#if skill.resources?.length}
+                  <button type="button" onclick={() => openFolder(skill)} class="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text" title="Open skill folder">
+                    <FolderOpen size={11} /> {skill.resources.length + 1} files
+                  </button>
+                {/if}
+              </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
                 {skill.description || '-'}
               </td>
@@ -1284,7 +1390,7 @@
                     </button>
                   {/if}
                   <button
-                    onclick={() => folderSkill = skill}
+                    onclick={() => openFolder(skill)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Open skill folder"
                   >
@@ -1801,5 +1907,5 @@
 </div>
 
 {#if folderSkill}
-  <SkillFilesDialog skill={folderSkill} onclose={() => folderSkill = null} onchanged={load} />
+  <SkillFilesDialog skill={folderSkill} initialPath={folderInitialPath} onclose={() => folderSkill = null} onchanged={handleFolderChanged} />
 {/if}

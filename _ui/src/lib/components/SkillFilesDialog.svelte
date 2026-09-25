@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
     deleteSkillFile,
@@ -7,17 +8,21 @@
     type Skill,
     type SkillFile,
   } from '@/lib/api/skills';
-  import { File, FilePlus, Folder, FolderOpen, Save, Trash2, Upload, X } from 'lucide-svelte';
+  import { isMarkdownPath } from '@/lib/helper/skill-files';
+  import { Code, Eye, File, FilePlus, Folder, FolderOpen, Save, Trash2, Upload, X } from 'lucide-svelte';
+  import SkillFilePreview from './SkillFilePreview.svelte';
 
   interface Props {
     skill: Skill;
     onclose: () => void;
     onchanged?: () => void;
+    /** File to select on open; falls back to SKILL.md when absent. */
+    initialPath?: string;
   }
 
-  let { skill, onclose, onchanged = () => {} }: Props = $props();
+  let { skill, onclose, onchanged = () => {}, initialPath }: Props = $props();
   let files = $state<SkillFile[]>([]);
-  let selectedPath = $state('SKILL.md');
+  let selectedPath = $state(untrack(() => initialPath) || 'SKILL.md');
   let editorContent = $state('');
   let savedContent = $state('');
   let loading = $state(true);
@@ -25,6 +30,9 @@
   let dragging = $state(false);
   let newPath = $state('');
   let showNewFile = $state(false);
+  // Markdown opens rendered, everything else as editable source. Preview
+  // always reflects the editor, including unsaved changes.
+  let view = $state<'raw' | 'preview'>('preview');
   let fileInput: HTMLInputElement;
   let folderInput: HTMLInputElement;
 
@@ -78,6 +86,7 @@
   function selectFile(file?: SkillFile) {
     if (!file) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
+    if (file.path !== selectedPath || !editorContent) view = isMarkdownPath(file.path) && file.content.trim() ? 'preview' : 'raw';
     selectedPath = file.path;
     editorContent = file.content;
     savedContent = file.content;
@@ -281,13 +290,26 @@
         <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-dark-border">
           <div class="min-w-0 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{selectedPath}{dirty ? ' • modified' : ''}</div>
           <div class="flex items-center gap-1">
+            {#if selectedFile}
+              <div class="mr-1 flex border border-gray-300 dark:border-dark-border-subtle" role="group" aria-label="File view">
+                <button type="button" onclick={() => view = 'raw'} aria-pressed={view === 'raw'} title="Edit the source" class={['flex items-center gap-1 px-2 py-1 text-xs', view === 'raw' ? 'bg-gray-900 text-white dark:bg-accent dark:text-gray-950' : 'text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Code size={12} /> Raw</button>
+                <button type="button" onclick={() => view = 'preview'} aria-pressed={view === 'preview'} title={isMarkdownPath(selectedPath) ? 'Rendered markdown' : 'Read-only with syntax highlighting'} class={['flex items-center gap-1 border-l border-gray-300 px-2 py-1 text-xs dark:border-dark-border-subtle', view === 'preview' ? 'bg-gray-900 text-white dark:bg-accent dark:text-gray-950' : 'text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Eye size={12} /> Preview</button>
+              </div>
+            {/if}
             {#if selectedPath !== 'SKILL.md'}
               <button type="button" onclick={removeCurrent} class="p-1.5 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20" title="Delete file"><Trash2 size={14} /></button>
             {/if}
             <button type="button" onclick={saveCurrent} disabled={!dirty || saving} class="flex items-center gap-1 bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-accent"><Save size={12} />{saving ? 'Saving...' : 'Save'}</button>
           </div>
         </div>
-        {#if selectedFile}
+        {#if selectedFile && view === 'preview'}
+          <SkillFilePreview
+            path={selectedPath}
+            content={editorContent}
+            paths={files.map((file) => file.path)}
+            onopen={(path) => selectFile(files.find((file) => file.path === path))}
+          />
+        {:else if selectedFile}
           <textarea bind:value={editorContent} spellcheck="false" class="min-h-0 flex-1 resize-none bg-white p-4 font-mono text-xs leading-5 text-gray-900 outline-none dark:bg-dark-surface dark:text-dark-text"></textarea>
         {:else}
           <div class="flex flex-1 items-center justify-center text-sm text-gray-400">Select a file</div>

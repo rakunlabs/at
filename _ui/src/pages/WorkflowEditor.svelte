@@ -13,8 +13,9 @@
   import { ArrowLeft, Save, Play, Plus, X, Bot, History, Check, Clock, Undo2, Redo2 } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
   import NodePalette from '@/lib/components/workflow/NodePalette.svelte';
-  import NodeDataView from '@/lib/components/workflow/NodeDataView.svelte';
-  import InputMapper from '@/lib/components/workflow/InputMapper.svelte';
+  import NodeDetailsModal from '@/lib/components/workflow/NodeDetailsModal.svelte';
+  import NodeInputPanel, { type UpstreamSource } from '@/lib/components/workflow/NodeInputPanel.svelte';
+  import NodeOutputPanel from '@/lib/components/workflow/NodeOutputPanel.svelte';
   import NodeExecutionSettings from '@/lib/components/workflow/NodeExecutionSettings.svelte';
   import DataOperationNode from '@/lib/components/workflow/DataOperationNode.svelte';
   import DataOperationProps from '@/lib/components/workflow/DataOperationProps.svelte';
@@ -24,7 +25,7 @@
   import { switchOutputPorts } from '@/lib/workflow/data-operations';
   import { canvasInputHandle, storedInputHandle } from '@/lib/workflow/ports';
   import { findNodePlacement } from '@/lib/workflow/node-placement';
-  import { buildTestRunOptions, pinNodeOutput, pinUnavailableReason, type PinnedNode } from '@/lib/workflow/test-runs';
+  import { buildTestRunOptions, pinNodeOutput, type PinnedNode } from '@/lib/workflow/test-runs';
   import '@/style/workflow.css';
 
   import InputNode from '@/lib/components/workflow/InputNode.svelte';
@@ -174,7 +175,7 @@
   let selectedNodeData = $state<Record<string, any>>({});
   let selectedNodeType = $state<string>('');
   let selectedNodeOriginalData = $state<Record<string, any>>({});
-  let inspectorTab = $state<'parameters' | 'input' | 'output' | 'settings'>('parameters');
+  let inspectorTab = $state<'parameters' | 'settings'>('parameters');
 
   // Run inputs
   let showRunPanel = $state(false);
@@ -245,6 +246,24 @@
   let inputHandles = $derived(selectedNodeId && flow ? Object.entries(flow.handle_registry)
     .filter(([key, handle]) => key === `${selectedNodeId}:${handle.id}` && handle.type === 'input')
     .map(([, handle]) => ({ ...handle, id: storedInputHandle(selectedNodeType, handle.id) })) : []);
+  // Steps feeding the open node, for the details view's input column.
+  let upstreamSources = $derived.by((): UpstreamSource[] => {
+    if (!selectedNodeId || !flow) return [];
+    const seen = new Set<string>();
+    const sources: UpstreamSource[] = [];
+    for (const edge of flow.edges) {
+      const key = `${edge.source}:${edge.source_handle}`;
+      if (edge.target !== selectedNodeId || seen.has(key)) continue;
+      seen.add(key);
+      sources.push({
+        id: edge.source,
+        handle: edge.source_handle,
+        label: String(flow.getNode(edge.source)?.data.label || edge.source),
+        state: workflowRun.nodeRunStates[edge.source],
+      });
+    }
+    return sources;
+  });
 
   $effect(() => {
     const currentFlow = flow;
@@ -561,11 +580,13 @@
     }
   }
 
-  function prepareStepRun() {
+  // Runs the open node and the upstream steps it needs, straight from the
+  // details view, so its output column fills in while the dialog stays open.
+  function executeSelectedStep() {
     if (!selectedNodeId || running) return;
     runTargetNodeId = selectedNodeId;
     runVersion = viewingVersion ?? undefined;
-    showRunPanel = true;
+    handleRun();
   }
 
   function pinSelectedOutput() {
@@ -711,22 +732,56 @@
     }
   }
 
-  function onNodeClick(nodeId: string) {
+  // Single click selects (kaykay, on mousedown); double click opens the
+  // details view, as in n8n, so selecting a step to move or delete it never
+  // pops a dialog.
+  function onCanvasDblClick(event: MouseEvent) {
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest('[data-handle-id], input, textarea, select, button, a, [contenteditable="true"]')) return;
+    const id = event.target.closest('[data-node-id]')?.getAttribute('data-node-id');
+    if (!id) return;
     showSavedRuns = false;
-    if (nodeId !== selectedNodeId) selectNodeForEditor(nodeId);
+    selectNodeForEditor(id);
   }
 
-  function onSelectionChange(nodeIds: string[], _edgeIds: string[]) {
-    if (nodeIds.length === 1 && nodeIds[0] !== selectedNodeId && canvasRef) {
-      selectNodeForEditor(nodeIds[0]);
-    }
-    // If the currently selected node is no longer in the canvas selection, close the property editor
-    if (selectedNodeId && !nodeIds.includes(selectedNodeId)) {
-      selectedNodeId = null;
-      selectedNodeData = {};
-      selectedNodeType = '';
-      selectedNodeOriginalData = {};
-    }
+  // One selected, openable step and no dialog: show how to open it.
+  let openHintVisible = $derived.by(() => {
+    if (!flow || selectedNodeId || flow.selected_node_ids.size !== 1) return false;
+    const [id] = flow.selected_node_ids;
+    return !noPropertyPanelTypes.has(flow.getNode(id)?.type ?? '');
+  });
+
+  // Enter opens the focused step, or the single selected one when the canvas
+  // has focus. Read in the capture phase: a focused kaykay node consumes Enter
+  // (to select itself) and stops propagation, so a bubbling listener never
+  // sees it. Space keeps kaykay's select-only behaviour.
+  function onCanvasKeyDown(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || !flow || selectedNodeId) return;
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
+    const focused = event.target.getAttribute('data-node-id');
+    const ids = [...flow.selected_node_ids];
+    const id = focused ?? (ids.length === 1 ? ids[0] : null);
+    if (!id) return;
+    event.preventDefault();
+    event.stopPropagation();
+    flow.selectNode(id);
+    selectNodeForEditor(id);
+  }
+
+  // Close the details view if its node disappears (undo, AI edits, version load).
+  $effect(() => {
+    if (selectedNodeId && flow && !flow.getNode(selectedNodeId)) untrack(() => closePropertyEditor());
+  });
+
+  /** Close the details view, applying pending edits; stays open if they are invalid. */
+  function closeNodeDetails() {
+    if (viewingVersion == null && hasNodeEdits() && !applyNodeData()) return;
+    closePropertyEditor();
+  }
+
+  function discardNodeEdits() {
+    selectedNodeData = cloneWorkflowNodeData(selectedNodeOriginalData);
   }
 
   function closePropertyEditor() {
@@ -942,13 +997,16 @@
       {/if}
 
       <!-- Canvas -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- Double click opens the details view; keyboard users press Enter on the selected step (onCanvasKeyDown). -->
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
       <div
         class="isolate flex-1 min-w-0 relative bg-gray-50 dark:bg-dark-base {storeTheme.mode === 'dark' ? 'kaykay-dark' : ''} {draggingOver ? 'ring-2 ring-inset ring-blue-400 dark:ring-accent' : ''}"
         role="application"
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
         ondrop={handleDrop}
+        ondblclick={onCanvasDblClick}
+        onkeydowncapture={onCanvasKeyDown}
       >
         <Canvas
           bind:this={canvasRef}
@@ -957,7 +1015,6 @@
           {nodeTypes}
           node_statuses={nodeStatuses}
           config={{ snap_to_grid: true, grid_size: 20, default_edge_type: 'bezier', prevent_cycles: true }}
-          callbacks={{ on_node_click: onNodeClick, on_selection_change: onSelectionChange }}
         >
           {#snippet controls()}
             <Controls position="bottom-left" />
@@ -970,6 +1027,9 @@
             <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Undo2 size={16} /></button>
             <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Redo2 size={16} /></button>
           </div>
+          {#if openHintVisible}
+            <div class="pointer-events-none absolute bottom-3 left-1/2 z-[1000] -translate-x-1/2 border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text-secondary">Double-click or press Enter to open this step</div>
+          {/if}
           {#if flow.nodes.length === 0 && !showPalette}
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div class="pointer-events-auto max-w-xs border border-gray-200 bg-white p-5 dark:border-dark-border dark:bg-dark-surface">
@@ -1066,122 +1126,89 @@
         </div>
       {/if}
 
-      <!-- Property Editor Panel -->
-      {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType) && !showSavedRuns}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute inset-y-0 right-0 z-20 w-80 max-w-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col outline-none xl:static xl:w-96"
-          tabindex="-1"
-          onmousedown={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
+      <!-- Node details view (n8n-style): input | parameters | output -->
+      {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType)}
+        {@const nodeState = workflowRun.nodeRunStates[selectedNodeId]}
+        <NodeDetailsModal
+          title={String(selectedNodeData.label || getWorkflowNodeDefinition(selectedNodeType)?.label || selectedNodeType)}
+          nodeId={selectedNodeId}
+          status={pinnedNodes[selectedNodeId] && !nodeState ? 'pinned' : nodeState?.pinned ? 'pinned' : nodeState?.skipped ? 'skipped' : nodeState?.status ?? ''}
+          dirty={hasNodeEdits()}
+          readonly={viewingVersion != null}
+          {running}
+          executing={running && runTargetNodeId === selectedNodeId}
+          onexecute={executeSelectedStep}
+          onstop={stopRun}
+          onclose={closeNodeDetails}
+          ondiscard={discardNodeEdits}
+          onapply={applyNodeData}
         >
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">{getWorkflowNodeDefinition(selectedNodeType)?.label ?? 'Properties'}</span>
-              {#if hasNodeEdits()}
-                <span class="text-[10px] font-medium leading-none text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">Unsaved</span>
+          {#snippet input()}
+            <NodeInputPanel
+              data={selectedNodeData}
+              ports={inputHandles}
+              state={nodeState}
+              upstream={upstreamSources}
+              disabled={viewingVersion != null || running}
+              runInputs={runInputsDialogFields}
+            />
+          {/snippet}
+          {#snippet parameters()}
+            <nav aria-label="Step configuration" class="-mx-4 -mt-4 mb-4 flex border-b border-gray-200 dark:border-dark-border">
+              {#each ['parameters', 'settings'] as tab}
+                <button onclick={() => inspectorTab = tab as typeof inspectorTab} aria-pressed={inspectorTab === tab} class="flex-1 border-b-2 px-2 py-2 text-xs font-medium {inspectorTab === tab ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated'}">{tab === 'parameters' ? 'Parameters' : 'Settings'}</button>
+              {/each}
+            </nav>
+            <div class="space-y-3">
+              {#if inspectorTab === 'parameters'}
+                <div>
+                  <label class="block">
+                    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Label</span>
+                    <input
+                      type="text"
+                      bind:value={selectedNodeData.label}
+                      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                    />
+                  </label>
+                </div>
+                {#if propsComponents[selectedNodeType]}
+                  {@const PropsComponent = propsComponents[selectedNodeType]}
+                  <PropsComponent
+                    data={selectedNodeData}
+                    nodeType={selectedNodeType}
+                    {providers}
+                    {skills}
+                    {nodeConfigs}
+                    {allWorkflows}
+                    {workflow}
+                  />
+                {/if}
+                {#if outputHandles.length && viewingVersion == null}
+                  <div class="border-t border-gray-200 pt-3 dark:border-dark-border">
+                    <p class="mb-2 text-xs text-gray-600 dark:text-dark-text-secondary">Add the next step from an output:</p>
+                    <div class="flex flex-wrap gap-2">
+                      {#each outputHandles as handle (handle.id)}
+                        <button onclick={() => { if (hasNodeEdits() && !applyNodeData()) return; pendingConnection = { nodeId: selectedNodeId!, handleId: handle.id }; showPalette = true; closePropertyEditor(); }} class="flex items-center gap-1 border border-gray-300 px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={14} />{handle.label || handle.id}</button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              {:else}
+                <NodeExecutionSettings data={selectedNodeData} nodeType={selectedNodeType} disabled={viewingVersion != null || running} />
               {/if}
             </div>
-            <button onclick={closePropertyEditor} aria-label="Close node properties" class="p-2 text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text">
-              <X size={14} />
-            </button>
-          </div>
-          <nav aria-label="Node inspector sections" class="flex border-b border-gray-200 dark:border-dark-border">
-            {#each ['parameters', 'input', 'output', 'settings'] as tab}
-              <button onclick={() => inspectorTab = tab as typeof inspectorTab} aria-pressed={inspectorTab === tab} class="flex-1 border-b-2 px-2 py-2 text-xs font-medium {inspectorTab === tab ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated'}">{tab === 'parameters' ? 'Parameters' : tab === 'input' ? 'Input' : tab === 'output' ? 'Output' : 'Settings'}</button>
-            {/each}
-          </nav>
-          <div class="border-b border-gray-200 px-3 py-2 dark:border-dark-border">
-            <button onclick={prepareStepRun} disabled={running} class="flex items-center gap-2 border border-gray-300 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Play size={14} /> Execute step</button>
-          </div>
-          <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
-            {#if inspectorTab === 'parameters'}
-            {#if outputHandles.length && viewingVersion == null}
-              <div class="border-b border-gray-200 pb-3 dark:border-dark-border">
-                <p class="mb-2 text-xs text-gray-600 dark:text-dark-text-secondary">Add the next step from an output:</p>
-                <div class="flex flex-wrap gap-2">
-                  {#each outputHandles as handle (handle.id)}
-                    <button onclick={() => { if (hasNodeEdits() && !applyNodeData()) return; pendingConnection = { nodeId: selectedNodeId!, handleId: handle.id }; showPalette = true; closePropertyEditor(); }} class="flex items-center gap-1 border border-gray-300 px-2 py-2 text-xs text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={14} />{handle.label || handle.id}</button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-            <!-- Common: Label (not shown for sticky notes which use 'text' instead) -->
-            {#if selectedNodeType !== 'sticky_note'}
-              <div>
-                <label class="block">
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Label</span>
-                <input
-                  type="text"
-                  bind:value={selectedNodeData.label}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
-                /></label>
-              </div>
-            {/if}
-
-            <!-- Type-specific fields -->
-            {#if propsComponents[selectedNodeType]}
-              {@const PropsComponent = propsComponents[selectedNodeType]}
-              <PropsComponent
-                data={selectedNodeData}
-                nodeType={selectedNodeType}
-                {providers}
-                {skills}
-                {nodeConfigs}
-                {allWorkflows}
-                {workflow}
-              />
-            {/if}
-
-            {:else if inspectorTab === 'settings'}
-              <NodeExecutionSettings data={selectedNodeData} nodeType={selectedNodeType} disabled={viewingVersion != null || running} />
-            {:else}
-              {@const nodeState = workflowRun.nodeRunStates[selectedNodeId]}
-              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Last run snapshot. Editing the workflow does not update this data.</p>
-              {#if (nodeState?.invocations ?? 0) > 1}
-                <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{nodeState?.invocations} invocations — showing the latest-started invocation only.</p>
-              {/if}
-              {#if nodeState?.error}<p role="alert" class="break-words border border-red-300 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{nodeState.error}</p>{/if}
-              {#if nodeState?.error_policy}<p class="text-xs text-amber-800 dark:text-amber-300">{nodeState.error_policy === 'error_output' ? 'Failure handled: sent to the failure output.' : 'Failure handled: skipped this branch; independent branches continue.'}</p>{/if}
-              {#if nodeState?.attempt_history?.length}
-                <details class="border border-gray-200 p-2 text-xs dark:border-dark-border" open={(nodeState.max_attempts ?? 1) > 1}>
-                  <summary class="cursor-pointer text-gray-700 dark:text-dark-text-secondary">Attempts ({nodeState.attempt_history.length}/{nodeState.max_attempts ?? 1})</summary>
-                  <ol class="mt-2 space-y-2">
-                    {#each nodeState.attempt_history as attempt (attempt.attempt)}
-                      <li class="break-words text-gray-700 dark:text-dark-text-secondary">Attempt {attempt.attempt}: {attempt.status}{attempt.duration_ms != null ? ` · ${attempt.duration_ms} ms` : ''}{#if attempt.error}<p class="mt-1 text-red-700 dark:text-red-400">{attempt.error}</p>{/if}</li>
-                    {/each}
-                  </ol>
-                  {#if nodeState.retry_delay_ms != null}<p class="mt-2 text-gray-600 dark:text-dark-text-secondary">Waiting {nodeState.retry_delay_ms} ms before retry.</p>{/if}
-                </details>
-              {/if}
-              {#if inspectorTab === 'input'}
-                <InputMapper data={selectedNodeData} ports={inputHandles} state={nodeState} disabled={viewingVersion != null || running} />
-              {:else}
-                {#if nodeState}<p class="text-xs text-gray-600 dark:text-dark-text-secondary">Status: {nodeState.pinned ? 'Pinned output used (node not executed)' : nodeState.skipped ? 'Skipped — inactive branch' : nodeState.status}{nodeState.duration_ms != null ? ` · ${nodeState.duration_ms} ms` : ''}</p>{/if}
-                {#if pinnedNodes[selectedNodeId]}
-                  <div class="space-y-2 border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-                    <p>Output pinned for this editor session. Production runs ignore pins.</p>
-                    <details><summary class="cursor-pointer py-1">View pinned data</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(pinnedNodes[selectedNodeId].data, null, 2)}</pre></details>
-                    <button onclick={() => unpinNode(selectedNodeId!)} disabled={running} class="border border-blue-300 px-3 py-1.5 disabled:opacity-50 dark:border-blue-700">Unpin output</button>
-                  </div>
-                {:else}
-                  <button onclick={pinSelectedOutput} disabled={running || !!pinUnavailableReason(nodeState)} class="border border-gray-300 px-3 py-2 text-xs text-gray-700 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text">Pin output for tests</button>
-                  {#if pinUnavailableReason(nodeState)}<p class="text-xs text-gray-600 dark:text-dark-text-secondary">{pinUnavailableReason(nodeState)}</p>{/if}
-                {/if}
-                <NodeDataView value={nodeState?.data} omitted={nodeState?.data_omitted} />
-              {/if}
-            {/if}
-
-          </div>
-          <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
-            <button
-              onclick={applyNodeData}
-              disabled={viewingVersion != null || !hasNodeEdits()}
-              class="w-full px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover "
-            >
-              Apply
-            </button>
-          </div>
-        </div>
+          {/snippet}
+          {#snippet output()}
+            <NodeOutputPanel
+              state={nodeState}
+              pinned={pinnedNodes[selectedNodeId!]}
+              {running}
+              runError={runTargetNodeId === selectedNodeId ? runError ?? '' : ''}
+              onpin={pinSelectedOutput}
+              onunpin={() => unpinNode(selectedNodeId!)}
+            />
+          {/snippet}
+        </NodeDetailsModal>
       {/if}
 
       <!-- Run Panel -->
@@ -1212,12 +1239,73 @@
                 <button onclick={() => pinnedNodes = {}} disabled={running} class="underline">Clear all pins</button>
               </div>
             {/if}
+            {@render runInputsFields('run')}
+
+            {#if versions.length > 0}
+              <div>
+                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>
+                <select
+                  id="run-version-select"
+                  bind:value={runVersion}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                >
+                  <option value={undefined}>Latest (save first)</option>
+                  {#each versions as v}
+                    <option value={v.version}>v{v.version}{workflow.active_version === v.version ? ' (active)' : ''}</option>
+                  {/each}
+                </select>
+                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                  {runVersion !== undefined ? `Run version ${runVersion}` : 'Saves then runs latest graph'}
+                </div>
+              </div>
+            {/if}
+            <button
+              onclick={handleRun}
+              disabled={running}
+              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 "
+            >
+              <Play size={12} />
+              {running ? 'Running...' : runTargetNodeId ? 'Run to this step' : usePinnedData && Object.keys(pinnedNodes).length ? 'Run test with pins' : 'Execute'}
+            </button>
+            {#if running}
+              <button onclick={stopRun} class="w-full border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">Stop run</button>
+            {/if}
+
+            {#if runError}
+              <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">
+                {runError}
+              </div>
+            {/if}
+
+            {#if runResult}
+              <div>
+                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
+                <pre class="p-2 bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
+              </div>
+            {/if}
+
+            {#if runResult || runError || Object.keys(workflowRun.nodeRunStates).length > 0}
+              <button
+                onclick={() => { clearRunState(); runResult = null; runError = null; }}
+                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated "
+              >
+                Clear Results
+              </button>
+            {/if}
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+{#snippet runInputsFields(idPrefix: string)}
             <!-- Entry Point selector (always show if multiple) -->
             {#if getInputNodes().length > 1}
               <div>
-                <label for="run-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
+                <label for="{idPrefix}-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
                 <select
-                  id="run-entry-select"
+                  id="{idPrefix}-entry-select"
                   bind:value={runEntryNodeId}
                   onchange={() => syncEditorFormFromEntry()}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
@@ -1301,7 +1389,7 @@
             {:else}
               <div>
                 <div class="flex items-center justify-between mb-0.5">
-                  <label for="run-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
+                  <label for="{idPrefix}-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
                   <div class="flex items-center gap-1">
                     {#if getInputNodes().find(n => n.id === runEntryNodeId)?.fields}
                       <button
@@ -1322,7 +1410,7 @@
                   </div>
                 </div>
                 <textarea
-                  id="run-inputs"
+                  id="{idPrefix}-inputs"
                   bind:value={runInputsJson}
                   rows={5}
                   class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
@@ -1330,64 +1418,11 @@
                 ></textarea>
               </div>
             {/if}
+{/snippet}
 
-            {#if versions.length > 0}
-              <div>
-                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>
-                <select
-                  id="run-version-select"
-                  bind:value={runVersion}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
-                >
-                  <option value={undefined}>Latest (save first)</option>
-                  {#each versions as v}
-                    <option value={v.version}>v{v.version}{workflow.active_version === v.version ? ' (active)' : ''}</option>
-                  {/each}
-                </select>
-                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
-                  {runVersion !== undefined ? `Run version ${runVersion}` : 'Saves then runs latest graph'}
-                </div>
-              </div>
-            {/if}
-            <button
-              onclick={handleRun}
-              disabled={running}
-              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 "
-            >
-              <Play size={12} />
-              {running ? 'Running...' : runTargetNodeId ? 'Run to this step' : usePinnedData && Object.keys(pinnedNodes).length ? 'Run test with pins' : 'Execute'}
-            </button>
-            {#if running}
-              <button onclick={stopRun} class="w-full border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">Stop run</button>
-            {/if}
-
-            {#if runError}
-              <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">
-                {runError}
-              </div>
-            {/if}
-
-            {#if runResult}
-              <div>
-                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
-                <pre class="p-2 bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
-              </div>
-            {/if}
-
-            {#if runResult || runError || Object.keys(workflowRun.nodeRunStates).length > 0}
-              <button
-                onclick={() => { clearRunState(); runResult = null; runError = null; }}
-                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated "
-              >
-                Clear Results
-              </button>
-            {/if}
-          </div>
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
+{#snippet runInputsDialogFields()}
+  {@render runInputsFields('step')}
+{/snippet}
 
 <style>
   :global(.kaykay-canvas) {
