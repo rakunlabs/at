@@ -7,15 +7,17 @@
   import { loadFeatures } from '../store/features.svelte';
   import { routeFeatureEnabled } from '../helper/feature-routes';
   onMount(() => { void loadFeatures().catch(() => {}); });
-  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare, X } from 'lucide-svelte';
+  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare, X, Cpu, Layers } from 'lucide-svelte';
   interface Props { onclose?: () => void }
   let { onclose }: Props = $props();
   const items = [
     {path:'/',label:'Home',icon:House},
     {path:'/chats',label:'Chats',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
+    {path:'/providers',label:'Model Providers',icon:Cpu},
     {path:'/agents',label:'Agents',icon:Bot}, {path:'/tasks',label:'Tasks',icon:ClipboardList},
     {path:'/organizations',label:'Organizations',icon:Building2}, {path:'/workflows',label:'Workflows',icon:Workflow},
     {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},
+    {path:'/mcps',label:'MCP Sets',icon:Layers},
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
     {path:'/files',label:'Files',icon:FolderOpen}, {path:'/integrations',label:'Integrations',icon:Package},
     {path:'/usage',label:'Usage',icon:Tally5}, {path:'/llm-calls',label:'Traces',icon:Activity},
