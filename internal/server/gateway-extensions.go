@@ -43,6 +43,9 @@ func shouldFallback(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
+	if errors.Is(err, service.ErrProviderBudgetExceeded) || errors.Is(err, service.ErrProviderUserLimit) || errors.Is(err, service.ErrProviderUserBlocked) {
+		return true
+	}
 	var rle *service.RateLimitError
 	if errors.As(err, &rle) {
 		return true
@@ -306,7 +309,7 @@ func withRequestTimeout(ctx context.Context, timeoutMs int) (context.Context, co
 // strict-list (if any). It does NOT write any HTTP response on failure;
 // the caller decides how to surface the error (e.g. try the next
 // fallback or 404 the request).
-func (s *Server) resolveModel(auth *authResult, fullModel string) (providerKey, actualModel string, info ProviderInfo, err error) {
+func (s *Server) resolveModel(ctx context.Context, auth *authResult, fullModel string) (providerKey, actualModel string, info ProviderInfo, err error) {
 	providerKey, actualModel, err = parseModelID(fullModel)
 	if err != nil {
 		return "", "", ProviderInfo{}, err
@@ -316,10 +319,33 @@ func (s *Server) resolveModel(auth *authResult, fullModel string) (providerKey, 
 	}
 	pInfo, ok := s.getProviderInfo(providerKey)
 	if !ok {
+		if routes, routeOK := s.store.(service.ProviderRouteStorer); routeOK && auth != nil && auth.token != nil {
+			route, routeErr := routes.ResolveGatewayProviderRoute(ctx, auth.token.WorkspaceID, auth.token.OwnerUserID, providerKey, actualModel)
+			if routeErr == nil && route != nil && s.providerFactory != nil {
+				provider, createErr := s.cachedWorkspaceProvider(&route.Record)
+				if createErr != nil {
+					return "", "", ProviderInfo{}, createErr
+				}
+				provider = s.providerForRoute(route, provider, auth.token.OwnerUserID)
+				pInfo = NewProviderInfo(provider, route.Record.Config).WithProviderID(route.Record.ID)
+				pInfo.providerType = "virtual"
+				pInfo.defaultModel = actualModel
+				pInfo.models = []string{actualModel}
+				return providerKey, actualModel, pInfo, nil
+			}
+		}
 		return "", "", ProviderInfo{}, s.providerUnavailableError(providerKey)
 	}
 	if len(pInfo.models) > 0 && !pInfo.hasModel(actualModel) {
 		return "", "", ProviderInfo{}, fmt.Errorf("model %q is not available for provider %q", actualModel, providerKey)
+	}
+	if pInfo.providerID != "" {
+		ownerUserID := ""
+		if auth != nil && auth.token != nil {
+			ownerUserID = auth.token.OwnerUserID
+		}
+		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: pInfo.providerID, Key: providerKey}, ActualModel: actualModel}
+		pInfo.provider = s.providerForRoute(route, pInfo.provider, ownerUserID)
 	}
 	return providerKey, actualModel, pInfo, nil
 }
@@ -374,7 +400,7 @@ func (s *Server) expandRoutingProfileTargets(ctx context.Context, auth *authResu
 
 	usable := make([]string, 0, len(targets))
 	for _, m := range targets {
-		if _, _, _, err := s.resolveModel(auth, m); err != nil {
+		if _, _, _, err := s.resolveModel(ctx, auth, m); err != nil {
 			slog.Warn("routing profile: skipping unusable target",
 				"profile", profileName, "model", m, "error", err.Error())
 			continue
@@ -401,7 +427,7 @@ func (s *Server) chatCallChain(ctx context.Context, auth *authResult, primary st
 	if profileName != "" {
 		out := make([]chatCallTarget, 0, len(targets))
 		for _, m := range targets {
-			pKey, actual, info, err := s.resolveModel(auth, m)
+			pKey, actual, info, err := s.resolveModel(ctx, auth, m)
 			if err != nil {
 				slog.Warn("routing profile: skipping unusable target",
 					"profile", profileName, "model", m, "error", err.Error())
@@ -429,7 +455,7 @@ func (s *Server) chatCallChain(ctx context.Context, auth *authResult, primary st
 
 	out := make([]chatCallTarget, 0, 1+len(fallbacks))
 	for _, m := range append([]string{primary}, fallbacks...) {
-		pKey, actual, info, err := s.resolveModel(auth, m)
+		pKey, actual, info, err := s.resolveModel(ctx, auth, m)
 		if err != nil {
 			if m != primary {
 				slog.Warn("gateway fallback: skipping invalid entry",

@@ -175,6 +175,19 @@ func callWithGatewayRetry[T any](
 //
 // Returns (httpStatus, errorBody).
 func classifyGatewayError(err error) (int, map[string]any) {
+	if errors.Is(err, service.ErrProviderUserBlocked) {
+		return http.StatusForbidden, map[string]any{"error": map[string]any{"message": err.Error(), "type": "permission_error", "code": "provider_user_blocked"}}
+	}
+	if errors.Is(err, service.ErrProviderBudgetExceeded) || errors.Is(err, service.ErrProviderUserLimit) {
+		code := "provider_budget_exceeded"
+		if errors.Is(err, service.ErrProviderUserLimit) {
+			code = "provider_user_budget_exceeded"
+		}
+		return http.StatusTooManyRequests, map[string]any{"error": map[string]any{"message": err.Error(), "type": "rate_limit_error", "code": code}}
+	}
+	if errors.Is(err, service.ErrProviderPricingRequired) {
+		return http.StatusConflict, map[string]any{"error": map[string]any{"message": err.Error(), "type": "configuration_error", "code": "provider_pricing_required"}}
+	}
 	var rle *service.RateLimitError
 	if errors.As(err, &rle) {
 		// Default to 429 — the OpenAI client SDK and most consumers

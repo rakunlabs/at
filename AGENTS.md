@@ -347,6 +347,52 @@ fixed model picker is the reason they exist). Managed at
 deliberately reusing it rather than introducing a kind no existing permission
 bundle would carry. Migration `55`; feature key `routing_profiles`.
 
+### Provider governance: budgets and virtual providers
+
+Migration 77. Settings page `/virtual-providers` ("Provider governance"),
+feature key `provider_setup`, admission `providers.read` / `.write`.
+
+**Budgets** (`provider_budget_policies`, one per real provider or virtual
+provider) carry a period total, a default per-user allowance and
+`enforce_unpriced` (default true: a model without pricing is refused with
+`provider_pricing_required` rather than spending an unmeasurable amount).
+Overrides per user are `custom`, `unlimited` or `blocked`; absence inherits the
+default, and `unlimited` exempts only the user allowance, never the total. The
+user is the authenticated principal (Chats, Sessions, execution) or the owner of
+a personal API token, so an account's usage and all of its personal tokens share
+one allowance — minting another token does not reset it. Shared workspace tokens
+are charged to the provider total only; the request `user` / `metadata` fields
+are never an identity.
+
+Enforcement is `budgetedProvider` (`internal/server/provider-budget-runtime.go`),
+applied wherever a route resolves: gateway chat/responses/embeddings/media/
+passthrough, Chats, and `getExecutionProviderInfo` (Sessions, org delegation,
+consultation, workflow nodes). Check order is real provider → virtual provider →
+user → the existing API-token limit. Each call reserves its priced estimate
+atomically under row locks (`ReserveProviderBudget`), so concurrent calls cannot
+overshoot, then settles the actual cost. Streams without reported usage settle
+the input estimate; passthrough settles from the adapter's proxy observation.
+Reservations older than one hour are released by the next reservation, so a
+crash cannot consume a budget permanently. Budget refusals are fallback-eligible
+(`shouldFallback`), so an `at_fallbacks` chain or routing profile moves on;
+without one the gateway answers 429 `provider_budget_exceeded` /
+`provider_user_budget_exceeded`, 403 `provider_user_blocked` or 409
+`provider_pricing_required`.
+
+**Virtual providers** are *not* routing: each alias names exactly one
+`provider/model` in the owning workspace and never substitutes another. They
+reference only non-personal providers of their own workspace, and their key may
+not collide with a physical provider key there. A grant
+(`virtual_provider_grants`) exposes model aliases matching `model_patterns` to
+another workspace, which uses them as `<key>/<alias>` without ever seeing the
+underlying credentials. With `allow_user_overrides`, the recipient's
+`providers.write` holders may set overrides for **their own active members
+only**, capped by `max_user_limit_cents` (a positive ceiling also forbids
+`unlimited`); the policy itself stays owner-only. Recipient override management
+is enforced in the store but has no UI yet. Regression:
+`internal/store/postgres/provider-governance_test.go`,
+`internal/server/provider-governance_test.go`.
+
 ### Passthrough metering
 
 `ProxyRequest` enforces auth, token spend limits, provider-disabled fail-closed,

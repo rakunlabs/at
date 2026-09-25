@@ -59,18 +59,32 @@ func (s *Server) getExecutionProviderInfo(ctx context.Context, key string) (Prov
 		if model == "" {
 			return nil, fmt.Errorf("runtime model must be explicit")
 		}
-		record, err := store.ResolveWorkspaceProviderForUse(ctx, key, model)
+		var route *service.ProviderRoute
+		var err error
+		if routes, ok := s.store.(service.ProviderRouteStorer); ok {
+			route, err = routes.ResolveWorkspaceProviderRoute(ctx, key, model)
+		} else {
+			var record *service.ProviderRecord
+			record, err = store.ResolveWorkspaceProviderForUse(ctx, key, model)
+			if record != nil {
+				route = &service.ProviderRoute{Record: *record, ActualModel: model}
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
-		if record == nil || s.providerFactory == nil {
+		if route == nil || s.providerFactory == nil {
 			return nil, service.ErrExecutionDenied
 		}
 		_, _, ok := service.ExecutionFromContext(ctx)
 		if !ok {
 			return nil, service.ErrExecutionDenied
 		}
-		return s.cachedWorkspaceProvider(record)
+		created, err := s.cachedWorkspaceProvider(&route.Record)
+		if err != nil {
+			return nil, err
+		}
+		return s.providerForRoute(route, created, ""), nil
 	})
 	return ProviderInfo{provider: provider, defaultModel: model}, nil
 }

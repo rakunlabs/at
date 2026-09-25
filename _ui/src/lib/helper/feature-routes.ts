@@ -47,6 +47,7 @@ import { isFeatureEnabled } from '@/lib/store/features.svelte';
  */
 export const routeFeatures: Record<string, string> = {
   '/providers': FEATURE_PROVIDER_SETUP,
+  '/virtual-providers': FEATURE_PROVIDER_SETUP,
   '/pricing': FEATURE_MODEL_PRICING,
   '/usage': FEATURE_USAGE_ANALYTICS,
   '/settings/tokens': FEATURE_API_TOKENS,

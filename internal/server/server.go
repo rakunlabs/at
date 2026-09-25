@@ -39,6 +39,7 @@ var uiFS embed.FS
 // ProviderInfo holds a provider instance along with its metadata.
 type ProviderInfo struct {
 	provider     service.LLMProvider
+	providerID   string
 	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
 	authType     string // "", "copilot", "chatgpt", "claude-code", ...
 	defaultModel string
@@ -827,6 +828,20 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
 	apiGroup.PUT("/v1/providers/{key}/disable", s.SetProviderDisabledAPI)
 	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
+	apiGroup.GET("/v1/provider-budgets/{kind}/{id}", s.GetProviderBudgetAPI)
+	apiGroup.PUT("/v1/provider-budgets/{kind}/{id}", s.SaveProviderBudgetAPI)
+	apiGroup.DELETE("/v1/provider-budgets/{kind}/{id}", s.DeleteProviderBudgetAPI)
+	apiGroup.GET("/v1/provider-budget-overrides/{policy_id}", s.ListProviderBudgetOverridesAPI)
+	apiGroup.PUT("/v1/provider-budget-overrides/{policy_id}", s.SaveProviderBudgetOverrideAPI)
+	apiGroup.DELETE("/v1/provider-budget-overrides/{policy_id}/{user_id}", s.DeleteProviderBudgetOverrideAPI)
+	apiGroup.GET("/v1/virtual-providers", s.ListVirtualProvidersAPI)
+	apiGroup.POST("/v1/virtual-providers", s.CreateVirtualProviderAPI)
+	apiGroup.GET("/v1/virtual-providers/{id}", s.GetVirtualProviderAPI)
+	apiGroup.PUT("/v1/virtual-providers/{id}", s.UpdateVirtualProviderAPI)
+	apiGroup.DELETE("/v1/virtual-providers/{id}", s.DeleteVirtualProviderAPI)
+	apiGroup.GET("/v1/virtual-providers/{id}/grants", s.ListVirtualProviderGrantsAPI)
+	apiGroup.PUT("/v1/virtual-providers/{id}/grants", s.SaveVirtualProviderGrantAPI)
+	apiGroup.DELETE("/v1/virtual-providers/{id}/grants/{workspace_id}", s.DeleteVirtualProviderGrantAPI)
 	apiGroup.GET("/v1/personal-providers", s.ListPersonalProvidersAPI)
 	apiGroup.POST("/v1/personal-providers", s.CreatePersonalProviderAPI)
 	apiGroup.GET("/v1/personal-providers/{id}", s.GetPersonalProviderAPI)
@@ -1371,6 +1386,13 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		disabled:        cfg.Disabled,
 		retryAfterCap:   cap,
 	}
+}
+
+// WithProviderID attaches the immutable database identity used by provider
+// budget policies. It intentionally leaves the public provider key unchanged.
+func (p ProviderInfo) WithProviderID(id string) ProviderInfo {
+	p.providerID = id
+	return p
 }
 
 func (s *Server) Start(ctx context.Context) error {

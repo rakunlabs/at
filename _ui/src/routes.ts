@@ -3,6 +3,7 @@ import { wrap } from 'svelte-spa-router/wrap';
 import Home from '@/pages/Home.svelte';
 import Providers from '@/pages/Providers.svelte';
 import RoutingProfiles from '@/pages/RoutingProfiles.svelte';
+import VirtualProviders from '@/pages/VirtualProviders.svelte';
 import Skills from '@/pages/Skills.svelte';
 import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
@@ -93,6 +94,7 @@ export default {
   '/users': wrap({ component: Users as any, conditions: [adminOnly] }),
   '/providers': guarded(Providers, '/providers'),
   '/routing-profiles': guarded(RoutingProfiles, '/routing-profiles'),
+  '/virtual-providers': guarded(VirtualProviders, '/virtual-providers'),
   '/skills': guarded(Skills, '/skills'),
   '/marketplaces': guarded(Marketplaces, '/marketplaces'),
   '/agents': guarded(Agents, '/agents'),

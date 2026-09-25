@@ -167,6 +167,10 @@ func (s *Server) chatProviderInfo(r *http.Request, key, model string) (ProviderI
 		available := s.availableProviderKeys()
 		return ProviderInfo{}, &chatProviderUnavailableError{message: s.providerUnavailableMessage(key, fmt.Sprintf("provider %q not found; available: %v", key, available))}
 	}
+	if info.providerID != "" {
+		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: info.providerID, Key: key}, ActualModel: model}
+		info.provider = s.providerForRoute(route, info.provider, "")
+	}
 	return info, nil
 }
 

@@ -36,64 +36,71 @@ type Postgres struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders            exp.IdentifierExpression
-	tableAPITokens            exp.IdentifierExpression
-	tableWorkflows            exp.IdentifierExpression
-	tableWorkflowVersions     exp.IdentifierExpression
-	tableTriggers             exp.IdentifierExpression
-	tableSkills               exp.IdentifierExpression
-	tableVariables            exp.IdentifierExpression
-	tableNodeConfigs          exp.IdentifierExpression
-	tableAgents               exp.IdentifierExpression
-	tableChatSessions         exp.IdentifierExpression
-	tableChatMessages         exp.IdentifierExpression
-	tableMCPServers           exp.IdentifierExpression
-	tableMCPSets              exp.IdentifierExpression
-	tableBotConfigs           exp.IdentifierExpression
-	tableMarketplaces         exp.IdentifierExpression
-	tableMarketplaceSources   exp.IdentifierExpression
-	tableTokenUsage           exp.IdentifierExpression
-	tableUserPreferences      exp.IdentifierExpression
-	tableWorkspaceChatPresets exp.IdentifierExpression
-	tableOrganizations        exp.IdentifierExpression
-	tableGoals                exp.IdentifierExpression
-	tableTasks                exp.IdentifierExpression
-	tableAgentBudgets         exp.IdentifierExpression
-	tableAgentUsage           exp.IdentifierExpression
-	tableModelPricing         exp.IdentifierExpression
-	tableAgentHeartbeats      exp.IdentifierExpression
-	tableProjects             exp.IdentifierExpression
-	tableIssueComments        exp.IdentifierExpression
-	tableLabels               exp.IdentifierExpression
-	tableTaskLabels           exp.IdentifierExpression
-	tableHeartbeatRuns        exp.IdentifierExpression
-	tableWakeupRequests       exp.IdentifierExpression
-	tableAgentRuntimeState    exp.IdentifierExpression
-	tableAgentTaskSessions    exp.IdentifierExpression
-	tableApprovals            exp.IdentifierExpression
-	tableAgentConfigRevisions exp.IdentifierExpression
-	tableCostEvents           exp.IdentifierExpression
-	tableOrganizationAgents   exp.IdentifierExpression
-	tablePackSources          exp.IdentifierExpression
-	tableGuides               exp.IdentifierExpression
-	tableConnections          exp.IdentifierExpression
-	tableConnectors           exp.IdentifierExpression
-	tableRoutingProfiles      exp.IdentifierExpression
-	tableFeatureSettings      exp.IdentifierExpression
-	tableAgentRuntimeSettings exp.IdentifierExpression
-	tableLLMCalls             exp.IdentifierExpression
-	tableAuthUsers            exp.IdentifierExpression
-	tableAuthSessions         exp.IdentifierExpression
-	tableAuthCredentials      exp.IdentifierExpression
-	tableAuthMobileRequests   exp.IdentifierExpression
-	tableAuthBootstrap        exp.IdentifierExpression
-	tableAuthPasskeys         exp.IdentifierExpression
-	tableAuthChallenges       exp.IdentifierExpression
-	tablePlaygroundChats      exp.IdentifierExpression
-	tablePlaygroundMessages   exp.IdentifierExpression
-	tableMediaSettings        exp.IdentifierExpression
-	tableTaskBoard            exp.IdentifierExpression
-	tableMediaObjects         exp.IdentifierExpression
+	tableProviders                  exp.IdentifierExpression
+	tableAPITokens                  exp.IdentifierExpression
+	tableWorkflows                  exp.IdentifierExpression
+	tableWorkflowVersions           exp.IdentifierExpression
+	tableTriggers                   exp.IdentifierExpression
+	tableSkills                     exp.IdentifierExpression
+	tableVariables                  exp.IdentifierExpression
+	tableNodeConfigs                exp.IdentifierExpression
+	tableAgents                     exp.IdentifierExpression
+	tableChatSessions               exp.IdentifierExpression
+	tableChatMessages               exp.IdentifierExpression
+	tableMCPServers                 exp.IdentifierExpression
+	tableMCPSets                    exp.IdentifierExpression
+	tableBotConfigs                 exp.IdentifierExpression
+	tableMarketplaces               exp.IdentifierExpression
+	tableMarketplaceSources         exp.IdentifierExpression
+	tableTokenUsage                 exp.IdentifierExpression
+	tableUserPreferences            exp.IdentifierExpression
+	tableWorkspaceChatPresets       exp.IdentifierExpression
+	tableOrganizations              exp.IdentifierExpression
+	tableGoals                      exp.IdentifierExpression
+	tableTasks                      exp.IdentifierExpression
+	tableAgentBudgets               exp.IdentifierExpression
+	tableAgentUsage                 exp.IdentifierExpression
+	tableModelPricing               exp.IdentifierExpression
+	tableAgentHeartbeats            exp.IdentifierExpression
+	tableProjects                   exp.IdentifierExpression
+	tableIssueComments              exp.IdentifierExpression
+	tableLabels                     exp.IdentifierExpression
+	tableTaskLabels                 exp.IdentifierExpression
+	tableHeartbeatRuns              exp.IdentifierExpression
+	tableWakeupRequests             exp.IdentifierExpression
+	tableAgentRuntimeState          exp.IdentifierExpression
+	tableAgentTaskSessions          exp.IdentifierExpression
+	tableApprovals                  exp.IdentifierExpression
+	tableAgentConfigRevisions       exp.IdentifierExpression
+	tableCostEvents                 exp.IdentifierExpression
+	tableOrganizationAgents         exp.IdentifierExpression
+	tablePackSources                exp.IdentifierExpression
+	tableGuides                     exp.IdentifierExpression
+	tableConnections                exp.IdentifierExpression
+	tableConnectors                 exp.IdentifierExpression
+	tableRoutingProfiles            exp.IdentifierExpression
+	tableFeatureSettings            exp.IdentifierExpression
+	tableAgentRuntimeSettings       exp.IdentifierExpression
+	tableProviderBudgetPolicies     exp.IdentifierExpression
+	tableProviderBudgetOverrides    exp.IdentifierExpression
+	tableProviderBudgetUsage        exp.IdentifierExpression
+	tableProviderBudgetReservations exp.IdentifierExpression
+	tableVirtualProviders           exp.IdentifierExpression
+	tableVirtualProviderModels      exp.IdentifierExpression
+	tableVirtualProviderGrants      exp.IdentifierExpression
+	tableLLMCalls                   exp.IdentifierExpression
+	tableAuthUsers                  exp.IdentifierExpression
+	tableAuthSessions               exp.IdentifierExpression
+	tableAuthCredentials            exp.IdentifierExpression
+	tableAuthMobileRequests         exp.IdentifierExpression
+	tableAuthBootstrap              exp.IdentifierExpression
+	tableAuthPasskeys               exp.IdentifierExpression
+	tableAuthChallenges             exp.IdentifierExpression
+	tablePlaygroundChats            exp.IdentifierExpression
+	tablePlaygroundMessages         exp.IdentifierExpression
+	tableMediaSettings              exp.IdentifierExpression
+	tableTaskBoard                  exp.IdentifierExpression
+	tableMediaObjects               exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -189,67 +196,74 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 	dbGoqu := goqu.New("postgres", db)
 
 	return &Postgres{
-		db:                        db,
-		goqu:                      dbGoqu,
-		tableAuthUsers:            goqu.T(tablePrefix + "auth_users"),
-		tableAuthSessions:         goqu.T(tablePrefix + "auth_sessions"),
-		tableAuthCredentials:      goqu.T(tablePrefix + "auth_credentials"),
-		tableAuthMobileRequests:   goqu.T(tablePrefix + "auth_mobile_requests"),
-		tableAuthBootstrap:        goqu.T(tablePrefix + "auth_bootstrap"),
-		tableAuthPasskeys:         goqu.T(tablePrefix + "auth_passkeys"),
-		tableAuthChallenges:       goqu.T(tablePrefix + "auth_challenges"),
-		tablePlaygroundChats:      goqu.T(tablePrefix + "playground_conversations"),
-		tablePlaygroundMessages:   goqu.T(tablePrefix + "playground_messages"),
-		tableMediaSettings:        goqu.T(tablePrefix + "media_settings"),
-		tableTaskBoard:            goqu.T(tablePrefix + "task_board_settings"),
-		tableMediaObjects:         goqu.T(tablePrefix + "media_objects"),
-		tableProviders:            goqu.T(tablePrefix + "providers"),
-		tableAPITokens:            goqu.T(tablePrefix + "tokens"),
-		tableWorkflows:            goqu.T(tablePrefix + "workflows"),
-		tableWorkflowVersions:     goqu.T(tablePrefix + "workflow_versions"),
-		tableTriggers:             goqu.T(tablePrefix + "triggers"),
-		tableSkills:               goqu.T(tablePrefix + "skills"),
-		tableVariables:            goqu.T(tablePrefix + "variables"),
-		tableNodeConfigs:          goqu.T(tablePrefix + "node_configs"),
-		tableAgents:               goqu.T(tablePrefix + "agents"),
-		tableChatSessions:         goqu.T(tablePrefix + "chat_sessions"),
-		tableChatMessages:         goqu.T(tablePrefix + "chat_messages"),
-		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
-		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
-		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),
-		tableMarketplaces:         goqu.T(tablePrefix + "marketplaces"),
-		tableMarketplaceSources:   goqu.T(tablePrefix + "marketplace_sources"),
-		tableTokenUsage:           goqu.T(tablePrefix + "token_usage"),
-		tableUserPreferences:      goqu.T(tablePrefix + "user_preferences"),
-		tableWorkspaceChatPresets: goqu.T(tablePrefix + "workspace_chat_presets"),
-		tableOrganizations:        goqu.T(tablePrefix + "organizations"),
-		tableGoals:                goqu.T(tablePrefix + "goals"),
-		tableTasks:                goqu.T(tablePrefix + "tasks"),
-		tableAgentBudgets:         goqu.T(tablePrefix + "agent_budgets"),
-		tableAgentUsage:           goqu.T(tablePrefix + "agent_usage"),
-		tableModelPricing:         goqu.T(tablePrefix + "model_pricing"),
-		tableAgentHeartbeats:      goqu.T(tablePrefix + "agent_heartbeats"),
-		tableProjects:             goqu.T(tablePrefix + "projects"),
-		tableIssueComments:        goqu.T(tablePrefix + "issue_comments"),
-		tableLabels:               goqu.T(tablePrefix + "labels"),
-		tableTaskLabels:           goqu.T(tablePrefix + "task_labels"),
-		tableHeartbeatRuns:        goqu.T(tablePrefix + "heartbeat_runs"),
-		tableWakeupRequests:       goqu.T(tablePrefix + "wakeup_requests"),
-		tableAgentRuntimeState:    goqu.T(tablePrefix + "agent_runtime_state"),
-		tableAgentTaskSessions:    goqu.T(tablePrefix + "agent_task_sessions"),
-		tableApprovals:            goqu.T(tablePrefix + "approvals"),
-		tableAgentConfigRevisions: goqu.T(tablePrefix + "agent_config_revisions"),
-		tableCostEvents:           goqu.T(tablePrefix + "cost_events"),
-		tableOrganizationAgents:   goqu.T(tablePrefix + "organization_agents"),
-		tablePackSources:          goqu.T(tablePrefix + "pack_sources"),
-		tableGuides:               goqu.T(tablePrefix + "guides"),
-		tableConnections:          goqu.T(tablePrefix + "connections"),
-		tableConnectors:           goqu.T(tablePrefix + "connectors"),
-		tableRoutingProfiles:      goqu.T(tablePrefix + "routing_profiles"),
-		tableFeatureSettings:      goqu.T(tablePrefix + "feature_settings"),
-		tableAgentRuntimeSettings: goqu.T(tablePrefix + "agent_runtime_settings"),
-		tableLLMCalls:             goqu.T(tablePrefix + "llm_calls"),
-		encKey:                    encKey,
+		db:                              db,
+		goqu:                            dbGoqu,
+		tableAuthUsers:                  goqu.T(tablePrefix + "auth_users"),
+		tableAuthSessions:               goqu.T(tablePrefix + "auth_sessions"),
+		tableAuthCredentials:            goqu.T(tablePrefix + "auth_credentials"),
+		tableAuthMobileRequests:         goqu.T(tablePrefix + "auth_mobile_requests"),
+		tableAuthBootstrap:              goqu.T(tablePrefix + "auth_bootstrap"),
+		tableAuthPasskeys:               goqu.T(tablePrefix + "auth_passkeys"),
+		tableAuthChallenges:             goqu.T(tablePrefix + "auth_challenges"),
+		tablePlaygroundChats:            goqu.T(tablePrefix + "playground_conversations"),
+		tablePlaygroundMessages:         goqu.T(tablePrefix + "playground_messages"),
+		tableMediaSettings:              goqu.T(tablePrefix + "media_settings"),
+		tableTaskBoard:                  goqu.T(tablePrefix + "task_board_settings"),
+		tableMediaObjects:               goqu.T(tablePrefix + "media_objects"),
+		tableProviders:                  goqu.T(tablePrefix + "providers"),
+		tableAPITokens:                  goqu.T(tablePrefix + "tokens"),
+		tableWorkflows:                  goqu.T(tablePrefix + "workflows"),
+		tableWorkflowVersions:           goqu.T(tablePrefix + "workflow_versions"),
+		tableTriggers:                   goqu.T(tablePrefix + "triggers"),
+		tableSkills:                     goqu.T(tablePrefix + "skills"),
+		tableVariables:                  goqu.T(tablePrefix + "variables"),
+		tableNodeConfigs:                goqu.T(tablePrefix + "node_configs"),
+		tableAgents:                     goqu.T(tablePrefix + "agents"),
+		tableChatSessions:               goqu.T(tablePrefix + "chat_sessions"),
+		tableChatMessages:               goqu.T(tablePrefix + "chat_messages"),
+		tableMCPServers:                 goqu.T(tablePrefix + "mcp_servers"),
+		tableMCPSets:                    goqu.T(tablePrefix + "mcp_sets"),
+		tableBotConfigs:                 goqu.T(tablePrefix + "bot_configs"),
+		tableMarketplaces:               goqu.T(tablePrefix + "marketplaces"),
+		tableMarketplaceSources:         goqu.T(tablePrefix + "marketplace_sources"),
+		tableTokenUsage:                 goqu.T(tablePrefix + "token_usage"),
+		tableUserPreferences:            goqu.T(tablePrefix + "user_preferences"),
+		tableWorkspaceChatPresets:       goqu.T(tablePrefix + "workspace_chat_presets"),
+		tableOrganizations:              goqu.T(tablePrefix + "organizations"),
+		tableGoals:                      goqu.T(tablePrefix + "goals"),
+		tableTasks:                      goqu.T(tablePrefix + "tasks"),
+		tableAgentBudgets:               goqu.T(tablePrefix + "agent_budgets"),
+		tableAgentUsage:                 goqu.T(tablePrefix + "agent_usage"),
+		tableModelPricing:               goqu.T(tablePrefix + "model_pricing"),
+		tableAgentHeartbeats:            goqu.T(tablePrefix + "agent_heartbeats"),
+		tableProjects:                   goqu.T(tablePrefix + "projects"),
+		tableIssueComments:              goqu.T(tablePrefix + "issue_comments"),
+		tableLabels:                     goqu.T(tablePrefix + "labels"),
+		tableTaskLabels:                 goqu.T(tablePrefix + "task_labels"),
+		tableHeartbeatRuns:              goqu.T(tablePrefix + "heartbeat_runs"),
+		tableWakeupRequests:             goqu.T(tablePrefix + "wakeup_requests"),
+		tableAgentRuntimeState:          goqu.T(tablePrefix + "agent_runtime_state"),
+		tableAgentTaskSessions:          goqu.T(tablePrefix + "agent_task_sessions"),
+		tableApprovals:                  goqu.T(tablePrefix + "approvals"),
+		tableAgentConfigRevisions:       goqu.T(tablePrefix + "agent_config_revisions"),
+		tableCostEvents:                 goqu.T(tablePrefix + "cost_events"),
+		tableOrganizationAgents:         goqu.T(tablePrefix + "organization_agents"),
+		tablePackSources:                goqu.T(tablePrefix + "pack_sources"),
+		tableGuides:                     goqu.T(tablePrefix + "guides"),
+		tableConnections:                goqu.T(tablePrefix + "connections"),
+		tableConnectors:                 goqu.T(tablePrefix + "connectors"),
+		tableRoutingProfiles:            goqu.T(tablePrefix + "routing_profiles"),
+		tableFeatureSettings:            goqu.T(tablePrefix + "feature_settings"),
+		tableAgentRuntimeSettings:       goqu.T(tablePrefix + "agent_runtime_settings"),
+		tableProviderBudgetPolicies:     goqu.T(tablePrefix + "provider_budget_policies"),
+		tableProviderBudgetOverrides:    goqu.T(tablePrefix + "provider_budget_overrides"),
+		tableProviderBudgetUsage:        goqu.T(tablePrefix + "provider_budget_usage"),
+		tableProviderBudgetReservations: goqu.T(tablePrefix + "provider_budget_reservations"),
+		tableVirtualProviders:           goqu.T(tablePrefix + "virtual_providers"),
+		tableVirtualProviderModels:      goqu.T(tablePrefix + "virtual_provider_models"),
+		tableVirtualProviderGrants:      goqu.T(tablePrefix + "virtual_provider_grants"),
+		tableLLMCalls:                   goqu.T(tablePrefix + "llm_calls"),
+		encKey:                          encKey,
 	}, nil
 }
 

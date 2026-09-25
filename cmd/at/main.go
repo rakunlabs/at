@@ -421,7 +421,7 @@ func run(ctx context.Context) error {
 			continue
 		}
 
-		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config)
+		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config).WithProviderID(rec.ID)
 		slog.Debug("provider loaded from DB", "key", rec.Key, "type", rec.Config.Type)
 	}
 

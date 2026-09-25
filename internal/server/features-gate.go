@@ -236,6 +236,8 @@ func featureKeyForRoute(path, method, basePath string) string {
 		return service.FeatureProviderSetup
 	case "personal-providers":
 		return service.FeatureProviderSetup
+	case "provider-budgets", "provider-budget-overrides", "virtual-providers":
+		return service.FeatureProviderSetup
 	case "model-pricing":
 		return service.FeatureModelPricing
 	case "usage", "cost-events":

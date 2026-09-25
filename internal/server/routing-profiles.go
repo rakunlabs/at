@@ -42,7 +42,7 @@ func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []M
 	for _, profile := range profiles {
 		usable := false
 		for _, target := range profile.Targets {
-			if _, _, _, resolveErr := s.resolveModel(auth, target); resolveErr == nil {
+			if _, _, _, resolveErr := s.resolveModel(ctx, auth, target); resolveErr == nil {
 				usable = true
 				break
 			}

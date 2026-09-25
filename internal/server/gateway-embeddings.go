@@ -144,11 +144,11 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
+	_, _, info, resolveErr := s.resolveModel(r.Context(), auth, req.Model)
+	if resolveErr != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
+				"message": resolveErr.Error(),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",

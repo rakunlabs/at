@@ -274,11 +274,11 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
+	_, _, info, resolveErr := s.resolveModel(r.Context(), auth, effectiveModel)
+	if resolveErr != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
+				"message": resolveErr.Error(),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",
@@ -318,7 +318,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		info:        info,
 	}}
 	for _, m := range effectiveFallbacks {
-		pKey, actual, fInfo, ferr := s.resolveModel(auth, m)
+		pKey, actual, fInfo, ferr := s.resolveModel(r.Context(), auth, m)
 		if ferr != nil {
 			slog.Warn("responses fallback skipping invalid entry", "model", m, "error", ferr.Error())
 			continue

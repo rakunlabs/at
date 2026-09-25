@@ -146,6 +146,15 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		}
 		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: isShared})
 	}
+	virtual, err := p.ListGatewayVirtualProviderCatalog(ctx, a.WorkspaceID, a.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("load virtual provider catalog: %w", err)
+	}
+	for _, entry := range virtual {
+		if !seen[entry.Key] {
+			out = append(out, entry)
+		}
+	}
 	return out, nil
 }
 

@@ -18,7 +18,7 @@ var workspaceDeletionTables = []string{
 	"media_objects",
 	"chat_shares",
 	"execution_service_bindings", "execution_provenance", "execution_policies",
-	"personal_provider_grants", "workspace_provider_grants", "workspace_permission_mappings", "workspace_user_permissions", "workspace_user_denied",
+	"virtual_provider_grants", "personal_provider_grants", "workspace_provider_grants", "workspace_permission_mappings", "workspace_user_permissions", "workspace_user_denied",
 	"workspace_permissions", "workspace_invitations", "workspace_memberships", "task_board_settings",
 	"chat_messages", "chat_sessions", "token_usage", "tokens",
 	"workflow_versions", "triggers", "workflows", "task_labels", "issue_comments", "organization_agents",
@@ -26,7 +26,7 @@ var workspaceDeletionTables = []string{
 	"agent_task_sessions", "agent_config_revisions", "cost_events", "llm_calls", "approvals", "tasks", "projects", "goals", "labels",
 	"agents", "organizations", "bot_configs", "providers", "skills", "skill_servers", "variables", "node_configs",
 	"mcp_servers", "mcp_sets", "marketplaces", "marketplace_sources", "pack_sources", "guides", "connections", "connectors",
-	"routing_profiles", "workspace_chat_presets", "trace_export_settings",
+	"virtual_providers", "routing_profiles", "workspace_chat_presets", "trace_export_settings",
 }
 
 func (p *Postgres) DeleteWorkspace(ctx context.Context, confirmation string) (*service.WorkspaceDeletion, error) {

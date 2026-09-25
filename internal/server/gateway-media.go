@@ -256,11 +256,11 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
+	_, _, info, resolveErr := s.resolveModel(r.Context(), auth, model)
+	if resolveErr != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
+				"message": resolveErr.Error(),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",
@@ -646,11 +646,11 @@ func (s *Server) resolveMediaProvider(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
-	pInfo, found := s.getProviderInfo(pKey)
-	if !found {
+	_, _, pInfo, resolveErr := s.resolveModel(r.Context(), authR, model)
+	if resolveErr != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": s.providerUnavailableMessage(pKey, fmt.Sprintf("provider %q not found", pKey)),
+				"message": resolveErr.Error(),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",

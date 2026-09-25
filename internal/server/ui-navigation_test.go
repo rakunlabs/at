@@ -52,6 +52,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	// Capability-admitted.
 	"/providers":             {"GET", "/providers"},
 	"/routing-profiles":      {"GET", "/routing-profiles"},
+	"/virtual-providers":     {"GET", "/virtual-providers"},
 	"/agents":                {"GET", "/agents"},
 	"/sessions":              {"GET", "/chat/sessions"},
 	"/workflows":             {"GET", "/workflows"},

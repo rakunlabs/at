@@ -93,6 +93,8 @@ type Storer interface {
 	FeatureSettingStorer
 	AgentRuntimeSettingsStorer
 	LLMCallStorer
+	ProviderBudgetStorer
+	VirtualProviderStorer
 }
 
 // Marketplace groups Skills and MCP Servers into one Claude Code

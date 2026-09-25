@@ -52,7 +52,24 @@ func (p *Postgres) ExecutionProviderDefaultModel(ctx context.Context, key string
 		return "", fmt.Errorf("resolve granted model metadata: %w", err)
 	}
 	if !found {
-		return "", service.ErrAccessDenied
+		var virtual struct {
+			ID       string `db:"id"`
+			Model    string `db:"default_model"`
+			Disabled bool   `db:"disabled"`
+		}
+		local := goqu.C("workspace_id").Eq(actor.WorkspaceID)
+		granted := goqu.C("id").In(p.goqu.From(p.tableVirtualProviderGrants).Select("virtual_provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID}))
+		found, err = p.goqu.From(p.tableVirtualProviders).Select("id", "default_model", "disabled").Where(goqu.Ex{"key": key}, goqu.Or(local, granted)).Order(goqu.Case().When(local, 0).Else(1).Asc()).Limit(1).ScanStructContext(ctx, &virtual)
+		if err != nil {
+			return "", fmt.Errorf("resolve virtual model metadata: %w", err)
+		}
+		if !found {
+			return "", service.ErrAccessDenied
+		}
+		if virtual.Disabled {
+			return "", service.ErrProviderDisabled
+		}
+		return virtual.Model, nil
 	}
 	if meta.Disabled {
 		return "", service.ErrProviderDisabled

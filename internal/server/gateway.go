@@ -572,6 +572,14 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusNotFound)
 		return
 	}
+	if info.providerID != "" {
+		ownerUserID := ""
+		if auth != nil && auth.token != nil {
+			ownerUserID = auth.token.OwnerUserID
+		}
+		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: info.providerID, Key: providerKey}, ActualModel: proxyModel}
+		info.provider = s.providerForRoute(route, info.provider, ownerUserID)
+	}
 
 	// Forward request.
 	//
@@ -701,6 +709,21 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.providerMu.RUnlock()
+	if routes, ok := s.store.(service.ProviderRouteStorer); ok && auth != nil && auth.token != nil {
+		catalog, err := routes.ListGatewayVirtualProviderCatalog(r.Context(), auth.token.WorkspaceID, auth.token.OwnerUserID)
+		if err != nil {
+			slog.Error("list gateway virtual providers failed", "error", err)
+		} else {
+			for _, entry := range catalog {
+				for _, model := range entry.Models {
+					fullID := entry.Key + "/" + model
+					if auth.isModelAllowed(entry.Key, fullID) {
+						models = append(models, ModelData{ID: fullID, Object: "model", OwnedBy: entry.Key})
+					}
+				}
+			}
+		}
+	}
 
 	// Map iteration order is random, so the same registry produced a different
 	// order on every call and model pickers reshuffled between restarts.
@@ -1576,6 +1599,13 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 		if tokenID != "" {
 			agentID, source = "gateway:"+tokenID, "gateway"
 			workspaceID = auth.token.WorkspaceID
+			// Personal tokens spend the same provider allowance as their owner;
+			// opening another token must not create another monthly quota. Shared
+			// workspace tokens remain service-attributed because no trustworthy
+			// end-user identity exists on the gateway request.
+			if actor.userID == "" {
+				actor.userID = auth.token.OwnerUserID
+			}
 		}
 
 		go func() {

@@ -16,7 +16,7 @@ import { routeFeatureEnabled } from './feature-routes';
 // `registerRuntimeRoutes` admits on capabilities; only Studio's one-click setup
 // reaches administration APIs.
 const capabilityRoutes: Record<string, string> = {
-  '/providers': 'providers.read', '/routing-profiles': 'providers.read',
+  '/providers': 'providers.read', '/routing-profiles': 'providers.read', '/virtual-providers': 'providers.read',
   '/agents': 'agents.read', '/sessions': 'agents.read',
   '/workflows': 'workflows.read', '/runs': 'workflows.read',
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
@@ -82,6 +82,7 @@ export const configurationLinks = [
   { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
   { path: '/settings/git-credentials', label: 'Git credentials', description: 'Deploy keys for private skill repositories' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
+  { path: '/virtual-providers', label: 'Provider governance', description: 'Provider budgets, account allowances and shared model collections' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },
   { path: '/variables', label: 'Variables', description: 'Workspace variables and secrets' },
   { path: '/mcp-servers', label: 'MCP servers', description: 'Tool servers and endpoints' },
