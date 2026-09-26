@@ -47,6 +47,22 @@ func ScopeDependencies(ctx context.Context, base Dependencies) *Dependencies {
 			return v, nil
 		}
 	}
+	if base.MCPSetToolLister != nil {
+		d.MCPSetToolLister = func(c context.Context, set string) ([]service.Tool, error) {
+			if err := check("mcp.use", set); err != nil {
+				return nil, err
+			}
+			return base.MCPSetToolLister(c, set)
+		}
+	}
+	if base.MCPSetToolCaller != nil {
+		d.MCPSetToolCaller = func(c context.Context, set, tool string, args map[string]any) (string, error) {
+			if err := AuthorizeMCPSetTool(c, set, tool); err != nil {
+				return "", err
+			}
+			return base.MCPSetToolCaller(c, set, tool, args)
+		}
+	}
 	if base.VarLookup != nil {
 		d.VarLookup = func(key string) (string, error) {
 			if err := check("variables.read", key); err != nil {

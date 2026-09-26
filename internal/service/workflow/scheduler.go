@@ -41,6 +41,8 @@ type Scheduler struct {
 	providerLookup        ProviderLookup
 	scopedProviderLookup  func(context.Context, string) (service.LLMProvider, string, error)
 	skillLookup           SkillLookup
+	mcpSetToolLister      MCPSetToolListerFunc
+	mcpSetToolCaller      MCPSetToolCallerFunc
 	varLookup             VarLookup
 	varLister             VarLister
 	scopedVarLister       func(context.Context) (map[string]string, error)
@@ -70,6 +72,11 @@ type Scheduler struct {
 	cron   cronRunner
 	cancel context.CancelFunc
 	ctx    context.Context // parent context from Start()
+}
+
+func (s *Scheduler) SetMCPSetTools(lister MCPSetToolListerFunc, caller MCPSetToolCallerFunc) {
+	s.mcpSetToolLister = lister
+	s.mcpSetToolCaller = caller
 }
 
 type ScheduleStorer interface {
@@ -497,6 +504,8 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			ProviderLookup:        s.providerLookup,
 			ScopedProviderLookup:  s.scopedProviderLookup,
 			SkillLookup:           s.skillLookup,
+			MCPSetToolLister:      s.mcpSetToolLister,
+			MCPSetToolCaller:      s.mcpSetToolCaller,
 			VarLookup:             s.varLookup,
 			VarLister:             s.varLister,
 			ScopedVarLister:       s.scopedVarLister,

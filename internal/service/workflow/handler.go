@@ -185,7 +185,12 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		return "", err
 	}
 	if timeout <= 0 {
-		timeout = defaultBashTimeout
+		if deadline, ok := ctx.Deadline(); ok {
+			timeout = time.Until(deadline)
+		}
+		if timeout <= 0 {
+			timeout = defaultBashTimeout
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)

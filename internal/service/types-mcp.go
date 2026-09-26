@@ -19,12 +19,28 @@ type MCPHTTPTool struct {
 	InputSchema  map[string]any    `json:"input_schema"`
 }
 
+// MCPInlineTool is executable tool configuration owned by an MCP set rather
+// than by a documentation skill. SourceSkillID is provenance used by the
+// execution policy; it does not make the skill itself executable.
+type MCPInlineTool struct {
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	InputSchema   map[string]any `json:"inputSchema"`
+	Handler       string         `json:"handler"`
+	HandlerType   string         `json:"handler_type,omitempty"`
+	SourceSkillID string         `json:"source_skill_id,omitempty"`
+}
+
 // MCPServerConfig holds the configuration for a general MCP server endpoint.
 type MCPServerConfig struct {
 	Description string `json:"description,omitempty"`
 
 	// Custom HTTP tools.
 	HTTPTools []MCPHTTPTool `json:"http_tools,omitempty"`
+
+	// InlineTools are legacy JS/bash handlers migrated out of skills. They run
+	// through MCP-set admission and the normal handler execution policy.
+	InlineTools []MCPInlineTool `json:"inline_tools,omitempty"`
 
 	// Upstream MCP servers to proxy tools from.
 	MCPUpstreams []MCPUpstream `json:"mcp_upstreams,omitempty"`

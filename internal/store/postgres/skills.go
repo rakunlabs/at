@@ -169,6 +169,7 @@ func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Sk
 }
 
 func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.Skill, error) {
+	legacyTools := append([]service.Tool(nil), sk.Tools...)
 	if err := service.NormalizeDocumentationSkill(&sk); err != nil {
 		return nil, err
 	}
@@ -247,6 +248,11 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create skill %q: %w", sk.Name, err)
 	}
+	if len(legacyTools) > 0 {
+		if err := p.upsertSkillToolSet(ctx, w.tx, id, w.actor.WorkspaceID, sk.OwnerUserID, sk.Name, sk.Description, legacyTools, sk.CreatedBy, now); err != nil {
+			return nil, err
+		}
+	}
 	if err = w.tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit skill: %w", err)
 	}
@@ -282,6 +288,7 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 }
 
 func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill) (*service.Skill, error) {
+	legacyTools := append([]service.Tool(nil), sk.Tools...)
 	if err := service.NormalizeDocumentationSkill(&sk); err != nil {
 		return nil, err
 	}
@@ -365,6 +372,11 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 	if affected == 0 {
 		return nil, nil
 	}
+	if len(legacyTools) > 0 {
+		if err := p.upsertSkillToolSet(ctx, w.tx, id, w.actor.WorkspaceID, ownerUserID, sk.Name, sk.Description, legacyTools, sk.UpdatedBy, now); err != nil {
+			return nil, err
+		}
+	}
 	if err = w.tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit skill update: %w", err)
 	}
@@ -390,8 +402,79 @@ func (p *Postgres) DeleteSkill(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete skill %q: %w", id, err)
 	}
+	if _, err = w.tx.Delete(p.tableMCPSets).Where(goqu.C("id").Eq(skillToolSetID(id))).Executor().ExecContext(ctx); err != nil {
+		return fmt.Errorf("delete skill tool set %q: %w", id, err)
+	}
 
 	return w.tx.Commit()
+}
+
+func skillToolSetID(skillID string) string { return "skill-tools-" + skillID }
+
+func (p *Postgres) UpsertSkillToolPack(ctx context.Context, skillID string, tools []service.Tool, updatedBy string) error {
+	if len(tools) == 0 {
+		return nil
+	}
+	w, err := p.beginBusinessWrite(ctx, p.tableSkills, "skills.read", skillID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	var row struct {
+		WorkspaceID string `db:"workspace_id"`
+		OwnerUserID string `db:"owner_user_id"`
+		Name        string `db:"name"`
+		Description string `db:"description"`
+	}
+	found, err := w.tx.From(p.tableSkills).Select("workspace_id", "owner_user_id", "name", "description").Where(goqu.C("id").Eq(skillID)).ScanStructContext(ctx, &row)
+	if err != nil {
+		return fmt.Errorf("load skill for tool pack: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	if err := p.upsertSkillToolSet(ctx, w.tx, skillID, row.WorkspaceID, row.OwnerUserID, row.Name, row.Description, tools, updatedBy, time.Now().UTC()); err != nil {
+		return err
+	}
+	return w.tx.Commit()
+}
+
+type skillToolSetExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func (p *Postgres) upsertSkillToolSet(ctx context.Context, tx skillToolSetExecutor, skillID, workspaceID, ownerUserID, skillName, description string, tools []service.Tool, updatedBy string, now time.Time) error {
+	inlineTools := make([]service.MCPInlineTool, 0, len(tools))
+	for _, tool := range tools {
+		inlineTools = append(inlineTools, service.MCPInlineTool{
+			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
+			Handler: tool.Handler, HandlerType: tool.HandlerType, SourceSkillID: skillID,
+		})
+	}
+	configJSON, err := json.Marshal(service.MCPServerConfig{InlineTools: inlineTools})
+	if err != nil {
+		return fmt.Errorf("marshal tool set for skill %q: %w", skillID, err)
+	}
+	emptyArray := types.RawJSON([]byte("[]"))
+	setID := skillToolSetID(skillID)
+	record := goqu.Record{
+		"workspace_id": workspaceID, "owner_user_id": ownerUserID, "id": setID,
+		"name": service.SkillToolMCPSetName(skillID), "description": "Executable tools migrated from skill " + skillName,
+		"category": "Skill tools", "tags": emptyArray, "config": types.RawJSON(configJSON),
+		"servers": emptyArray, "urls": emptyArray, "created_at": now, "updated_at": now,
+		"created_by": updatedBy, "updated_by": updatedBy,
+	}
+	query, _, err := p.goqu.Insert(p.tableMCPSets).Rows(record).OnConflict(goqu.DoUpdate("id", goqu.Record{
+		"name": record["name"], "description": record["description"], "config": record["config"],
+		"updated_at": now, "updated_by": updatedBy,
+	})).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build skill tool set upsert: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("upsert tool set for skill %q: %w", skillID, err)
+	}
+	return nil
 }
 
 // skillRowToRecord converts a database row to a Skill.

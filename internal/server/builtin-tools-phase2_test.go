@@ -420,6 +420,9 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 			"type":      "openai",
 			"auth_type": "chatgpt",
 			"model":     "gpt-4o",
+			"model_limits": map[string]any{
+				"gpt-4o": map[string]any{"context": 128_000, "output": 16_384},
+			},
 			// note: api_key and refresh_token deliberately omitted/empty
 		},
 	}); err != nil {
@@ -441,6 +444,52 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 	}
 	if got.Config.Model != "gpt-4o" {
 		t.Errorf("non-secret field should be updated: model = %q", got.Config.Model)
+	}
+	if limit := got.Config.ModelLimits["gpt-4o"]; limit.Context != 128_000 || limit.Output != 16_384 {
+		t.Errorf("model limits were not updated: %+v", limit)
+	}
+}
+
+func TestDispatch_ProviderSetModelLimit_PreservesConfig(t *testing.T) {
+	store := newFakeProviderStore()
+	store.providers["anthropic"] = &service.ProviderRecord{
+		Key: "anthropic",
+		Config: config.LLMConfig{
+			Type:    "anthropic",
+			APIKey:  "secret",
+			Model:   "claude-sonnet",
+			Models:  []string{"claude-sonnet", "claude-opus"},
+			BaseURL: "https://example.test",
+		},
+	}
+	s := &Server{store: store}
+
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_set_model_limit", map[string]any{
+		"key":     "anthropic",
+		"model":   "claude-opus",
+		"context": float64(1_000_000),
+		"output":  float64(128_000),
+	}); err != nil {
+		t.Fatalf("set model limit: %v", err)
+	}
+
+	got := store.providers["anthropic"].Config
+	if got.APIKey != "secret" || got.BaseURL != "https://example.test" || len(got.Models) != 2 {
+		t.Fatalf("unrelated config changed: %+v", got)
+	}
+	if limit := got.ModelLimits["claude-opus"]; limit.Context != 1_000_000 || limit.Output != 128_000 {
+		t.Fatalf("model limit = %+v", limit)
+	}
+
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_set_model_limit", map[string]any{
+		"key":   "anthropic",
+		"model": "claude-opus",
+		"clear": true,
+	}); err != nil {
+		t.Fatalf("clear model limit: %v", err)
+	}
+	if _, ok := store.providers["anthropic"].Config.ModelLimits["claude-opus"]; ok {
+		t.Fatal("model limit was not cleared")
 	}
 }
 

@@ -464,11 +464,23 @@ var builtinTools = []builtinToolDef{
 				"type":        "object",
 				"description": "LLMConfig",
 				"properties": map[string]any{
-					"type":          map[string]any{"type": "string", "description": "Adapter type", "enum": service.SupportedProviderTypes},
-					"api_key":       map[string]any{"type": "string", "description": "Provider API key (stored encrypted)"},
-					"base_url":      map[string]any{"type": "string", "description": "Override base URL (e.g. for OpenAI-compatible self-hosted endpoints)"},
-					"model":         map[string]any{"type": "string", "description": "Default model ID (returned as 'default_model' in read responses)"},
-					"models":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Allowlist of model IDs"},
+					"type":     map[string]any{"type": "string", "description": "Adapter type", "enum": service.SupportedProviderTypes},
+					"api_key":  map[string]any{"type": "string", "description": "Provider API key (stored encrypted)"},
+					"base_url": map[string]any{"type": "string", "description": "Override base URL (e.g. for OpenAI-compatible self-hosted endpoints)"},
+					"model":    map[string]any{"type": "string", "description": "Default model ID (returned as 'default_model' in read responses)"},
+					"models":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Allowlist of model IDs"},
+					"model_limits": map[string]any{
+						"type":        "object",
+						"description": "Per-model context and maximum output token metadata advertised through /gateway/v1/models. Keys must match an entry in models, or model when models is empty.",
+						"additionalProperties": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"context": map[string]any{"type": "integer", "minimum": 1},
+								"output":  map[string]any{"type": "integer", "minimum": 1},
+							},
+							"required": []string{"context", "output"},
+						},
+					},
 					"auth_type":     map[string]any{"type": "string", "description": "For Anthropic-style providers: e.g. 'oauth' or empty"},
 					"extra_headers": map[string]any{"type": "object", "description": "Extra HTTP headers added on every request"},
 					"proxy":         map[string]any{"type": "string", "description": "HTTP/HTTPS proxy URL"},
@@ -498,6 +510,17 @@ var builtinTools = []builtinToolDef{
 			"config": map[string]any{"type": "object", "description": "Same shape as provider_create.config. config.type is required."},
 		},
 		"required": []string{"key", "config"},
+	}},
+	{Name: "provider_set_model_limit", Description: "Set or clear the advertised context and maximum output token limits for one existing provider model without rewriting the rest of the provider config. The model must already be advertised by the provider. This metadata lets clients such as opencode compact at the correct context boundary; it is not a usage quota.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":     map[string]any{"type": "string", "description": "Existing provider key"},
+			"model":   map[string]any{"type": "string", "description": "Provider-local model ID"},
+			"context": map[string]any{"type": "integer", "minimum": 1, "description": "Complete context window in tokens"},
+			"output":  map[string]any{"type": "integer", "minimum": 1, "description": "Maximum generated tokens"},
+			"clear":   map[string]any{"type": "boolean", "description": "Remove the stored limit for this model; context and output are then ignored"},
+		},
+		"required": []string{"key", "model"},
 	}},
 	{Name: "provider_delete", Description: "Delete an LLM provider by key. The provider is also removed from the in-memory registry; agents referencing it will fail until they're updated.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "description": "Provider key to delete"}}, "required": []string{"key"}}},
 	{Name: "provider_discover_models", Description: "Discover available model IDs for a provider config by calling its model-listing API. Supported types: openai, anthropic, gemini, minimax. Pass an existing `key` to fall back to the stored API key if `config.api_key` is empty (useful when editing a provider whose key is redacted). Returns {models: [...]}.", InputSchema: map[string]any{

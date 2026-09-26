@@ -303,6 +303,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// mcpToolNames tracks which tool names come from MCP (dispatched via MCP client).
 	mcpToolNames := make(map[string]bool)
+	mcpSetToolMap := make(map[string]string)
 
 	// mcpClients holds initialized MCP clients (closed at the end).
 	var mcpClients []service.MCPClient
@@ -440,6 +441,19 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 	logi.Ctx(ctx).Info("agent_call: skill catalog ready",
 		"count", len(skillRuntime.Catalog()))
+	if reg.MCPSetToolLister != nil && reg.MCPSetToolCaller != nil {
+		for _, setName := range skillRuntime.ToolSetNames() {
+			tools, listErr := reg.MCPSetToolLister(ctx, setName)
+			if listErr != nil {
+				logi.Ctx(ctx).Warn("agent_call: failed to load migrated skill tool set", "set", setName, "error", listErr)
+				continue
+			}
+			for _, tool := range tools {
+				mcpSetToolMap[tool.Name] = setName
+				allTools = append(allTools, tool)
+			}
+		}
+	}
 
 	// 3. Builtin tools (from agent preset config).
 	if preset != nil && len(preset.Config.BuiltinTools) > 0 && reg.BuiltinToolDispatcher != nil {
@@ -877,6 +891,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				}
 			} else if tc.Name == workflow.ReadSkillResourceToolName {
 				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
+			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
+				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				result, callErr = reg.MCPSetToolCaller(toolCtx, setName, tc.Name, tc.Arguments)
+				cancel()
 			} else if mcpToolNames[tc.Name] {
 				// Dispatch to MCP client.
 				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)

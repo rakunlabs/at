@@ -582,7 +582,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 			// If the MCP set has server-side tools (HTTP/Builtins),
 			// resolve them directly — no HTTP loopback.
-			if len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
+			if len(set.Config.InlineTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
 				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
 					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
@@ -672,6 +672,23 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		})
 	if err != nil {
 		return fmt.Errorf("agentic loop: skill runtime: %w", err)
+	}
+	// Legacy handlers live in paired MCP sets after the documentation-only
+	// migration. Attach those executable resources automatically so existing
+	// agent skill references continue to work without restoring skill execution.
+	if s.mcpSetStore != nil {
+		for _, setName := range skillRuntime.ToolSetNames() {
+			setTools, setErr := s.listExecutionMCPSetTools(ctx, setName)
+			if setErr != nil {
+				slog.Warn("agentic loop: failed to load migrated skill tool set", "set", setName, "error", setErr)
+				continue
+			}
+			for _, tool := range setTools {
+				mcpToolNames[tool.Name] = true
+				mcpSetToolMap[tool.Name] = setName
+				allTools = append(allTools, tool)
+			}
+		}
 	}
 	forkedSkillPrompt := ""
 	if transient && transientRuntime.SkillID != "" {
@@ -1322,7 +1339,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				// Direct MCPSet tool — no HTTP round-trip.
 				callErr = workflow.AuthorizeMCPSetTool(ctx, setName, tc.Name)
 				if callErr == nil {
-					result, callErr = s.callExecutionMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+					result, callErr = s.callExecutionMCPSetTool(toolCtx, setName, tc.Name, tc.Arguments)
+					cancel()
 				}
 			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)

@@ -738,6 +738,8 @@ func (s *Server) buildWorkflowEngine(ctx context.Context) *workflow.Engine {
 		ProviderLookup:        providerLookup,
 		ScopedProviderLookup:  s.runtimeProviderLookup,
 		SkillLookup:           skillLookup,
+		MCPSetToolLister:      s.listExecutionMCPSetTools,
+		MCPSetToolCaller:      s.callExecutionMCPSetTool,
 		VarLookup:             varLookup,
 		VarLister:             varLister,
 		ScopedVarLister:       s.runtimeVariableLister,

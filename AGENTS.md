@@ -140,7 +140,14 @@ To override, edit the constants in `internal/service/loopgov/config.go` or add U
 
 Skills are Markdown instructions and resources. They never register or execute
 tools, and code fences are inert. Legacy `Skill.Tools` payloads are converted to
-Markdown references by `NormalizeDocumentationSkill` and migration 73.
+Markdown references by `NormalizeDocumentationSkill`. Migration 82 recovers the
+machine-readable payload preserved by migration 73 into a separate, paired MCP
+set; new skill writes create/update the same MCP set transactionally. Agent loops
+auto-attach that set from the existing skill reference, but execution still passes
+MCP-set, handler and variable-resource admission. Only variables explicitly named
+by a migrated handler are exposed to it; arbitrary shells never receive the whole
+secret store. Ordinary external skills can describe tools supplied by any MCP set
+already attached to the agent without gaining executable capability themselves.
 
 Independently configured shell handlers (`internal/service/workflow/handler.go`)
 still run under resource controls so a runaway workflow cannot peg the host:

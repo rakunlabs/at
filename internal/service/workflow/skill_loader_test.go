@@ -79,6 +79,10 @@ func TestSkillRuntime_CatalogContainsAttachedSkills(t *testing.T) {
 	if cat[0].Name != "slack" || cat[1].Name != "youtube" {
 		t.Errorf("catalog order = %q,%q want slack,youtube", cat[0].Name, cat[1].Name)
 	}
+	wantSets := []string{service.SkillToolMCPSetName("skill_sl"), service.SkillToolMCPSetName("skill_yt")}
+	if got := rt.ToolSetNames(); len(got) != 2 || got[0] != wantSets[0] || got[1] != wantSets[1] {
+		t.Errorf("ToolSetNames() = %#v, want %#v", got, wantSets)
+	}
 
 	prompt := rt.CatalogSystemPrompt()
 	for _, want := range []string{"youtube", "slack", "Publish videos", "Post messages", "load_skill"} {
@@ -140,7 +144,7 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleLoadSkill: %v", err)
 	}
-	for _, want := range []string{"youtube", "documentation only", "You are a YouTube publisher"} {
+	for _, want := range []string{"youtube", "documentation copy", "You are a YouTube publisher"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("result missing %q: %q", want, result)
 		}

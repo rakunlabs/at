@@ -209,6 +209,26 @@ func (r *SkillRuntime) HasFork() bool {
 	return false
 }
 
+// ToolSetNames returns independently persisted MCP tool packs paired with
+// migrated legacy skills. Loading these sets does not execute skill content.
+func (r *SkillRuntime) ToolSetNames() []string {
+	seen := map[string]bool{}
+	var names []string
+	for _, entry := range r.catalog {
+		skill := r.registry[entry.Name]
+		if !service.HasLegacySkillTools(skill) || skill.ID == "" {
+			continue
+		}
+		name := service.SkillToolMCPSetName(skill.ID)
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // Catalog returns the (read-only) list of catalog entries — useful for
 // tests and logging. Callers must not mutate the returned slice.
 func (r *SkillRuntime) Catalog() []SkillCatalogEntry {

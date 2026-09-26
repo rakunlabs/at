@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 type mcpToolCall func(context.Context, map[string]any) (string, error)
@@ -328,6 +329,7 @@ func (s *Server) newMCPRuntimeBuilder() *mcpRuntimeBuilder {
 // HTTP > upstream > referenced set > URL > builtin > workflow.
 func (b *mcpRuntimeBuilder) buildGateway(ctx context.Context, srv *service.MCPServer) *mcpRuntime {
 	runtime := newMCPRuntime()
+	b.addInlineTools(runtime, srv)
 	b.addHTTPTools(runtime, srv, true)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 
@@ -374,11 +376,36 @@ func (b *mcpRuntimeBuilder) buildSet(ctx context.Context, setName string) (*mcpR
 	}
 
 	runtime := newMCPRuntime()
+	b.addInlineTools(runtime, srv)
 	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 	b.addHTTPTools(runtime, srv, false)
 	return runtime, nil
+}
+
+func (b *mcpRuntimeBuilder) addInlineTools(runtime *mcpRuntime, srv *service.MCPServer) {
+	for _, configured := range srv.Config.InlineTools {
+		configured := configured
+		schema := configured.InputSchema
+		if schema == nil {
+			schema = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		tool := service.Tool{Name: configured.Name, Description: configured.Description, InputSchema: schema}
+		runtime.addTool(tool, "MCP inline tool", func(ctx context.Context, args map[string]any) (string, error) {
+			if err := workflow.AuthorizeToolHandler(ctx, configured.Name, configured.HandlerType, configured.SourceSkillID, configured.Handler); err != nil {
+				return "", err
+			}
+			lookup, lister, err := b.server.inlineToolVariables(ctx, configured)
+			if err != nil {
+				return "", err
+			}
+			if configured.HandlerType == "bash" {
+				return workflow.ExecuteBashHandler(ctx, configured.Handler, args, lister, 0)
+			}
+			return workflow.ExecuteJSHandlerWithOptions(configured.Handler, args, workflow.JSHandlerOptions{Context: ctx, VarLookup: lookup})
+		})
+	}
 }
 
 func (b *mcpRuntimeBuilder) addHTTPTools(runtime *mcpRuntime, srv *service.MCPServer, gatewayResult bool) {

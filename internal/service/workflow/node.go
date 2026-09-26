@@ -273,6 +273,11 @@ type Dependencies struct {
 	// Used by agent_call nodes to load documentation skill instructions.
 	SkillLookup SkillLookup
 
+	// MCPSetToolLister/Caller expose independently configured MCP-set tools to
+	// agent_call nodes without coupling the workflow package to the server.
+	MCPSetToolLister MCPSetToolListerFunc
+	MCPSetToolCaller MCPSetToolCallerFunc
+
 	// VarLookup resolves a variable key to its plaintext value.
 	// Used by getVar() in the Goja JS VM.
 	VarLookup VarLookup
@@ -400,6 +405,10 @@ type ProviderLookup func(key string) (service.LLMProvider, string, error)
 
 // SkillLookup resolves a skill name or ID to a Skill definition.
 type SkillLookup func(nameOrID string) (*service.Skill, error)
+
+type MCPSetToolListerFunc func(context.Context, string) ([]service.Tool, error)
+
+type MCPSetToolCallerFunc func(context.Context, string, string, map[string]any) (string, error)
 
 // VarLookup resolves a variable key to its plaintext value.
 type VarLookup func(key string) (string, error)

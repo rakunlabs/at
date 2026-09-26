@@ -24,9 +24,6 @@ func (s *Server) buildExecutionMCPSet(ctx context.Context, setName string) (*mcp
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}); err != nil {
 		return nil, err
 	}
-	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "handler", Name: "javascript"}); err != nil {
-		return nil, err
-	}
 	srv, err := s.mcpSetToVirtualServer(ctx, setName)
 	if err != nil {
 		return nil, err
@@ -45,6 +42,7 @@ func (s *Server) buildExecutionMCPConfig(ctx context.Context, srv *service.MCPSe
 		client, err := s.newExecutionMCPClient(ctx, u)
 		return mcpClientLease{client: client, owned: true}, err
 	}}
+	b.addInlineTools(runtime, srv)
 	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)

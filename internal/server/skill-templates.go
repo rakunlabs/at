@@ -59,7 +59,6 @@ type RequiredVariable struct {
 // parser; extracting those scripts into standalone assets is a separate
 // migration.
 func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) error {
-	_ = validateBash // Code fences are documentation and are never shell-parsed.
 	var errs []error
 	require := func(path, value string) {
 		if strings.TrimSpace(value) == "" {
@@ -74,9 +73,6 @@ func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) 
 	require("skill.name", tmpl.Skill.Name)
 	require("skill.description", tmpl.Skill.Description)
 	require("skill.system_prompt", tmpl.Skill.SystemPrompt)
-	if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
-		errs = append(errs, err)
-	}
 
 	variableKeys := make(map[string]struct{}, len(tmpl.RequiredVariables))
 	for i, variable := range tmpl.RequiredVariables {
@@ -87,6 +83,32 @@ func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) 
 			errs = append(errs, fmt.Errorf("%s.key %q is duplicated", path, variable.Key))
 		}
 		variableKeys[variable.Key] = struct{}{}
+	}
+	toolNames := make(map[string]struct{}, len(tmpl.Skill.Tools))
+	for i, tool := range tmpl.Skill.Tools {
+		path := fmt.Sprintf("skill.tools[%d]", i)
+		require(path+".name", tool.Name)
+		require(path+".description", tool.Description)
+		require(path+".handler_type", tool.HandlerType)
+		require(path+".handler", tool.Handler)
+		if _, exists := toolNames[tool.Name]; exists && tool.Name != "" {
+			errs = append(errs, fmt.Errorf("%s.name %q is duplicated", path, tool.Name))
+		}
+		toolNames[tool.Name] = struct{}{}
+		if tool.InputSchema == nil {
+			errs = append(errs, fmt.Errorf("%s.inputSchema is required", path))
+		}
+		switch tool.HandlerType {
+		case "bash":
+			if validateBash != nil && strings.TrimSpace(tool.Handler) != "" {
+				if err := validateBash(tool.Handler); err != nil {
+					errs = append(errs, fmt.Errorf("%s.handler has invalid bash syntax: %w", path, err))
+				}
+			}
+		case "js", "javascript":
+		default:
+			errs = append(errs, fmt.Errorf("%s.handler_type %q is unsupported", path, tool.HandlerType))
+		}
 	}
 
 	return errors.Join(errs...)
@@ -163,11 +185,6 @@ func (s *Server) loadSkillTemplates() {
 			slog.Warn("failed to parse skill template", "file", entry.Name(), "error", err)
 			continue
 		}
-		if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
-			slog.Warn("failed to normalize skill template", "file", entry.Name(), "error", err)
-			continue
-		}
-
 		s.skillTemplates = append(s.skillTemplates, tmpl)
 	}
 
@@ -184,10 +201,6 @@ func (s *Server) syncInstalledSkillTemplates(ctx context.Context) {
 	}
 
 	for _, tmpl := range s.skillTemplates {
-		if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
-			slog.Warn("skill-templates: failed to normalize embedded template", "skill", tmpl.Skill.Name, "error", err)
-			continue
-		}
 		installed, err := s.skillStore.GetSkillByName(ctx, tmpl.Skill.Name)
 		if err != nil {
 			continue // lookup error — skip
@@ -222,8 +235,18 @@ func (s *Server) syncInstalledSkillTemplates(ctx context.Context) {
 			}
 			updated := *installed
 			if previouslySynced {
+				if packStore, ok := s.skillStore.(service.SkillToolPackStorer); ok && len(tmpl.Skill.Tools) > 0 {
+					if err := packStore.UpsertSkillToolPack(ctx, installed.ID, tmpl.Skill.Tools, "system"); err != nil {
+						slog.Warn("skill-templates: failed to sync legacy executable tool pack", "skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
+						continue
+					}
+				}
+				if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+					slog.Warn("skill-templates: failed to normalize legacy documentation", "skill", tmpl.Skill.Name, "error", err)
+					continue
+				}
 				updated.SystemPrompt = tmpl.Skill.SystemPrompt
-				updated.Tools = tmpl.Skill.Tools
+				updated.Tools = nil
 			}
 			updated.SourceURL = sourceURL
 			updated.SourceChecksum = templateChecksum
@@ -255,6 +278,18 @@ func (s *Server) syncInstalledSkillTemplates(ctx context.Context) {
 		updated.Tools = tmpl.Skill.Tools
 		updated.SourceChecksum = templateChecksum
 		updated.UpdatedBy = "system"
+		if packStore, ok := s.skillStore.(service.SkillToolPackStorer); ok && len(updated.Tools) > 0 {
+			if err := packStore.UpsertSkillToolPack(ctx, installed.ID, updated.Tools, updated.UpdatedBy); err != nil {
+				slog.Warn("skill-templates: failed to sync executable tool pack", "skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
+				continue
+			}
+		}
+		if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
+			slog.Warn("skill-templates: failed to normalize synchronized documentation", "skill", tmpl.Skill.Name, "error", err)
+			continue
+		}
+		updated.SystemPrompt = tmpl.Skill.SystemPrompt
+		updated.Tools = nil
 		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, updated)
 		if err != nil {
 			slog.Warn("skill-templates: failed to sync skill documentation",
@@ -316,11 +351,6 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 		httpResponse(w, fmt.Sprintf("template %q not found", slug), http.StatusNotFound)
 		return
 	}
-	if err := normalizeSkillTemplateData(&tmpl.Skill); err != nil {
-		httpResponse(w, fmt.Sprintf("failed to normalize template: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	userEmail := s.getUserEmail(r)
 	checksum, err := skillTemplateManagedChecksum(tmpl.Skill)
 	if err != nil {

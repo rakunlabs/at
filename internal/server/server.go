@@ -677,6 +677,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		}
 
 		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, s.builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
+		s.scheduler.SetMCPSetTools(s.listExecutionMCPSetTools, s.callExecutionMCPSetTool)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		// Cron runs execute under the trigger's persisted workspace principal,
 		// never an ambient installation-wide context.

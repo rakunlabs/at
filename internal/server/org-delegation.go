@@ -302,6 +302,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// e2) Load documentation skill instructions and resources for this agent.
 	skillResources := map[string]*service.Skill{}
 	var skillPromptFragments []string
+	var skillToolSets []string
 
 	if s.skillStore != nil {
 		for _, skillRef := range agent.Config.Skills {
@@ -327,6 +328,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					continue
 				}
 				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
+			}
+			if service.HasLegacySkillTools(skill) {
+				skillToolSets = append(skillToolSets, service.SkillToolMCPSetName(skill.ID))
 			}
 			if len(skill.Resources) > 0 {
 				canonical := skill.Name
@@ -403,12 +407,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 	}()
 
-	if s.mcpSetStore != nil && len(agent.Config.MCPSets) > 0 {
+	mcpSetNames := append([]string{}, agent.Config.MCPSets...)
+	mcpSetNames = append(mcpSetNames, skillToolSets...)
+	if s.mcpSetStore != nil && len(mcpSetNames) > 0 {
 		var mcpURLs []string
 		mcpURLs = append(mcpURLs, agent.Config.MCPs...)
 		var mcpSetUpstreams []service.MCPUpstream
 
-		for _, setName := range agent.Config.MCPSets {
+		for _, setName := range mcpSetNames {
 			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
 				continue
 			}
@@ -427,7 +433,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 			// Server-side tools (builtins/HTTP/workflows) resolve
 			// directly through callMCPSetTool — no HTTP round-trip needed.
-			if len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
+			if len(set.Config.InlineTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
 				len(set.Config.WorkflowIDs) > 0 {
 				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
@@ -1193,7 +1199,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// MCP-set tool resolved server-side (workflow exposed as a
 				// wf_* tool, or a skill/builtin/HTTP tool declared via
 				// mcp_sets) — no HTTP round-trip.
-				result, callErr := s.callExecutionMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				result, callErr := s.callExecutionMCPSetTool(toolCtx, setName, tc.Name, tc.Arguments)
+				cancel()
 				if callErr != nil {
 					slog.Error("org-delegation: mcp-set tool call failed",
 						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)

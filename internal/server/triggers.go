@@ -618,6 +618,8 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		ProviderLookup:        providerLookup,
 		ScopedProviderLookup:  s.runtimeProviderLookup,
 		SkillLookup:           skillLookup,
+		MCPSetToolLister:      s.listExecutionMCPSetTools,
+		MCPSetToolCaller:      s.callExecutionMCPSetTool,
 		VarLookup:             varLookup,
 		VarLister:             varLister,
 		ScopedVarLister:       s.runtimeVariableLister,

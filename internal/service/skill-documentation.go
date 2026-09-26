@@ -8,6 +8,18 @@ import (
 
 const LegacySkillToolsHeading = "## Legacy tool references"
 
+const skillToolMCPSetPrefix = "__skill_tools_"
+
+// SkillToolMCPSetName returns the internal MCP-set name paired with a skill.
+// The set is a separate executable resource; the skill remains documentation.
+func SkillToolMCPSetName(skillID string) string {
+	return skillToolMCPSetPrefix + skillID
+}
+
+func HasLegacySkillTools(skill *Skill) bool {
+	return skill != nil && strings.Contains(skill.SystemPrompt, LegacySkillToolsHeading)
+}
+
 // NormalizeDocumentationSkill preserves legacy executable tool definitions as
 // Markdown reference material, then clears them. Skills are documentation: no
 // runtime may derive executable capabilities from their contents.
@@ -21,7 +33,7 @@ func NormalizeDocumentationSkill(skill *Skill) error {
 		b.WriteString("\n\n")
 	}
 	b.WriteString(LegacySkillToolsHeading)
-	b.WriteString("\n\nThese legacy definitions are documentation only. They are not registered or executed as tools. Use capabilities already attached to the agent, such as built-in or MCP tools.\n")
+	b.WriteString("\n\nThese definitions are a documentation copy. Executable copies, when installed, are provided through a separately authorized MCP tool pack; otherwise use capabilities already attached to the agent.\n")
 	for _, tool := range skill.Tools {
 		fmt.Fprintf(&b, "\n### `%s`\n\n", tool.Name)
 		if tool.Description != "" {

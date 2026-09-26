@@ -214,6 +214,12 @@ type SkillPublisher interface {
 	PublishSkillToWorkspace(ctx context.Context, id, by string) (*Skill, error)
 }
 
+// SkillToolPackStorer persists executable handlers in the MCP resource plane
+// while the corresponding skill remains documentation-only.
+type SkillToolPackStorer interface {
+	UpsertSkillToolPack(ctx context.Context, skillID string, tools []Tool, updatedBy string) error
+}
+
 // ─── Pack Source Management ───
 
 // PackSource represents a Git repository registered as a source of integration packs.
