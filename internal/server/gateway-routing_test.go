@@ -48,7 +48,7 @@ func TestGatewayRouting(t *testing.T) {
 	// Deliberately unsorted keys and models: the response must not depend on
 	// Go's map iteration order.
 	s, err := New(ctx, cfg, map[string]ProviderInfo{
-		"zeta":  {defaultModel: "fallback", models: []string{"delta", "beta"}},
+		"zeta":  {defaultModel: "fallback", models: []string{"delta", "beta"}, modelLimits: map[string]config.ModelLimit{"beta": {Context: 1_000_000, Output: 128_000}}},
 		"alpha": {defaultModel: "only"},
 		"empty": {},
 	}, p, "postgres", nil, nil, "test", "", "")
@@ -91,6 +91,9 @@ func TestGatewayRouting(t *testing.T) {
 		want := []string{"alpha/only", "zeta/beta", "zeta/delta"}
 		if strings.Join(ids, ",") != strings.Join(want, ",") {
 			t.Fatalf("ids %v want %v", ids, want)
+		}
+		if got.Data[1].ContextLength != 1_000_000 || got.Data[1].MaxOutputTokens != 128_000 {
+			t.Fatalf("beta limits = context %d output %d", got.Data[1].ContextLength, got.Data[1].MaxOutputTokens)
 		}
 	})
 

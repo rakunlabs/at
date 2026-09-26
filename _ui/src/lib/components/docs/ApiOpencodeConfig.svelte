@@ -178,15 +178,26 @@
     <code
       class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
       >models</code
-    > stays empty and you never edit the file again when providers change. Paste the block into
+    > stays empty and you never edit the file again when providers change. Model token limits configured on the Providers page are discovered with the model list. Paste the block into
     <code
       class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
       >~/.config/opencode/opencode.json</code
     > and run
     <code
       class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
-      >opencode auth login</code
+    >opencode auth login</code
     > with a gateway API token — the list endpoint is authenticated.
+  </p>
+  <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+    The generated discovery block uses
+    <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >modelInfoFormat: "omniroute"</code
+    > so opencode reads each model's configured context and maximum output limits instead of applying unknown-model defaults. After updating an existing config, run
+    <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >opencode service restart</code
+    > once.
   </p>
 {:else}
   <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">

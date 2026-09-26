@@ -1016,6 +1016,8 @@
   let formModel = $state('');
   let formModels = $state<string[]>([]);
   let newModelInput = $state('');
+  let formModelLimits = $state<Record<string, { context: string; output: string }>>({});
+  let showModelLimitsSection = $state(false);
   let formEmbeddingModels = $state<string[]>([]);
   let newEmbeddingModelInput = $state('');
   let formAuthType = $state('');
@@ -1044,6 +1046,9 @@
   let formRateLimitWaitTimeoutMs = $state('');
   let formRateLimitRetryAfterCapMs = $state('');
   let showRateLimitSection = $state(false);
+  let modelLimitModels = $derived(
+    [...new Set((formModels.length > 0 ? formModels : [formModel]).map((model) => model.trim()))].filter(Boolean),
+  );
 
   // Device auth state (subscription-backed provider device flows)
   let deviceAuthPending = $state(false);
@@ -1126,6 +1131,8 @@
     formModel = '';
     formModels = [];
     newModelInput = '';
+    formModelLimits = {};
+    showModelLimitsSection = false;
     formEmbeddingModels = [];
     newEmbeddingModelInput = '';
     formAuthType = '';
@@ -1173,6 +1180,13 @@
     formBaseUrl = preset.config.base_url || '';
     formModel = preset.config.model || '';
     formModels = [...(preset.config.models || [])];
+    formModelLimits = Object.fromEntries(
+      Object.entries(preset.config.model_limits || {}).map(([model, limit]) => [
+        model,
+        { context: String(limit.context), output: String(limit.output) },
+      ]),
+    );
+    showModelLimitsSection = Object.keys(formModelLimits).length > 0;
     formEmbeddingModels = [...(preset.config.embedding_models || [])];
     formAuthType = preset.config.auth_type || '';
     formProxy = '';
@@ -1199,6 +1213,13 @@
     formBaseUrl = rec.config.base_url || '';
     formModel = rec.config.model;
     formModels = [...(rec.config.models || [])];
+    formModelLimits = Object.fromEntries(
+      Object.entries(rec.config.model_limits || {}).map(([model, limit]) => [
+        model,
+        { context: String(limit.context), output: String(limit.output) },
+      ]),
+    );
+    showModelLimitsSection = Object.keys(formModelLimits).length > 0;
     formEmbeddingModels = [...(rec.config.embedding_models || [])];
     formAuthType = rec.config.auth_type || '';
     formProxy = rec.config.proxy || '';
@@ -1238,6 +1259,18 @@
 
     const models = formModels.filter(Boolean);
     if (models.length > 0) cfg.models = models;
+
+    const modelLimits: NonNullable<LLMConfig['model_limits']> = {};
+    for (const model of modelLimitModels) {
+      const limit = formModelLimits[model];
+      if (!limit?.context.trim() && !limit?.output.trim()) continue;
+      const context = Number(limit.context);
+      const output = Number(limit.output);
+      if (Number.isFinite(context) && context > 0 && Number.isFinite(output) && output > 0) {
+        modelLimits[model] = { context, output };
+      }
+    }
+    if (Object.keys(modelLimits).length > 0) cfg.model_limits = modelLimits;
 
     const embeddingModels = formEmbeddingModels.filter(Boolean);
     if (embeddingModels.length > 0) cfg.embedding_models = embeddingModels;
@@ -1283,6 +1316,12 @@
 
     if (credentialsError) {
       addToast(credentialsError, 'warn');
+      return;
+    }
+
+    const limitsError = validateModelLimitsForm();
+    if (limitsError) {
+      addToast(limitsError, 'warn');
       return;
     }
 
@@ -1454,7 +1493,36 @@
   }
 
   function removeModel(index: number) {
+    const model = formModels[index];
     formModels = formModels.filter((_, i) => i !== index);
+    if (model && model !== formModel) {
+      const { [model]: _, ...rest } = formModelLimits;
+      formModelLimits = rest;
+    }
+  }
+
+  function setModelLimit(model: string, field: 'context' | 'output', value: string) {
+    const current = formModelLimits[model] || { context: '', output: '' };
+    formModelLimits = {
+      ...formModelLimits,
+      [model]: { ...current, [field]: value },
+    };
+  }
+
+  function validateModelLimitsForm(): string {
+    for (const model of modelLimitModels) {
+      const limit = formModelLimits[model];
+      if (!limit?.context.trim() && !limit?.output.trim()) continue;
+      const context = Number(limit.context);
+      const output = Number(limit.output);
+      if (!Number.isInteger(context) || context <= 0 || !Number.isInteger(output) || output <= 0) {
+        return `Context and output limits for "${model}" must both be positive whole numbers`;
+      }
+      if (output > context) {
+        return `Output limit for "${model}" cannot exceed its context limit`;
+      }
+    }
+    return '';
   }
 
   function addEmbeddingModel() {
@@ -2537,6 +2605,62 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- Model token limits -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <button
+            type="button"
+            onclick={() => showModelLimitsSection = !showModelLimitsSection}
+            class="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-dark-base text-left"
+          >
+            <span>
+              <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model token limits</span>
+              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Advertised to clients through the gateway model catalog</span>
+            </span>
+            <ChevronDown size={15} class={showModelLimitsSection ? 'rotate-180' : ''} />
+          </button>
+          {#if showModelLimitsSection}
+            <div class="p-3 space-y-3 border-t border-gray-200 dark:border-dark-border">
+              <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                Set both values only when the upstream limit is known. These values guide client-side compaction; they do not create a usage quota.
+              </p>
+              {#if modelLimitModels.length === 0}
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
+              {:else}
+                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_8rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
+                  <span>Model</span>
+                  <span>Context tokens</span>
+                  <span>Max output</span>
+                </div>
+                {#each modelLimitModels as model}
+                  <div class="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem] gap-2 items-center">
+                    <span class="col-span-2 sm:col-span-1 truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formModelLimits[model]?.context || ''}
+                      oninput={(e) => setModelLimit(model, 'context', e.currentTarget.value)}
+                      placeholder="1000000"
+                      aria-label={`${model} context tokens`}
+                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formModelLimits[model]?.output || ''}
+                      oninput={(e) => setModelLimit(model, 'output', e.currentTarget.value)}
+                      placeholder="128000"
+                      aria-label={`${model} maximum output tokens`}
+                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+                    />
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
         </div>
 
         <!-- Embedding Models -->

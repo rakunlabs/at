@@ -27,26 +27,51 @@
 
   const arcs = $derived(pieLayout(slices));
   const total = $derived(slices.reduce((sum, s) => sum + s.value, 0));
+  let hoverIndex = $state<number | null>(null);
+  const hovered = $derived(hoverIndex === null ? null : (slices[hoverIndex] ?? null));
+
+  function percent(value: number): string {
+    return total > 0 ? `${((value / total) * 100).toFixed(1)}%` : '0%';
+  }
 </script>
 
 <div class="flex items-center gap-4">
-  <svg width={size} height={size} class="overflow-visible">
+  <svg width={size} height={size} class="overflow-visible" role="img" onmouseleave={() => (hoverIndex = null)}>
     <g transform="translate({radius}, {radius})">
-      {#each arcs as a}
-        <path d={arcGen(a) || ''} fill={a.data.color} />
+      {#each arcs as a, index}
+        <path
+          d={arcGen(a) || ''}
+          fill={a.data.color}
+          opacity={hoverIndex === null || hoverIndex === index ? 1 : 0.35}
+          role="presentation"
+          onmouseenter={() => (hoverIndex = index)}
+        />
       {/each}
-      <text
-        y="4"
-        text-anchor="middle"
-        class="text-xs font-medium fill-gray-700 dark:fill-dark-text-secondary"
-      >
-        {formatValue(total)}
-      </text>
+      {#if hovered}
+        <text y="-8" text-anchor="middle" class="text-[10px] fill-gray-500 dark:fill-dark-text-muted">
+          {(hovered.label || '(none)').length > 16 ? `${(hovered.label || '(none)').slice(0, 15)}…` : hovered.label || '(none)'}
+        </text>
+        <text y="6" text-anchor="middle" class="text-xs font-medium fill-gray-900 dark:fill-dark-text">{formatValue(hovered.value)}</text>
+        <text y="19" text-anchor="middle" class="text-[10px] fill-gray-500 dark:fill-dark-text-muted">{percent(hovered.value)}</text>
+      {:else}
+        <text
+          y="4"
+          text-anchor="middle"
+          class="text-xs font-medium fill-gray-700 dark:fill-dark-text-secondary"
+        >
+          {formatValue(total)}
+        </text>
+      {/if}
     </g>
   </svg>
   <div class="flex flex-col gap-1 text-xs">
-    {#each slices as s}
-      <div class="flex items-center gap-2">
+    {#each slices as s, index}
+      <div
+        class={["flex items-center gap-2 px-1", hoverIndex === index ? 'bg-gray-100 dark:bg-dark-elevated' : '']}
+        role="presentation"
+        onmouseenter={() => (hoverIndex = index)}
+        onmouseleave={() => (hoverIndex = null)}
+      >
         <span class="inline-block w-3 h-3 rounded-sm" style="background: {s.color}"></span>
         <span class="font-mono text-gray-600 dark:text-dark-text-secondary truncate max-w-24" title={s.label}>
           {s.label || '(none)'}

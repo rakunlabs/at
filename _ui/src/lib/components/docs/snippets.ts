@@ -204,6 +204,10 @@ export function opencodeDiscoveryConfig(opts: {
       modelsDiscovery: {
         enabled: true,
         endpoint: gatewayModelsPath(opts.baseUrl),
+        // AT publishes context_length and max_output_tokens inline. This
+        // enrichment format makes the discovery plugin carry those values
+        // into opencode instead of applying its unknown-model defaults.
+        modelInfoFormat: 'omniroute',
       },
     },
     models: {},

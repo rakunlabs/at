@@ -49,6 +49,26 @@
   const tickStep = $derived(Math.max(1, Math.ceil(buckets.length / Math.max(2, Math.floor(plotWidth / 90)))));
   const span = $derived((buckets.at(-1)?.getTime() || 0) - (buckets[0]?.getTime() || 0));
 
+  let hoverKey = $state<string | null>(null);
+  const hoverBucket = $derived(hoverKey === null ? null : buckets.find(value => String(value.getTime()) === hoverKey) ?? null);
+  const hoverRows = $derived(
+    hoverKey === null
+      ? []
+      : series.map(item => ({
+          name: item.name,
+          color: item.color,
+          y: item.values.find(value => String(value.x.getTime()) === hoverKey)?.y ?? null,
+        })),
+  );
+  const hoverCenter = $derived(hoverKey === null ? 0 : margin.left + (xScale(hoverKey) || 0) + xScale.bandwidth() / 2);
+
+  function formatHoverDate(value: Date): string {
+    if (span <= 2 * 24 * 60 * 60 * 1000) {
+      return value.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+    return value.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   function formatTick(value: Date): string {
     if (span <= 2 * 24 * 60 * 60 * 1000) {
       return value.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -57,8 +77,12 @@
   }
 </script>
 
-<div bind:this={container} class="w-full">
-  <svg {width} {height} class="overflow-visible">
+<div bind:this={container} class="relative w-full">
+  <svg {width} {height} class="overflow-visible" role="img" onmouseleave={() => (hoverKey = null)}>
+    {#if hoverKey !== null}
+      <rect x={margin.left + (xScale(hoverKey) || 0)} y={margin.top} width={xScale.bandwidth()} height={plotHeight} class="fill-gray-100 dark:fill-dark-elevated" />
+    {/if}
+
     {#each yTicks as tick}
       <line x1={margin.left} x2={margin.left + plotWidth} y1={margin.top + yScale(tick)} y2={margin.top + yScale(tick)} class="stroke-gray-200 dark:stroke-dark-border" stroke-width="1" />
       <text x={margin.left - 6} y={margin.top + yScale(tick) + 3} class="fill-gray-500 text-[10px] dark:fill-dark-text-muted" text-anchor="end">{formatY(tick)}</text>
@@ -77,14 +101,40 @@
             {@const x = (xScale(String(value.x.getTime())) || 0) + (seriesScale(item.name) || 0)}
             {@const barWidth = Math.max(1, seriesScale.bandwidth())}
             {@const barHeight = Math.max(0, plotHeight - yScale(value.y))}
-            <rect x={x} y={yScale(value.y)} width={barWidth} height={barHeight} fill={item.color}>
-              <title>{item.name} · {value.x.toLocaleString()} · {formatY(value.y)}</title>
-            </rect>
+            <rect x={x} y={yScale(value.y)} width={barWidth} height={barHeight} fill={item.color} />
           {/if}
         {/each}
       {/each}
+
+      {#each bucketKeys as key}
+        <rect
+          x={(xScale(key) || 0) - (xScale.step() - xScale.bandwidth()) / 2}
+          y={0}
+          width={xScale.step()}
+          height={plotHeight}
+          fill="transparent"
+          role="presentation"
+          onmouseenter={() => (hoverKey = key)}
+        />
+      {/each}
     </g>
   </svg>
+
+  {#if hoverBucket}
+    <div
+      class="pointer-events-none absolute z-10 min-w-36 border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] shadow-sm dark:border-dark-border dark:bg-dark-surface"
+      style={`top:${margin.top}px; left:${hoverCenter}px; transform:translateX(${hoverCenter > width / 2 ? 'calc(-100% - 12px)' : '12px'})`}
+    >
+      <div class="mb-1 font-medium text-gray-900 dark:text-dark-text">{formatHoverDate(hoverBucket)}</div>
+      {#each hoverRows as row}
+        <div class="flex items-center gap-2 text-gray-600 dark:text-dark-text-secondary">
+          <span class="inline-block h-2 w-2 shrink-0" style={`background:${row.color}`}></span>
+          <span class="truncate">{row.name}</span>
+          <span class="ml-auto pl-3 font-mono tabular-nums text-gray-900 dark:text-dark-text">{row.y === null ? '—' : formatY(row.y)}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   {#if series.length > 1}
     <div class="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-600 dark:text-dark-text-secondary">

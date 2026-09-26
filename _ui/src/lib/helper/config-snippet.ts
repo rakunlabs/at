@@ -27,6 +27,10 @@ function buildCleanConfig(config: LLMConfig): Record<string, unknown> {
     clean.models = config.models;
   }
 
+  if (config.model_limits && Object.keys(config.model_limits).length > 0) {
+    clean.model_limits = config.model_limits;
+  }
+
   if (config.extra_headers && Object.keys(config.extra_headers).length > 0) {
     clean.extra_headers = config.extra_headers;
   }

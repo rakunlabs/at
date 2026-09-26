@@ -162,6 +162,9 @@ func (s *Server) execProviderCreate(ctx context.Context, args map[string]any) (s
 	if msg := validateRateLimitConfig(cfg.RateLimit); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
+	if msg := validateModelLimits(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
 	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
@@ -210,6 +213,9 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("config.type is required")
 	}
 	if msg := validateRateLimitConfig(cfg.RateLimit); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
+	if msg := validateModelLimits(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
 

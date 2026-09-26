@@ -270,6 +270,12 @@ type LLMConfig struct {
 	// If empty, only the default Model is advertised and no strict validation is applied.
 	Models []string `cfg:"models" json:"models"`
 
+	// ModelLimits advertises per-model token limits through /gateway/v1/models.
+	// The map key is the provider-local model identifier from Models (or Model).
+	// These values describe upstream capacity; they do not impose a smaller AT
+	// request quota. OpenAI-compatible clients may ignore the extension fields.
+	ModelLimits map[string]ModelLimit `cfg:"model_limits" json:"model_limits,omitempty"`
+
 	// EmbeddingModels is the list of embedding models this provider serves via
 	// POST /gateway/v1/embeddings. They are advertised by /gateway/v1/models
 	// alongside chat models. Advisory — requests for models outside this list
@@ -340,6 +346,13 @@ type LLMConfig struct {
 	//     wait_timeout_ms: 60000
 	//     retry_after_cap_ms: 60000
 	RateLimit *RateLimitConfig `cfg:"rate_limit" json:"rate_limit,omitempty"`
+}
+
+// ModelLimit describes the token capacity advertised for one model. Context is
+// the complete context window and Output is the maximum generated-token budget.
+type ModelLimit struct {
+	Context int `cfg:"context" json:"context"`
+	Output  int `cfg:"output" json:"output"`
 }
 
 // RateLimitConfig describes the per-provider rate-limit policy. All fields

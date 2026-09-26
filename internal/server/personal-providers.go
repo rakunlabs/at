@@ -34,6 +34,10 @@ func validatePersonalProviderRequest(w http.ResponseWriter, cfg config.LLMConfig
 		httpResponse(w, msg, http.StatusBadRequest)
 		return false
 	}
+	if msg := validateModelLimits(cfg); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return false
+	}
 	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return false

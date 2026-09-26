@@ -35,7 +35,7 @@
     return $location === path || (path !== '/' && $location.startsWith(path + '/'));
   }
   const navClass = (active: boolean) => [
-    'flex items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
+    'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
     active
       ? 'bg-gray-100 dark:bg-dark-elevated font-semibold'
       : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
@@ -52,11 +52,21 @@
     <!-- Keyed by path: the list shrinks once the feature catalog loads (everything
          reads enabled until then), and an unkeyed each reuses each index's DOM —
          which updated the label but left the previous entry's icon behind. -->
-    {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item (item.path)}<a href={`#${item.path}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} /><span>{item.label}</span></a>{/each}
+    {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item (item.path)}<a href={`#${item.path}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} class="shrink-0" />{@render navLabel(item.label)}</a>{/each}
   </nav>
   <!-- Settings is never gated (it is the way back to the Features page, and the
        only surface an account with no workspace can use), but Documentation is:
        its guides API answers 404 once the feature is off and 403 for an account
        with no workspace, so the link is filtered on both. -->
-  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeAllowed('/docs') && routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} />Documentation</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} />Settings</a></nav>
+  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeAllowed('/docs') && routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} class="shrink-0" />{@render navLabel('Documentation')}</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} class="shrink-0" />{@render navLabel('Settings')}</a></nav>
 </aside>
+
+<!-- The selected link is semibold. A hidden semibold copy shares the grid cell
+     so the label always reserves its bold width: selecting a link no longer
+     widens it, and a long label cannot wrap onto a second line. -->
+{#snippet navLabel(label: string)}
+  <span class="grid min-w-0">
+    <span class="col-start-1 row-start-1 truncate whitespace-nowrap">{label}</span>
+    <span aria-hidden="true" class="invisible col-start-1 row-start-1 h-0 overflow-hidden whitespace-nowrap font-semibold">{label}</span>
+  </span>
+{/snippet}

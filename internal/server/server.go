@@ -44,6 +44,7 @@ type ProviderInfo struct {
 	authType     string // "", "copilot", "chatgpt", "claude-code", ...
 	defaultModel string
 	models       []string // all supported chat models; if empty, only defaultModel is advertised
+	modelLimits  map[string]config.ModelLimit
 
 	// embeddingModels lists the embedding models this provider serves via
 	// /gateway/v1/embeddings. Advertised by /gateway/v1/models; advisory.
@@ -1431,6 +1432,7 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		authType:        cfg.AuthType,
 		defaultModel:    cfg.Model,
 		models:          cfg.Models,
+		modelLimits:     cfg.ModelLimits,
 		embeddingModels: cfg.EmbeddingModels,
 		disabled:        cfg.Disabled,
 		retryAfterCap:   cap,

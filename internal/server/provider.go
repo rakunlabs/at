@@ -130,6 +130,38 @@ func validateRateLimitConfig(rl *config.RateLimitConfig) string {
 	return ""
 }
 
+// validateModelLimits checks metadata that is published to gateway clients.
+// Both values are required together because discovery clients cannot safely
+// infer the missing half of a model's usable token budget.
+func validateModelLimits(cfg config.LLMConfig) string {
+	advertised := make(map[string]bool, len(cfg.Models)+1)
+	if len(cfg.Models) > 0 {
+		for _, model := range cfg.Models {
+			advertised[model] = true
+		}
+	} else if cfg.Model != "" {
+		advertised[cfg.Model] = true
+	}
+	for model, limit := range cfg.ModelLimits {
+		if strings.TrimSpace(model) == "" {
+			return "model_limits keys must not be empty"
+		}
+		if !advertised[model] {
+			return fmt.Sprintf("model_limits.%s does not match an advertised chat model", model)
+		}
+		if limit.Context <= 0 {
+			return fmt.Sprintf("model_limits.%s.context must be > 0", model)
+		}
+		if limit.Output <= 0 {
+			return fmt.Sprintf("model_limits.%s.output must be > 0", model)
+		}
+		if limit.Output > limit.Context {
+			return fmt.Sprintf("model_limits.%s.output must be <= context", model)
+		}
+	}
+	return ""
+}
+
 // providerResponse wraps a single provider record for JSON output.
 type providerResponse struct {
 	service.ProviderRecord
@@ -237,6 +269,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
+	if msg := validateModelLimits(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
 
 	if msg := validateProviderCredentialsJSON(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
@@ -308,6 +344,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+	if msg := validateModelLimits(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}

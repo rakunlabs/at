@@ -180,6 +180,7 @@ test('opencodeDiscoveryConfig leaves models empty and wires the discovery plugin
   assert.deepEqual(p.options.modelsDiscovery, {
     enabled: true,
     endpoint: '/gateway/v1/models',
+    modelInfoFormat: 'omniroute',
   });
 });
 
@@ -207,7 +208,7 @@ test('opencodeDiscoveryConfig emits the V2 providers/package/settings schema', (
     package: '@opencode-ai/ai/providers/openai-compatible',
     settings: {
       baseURL: 'https://host/at/gateway/v1',
-      modelsDiscovery: { enabled: true, endpoint: '/at/gateway/v1/models' },
+      modelsDiscovery: { enabled: true, endpoint: '/at/gateway/v1/models', modelInfoFormat: 'omniroute' },
     },
     models: {},
   });

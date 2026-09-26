@@ -687,11 +687,16 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 			seen[m] = true
 			fullID := key + "/" + m
 			if auth.isModelAllowed(key, fullID) {
-				models = append(models, ModelData{
+				model := ModelData{
 					ID:      fullID,
 					Object:  "model",
 					OwnedBy: key,
-				})
+				}
+				if limit, ok := info.modelLimits[m]; ok {
+					model.ContextLength = limit.Context
+					model.MaxOutputTokens = limit.Output
+				}
+				models = append(models, model)
 			}
 		}
 

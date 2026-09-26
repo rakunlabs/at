@@ -179,9 +179,11 @@ type ModelsResponse struct {
 }
 
 type ModelData struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	OwnedBy string `json:"owned_by"`
+	ID              string `json:"id"`
+	Object          string `json:"object"`
+	OwnedBy         string `json:"owned_by"`
+	ContextLength   int    `json:"context_length,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 	// RoutingProfile marks an entry that is a stored model chain rather than a
 	// concrete provider model. It is an AT extension on an otherwise standard
 	// OpenAI object; the object stays "model" so that clients with a fixed model

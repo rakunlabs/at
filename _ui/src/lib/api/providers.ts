@@ -19,6 +19,11 @@ export interface RateLimitConfig {
   retry_after_cap_ms?: number;
 }
 
+export interface ModelLimitConfig {
+  context: number;
+  output: number;
+}
+
 export interface LLMConfig {
   type: string;
   shared_with_all_workspaces?: boolean;
@@ -35,6 +40,7 @@ export interface LLMConfig {
   base_url?: string;
   model: string;
   models?: string[];
+  model_limits?: Record<string, ModelLimitConfig>;
   embedding_models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;
