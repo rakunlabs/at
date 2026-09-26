@@ -47,3 +47,29 @@ export async function uploadFile(file: File, dir?: string, name?: string): Promi
 export async function deleteFile(path: string): Promise<void> {
   await api.delete('/files', { params: { path } });
 }
+
+// Durable Files-page operations. The older exports above intentionally remain
+// the local execution plane used by Studio and workflow artifacts.
+export async function browseStorageFiles(path: string): Promise<BrowseResult> {
+  const res = await api.get<BrowseResult>('/storage/files/browse', { params: { path } });
+  return res.data;
+}
+
+export function storageFileServeUrl(path: string, cacheKey?: string): string {
+  const bust = cacheKey ? `&v=${encodeURIComponent(cacheKey)}` : '';
+  const workspace = workspaceTransport.selected ? `&workspace_id=${encodeURIComponent(workspaceTransport.selected)}` : '';
+  return `api/v1/storage/files/serve?path=${encodeURIComponent(path)}${workspace}${bust}`;
+}
+
+export async function uploadStorageFile(file: File, dir?: string, name?: string): Promise<{ path: string; size: number }> {
+  const form = new FormData();
+  form.append('file', file);
+  if (dir && dir !== '.') form.append('path', dir);
+  if (name) form.append('name', name);
+  const res = await api.post<{ path: string; size: number }>('/storage/files/upload', form);
+  return res.data;
+}
+
+export async function deleteStorageFile(path: string): Promise<void> {
+  await api.delete('/storage/files', { params: { path } });
+}

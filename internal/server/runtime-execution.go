@@ -309,12 +309,20 @@ func (s *Server) runtimeServiceBindingAPI(w http.ResponseWriter, r *http.Request
 			httpResponse(w, "failed to load execution binding", http.StatusInternalServerError)
 			return
 		}
+		bindingValid := false
+		if binding != nil && !binding.Revoked {
+			bound, resumeErr := s.ResumeRuntimeSubject(r.Context(), kind, r.PathValue("id"), nil)
+			if resumeErr == nil {
+				resumeErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: action, ResourceID: r.PathValue("id")})
+			}
+			bindingValid = resumeErr == nil
+		}
 		candidates, err := s.runtimeBindingCandidates(r.Context())
 		if err != nil {
 			httpResponse(w, "Could not load workspace members for execution identity selection", http.StatusForbidden)
 			return
 		}
-		httpResponseJSON(w, map[string]any{"binding": binding, "candidates": candidates}, http.StatusOK)
+		httpResponseJSON(w, map[string]any{"binding": binding, "binding_valid": bindingValid, "candidates": candidates}, http.StatusOK)
 		return
 	}
 	if r.Method == http.MethodDelete {

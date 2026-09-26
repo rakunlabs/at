@@ -5,20 +5,20 @@
   import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import {
     MEDIA_ALLOWED_LABEL,
-    emptyMediaSettings,
-    getMediaSettings,
-    isMediaSettingsConflict,
+    emptyStorageSettings,
+    getStorageSettings,
+    isStorageSettingsConflict,
     mediaErrorMessage,
-    mediaSettingsErrorMessage,
-    putMediaSettings,
-    testMediaSettings,
-    type MediaBackend,
-    type MediaSettings,
+    storageSettingsErrorMessage,
+    putStorageSettings,
+    testStorageSettings,
+    type StorageBackend,
+    type StorageSettings,
   } from '@/lib/api/media';
 
-  storeNavbar.title = 'Media storage';
+  storeNavbar.title = 'Storage';
 
-  let settings = $state<MediaSettings | null>(null);
+  let settings = $state<StorageSettings | null>(null);
   let busy = $state(false);
   let testing = $state(false);
   let error = $state('');
@@ -33,10 +33,10 @@
   let secretEditable = $derived(!settings?.secret_access_key_set || replacingSecret);
 
   /** Client-side guard for the shapes the server rejects with a 400. */
-  function checkForm(s: MediaSettings): string {
+  function checkForm(s: StorageSettings): string {
     if (s.backend === 'filesystem') {
       const root = s.filesystem.root.trim();
-      if (!root) return 'Enter the folder the images are written to.';
+      if (!root) return 'Enter the folder durable objects are written to.';
       if (!root.startsWith('/')) return 'The folder must be an absolute path, starting with "/".';
       return '';
     }
@@ -52,7 +52,7 @@
   let problem = $derived(settings ? checkForm(settings) : '');
 
   /** The document to submit: the typed secret, or `''` to keep the stored one. */
-  function formSettings(): MediaSettings {
+  function formSettings(): StorageSettings {
     const s = settings!;
     return { ...s, s3: { ...s.s3, secret_access_key: secretEditable ? secretInput : '' } };
   }
@@ -63,13 +63,13 @@
     conflict = false;
     testResult = null;
     try {
-      settings = await getMediaSettings();
+      settings = await getStorageSettings();
       secretInput = '';
       replacingSecret = false;
     } catch (e) {
       // A never-configured installation still deserves a usable form.
-      settings ??= emptyMediaSettings();
-      error = mediaErrorMessage(e, 'Could not load media storage settings. Retry when the server is available.');
+      settings ??= emptyStorageSettings();
+      error = mediaErrorMessage(e, 'Could not load storage settings. Retry when the server is available.');
     } finally {
       busy = false;
     }
@@ -82,7 +82,7 @@
 
   function selectBackend(value: string) {
     if (!settings) return;
-    settings.backend = value as MediaBackend;
+    settings.backend = value as StorageBackend;
     if (value === 's3' && !settings.s3.region.trim()) {
       settings.s3.region = 'us-east-1';
       settings.s3.use_path_style = true;
@@ -100,15 +100,15 @@
     error = notice = '';
     conflict = false;
     try {
-      settings = await putMediaSettings(formSettings());
+      settings = await putStorageSettings(formSettings());
       secretInput = '';
       replacingSecret = false;
       notice = settings.backend
-        ? 'Media storage settings saved. New images in Chats are stored from now on.'
-        : 'Media storage is now disabled. New images in Chats will not be saved to conversation history.';
+        ? 'Storage settings saved. New images in Chats use this durable backend.'
+        : 'Storage is now disabled. New images in Chats will not be saved to conversation history.';
     } catch (err) {
-      conflict = isMediaSettingsConflict(err);
-      error = mediaSettingsErrorMessage(err);
+      conflict = isStorageSettingsConflict(err);
+      error = storageSettingsErrorMessage(err);
     } finally {
       busy = false;
     }
@@ -122,29 +122,29 @@
     testing = true;
     testResult = null;
     try {
-      const res = await testMediaSettings(formSettings());
+      const res = await testStorageSettings(formSettings());
       testResult = { ok: res?.ok === true, message: res?.message || '' };
     } catch (err) {
-      testResult = { ok: false, message: mediaErrorMessage(err, mediaSettingsErrorMessage(err)) };
+      testResult = { ok: false, message: mediaErrorMessage(err, storageSettingsErrorMessage(err)) };
     } finally {
       testing = false;
     }
   }
 </script>
 
-<svelte:head><title>AT | Media storage</title></svelte:head>
+<svelte:head><title>AT | Storage</title></svelte:head>
 
 <div class="settings-page settings-form">
   <header>
-    <h1 class="settings-title">Media storage</h1>
+    <h1 class="settings-title">Storage</h1>
     <p class="settings-subtitle">
-      Where image attachments in Chats are kept so they survive a reload. Without a backend, an image is sent to
-      the model but only a placeholder is written to conversation history.
+      The shared durable object backend for AT. Chat images use it today; Files, assets and developer-space snapshots
+      will move onto the same backend without exposing its credentials to those consumers.
     </p>
   </header>
 
   {#if !isNativeAdmin()}
-    <p class="settings-note">Only installation administrators can configure media storage.</p>
+    <p class="settings-note">Only installation administrators can configure storage.</p>
   {:else}
     {#if error}
       <p role="alert" class="settings-error">
@@ -165,7 +165,7 @@
           <label>
             Storage backend
             <select value={settings.backend} onchange={e => selectBackend(e.currentTarget.value)}>
-              <option value="">Disabled — do not store images</option>
+              <option value="">Disabled — do not store durable objects</option>
               <option value="filesystem">Local folder on the server</option>
               <option value="s3">S3-compatible object storage</option>
             </select>
@@ -173,7 +173,7 @@
 
           {#if settings.backend === ''}
             <p class="settings-note">
-              Media storage is off. Images in Chats are still sent to the model for the turn you send them in, but
+              Storage is off. Images in Chats are still sent to the model for the turn you send them in, but
               conversation history keeps only a “not saved to history” placeholder, so reopening the conversation — or
               re-sending it to a model — will not include the image. Pick a backend to keep them.
             </p>
@@ -182,7 +182,7 @@
               Folder
               <input
                 bind:value={settings.filesystem.root}
-                placeholder="/var/lib/at/media"
+                placeholder="/var/lib/at/storage"
                 spellcheck="false"
                 autocomplete="off"
                 aria-describedby="media-root-help"
@@ -191,7 +191,7 @@
             <p class="settings-note" id="media-root-help">
               Must be an <strong>absolute path</strong> that is writable by the user the AT service runs as. A relative
               path is resolved against the process working directory, which changes with how the service is started —
-              so images could land somewhere you did not expect, or fail to write at all. Put the folder on a volume
+              so objects could land somewhere you did not expect, or fail to write at all. Put the folder on a volume
               that persists across restarts and is included in your backups.
             </p>
           {:else}
@@ -269,12 +269,13 @@
           {/if}
 
           <p class="settings-note">
-            Uploads are capped at 16 MB per image and must be {MEDIA_ALLOWED_LABEL}; the type is detected from the
-            file contents, not its name. Configuration version {settings.version}.
+            Chat image uploads currently use this backend and are capped at 16 MB per image. They must be
+            {MEDIA_ALLOWED_LABEL}; the type is detected from the file contents, not its name. Configuration version
+            {settings.version}.
           </p>
 
           <div class="flex flex-wrap items-center gap-3">
-            <button class="settings-primary" disabled={busy || !!problem}>Save media storage settings</button>
+            <button class="settings-primary" disabled={busy || !!problem}>Save storage settings</button>
             <button type="button" class="settings-button" disabled={testing || !settings.backend} onclick={runTest}>
               {testing ? 'Testing…' : 'Test connection'}
             </button>

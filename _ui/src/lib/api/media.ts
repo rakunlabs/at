@@ -10,15 +10,15 @@ const api = axios.create({
 
 // ─── Types ───
 
-/** `''` disables media storage entirely. */
-export type MediaBackend = '' | 'filesystem' | 's3';
+/** `''` disables durable storage entirely. */
+export type StorageBackend = '' | 'filesystem' | 's3';
 
-export interface MediaFilesystemSettings {
+export interface StorageFilesystemSettings {
   /** Absolute path, writable by the service user. */
   root: string;
 }
 
-export interface MediaS3Settings {
+export interface StorageS3Settings {
   endpoint: string;
   region: string;
   bucket: string;
@@ -29,11 +29,11 @@ export interface MediaS3Settings {
   use_path_style: boolean;
 }
 
-export interface MediaSettings {
+export interface StorageSettings {
   version: number;
-  backend: MediaBackend;
-  filesystem: MediaFilesystemSettings;
-  s3: MediaS3Settings;
+  backend: StorageBackend;
+  filesystem: StorageFilesystemSettings;
+  s3: StorageS3Settings;
   /**
    * Read-only signal that a secret is stored. The server never returns the
    * secret itself, and accepts-and-ignores this key on write — so the request
@@ -43,11 +43,11 @@ export interface MediaSettings {
 }
 
 /** The exact document `PUT` / `POST …/test` accept. Unknown keys are a 400. */
-export interface MediaSettingsBody {
+export interface StorageSettingsBody {
   version: number;
-  backend: MediaBackend;
-  filesystem: MediaFilesystemSettings;
-  s3: MediaS3Settings;
+  backend: StorageBackend;
+  filesystem: StorageFilesystemSettings;
+  s3: StorageS3Settings;
 }
 
 /** One stored image. `storage_key` is backend-internal, never a URL. */
@@ -63,7 +63,7 @@ export interface MediaObject {
   created_at: string;
 }
 
-export interface MediaTestResult {
+export interface StorageTestResult {
   ok: boolean;
   /** Verbatim upstream failure. Present on a 502 probe. */
   message?: string;
@@ -81,7 +81,7 @@ export const MEDIA_ALLOWED_LABEL = 'PNG, JPEG, GIF or WebP';
 
 // ─── Contract guards ───
 
-const EMPTY_S3: MediaS3Settings = {
+const EMPTY_S3: StorageS3Settings = {
   endpoint: '', region: '', bucket: '', prefix: '',
   access_key_id: '', secret_access_key: '', use_path_style: false,
 };
@@ -95,11 +95,11 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
  * rather than dropped, because `''` is the wire signal for "keep the stored
  * secret" — omitting it would change meaning.
  */
-export function mediaSettingsBody(settings: MediaSettings): MediaSettingsBody {
+export function storageSettingsBody(settings: StorageSettings): StorageSettingsBody {
   const s3 = settings?.s3 ?? EMPTY_S3;
   return {
     version: typeof settings?.version === 'number' ? settings.version : 0,
-    backend: (settings?.backend ?? '') as MediaBackend,
+    backend: (settings?.backend ?? '') as StorageBackend,
     filesystem: { root: text(settings?.filesystem?.root) },
     s3: {
       endpoint: text(s3.endpoint),
@@ -114,30 +114,24 @@ export function mediaSettingsBody(settings: MediaSettings): MediaSettingsBody {
 }
 
 /** A blank settings document, for a first-time page load that 404s or fails. */
-export function emptyMediaSettings(): MediaSettings {
+export function emptyStorageSettings(): StorageSettings {
   return { version: 0, backend: '', filesystem: { root: '' }, s3: { ...EMPTY_S3 }, secret_access_key_set: false };
 }
 
 // ─── Settings ───
 
-export async function getMediaSettings(): Promise<MediaSettings> {
-  const res = await api.get<MediaSettings>('/media/settings');
+export async function getStorageSettings(): Promise<StorageSettings> {
+  const res = await api.get<StorageSettings>('/storage/settings');
   return res.data;
 }
 
-/** Returns the redacted settings with `version` incremented. 409 means stale. */
-export async function putMediaSettings(settings: MediaSettings): Promise<MediaSettings> {
-  const res = await api.put<MediaSettings>('/media/settings', mediaSettingsBody(settings));
+export async function putStorageSettings(settings: StorageSettings): Promise<StorageSettings> {
+  const res = await api.put<StorageSettings>('/storage/settings', storageSettingsBody(settings));
   return res.data;
 }
 
-/**
- * Probe the *submitted* settings without saving, so an operator can verify
- * credentials before the first write. A reachable backend answers
- * `{ok:true}`; a 502 carries the verbatim upstream error.
- */
-export async function testMediaSettings(settings: MediaSettings): Promise<MediaTestResult> {
-  const res = await api.post<MediaTestResult>('/media/settings/test', mediaSettingsBody(settings));
+export async function testStorageSettings(settings: StorageSettings): Promise<StorageTestResult> {
+  const res = await api.post<StorageTestResult>('/storage/settings/test', storageSettingsBody(settings));
   return res.data;
 }
 
@@ -223,7 +217,7 @@ export function mediaErrorMessage(error: unknown, fallback: string): string {
 export const isMediaStorageDisabled = (error: unknown) => mediaErrorStatus(error) === 503;
 
 /** A 409 means someone else saved first; the local version is stale. */
-export const isMediaSettingsConflict = (error: unknown) => mediaErrorStatus(error) === 409;
+export const isStorageSettingsConflict = (error: unknown) => mediaErrorStatus(error) === 409;
 
 /**
  * Per-image upload failure text. 413 and 415 are precise, actionable limits and
@@ -246,16 +240,15 @@ export function mediaUploadErrorMessage(error: unknown, name: string): string {
   }
 }
 
-/** Settings save/probe failure text, keyed on the codes the endpoint returns. */
-export function mediaSettingsErrorMessage(error: unknown): string {
+export function storageSettingsErrorMessage(error: unknown): string {
   switch (mediaErrorStatus(error)) {
     case 409:
       return 'These settings were changed elsewhere. Reload the saved settings before saving again.';
     case 413:
       return 'The settings document is too large. Shorten the path, prefix or endpoint values.';
     case 503:
-      return mediaErrorMessage(error, 'Media storage is unavailable right now. Retry when the server is ready.');
+      return mediaErrorMessage(error, 'Storage is unavailable right now. Retry when the server is ready.');
     default:
-      return mediaErrorMessage(error, 'Could not save media storage settings.');
+      return mediaErrorMessage(error, 'Could not save storage settings.');
   }
 }

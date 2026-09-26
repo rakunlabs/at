@@ -1,0 +1,351 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	DeveloperSpacePending = "pending"
+	DeveloperSpaceReady   = "ready"
+	DeveloperSpaceStopped = "stopped"
+	DeveloperSpaceError   = "error"
+
+	DeveloperRepositoryPending = "pending"
+	DeveloperRepositoryCloning = "cloning"
+	DeveloperRepositoryReady   = "ready"
+	DeveloperRepositoryError   = "error"
+
+	DeveloperWorktreePending = "pending"
+	DeveloperWorktreeReady   = "ready"
+	DeveloperWorktreeInvalid = "invalid"
+	DeveloperWorktreeMissing = "missing"
+
+	DeveloperModePlan   = "plan"
+	DeveloperModeBuild  = "build"
+	DeveloperModeReview = "review"
+
+	DeveloperSessionIdle              = "idle"
+	DeveloperSessionRunning           = "running"
+	DeveloperSessionWaitingPermission = "waiting_permission"
+	DeveloperSessionWaitingQuestion   = "waiting_question"
+	DeveloperSessionCompleted         = "completed"
+	DeveloperSessionFailed            = "failed"
+	DeveloperSessionCancelled         = "cancelled"
+)
+
+var (
+	ErrDeveloperSpaceNotFound = errors.New("developer space not found")
+	ErrDeveloperSpaceConflict = errors.New("developer space conflict")
+	ErrDeveloperSessionBusy   = errors.New("developer session is already running or waiting")
+)
+
+// DeveloperToolRule follows the same ordered, last-match-wins model used by
+// mature coding agents while remaining native to AT.
+type DeveloperToolRule struct {
+	Action   string `json:"action"`
+	Resource string `json:"resource"`
+	Effect   string `json:"effect"`
+}
+
+type DeveloperAgentProfile struct {
+	SystemPrompt       string              `json:"system_prompt,omitempty"`
+	MaxIterations      int                 `json:"max_iterations,omitempty"`
+	ToolTimeoutSeconds int                 `json:"tool_timeout_seconds,omitempty"`
+	Rules              []DeveloperToolRule `json:"rules,omitempty"`
+}
+
+type DeveloperSpaceConfig struct {
+	Plan   DeveloperAgentProfile `json:"plan,omitempty"`
+	Build  DeveloperAgentProfile `json:"build,omitempty"`
+	Review DeveloperAgentProfile `json:"review,omitempty"`
+}
+
+// DefaultDeveloperSpaceConfig is deliberately conservative. Plan and Review
+// cannot edit; Build may edit but must ask before arbitrary shell execution,
+// and every profile blocks pushes until a separate user-confirmed operation.
+func DefaultDeveloperSpaceConfig() DeveloperSpaceConfig {
+	inspect := []DeveloperToolRule{
+		{Action: "read", Resource: "*", Effect: "allow"},
+		{Action: "glob", Resource: "*", Effect: "allow"},
+		{Action: "grep", Resource: "*", Effect: "allow"},
+		{Action: "git", Resource: "status", Effect: "allow"},
+		{Action: "git", Resource: "diff", Effect: "allow"},
+		{Action: "edit", Resource: "*", Effect: "deny"},
+		{Action: "shell", Resource: "*", Effect: "deny"},
+		{Action: "git", Resource: "push", Effect: "deny"},
+	}
+	build := []DeveloperToolRule{
+		{Action: "read", Resource: "*", Effect: "allow"},
+		{Action: "glob", Resource: "*", Effect: "allow"},
+		{Action: "grep", Resource: "*", Effect: "allow"},
+		{Action: "edit", Resource: "*", Effect: "allow"},
+		{Action: "git", Resource: "status", Effect: "allow"},
+		{Action: "git", Resource: "diff", Effect: "allow"},
+		{Action: "shell", Resource: "*", Effect: "ask"},
+		{Action: "git", Resource: "push", Effect: "deny"},
+	}
+	return DeveloperSpaceConfig{
+		Plan: DeveloperAgentProfile{
+			SystemPrompt:       "Inspect the repository and produce a concrete implementation plan. Do not modify files. Name affected files, risks, and validation steps.",
+			MaxIterations:      40,
+			ToolTimeoutSeconds: 60,
+			Rules:              inspect,
+		},
+		Build: DeveloperAgentProfile{
+			SystemPrompt:       "Implement the requested change in the active worktree. Keep edits focused, run relevant validation, and finish with changed files, test results, and unresolved risks.",
+			MaxIterations:      120,
+			ToolTimeoutSeconds: 60,
+			Rules:              build,
+		},
+		Review: DeveloperAgentProfile{
+			SystemPrompt:       "Review the active worktree against its base. Do not modify files. Report correctness, security, and regression findings in severity order with file references.",
+			MaxIterations:      60,
+			ToolTimeoutSeconds: 60,
+			Rules:              inspect,
+		},
+	}
+}
+
+type DeveloperSpace struct {
+	ID             string               `json:"id"`
+	WorkspaceID    string               `json:"workspace_id"`
+	OwnerUserID    string               `json:"owner_user_id"`
+	Name           string               `json:"name"`
+	Status         string               `json:"status"`
+	Image          string               `json:"image,omitempty"`
+	CPULimit       string               `json:"cpu_limit,omitempty"`
+	MemoryLimit    string               `json:"memory_limit,omitempty"`
+	DiskLimitBytes int64                `json:"disk_limit_bytes,omitempty"`
+	Config         DeveloperSpaceConfig `json:"config"`
+	Error          string               `json:"error,omitempty"`
+	LastActiveAt   string               `json:"last_active_at,omitempty"`
+	CreatedAt      string               `json:"created_at"`
+	UpdatedAt      string               `json:"updated_at"`
+}
+
+type DeveloperRepository struct {
+	ID            string `json:"id"`
+	SpaceID       string `json:"space_id"`
+	WorkspaceID   string `json:"workspace_id"`
+	OwnerUserID   string `json:"owner_user_id"`
+	Name          string `json:"name"`
+	RemoteURL     string `json:"remote_url"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+	Status        string `json:"status"`
+	HeadSHA       string `json:"head_sha,omitempty"`
+	Error         string `json:"error,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+type DeveloperWorktree struct {
+	ID           string `json:"id"`
+	RepositoryID string `json:"repository_id"`
+	SpaceID      string `json:"space_id"`
+	WorkspaceID  string `json:"workspace_id"`
+	OwnerUserID  string `json:"owner_user_id"`
+	Name         string `json:"name"`
+	Branch       string `json:"branch"`
+	BaseRef      string `json:"base_ref,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	State        string `json:"state"`
+	Error        string `json:"error,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type DeveloperSession struct {
+	ID           string         `json:"id"`
+	SpaceID      string         `json:"space_id"`
+	RepositoryID string         `json:"repository_id,omitempty"`
+	WorktreeID   string         `json:"worktree_id,omitempty"`
+	WorkspaceID  string         `json:"workspace_id"`
+	OwnerUserID  string         `json:"owner_user_id"`
+	Title        string         `json:"title,omitempty"`
+	Mode         string         `json:"mode"`
+	Status       string         `json:"status"`
+	Provider     string         `json:"provider,omitempty"`
+	Model        string         `json:"model,omitempty"`
+	Config       map[string]any `json:"config,omitempty"`
+	Error        string         `json:"error,omitempty"`
+	StartedAt    string         `json:"started_at,omitempty"`
+	FinishedAt   string         `json:"finished_at,omitempty"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+}
+
+type DeveloperSessionMessage struct {
+	ID          string `json:"id"`
+	SessionID   string `json:"session_id"`
+	WorkspaceID string `json:"workspace_id"`
+	OwnerUserID string `json:"owner_user_id"`
+	Role        string `json:"role"`
+	Content     any    `json:"content"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type DeveloperPendingTool struct {
+	SessionID           string     `json:"session_id"`
+	Kind                string     `json:"kind"`
+	State               string     `json:"state"`
+	ToolCalls           []ToolCall `json:"tool_calls"`
+	TraceID             string     `json:"trace_id,omitempty"`
+	ParentObservationID string     `json:"parent_observation_id,omitempty"`
+	Step                int        `json:"step"`
+	CreatedAt           string     `json:"created_at"`
+}
+
+type DeveloperSessionSnapshot struct {
+	ID              string `json:"id"`
+	SessionID       string `json:"session_id"`
+	WorkspaceID     string `json:"workspace_id"`
+	OwnerUserID     string `json:"owner_user_id"`
+	Step            int    `json:"step"`
+	Phase           string `json:"phase"`
+	HeadSHA         string `json:"head_sha,omitempty"`
+	StorageObjectID string `json:"storage_object_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
+}
+
+func (v DeveloperSpace) Validate() error {
+	if strings.TrimSpace(v.Name) == "" {
+		return errors.New("name is required")
+	}
+	if v.DiskLimitBytes < 0 {
+		return errors.New("disk_limit_bytes must not be negative")
+	}
+	for name, profile := range map[string]DeveloperAgentProfile{"plan": v.Config.Plan, "build": v.Config.Build, "review": v.Config.Review} {
+		if profile.MaxIterations < 0 {
+			return errors.New(name + " max_iterations must not be negative")
+		}
+		if profile.ToolTimeoutSeconds < 0 || profile.ToolTimeoutSeconds > 3600 {
+			return errors.New(name + " tool_timeout_seconds must be between 0 and 3600")
+		}
+		for _, rule := range profile.Rules {
+			if rule.Action == "" || rule.Resource == "" {
+				return errors.New(name + " tool rules require action and resource")
+			}
+			if rule.Effect != "allow" && rule.Effect != "ask" && rule.Effect != "deny" {
+				return errors.New(name + " tool rule effect must be allow, ask, or deny")
+			}
+			if _, err := filepath.Match(rule.Resource, rule.Resource); err != nil {
+				return errors.New(name + " tool rule resource pattern is invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func ValidDeveloperMode(mode string) bool {
+	return mode == DeveloperModePlan || mode == DeveloperModeBuild || mode == DeveloperModeReview
+}
+
+func (v DeveloperRepository) Validate() error {
+	if strings.TrimSpace(v.Name) == "" {
+		return errors.New("name is required")
+	}
+	remote := strings.TrimSpace(v.RemoteURL)
+	if remote == "" {
+		return errors.New("remote_url is required")
+	}
+	if strings.HasPrefix(remote, "git@") && strings.Contains(remote, ":") {
+		return nil
+	}
+	parsed, err := url.Parse(remote)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "git") {
+		return errors.New("remote_url must be an https, ssh, git, or git@host remote")
+	}
+	if parsed.User != nil {
+		return errors.New("remote_url must not contain credentials")
+	}
+	return nil
+}
+
+func (v DeveloperWorktree) Validate() error {
+	if strings.TrimSpace(v.Name) == "" {
+		return errors.New("name is required")
+	}
+	branch := strings.TrimSpace(v.Branch)
+	if branch == "" {
+		return errors.New("branch is required")
+	}
+	if !ValidDeveloperBranch(branch) {
+		return errors.New("branch is invalid")
+	}
+	return nil
+}
+
+// ValidDeveloperBranch applies Git's safety-relevant ref-name constraints
+// before a value reaches worktree or push argv. Git remains the authority for
+// less common repository-specific restrictions.
+func ValidDeveloperBranch(branch string) bool {
+	if branch == "" || branch == "@" || strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, ".") ||
+		strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, "/") || strings.Contains(branch, "..") ||
+		strings.Contains(branch, "@{") || strings.Contains(branch, "//") || strings.Contains(branch, "/.") ||
+		strings.ContainsAny(branch, "\x00\r\n ~^:?*[\\") {
+		return false
+	}
+	for _, part := range strings.Split(branch, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+func (v DeveloperSession) Validate() error {
+	if v.SpaceID == "" {
+		return errors.New("space_id is required")
+	}
+	if v.WorktreeID == "" {
+		return errors.New("worktree_id is required")
+	}
+	if strings.TrimSpace(v.Provider) == "" {
+		return errors.New("provider is required")
+	}
+	if !ValidDeveloperMode(v.Mode) {
+		return errors.New("mode must be plan, build, or review")
+	}
+	return nil
+}
+
+type DeveloperSpaceStorer interface {
+	ListDeveloperSpaces(ctx context.Context) ([]DeveloperSpace, error)
+	GetDeveloperSpace(ctx context.Context, id string) (*DeveloperSpace, error)
+	CreateDeveloperSpace(ctx context.Context, space DeveloperSpace) (*DeveloperSpace, error)
+	UpdateDeveloperSpace(ctx context.Context, space DeveloperSpace) (*DeveloperSpace, error)
+	SetDeveloperSpaceRuntime(ctx context.Context, id, status, runtimeError string) (*DeveloperSpace, error)
+	DeleteDeveloperSpace(ctx context.Context, id string) error
+
+	ListDeveloperRepositories(ctx context.Context, spaceID string) ([]DeveloperRepository, error)
+	GetDeveloperRepository(ctx context.Context, id string) (*DeveloperRepository, error)
+	CreateDeveloperRepository(ctx context.Context, repository DeveloperRepository) (*DeveloperRepository, error)
+	SetDeveloperRepositoryRuntime(ctx context.Context, id, status, headSHA, runtimeError string) (*DeveloperRepository, error)
+	DeleteDeveloperRepository(ctx context.Context, id string) error
+
+	ListDeveloperWorktrees(ctx context.Context, repositoryID string) ([]DeveloperWorktree, error)
+	GetDeveloperWorktree(ctx context.Context, id string) (*DeveloperWorktree, error)
+	CreateDeveloperWorktree(ctx context.Context, worktree DeveloperWorktree) (*DeveloperWorktree, error)
+	SetDeveloperWorktreeRuntime(ctx context.Context, id, state, headSHA, runtimeError string) (*DeveloperWorktree, error)
+	DeleteDeveloperWorktree(ctx context.Context, id string) error
+
+	ListDeveloperSessions(ctx context.Context, spaceID string) ([]DeveloperSession, error)
+	GetDeveloperSession(ctx context.Context, id string) (*DeveloperSession, error)
+	CreateDeveloperSession(ctx context.Context, session DeveloperSession) (*DeveloperSession, error)
+	SetDeveloperSessionRuntime(ctx context.Context, id, status, runtimeError string) (*DeveloperSession, error)
+	BeginDeveloperSessionRun(ctx context.Context, id string) (*DeveloperSession, error)
+	DeleteDeveloperSession(ctx context.Context, id string) error
+	ListDeveloperSessionMessages(ctx context.Context, sessionID string) ([]DeveloperSessionMessage, error)
+	AppendDeveloperSessionMessage(ctx context.Context, message DeveloperSessionMessage) (*DeveloperSessionMessage, error)
+	ListDeveloperSessionSnapshots(ctx context.Context, sessionID string) ([]DeveloperSessionSnapshot, error)
+	SaveDeveloperSessionSnapshot(ctx context.Context, snapshot DeveloperSessionSnapshot) (*DeveloperSessionSnapshot, error)
+	GetDeveloperPendingTool(ctx context.Context, sessionID string) (*DeveloperPendingTool, error)
+	SaveDeveloperPendingTool(ctx context.Context, pending DeveloperPendingTool) (*DeveloperPendingTool, error)
+	DeleteDeveloperPendingTool(ctx context.Context, sessionID string) error
+	ClaimDeveloperPendingTool(ctx context.Context, sessionID string) (*DeveloperPendingTool, error)
+	ResolveDeveloperPendingTool(ctx context.Context, sessionID string, content []ContentBlock) (*DeveloperSessionMessage, error)
+}

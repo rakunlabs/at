@@ -69,8 +69,8 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 			want:   service.FeaturePlayground,
 		},
 		{
-			name:   "media settings stay available",
-			path:   "/api/v1/media/settings",
+			name:   "storage settings stay available",
+			path:   "/api/v1/storage/settings",
 			method: http.MethodPut,
 		},
 		{

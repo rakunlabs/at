@@ -7,6 +7,8 @@
 
   interface Props {
     id: string;
+    socketUrl?: string;
+    persistentShell?: boolean;
     // Palette choice. "system" follows the page theme; the default keeps the
     // terminal dark while the rest of the UI stays light.
     appearance?: TerminalAppearance;
@@ -19,7 +21,7 @@
     // Reports whether this connection may type and how many others are attached.
     onrole?: (control: boolean, watchers: number) => void;
   }
-  let { id, appearance = 'dark', fontFamily = '', fontSize = 14, keyBar = false, onstatus, onrole }: Props = $props();
+  let { id, socketUrl = '', persistentShell = true, appearance = 'dark', fontFamily = '', fontSize = 14, keyBar = false, onstatus, onrole }: Props = $props();
   // The host is the authority on who may type; this only avoids sending
   // keystrokes that would be discarded, and greys out the key row.
   let control = $state(true);
@@ -173,7 +175,7 @@
     instance.loadAddon(fit);
     instance.open(container);
     instance.textarea?.setAttribute('aria-label', 'Host terminal input');
-    const ws = new WebSocket(terminalSocketURL(id));
+    const ws = new WebSocket(socketUrl || terminalSocketURL(id));
     ws.binaryType = 'arraybuffer';
     onstatus('connecting', 'Connecting to host…');
 
@@ -212,7 +214,7 @@
         pendingBytes += event.data.byteLength;
         if (pendingBytes > 2 * 1024 * 1024) {
           failed = true;
-          onstatus('error', 'Output exceeded the display buffer. The shell is still running; reconnect to resume.');
+          onstatus('error', persistentShell ? 'Output exceeded the display buffer. The shell is still running; reconnect to resume.' : 'Output exceeded the display buffer. Reconnect to start a new shell.');
           ws.close();
           return;
         }
@@ -241,7 +243,7 @@
       } catch { failed = true; onstatus('error', 'Invalid terminal response'); ws.close(); }
     };
     ws.onerror = () => { if (!disposed) { failed = true; onstatus('error', 'Connection failed. Check that the host is online and your sign-in is still valid.'); } };
-    ws.onclose = () => { ready = false; if (!disposed && !failed) onstatus('disconnected', 'Connection closed. Your shell stays on the host. Reconnect to resume.'); };
+    ws.onclose = () => { ready = false; if (!disposed && !failed) onstatus('disconnected', persistentShell ? 'Connection closed. Your shell stays on the host. Reconnect to resume.' : 'Connection closed. Reconnect to start a new shell.'); };
     resize();
     term = instance;
     return () => {

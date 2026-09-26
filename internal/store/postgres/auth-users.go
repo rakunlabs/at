@@ -51,10 +51,10 @@ var authUserDeletionTables = []struct {
 // DeleteAuthUser removes an account permanently. Disable stays the reversible
 // option; this exists for accounts that should leave no record at all.
 //
-// media_objects is deliberately not swept: its rows are only bookkeeping for
-// blobs in the configured media backend, which a database transaction cannot
-// reach. Deleting the rows would strand the blobs with nothing pointing at
-// them, so they are left owner-scoped and unreachable instead.
+// Media entries in storage_objects are deliberately not swept: their rows are
+// only bookkeeping for blobs in the configured backend, which a database
+// transaction cannot reach. Deleting the rows would strand the blobs with
+// nothing pointing at them, so they are left owner-scoped and unreachable.
 func (p *Postgres) DeleteAuthUser(ctx context.Context, id string) (bool, error) {
 	if id == "" {
 		return false, nil

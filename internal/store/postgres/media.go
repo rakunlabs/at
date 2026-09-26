@@ -17,6 +17,7 @@ import (
 )
 
 var _ service.MediaStorer = (*Postgres)(nil)
+var _ service.StorageSettingsStorer = (*Postgres)(nil)
 
 var mediaObjectColumns = []any{"id", "workspace_id", "owner_user_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
 
@@ -104,7 +105,7 @@ func (p *Postgres) GetMediaSettings(ctx context.Context) (*service.MediaSettings
 		Version int64  `db:"version"`
 		Config  string `db:"config"`
 	}
-	found, err := p.goqu.From(p.tableMediaSettings).Select("version", "config").Where(goqu.Ex{"singleton": true}).ScanStructContext(ctx, &row)
+	found, err := p.goqu.From(p.tableStorageSettings).Select("version", "config").Where(goqu.Ex{"singleton": true}).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}
@@ -140,7 +141,7 @@ func (p *Postgres) SaveMediaSettings(ctx context.Context, settings service.Media
 	defer tx.Rollback() //nolint:errcheck // rolled back unless committed
 
 	var current int64
-	found, err := tx.From(p.tableMediaSettings).Select("version").Where(goqu.Ex{"singleton": true}).ForUpdate(goqu.Wait).ScanValContext(ctx, &current)
+	found, err := tx.From(p.tableStorageSettings).Select("version").Where(goqu.Ex{"singleton": true}).ForUpdate(goqu.Wait).ScanValContext(ctx, &current)
 	if err != nil {
 		return nil, mediaError(err)
 	}
@@ -157,11 +158,11 @@ func (p *Postgres) SaveMediaSettings(ctx context.Context, settings service.Media
 		return nil, err
 	}
 	if !found {
-		if _, err := tx.Insert(p.tableMediaSettings).Rows(goqu.Record{"singleton": true, "version": settings.Version, "config": config}).Executor().ExecContext(ctx); err != nil {
+		if _, err := tx.Insert(p.tableStorageSettings).Rows(goqu.Record{"singleton": true, "version": settings.Version, "config": config}).Executor().ExecContext(ctx); err != nil {
 			return nil, mediaError(err)
 		}
 	} else {
-		result, err := tx.Update(p.tableMediaSettings).Set(goqu.Record{"version": settings.Version, "config": config}).Where(goqu.Ex{"singleton": true, "version": expected}).Executor().ExecContext(ctx)
+		result, err := tx.Update(p.tableStorageSettings).Set(goqu.Record{"version": settings.Version, "config": config}).Where(goqu.Ex{"singleton": true, "version": expected}).Executor().ExecContext(ctx)
 		if err != nil {
 			return nil, mediaError(err)
 		}
@@ -179,20 +180,37 @@ func (p *Postgres) SaveMediaSettings(ctx context.Context, settings service.Media
 	return &settings, nil
 }
 
+// GetStorageSettings exposes the existing encrypted singleton through the
+// generalized storage contract. Keeping the same row makes this rename
+// migration-free and preserves every configured filesystem/S3 backend.
+func (p *Postgres) GetStorageSettings(ctx context.Context) (*service.StorageSettings, error) {
+	return p.GetMediaSettings(ctx)
+}
+
+// SaveStorageSettings shares MediaSettings' optimistic concurrency token so
+// old and new clients cannot overwrite one another.
+func (p *Postgres) SaveStorageSettings(ctx context.Context, settings service.StorageSettings) (*service.StorageSettings, error) {
+	return p.SaveMediaSettings(ctx, settings)
+}
+
 func (p *Postgres) CreateMediaObject(ctx context.Context, object service.MediaObject) (*service.MediaObject, error) {
 	if object.WorkspaceID == "" || object.OwnerUserID == "" {
 		return nil, service.ErrMediaNotFound
 	}
+	id := ulid.Make().String()
 	record := goqu.Record{
-		"id":            ulid.Make().String(),
+		"id":            id,
 		"workspace_id":  object.WorkspaceID,
 		"owner_user_id": object.OwnerUserID,
+		"namespace":     service.StorageNamespaceMedia,
+		"path":          id,
 		"backend":       object.Backend,
 		"storage_key":   object.StorageKey,
 		"content_type":  object.ContentType,
 		"size_bytes":    object.SizeBytes,
 		"checksum":      object.Checksum,
 		"created_at":    goqu.L("clock_timestamp()"),
+		"updated_at":    goqu.L("clock_timestamp()"),
 	}
 	var row mediaObjectRow
 	if _, err := p.goqu.Insert(p.tableMediaObjects).Rows(record).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row); err != nil {
@@ -209,7 +227,9 @@ func (p *Postgres) GetMediaObject(ctx context.Context, workspace, owner, id stri
 		return nil, service.ErrMediaNotFound
 	}
 	var row mediaObjectRow
-	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{"id": id, "workspace_id": workspace, "owner_user_id": owner}).ScanStructContext(ctx, &row)
+	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{
+		"id": id, "workspace_id": workspace, "owner_user_id": owner, "namespace": service.StorageNamespaceMedia,
+	}).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}
@@ -229,7 +249,9 @@ func (p *Postgres) DeleteMediaObject(ctx context.Context, workspace, owner, id s
 		return nil, service.ErrMediaNotFound
 	}
 	var row mediaObjectRow
-	found, err := p.goqu.Delete(p.tableMediaObjects).Where(goqu.Ex{"id": id, "workspace_id": workspace, "owner_user_id": owner}).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row)
+	found, err := p.goqu.Delete(p.tableMediaObjects).Where(goqu.Ex{
+		"id": id, "workspace_id": workspace, "owner_user_id": owner, "namespace": service.StorageNamespaceMedia,
+	}).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}
@@ -245,7 +267,7 @@ func (p *Postgres) DeleteMediaObject(ctx context.Context, workspace, owner, id s
 // partial rotation would strand the S3 secret access key under a key nobody
 // holds any more.
 func (p *Postgres) rotateMediaSettingsKey(ctx context.Context, tx *sql.Tx, oldKey, newKey []byte) error {
-	query, args, err := p.goqu.From(p.tableMediaSettings).Select("config").Where(goqu.Ex{"singleton": true}).ForUpdate(goqu.Wait).Prepared(true).ToSQL()
+	query, args, err := p.goqu.From(p.tableStorageSettings).Select("config").Where(goqu.Ex{"singleton": true}).ForUpdate(goqu.Wait).Prepared(true).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build media rotation: %w", err)
 	}
@@ -264,7 +286,7 @@ func (p *Postgres) rotateMediaSettingsKey(ctx context.Context, tx *sql.Tx, oldKe
 	if err != nil {
 		return err
 	}
-	query, args, err = p.goqu.Update(p.tableMediaSettings).Set(goqu.Record{"config": sealed}).Where(goqu.Ex{"singleton": true}).Prepared(true).ToSQL()
+	query, args, err = p.goqu.Update(p.tableStorageSettings).Set(goqu.Record{"config": sealed}).Where(goqu.Ex{"singleton": true}).Prepared(true).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build media rotation update: %w", err)
 	}

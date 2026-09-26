@@ -22,7 +22,7 @@ import (
 //   model         = repeated
 //   agent_id      = repeated
 //   user_id       = repeated, authenticated account id (empty = unattributed)
-//   source        = repeated (chats, sessions, assistant, gateway; empty = historical/other)
+//   source        = repeated (chats, sessions, developer, assistant, gateway; empty = historical/other)
 //   org_id        = repeated
 //   project_id    = repeated
 //   goal_id       = repeated

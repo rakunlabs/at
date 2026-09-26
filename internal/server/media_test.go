@@ -69,12 +69,29 @@ func mediaNoLeak(t *testing.T, w *httptest.ResponseRecorder) *httptest.ResponseR
 
 func mediaRequest(t *testing.T, s *Server, token, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	r := httptest.NewRequest(method, "/at/api/v1/media"+path, strings.NewReader(body))
+	base := "/at/api/v1/media"
+	if strings.HasPrefix(path, "/settings") {
+		base = "/at/api/v1/storage"
+	}
+	r := httptest.NewRequest(method, base+path, strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
 	// Object reads and uploads are workspace-admitted (models.use); settings
 	// accepts the header too and strips it on the administrator-only routes.
+	r.Header.Set("X-AT-Workspace-ID", "legacy-default")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.server.ServeHTTP(w, r)
+	return mediaNoLeak(t, w)
+}
+
+func storageRequest(t *testing.T, s *Server, token, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, "/at/api/v1/storage"+path, strings.NewReader(body))
+	if token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
 	r.Header.Set("X-AT-Workspace-ID", "legacy-default")
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -135,6 +152,34 @@ func mediaFilesystemBody(version int64, root string) string {
 }
 
 const mediaTestSecret = "do-not-leak-this-secret"
+
+func TestStorageSettingsCompatibilityRoutes(t *testing.T) {
+	s, _, tokens := mediaFixture(t)
+
+	w := storageRequest(t, s, tokens[0], "GET", "/settings", "")
+	settings := mediaDecodeSettings(t, w)
+	if w.Code != 200 || settings.Version != 1 || settings.Backend != service.StorageBackendDisabled {
+		t.Fatalf("default storage settings: %d %s", w.Code, w.Body)
+	}
+	if w := storageRequest(t, s, tokens[2], "GET", "/settings", ""); w.Code != 403 {
+		t.Fatalf("nonadministrator storage settings: %d %s", w.Code, w.Body)
+	}
+
+	root := t.TempDir()
+	w = storageRequest(t, s, tokens[0], "PUT", "/settings", mediaFilesystemBody(1, root))
+	if w.Code != 200 {
+		t.Fatalf("save storage settings: %d %s", w.Code, w.Body)
+	}
+	legacy := mediaDecodeSettings(t, mediaRequest(t, s, tokens[0], "GET", "/settings", ""))
+	if legacy.Version != 2 || legacy.Backend != service.StorageBackendFilesystem || legacy.Filesystem.Root != root {
+		t.Fatalf("legacy media route did not observe storage save: %+v", legacy)
+	}
+
+	w = storageRequest(t, s, tokens[0], "POST", "/settings/test", mediaFilesystemBody(2, root))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"ok":true`) {
+		t.Fatalf("test storage settings: %d %s", w.Code, w.Body)
+	}
+}
 
 func mediaS3Body(version int64, bucket, secret string) string {
 	return fmt.Sprintf(`{"version":%d,"backend":"s3","filesystem":{},"s3":{"endpoint":"https://s3.example.test","region":"us-east-1","bucket":%q,"prefix":"/playground/","access_key_id":"AKIAEXAMPLE","secret_access_key":%q,"use_path_style":true}}`, version, bucket, secret)

@@ -7,7 +7,7 @@
   import { loadFeatures } from '../store/features.svelte';
   import { routeFeatureEnabled } from '../helper/feature-routes';
   onMount(() => { void loadFeatures().catch(() => {}); });
-  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare, X, Cpu, Layers } from 'lucide-svelte';
+  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare, X, Cpu, Layers, Container } from 'lucide-svelte';
   interface Props { onclose?: () => void }
   let { onclose }: Props = $props();
   const items = [
@@ -19,7 +19,7 @@
     {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},
     {path:'/mcps',label:'MCP Sets',icon:Layers},
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
-    {path:'/files',label:'Files',icon:FolderOpen}, {path:'/integrations',label:'Integrations',icon:Package},
+    {path:'/files',label:'Files',icon:FolderOpen}, {path:'/developer-spaces',label:'Developer Spaces',icon:Container}, {path:'/integrations',label:'Integrations',icon:Package},
     {path:'/usage',label:'Usage',icon:Tally5}, {path:'/llm-calls',label:'Traces',icon:Activity},
     {path:'/terminal',label:'Terminal',icon:TerminalSquare},
   ];

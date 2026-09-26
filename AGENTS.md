@@ -748,10 +748,10 @@ sign-in is off is refused by the database, not by the handler. Most references
 cascade; `authUserDeletionTables` sweeps the ones that do not (workspace
 membership and the permission/deny rows keyed on it, invitations the account
 issued, execution service bindings, recovery events, mobile requests, Playground
-history). `media_objects` is deliberately left: its rows only point at blobs in
-the media backend, which a database transaction cannot delete, so removing them
-would strand the blobs instead of freeing them. Disable remains the reversible
-option and is what the UI still offers first.
+history). Media entries in `storage_objects` are deliberately left: their rows
+only point at backend blobs that the account-deletion transaction cannot delete,
+so removing them would strand the blobs instead of freeing them. Disable remains
+the reversible option and is what the UI still offers first.
 
 `GET /auth/users/{id}` returns the same row plus its identities and *all* its
 workspace memberships, revoked ones included — "revoked" is the answer to "why
@@ -833,13 +833,14 @@ Because `<img src>` cannot send `X-AT-Workspace-ID`, the workspace query
 selector that `fileServeUrl` pins for `/api/v1/files/serve` also applies to
 workspace-and-owner-scoped `GET /api/v1/media/{id}` (`nativeBlobReadPath`;
 `mediaImageURL` takes the selected workspace as its second argument). Migration
-70 adds `media_objects.workspace_id`, backfills historically ambiguous objects
-to Default and preserves the known workspace of chat-share copies. New backend
+70 originally added `media_objects.workspace_id`; migration 78 moves those rows
+into the generic `storage_objects` catalog under namespace `media`, preserving
+IDs and chat-share references. Historically ambiguous objects were backfilled
+to Default and known chat-share workspaces were preserved. New backend
 keys are `<workspace>/<owner>/<ulid>.<ext>`, so both the database lookup and
-object namespace are partitioned. `/media/settings*` stays
-installation administration: the literal `GET /media/settings` policy
-(`platform.manage`) must precede `/media/{id}` in the policy slice, whose
-`{id}` parameter would otherwise swallow it.
+object namespace are partitioned. Durable backend configuration lives at
+`/storage/settings*` and remains installation administration; media object
+routes keep their separate workspace and owner scoping.
 
 S3-compatible media storage defaults a blank SigV4 region to `us-east-1`, which
 is MinIO's default region. The UI selects path-style addressing for a fresh S3
@@ -2124,6 +2125,43 @@ cancellation-checked between entries. Regression:
 ## Memory
 
 AT does not ship a native long-term agent memory store. Agents that need memory should use an external memory MCP (for example a custom Postgres/vector/Engram/Mem0/Letta MCP) attached through MCP Sets or MCP server URLs. Keep memory read/write policy, retention, and embedding/search strategy inside that MCP; AT only discovers and calls the tools.
+
+## Developer Spaces
+
+Developer Spaces are user-owned, workspace-scoped coding environments under
+`/api/v1/developer-*`. Migration 79 adds the space → repository → worktree →
+session model; migration 80 adds retained session messages and before/after
+snapshot metadata. A pruned worktree or repository sets the session reference
+to NULL rather than deleting its history.
+
+Runtime filesystem and container names are derived only from opaque record IDs.
+Callers cannot submit host paths. Coding spaces require a rootless Docker daemon,
+use Docker-managed persistent volumes, drop all capabilities, enable
+`no-new-privileges`, enforce PID/CPU/RAM/application disk limits, and are removed
+after 30 minutes idle while their volume survives. Git clone/worktree/status/
+diff/stage/commit/push use typed argv execution rather than shell interpolation;
+push requires explicit confirmation of the exact branch. Clone refuses remotes
+that resolve to local/private addresses. Every runtime action rebinds the live
+workspace execution identity and checks `execution.run`.
+
+The configured runtime image must provide `bash`, `git`, `python3`, GNU
+`timeout`, and ordinary core utilities. Typed coding tools use Python for
+symlink-contained UTF-8 file access, and `timeout` supplies an in-container
+process-group deadline even when cancelling the host-side Docker client cannot
+directly kill an exec process.
+
+Agent profiles are native AT configuration, not an OpenCode dependency. The
+defaults are Plan (read-only), Build (edits allowed, arbitrary commands ask),
+and Review (read-only), with ordered last-match-wins allow/ask/deny rules. The
+native loop persists canonical assistant/tool blocks, is governed by loopgov,
+records generation and tool observations, pauses durably for permission or a
+user question, and resumes on approve/reject/answer. Pending calls are claimed
+at most once; transcript append and pending deletion commit together. With
+Storage configured, model steps best-effort store before/after Git patches in
+the `snapshots` namespace and link them through
+`developer_session_snapshots`. The UI at `#/developer-spaces` exposes retained
+transcripts, approvals/questions, cancel, diff/stage/commit/confirmed push, and
+a worktree terminal WebSocket.
 
 ## Go Code Style
 

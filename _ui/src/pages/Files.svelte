@@ -6,10 +6,10 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
-    Folder, File, ArrowLeft, RefreshCw, Trash2, Play, Image, FileText,
+    Folder, File, ArrowLeft, RefreshCw, Trash2, Play, Image, FileText, Upload,
     FileCode, FileAudio, Download, X, ChevronRight, Home, Search, Loader2,
   } from 'lucide-svelte';
-  import { browseFiles, deleteFile, fileServeUrl, type FileEntry } from '@/lib/api/files';
+  import { browseStorageFiles, deleteStorageFile, storageFileServeUrl, uploadStorageFile, type FileEntry } from '@/lib/api/files';
 
   storeNavbar.title = 'Files';
 
@@ -18,13 +18,14 @@
   let parentPath = $state('');
   // Relative path within the selected workspace.
   let pathInput = $state('');
-  const workspaceRoot = 'tasks';
   let entries = $state<FileEntry[]>([]);
   let loading = $state(false);
   let deleteConfirm = $state<string | null>(null);
   let deleting = $state(false);
   let browseError = $state('');
   let browseVersion = 0;
+  let uploading = $state(false);
+  let uploadInput: HTMLInputElement;
   let previewController: AbortController | null = null;
   const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-gray-200 dark:border-dark-border px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
   const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
@@ -114,7 +115,7 @@
     deleteConfirm = null;
     closePreview();
     try {
-      const result = await browseFiles(path);
+      const result = await browseStorageFiles(path);
       if (request !== browseVersion) return;
       currentPath = result.path;
       parentPath = result.parent || '.';
@@ -137,7 +138,7 @@
     if (deleting) return;
     deleting = true;
     try {
-      await deleteFile(path);
+      await deleteStorageFile(path);
       addToast('Deleted', 'info');
       deleteConfirm = null;
       if (previewFile?.path === path) closePreview();
@@ -145,6 +146,22 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || (typeof e?.response?.data === 'string' ? e.response.data : 'Delete failed'), 'alert');
     } finally { deleting = false; }
+  }
+
+  async function handleUpload(files: FileList | null) {
+    const file = files?.[0];
+    if (!file || uploading) return;
+    uploading = true;
+    try {
+      await uploadStorageFile(file, currentPath === '.' ? undefined : currentPath);
+      addToast(`Uploaded ${file.name}`, 'info');
+      await browse(currentPath);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || (typeof e?.response?.data === 'string' ? e.response.data : 'Upload failed'), 'alert');
+    } finally {
+      uploading = false;
+      if (uploadInput) uploadInput.value = '';
+    }
   }
 
   function getFileType(name: string): string {
@@ -188,7 +205,7 @@
       previewController = controller;
       previewLoading = true;
       try {
-        const res = await fetch(fileServeUrl(entry.path, entry.mod_time), { headers: { Range: 'bytes=0-1048575' }, signal: controller.signal });
+        const res = await fetch(storageFileServeUrl(entry.path, entry.mod_time), { headers: { Range: 'bytes=0-1048575' }, signal: controller.signal });
         if (!res.ok) throw new Error((await res.text()).slice(0, 300) || 'File unavailable');
         const text = await res.text();
         if (controller.signal.aborted) return;
@@ -296,28 +313,15 @@
             class={`${inputClass} pl-7`}
           />
         </div>
-        <!-- Workspace-relative conventional roots. -->
-        <button
-          onclick={() => browse(workspaceRoot)}
-          class={controlClass}
-          title={workspaceRoot}
-        >tasks</button>
-        <button
-          onclick={() => browse('assets')}
-          class={controlClass}
-        >assets</button>
-        <button
-          onclick={() => browse('assets/uploads')}
-          class={controlClass}
-        >uploads</button>
-        <button
-          onclick={() => browse('runs')}
-          class={controlClass}
-        >runs</button>
         <button
           onclick={() => browse('.')}
           class={controlClass}
         >workspace</button>
+        <input bind:this={uploadInput} type="file" class="hidden" onchange={(e) => void handleUpload(e.currentTarget.files)} />
+        <button type="button" onclick={() => uploadInput?.click()} disabled={uploading} class={controlClass}>
+          {#if uploading}<Loader2 size={13} class="animate-spin motion-reduce:animate-none" />{:else}<Upload size={13} />{/if}
+          {uploading ? 'Uploading…' : 'Upload'}
+        </button>
         <!-- Hidden files toggle -->
         <button
           onclick={() => { showHidden = !showHidden; }}
@@ -384,7 +388,7 @@
                   <div class="flex items-center justify-end">
                     {#if !entry.is_dir}
                       <a
-                        href={fileServeUrl(entry.path, entry.mod_time)}
+                        href={storageFileServeUrl(entry.path, entry.mod_time)}
                         download={entry.name}
                         class={iconClass}
                         title={`Download ${entry.name}`}
@@ -422,7 +426,7 @@
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <a
-            href={fileServeUrl(previewFile.path, previewFile.mod_time)}
+            href={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
             download={previewFile.name}
             class={iconClass}
             title="Download"
@@ -455,7 +459,7 @@
         {:else if previewType === 'video'}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
-            src={fileServeUrl(previewFile.path, previewFile.mod_time)}
+            src={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
             controls
             preload="metadata"
             class="w-full max-h-full rounded-md bg-black"
@@ -463,7 +467,7 @@
           ></video>
         {:else if previewType === 'image'}
           <img
-            src={fileServeUrl(previewFile.path, previewFile.mod_time)}
+            src={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
             alt={previewFile.name}
             class="mx-auto max-w-full max-h-full object-contain rounded-md"
             onerror={() => { previewError = 'The image could not be loaded.'; }}
@@ -476,7 +480,7 @@
             </div>
             <!-- svelte-ignore a11y_media_has_caption -->
             <audio
-              src={fileServeUrl(previewFile.path, previewFile.mod_time)}
+              src={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
               controls
               preload="metadata"
               class="w-full"
@@ -487,7 +491,7 @@
           {#if previewTruncated}<p class="mb-3 text-sm text-gray-600 dark:text-dark-text-secondary">Showing the first 1 MB. Download the file for the full content.</p>{/if}
           <pre class="w-full text-sm font-mono text-gray-800 dark:text-dark-text whitespace-pre-wrap break-all bg-white dark:bg-dark-surface p-3 border border-gray-200 dark:border-dark-border rounded-md">{previewText}</pre>
         {:else}
-          <div class="space-y-3 py-8 text-center text-sm text-gray-600 dark:text-dark-text-secondary"><FileText size={32} class="mx-auto" /><p>No browser preview for this file type.</p><a class={controlClass} href={fileServeUrl(previewFile.path, previewFile.mod_time)} download={previewFile.name}><Download size={16} />Download file</a></div>
+          <div class="space-y-3 py-8 text-center text-sm text-gray-600 dark:text-dark-text-secondary"><FileText size={32} class="mx-auto" /><p>No browser preview for this file type.</p><a class={controlClass} href={storageFileServeUrl(previewFile.path, previewFile.mod_time)} download={previewFile.name}><Download size={16} />Download file</a></div>
         {/if}
       </div>
     </section>

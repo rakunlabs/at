@@ -278,11 +278,11 @@ func (s *Server) StartBotAPI(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.startBotFromConfig(s.ctx, record); err != nil {
 		slog.Warn("start bot failed", "bot_id", id, "error", err)
-		status := http.StatusBadGateway
 		if errors.Is(err, service.ErrExecutionDenied) || errors.Is(err, service.ErrAccessDenied) {
-			status = http.StatusForbidden
+			httpResponse(w, "Bot execution identity is missing, stale, or no longer authorized. Edit the bot and use Renew & start bot.", http.StatusForbidden)
+			return
 		}
-		httpResponse(w, "Bot could not start. Check its execution binding, workspace permissions and platform token.", status)
+		httpResponse(w, "Bot could not connect to its platform. Check the Telegram or Discord token and server logs.", http.StatusBadGateway)
 		return
 	}
 

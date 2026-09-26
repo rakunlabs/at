@@ -220,7 +220,7 @@ func (p *Postgres) revokeChatShares(ctx context.Context, where goqu.Ex, requireM
 	}
 	var mediaRows []mediaObjectRow
 	if err := tx.From(p.tableMediaObjects.As("m")).Join(p.workspaceTable("chat_share_media").As("sm"), goqu.On(goqu.I("sm.media_object_id").Eq(goqu.I("m.id")))).
-		Select(mediaObjectSelect("m")...).Where(goqu.I("sm.share_id").In(shareIDs)).ScanStructsContext(ctx, &mediaRows); err != nil {
+		Select(mediaObjectSelect("m")...).Where(goqu.I("sm.share_id").In(shareIDs), goqu.I("m.namespace").Eq(service.StorageNamespaceMedia)).ScanStructsContext(ctx, &mediaRows); err != nil {
 		return nil, fmt.Errorf("list chat share media: %w", err)
 	}
 	if _, err := tx.Update(p.workspaceTable("chat_shares")).Set(goqu.Record{

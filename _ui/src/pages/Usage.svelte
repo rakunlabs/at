@@ -21,7 +21,7 @@
   import { listProviders } from '@/lib/api/providers';
   import { listAgents } from '@/lib/api/agents';
   import { listOrganizations } from '@/lib/api/organizations';
-  import LineChart from '@/lib/components/charts/LineChart.svelte';
+  import TimeBarChart from '@/lib/components/charts/TimeBarChart.svelte';
   import DonutChart from '@/lib/components/charts/DonutChart.svelte';
   import HorizontalBarChart from '@/lib/components/charts/HorizontalBarChart.svelte';
   import DateRangePicker from '@/lib/components/usage/DateRangePicker.svelte';
@@ -76,6 +76,7 @@
   const sourceOptions = [
     { value: 'chats', label: 'Chats' },
     { value: 'sessions', label: 'Sessions' },
+    { value: 'developer', label: 'Developer Spaces' },
     { value: 'assistant', label: 'AI assistants' },
     { value: 'gateway', label: 'API gateway' },
     { value: '', label: 'Other / historical' },
@@ -241,26 +242,76 @@
 
   // ─── Derived chart data ───
 
+  interface UsageChartPoint extends UsageTimeSeriesPoint {
+    has_data: boolean;
+  }
+
+  function floorBucket(value: Date, unit: Bucket): Date {
+    const result = new Date(value);
+    result.setUTCMinutes(0, 0, 0);
+    if (unit === 'day') result.setUTCHours(0);
+    return result;
+  }
+
+  function nextBucket(value: Date, unit: Bucket): Date {
+    const result = new Date(value);
+    if (unit === 'hour') result.setUTCHours(result.getUTCHours() + 1);
+    else result.setUTCDate(result.getUTCDate() + 1);
+    return result;
+  }
+
+  function fillUsageBuckets(points: UsageTimeSeriesPoint[], rangeFrom: string, rangeTo: string, unit: Bucket): UsageChartPoint[] {
+    const start = floorBucket(new Date(rangeFrom), unit);
+    const end = new Date(rangeTo);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+      return points.map(point => ({ ...point, has_data: true }));
+    }
+
+    const byBucket = new Map(points.map(point => [floorBucket(new Date(point.bucket), unit).getTime(), point]));
+    const filled: UsageChartPoint[] = [];
+    for (let cursor = start; cursor < end; cursor = nextBucket(cursor, unit)) {
+      const existing = byBucket.get(cursor.getTime());
+      filled.push(existing ? { ...existing, has_data: true } : {
+        bucket: cursor.toISOString(),
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+        total_tokens: 0,
+        request_count: 0,
+        priced_request_count: 0,
+        error_count: 0,
+        cost_cents: 0,
+        avg_latency_ms: 0,
+        p95_latency_ms: 0,
+        has_data: false,
+      });
+    }
+    return filled;
+  }
+
+  const chartTimeseries = $derived(fillUsageBuckets(timeseries, from, to, bucket));
+
   const timeseriesRequests = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: p.request_count })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.request_count })),
   );
   const timeseriesErrors = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: p.error_count })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.error_count })),
   );
   const timeseriesInputTokens = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: p.input_tokens })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.input_tokens })),
   );
   const timeseriesOutputTokens = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: p.output_tokens })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.output_tokens })),
   );
   const timeseriesLatency = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: Math.round(p.avg_latency_ms) })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.has_data ? Math.round(p.avg_latency_ms) : null })),
   );
   const timeseriesP95Latency = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: Math.round(p.p95_latency_ms) })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.has_data ? Math.round(p.p95_latency_ms) : null })),
   );
   const timeseriesCost = $derived(
-    timeseries.map((p) => ({ x: new Date(p.bucket), y: p.cost_cents })),
+    chartTimeseries.map((p) => ({ x: new Date(p.bucket), y: p.cost_cents })),
   );
 
   const providerSlices = $derived(
@@ -640,9 +691,9 @@
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
     <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
       <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
-        Requests &amp; errors over time
+        Requests &amp; errors by {bucket}
       </div>
-      <LineChart
+      <TimeBarChart
         series={[
           { name: 'Requests', color: '#2563eb', values: timeseriesRequests },
           { name: 'Errors', color: '#dc2626', values: timeseriesErrors },
@@ -653,9 +704,9 @@
 
     <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
       <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
-        Tokens over time
+        Tokens by {bucket}
       </div>
-      <LineChart
+      <TimeBarChart
         series={[
           { name: 'Input', color: '#16a34a', values: timeseriesInputTokens },
           { name: 'Output', color: '#ea580c', values: timeseriesOutputTokens },
@@ -666,9 +717,9 @@
 
     <div class={['p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface', !summary?.priced_request_count ? 'lg:col-span-2' : '']}>
       <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
-        Latency over time
+        Latency by {bucket}
       </div>
-      <LineChart
+      <TimeBarChart
         series={[
           { name: 'Average', color: '#9333ea', values: timeseriesLatency },
           { name: 'P95', color: '#dc2626', values: timeseriesP95Latency },
@@ -680,9 +731,9 @@
     {#if summary?.priced_request_count}
       <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
         <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
-          {pricingCoverage === 100 ? 'Cost over time' : 'Known cost over time'}
+          {pricingCoverage === 100 ? `Cost by ${bucket}` : `Known cost by ${bucket}`}
         </div>
-        <LineChart
+        <TimeBarChart
           series={[{ name: 'Cost', color: '#0891b2', values: timeseriesCost }]}
           formatY={fmtCost}
         />

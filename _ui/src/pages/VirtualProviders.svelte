@@ -1,40 +1,29 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, Save, Trash2, ShieldCheck, Boxes, WalletCards, X } from 'lucide-svelte';
+  import { Save, Trash2, ShieldCheck, X } from 'lucide-svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
-  import { listWorkspaces, type Workspace } from '@/lib/api/workspaces';
   import {
-    createVirtualProvider,
     deleteProviderBudget,
     deleteProviderBudgetOverride,
-    deleteVirtualProvider,
-    deleteVirtualProviderGrant,
     getProviderBudget,
     listProviderBudgetOverrides,
-    listVirtualProviderGrants,
     listVirtualProviders,
     saveProviderBudget,
     saveProviderBudgetOverride,
-    saveVirtualProviderGrant,
-    updateVirtualProvider,
     type BudgetOverrideMode,
     type BudgetResourceKind,
     type ProviderBudgetOverride,
     type ProviderBudgetPolicy,
     type VirtualProvider,
-    type VirtualProviderGrant,
-    type VirtualProviderModel,
   } from '@/lib/api/provider-governance';
 
   storeNavbar.title = 'Provider governance';
 
   interface BudgetResource { id: string; kind: BudgetResourceKind; key: string; label: string; }
-  let tab = $state<'budgets' | 'virtual'>('budgets');
   let providers = $state<ProviderRecord[]>([]);
   let virtualProviders = $state<VirtualProvider[]>([]);
-  let workspaces = $state<Workspace[]>([]);
   let budgets = $state<Record<string, ProviderBudgetPolicy | null>>({});
   let loading = $state(true);
   let busy = $state(false);
@@ -47,14 +36,6 @@
   let overrideMode = $state<BudgetOverrideMode>('custom');
   let overrideUsd = $state(200);
 
-  let editingVirtual = $state<VirtualProvider | null>(null);
-  let virtualForm = $state<VirtualProvider>(blankVirtual());
-  let grants = $state<VirtualProviderGrant[]>([]);
-  let grantWorkspace = $state('');
-  let grantPatterns = $state('*');
-  let grantMaxUsd = $state(0);
-  let grantAllowOverrides = $state(false);
-
   let resources = $derived<BudgetResource[]>([
     ...providers.map(p => ({ id: p.id, kind: 'provider' as const, key: p.key, label: p.key })),
     ...virtualProviders.filter(v => !!v.id).map(v => ({ id: v.id!, kind: 'virtual_provider' as const, key: v.key, label: v.name })),
@@ -63,29 +44,18 @@
   function blankBudget(kind: BudgetResourceKind, id: string): ProviderBudgetPolicy {
     return { resource_kind: kind, resource_id: id, total_limit_cents: 0, default_user_limit_cents: 0, budget_period: 'monthly', budget_reset_day: 1, budget_reset_time: '00:00', budget_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', enforce_unpriced: true };
   }
-  function blankVirtual(): VirtualProvider {
-    return { key: '', name: '', description: '', default_model: '', disabled: false, models: [{ alias: '', provider_ref: providers[0]?.key || '', model: providers[0]?.config.model || '' }] };
-  }
   function budgetKey(resource: BudgetResource) { return `${resource.kind}:${resource.id}`; }
   function usd(cents = 0) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100); }
   function percent(policy: ProviderBudgetPolicy | null) {
     if (!policy?.total_limit_cents) return 0;
     return Math.min(100, ((policy.spent_cents || 0) + (policy.reserved_cents || 0)) / policy.total_limit_cents * 100);
   }
-  function modelsFor(providerRef: string) {
-    const p = providers.find(item => item.key === providerRef);
-    const models = [...(p?.config.models || [])];
-    if (p?.config.model && !models.includes(p.config.model)) models.unshift(p.config.model);
-    return models;
-  }
-
   async function load() {
     loading = true; error = '';
     try {
-      const [providerResult, virtualResult, workspaceRows] = await Promise.all([listProviders({ _limit: 500 }), listVirtualProviders(), listWorkspaces()]);
+      const [providerResult, virtualResult] = await Promise.all([listProviders({ _limit: 500 }), listVirtualProviders()]);
       providers = providerResult.data || [];
       virtualProviders = virtualResult.data || [];
-      workspaces = workspaceRows || [];
       const next: Record<string, ProviderBudgetPolicy | null> = {};
       await Promise.all([
         ...providers.map(async p => { next[`provider:${p.id}`] = await getProviderBudget('provider', p.id); }),
@@ -138,67 +108,16 @@
     await deleteProviderBudgetOverride(budgetForm.id, userId); overrides = overrides.filter(item => item.user_id !== userId);
   }
 
-  function startVirtual(record?: VirtualProvider) {
-    editingVirtual = record || null;
-    virtualForm = record ? structuredClone(record) : blankVirtual();
-    grants = [];
-    if (record?.id) void listVirtualProviderGrants(record.id).then(rows => grants = rows);
-  }
-  function addModel() {
-    const p = providers[0];
-    virtualForm.models = [...virtualForm.models, { alias: '', provider_ref: p?.key || '', model: p?.config.model || '' }];
-  }
-  function updateModel(index: number, patch: Partial<VirtualProviderModel>) {
-    virtualForm.models = virtualForm.models.map((model, i) => i === index ? { ...model, ...patch } : model);
-    if (!virtualForm.default_model && virtualForm.models[0]?.alias) virtualForm.default_model = virtualForm.models[0].alias;
-  }
-  function removeModel(index: number) {
-    const removed = virtualForm.models[index];
-    virtualForm.models = virtualForm.models.filter((_, i) => i !== index);
-    if (virtualForm.default_model === removed.alias) virtualForm.default_model = virtualForm.models[0]?.alias || '';
-  }
-  async function saveVirtual() {
-    busy = true;
-    try {
-      virtualForm.default_model ||= virtualForm.models[0]?.alias || '';
-      const saved = editingVirtual?.id ? await updateVirtualProvider(editingVirtual.id, virtualForm) : await createVirtualProvider(virtualForm);
-      editingVirtual = saved; virtualForm = structuredClone(saved); await load(); tab = 'virtual'; addToast('Virtual provider saved', 'info');
-    } catch (e: any) { addToast(e?.response?.data?.message || 'Virtual provider could not be saved', 'alert'); }
-    finally { busy = false; }
-  }
-  async function removeVirtual(record: VirtualProvider) {
-    if (!record.id || !confirm(`Delete virtual provider “${record.name}”?`)) return;
-    await deleteVirtualProvider(record.id); if (editingVirtual?.id === record.id) startVirtual(); await load(); tab = 'virtual';
-  }
-  async function addGrant() {
-    if (!editingVirtual?.id || !grantWorkspace) return;
-    busy = true;
-    try {
-      await saveVirtualProviderGrant(editingVirtual.id, { virtual_provider_id: editingVirtual.id, workspace_id: grantWorkspace, model_patterns: grantPatterns.split(',').map(v => v.trim()).filter(Boolean), allow_user_overrides: grantAllowOverrides, max_user_limit_cents: Math.round(grantMaxUsd * 100) });
-      grants = await listVirtualProviderGrants(editingVirtual.id); addToast('Workspace access saved', 'info');
-    } catch (e: any) { addToast(e?.response?.data?.message || 'Workspace access could not be saved', 'alert'); }
-    finally { busy = false; }
-  }
-  async function removeGrant(workspaceId: string) {
-    if (!editingVirtual?.id) return;
-    await deleteVirtualProviderGrant(editingVirtual.id, workspaceId); grants = grants.filter(g => g.workspace_id !== workspaceId);
-  }
 </script>
 
 <svelte:head><title>AT | Provider governance</title></svelte:head>
 
-<div class="space-y-4">
-  <header class="flex flex-wrap items-start justify-between gap-3">
-    <div><h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Provider governance</h1><p class="mt-1 max-w-3xl text-sm text-gray-500 dark:text-dark-text-muted">Control provider spend, assign account allowances, and publish deterministic model collections to workspaces.</p></div>
-    <div class="inline-flex border border-gray-300 dark:border-dark-border">
-      <button class={['px-3 py-2 text-xs font-medium', tab === 'budgets' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-white text-gray-600 dark:bg-dark-surface dark:text-dark-text-secondary']} onclick={() => tab = 'budgets'}><WalletCards size={14} class="mr-1 inline" />Budgets</button>
-      <button class={['border-l border-gray-300 px-3 py-2 text-xs font-medium dark:border-dark-border', tab === 'virtual' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-white text-gray-600 dark:bg-dark-surface dark:text-dark-text-secondary']} onclick={() => tab = 'virtual'}><Boxes size={14} class="mr-1 inline" />Virtual providers</button>
-    </div>
-  </header>
+<div class="space-y-4 p-4 sm:p-6">
+  <header><h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Provider governance</h1><p class="mt-1 max-w-3xl text-sm text-gray-500 dark:text-dark-text-muted">Control provider spend and assign account allowances. Virtual providers are managed from the Providers page.</p></header>
 
   {#if error}<div role="alert" class="border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">{error} <button class="underline" onclick={load}>Retry</button></div>{/if}
   {#if loading}<div class="border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text-muted">Loading provider governance…</div>
-  {:else if tab === 'budgets'}
+  {:else}
     <div class="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(24rem,.75fr)]">
       <section class="border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
         <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-border dark:bg-dark-base"><h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Provider allowances</h2><p class="mt-1 text-xs text-gray-500 dark:text-dark-text-muted">Spend is shared across Chats, Sessions, agents and personal API tokens owned by the same account.</p></div>
@@ -232,23 +151,6 @@
           </div>
         {/if}
       </aside>
-    </div>
-  {:else}
-    <div class="grid gap-4 xl:grid-cols-[20rem_minmax(0,1fr)]">
-      <section class="border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface"><div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-border dark:bg-dark-base"><div><h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Virtual providers</h2><p class="text-xs text-gray-500 dark:text-dark-text-muted">Model collections with direct mappings.</p></div><button class="settings-button p-1.5" aria-label="New virtual provider" onclick={() => startVirtual()}><Plus size={15} /></button></div>
-        <div class="divide-y divide-gray-200 dark:divide-dark-border">{#each virtualProviders as record}<button class={['w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-dark-base', editingVirtual?.id === record.id ? 'bg-gray-50 dark:bg-dark-base' : '']} onclick={() => startVirtual(record)}><strong class="block truncate text-sm text-gray-900 dark:text-dark-text">{record.name}</strong><span class="font-mono text-[11px] text-gray-400">{record.key} · {record.models.length} models</span></button>{/each}{#if virtualProviders.length === 0}<p class="p-5 text-sm text-gray-500 dark:text-dark-text-muted">No virtual providers yet.</p>{/if}</div>
-      </section>
-      <section class="border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface"><div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-border dark:bg-dark-base"><div><h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">{editingVirtual?.id ? `Edit ${editingVirtual.name}` : 'Build a virtual provider'}</h2><p class="text-xs text-gray-500 dark:text-dark-text-muted">Every public alias maps to one exact physical model.</p></div>{#if editingVirtual?.id}<button aria-label="Delete virtual provider" class="p-1 text-gray-400 hover:text-red-600" onclick={() => removeVirtual(editingVirtual!)}><Trash2 size={16} /></button>{/if}</div>
-        <div class="space-y-5 p-4"><div class="grid gap-3 md:grid-cols-2"><label class="text-xs text-gray-600 dark:text-dark-text-secondary">Display name<input bind:value={virtualForm.name} placeholder="Company AI" /></label><label class="text-xs text-gray-600 dark:text-dark-text-secondary">Provider key<input class="font-mono" bind:value={virtualForm.key} placeholder="company-ai" /></label></div><label class="text-xs text-gray-600 dark:text-dark-text-secondary">Description<textarea rows="2" bind:value={virtualForm.description}></textarea></label>
-          <div><div class="flex items-center justify-between"><div><h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">Model catalogue</h3><p class="mt-1 text-xs text-gray-400">Aliases are the model IDs consumers see.</p></div><button class="settings-button inline-flex items-center gap-1" onclick={addModel}><Plus size={13} />Model</button></div>
-            <div class="mt-3 space-y-2">{#each virtualForm.models as model, index}<div class="grid items-end gap-2 border border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-base md:grid-cols-[minmax(8rem,.7fr)_minmax(9rem,1fr)_minmax(12rem,1.3fr)_auto]"><label class="text-[11px] text-gray-500">Public alias<input class="font-mono" value={model.alias} oninput={e => updateModel(index, { alias: e.currentTarget.value })} /></label><label class="text-[11px] text-gray-500">Physical provider<select value={model.provider_ref} onchange={e => { const ref = e.currentTarget.value; updateModel(index, { provider_ref: ref, model: modelsFor(ref)[0] || '' }); }}>{#each providers as p}<option value={p.key}>{p.key}</option>{/each}</select></label><label class="text-[11px] text-gray-500">Physical model<select value={model.model} onchange={e => updateModel(index, { model: e.currentTarget.value })}>{#each modelsFor(model.provider_ref) as name}<option value={name}>{name}</option>{/each}</select></label><button aria-label={`Remove model ${model.alias || index + 1}`} class="settings-button p-2 text-red-600" disabled={virtualForm.models.length === 1} onclick={() => removeModel(index)}><Trash2 size={14} /></button></div>{/each}</div>
-          </div>
-          <label class="max-w-sm text-xs text-gray-600 dark:text-dark-text-secondary">Default public model<select bind:value={virtualForm.default_model}>{#each virtualForm.models.filter(m => m.alias) as model}<option value={model.alias}>{model.alias}</option>{/each}</select></label>
-          <button class="settings-primary inline-flex items-center gap-2" disabled={busy || !virtualForm.name || !virtualForm.key || virtualForm.models.some(m => !m.alias || !m.provider_ref || !m.model)} onclick={saveVirtual}><Save size={14} />{editingVirtual?.id ? 'Save virtual provider' : 'Create virtual provider'}</button>
-          {#if editingVirtual?.id}<div class="border-t border-gray-200 pt-4 dark:border-dark-border"><h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">Workspace access</h3><p class="mt-1 text-xs text-gray-400">Recipients see only the virtual aliases; physical credentials remain private.</p><div class="mt-3 grid items-end gap-2 md:grid-cols-[minmax(10rem,1fr)_minmax(8rem,.8fr)_7rem_auto]"><label class="text-[11px] text-gray-500">Workspace<select bind:value={grantWorkspace}><option value="">Select…</option>{#each workspaces as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}</select></label><label class="text-[11px] text-gray-500">Model patterns<input class="font-mono" bind:value={grantPatterns} placeholder="*" /></label><label class="text-[11px] text-gray-500">Max user USD<input type="number" min="0" step="0.01" bind:value={grantMaxUsd} /></label><button class="settings-button" disabled={!grantWorkspace || busy} onclick={addGrant}>Share</button></div><label class="mt-2 flex items-center gap-2 text-xs text-gray-500"><input type="checkbox" bind:checked={grantAllowOverrides} />Workspace admins may customize account allowances</label>
-            <div class="mt-3 divide-y divide-gray-100 dark:divide-dark-border">{#each grants as grant}<div class="flex items-center justify-between gap-3 py-2"><div><p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">{workspaces.find(w => w.id === grant.workspace_id)?.name || grant.workspace_id}</p><p class="font-mono text-[11px] text-gray-400">{grant.model_patterns.join(', ')} · {grant.max_user_limit_cents ? `max ${usd(grant.max_user_limit_cents)}` : 'no override ceiling'}</p></div><button aria-label="Remove workspace access" class="p-1 text-gray-400 hover:text-red-600" onclick={() => removeGrant(grant.workspace_id)}><Trash2 size={14} /></button></div>{/each}{#if grants.length === 0}<p class="py-3 text-xs text-gray-400">This provider is available only in its owner workspace.</p>{/if}</div></div>{/if}
-        </div>
-      </section>
     </div>
   {/if}
 </div>

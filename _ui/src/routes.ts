@@ -27,7 +27,7 @@ import AuthenticationSettings from '@/pages/AuthenticationSettings.svelte';
 import WorkspaceSettings from '@/pages/WorkspaceSettings.svelte';
 import Permissions from '@/pages/Permissions.svelte';
 import ExecutionSettings from '@/pages/ExecutionSettings.svelte';
-import MediaSettings from '@/pages/MediaSettings.svelte';
+import StorageSettings from '@/pages/StorageSettings.svelte';
 import TraceExportSettings from '@/pages/TraceExportSettings.svelte';
 import GitCredentials from '@/pages/GitCredentials.svelte';
 import Organizations from '@/pages/Organizations.svelte';
@@ -43,6 +43,7 @@ import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
 import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
+import DeveloperSpaces from '@/pages/DeveloperSpaces.svelte';
 import Terminal from '@/pages/Terminal.svelte';
 import Features from '@/pages/Features.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -126,7 +127,7 @@ export default {
   '/settings/workspace': WorkspaceSettings,
   '/settings/permissions': Permissions,
   '/settings/execution': guarded(ExecutionSettings, '/settings/execution', adminOnly),
-  '/settings/media': MediaSettings,
+  '/settings/storage': StorageSettings,
   '/settings/trace-export': TraceExportSettings,
   '/settings/git-credentials': GitCredentials,
   '/settings/users': Users,
@@ -142,5 +143,6 @@ export default {
   '/usage': guarded(Usage, '/usage'),
   '/pricing': guarded(Pricing, '/pricing'),
   '/files': guarded(Files, '/files'),
+  '/developer-spaces': guarded(DeveloperSpaces, '/developer-spaces'),
   '*': NotFound
 };

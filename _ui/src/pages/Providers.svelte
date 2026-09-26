@@ -29,11 +29,12 @@
     type ProviderScope,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff, Boxes } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
+  import VirtualProvidersDialog from '@/lib/components/VirtualProvidersDialog.svelte';
 
   storeNavbar.title = 'Providers';
 
@@ -977,6 +978,7 @@
   let providerView = $state<'personal' | 'workspace'>(can('personal_providers.manage') ? 'personal' : 'workspace');
   let canManagePersonal = $derived(can('personal_providers.manage'));
   let canManageWorkspace = $derived(can('providers.write') && can('credentials.manage'));
+  let canManageVirtual = $derived(can('providers.write'));
   let canManageGlobal = $derived(isNativeAdmin() && workspaceState.access?.workspace_id === 'legacy-default');
   
   // Pagination
@@ -990,6 +992,7 @@
 
   let showForm = $state(false);
   let showPresets = $state(false);
+  let showVirtualProviders = $state(false);
   let editingKey = $state<string | null>(null);
   let editingPersonalId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -1791,8 +1794,17 @@
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
       <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
-    {#if canManagePersonal || canManageWorkspace}
     <div class="flex gap-2">
+      {#if canManageVirtual}
+      <button
+        onclick={() => showVirtualProviders = true}
+        class="flex items-center gap-1.5 border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-highest"
+      >
+        <Boxes size={14} />
+        New Virtual
+      </button>
+      {/if}
+      {#if canManagePersonal || canManageWorkspace}
       <button
         onclick={openPresets}
         class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover "
@@ -1807,8 +1819,8 @@
         <Plus size={14} />
         Custom
       </button>
+      {/if}
     </div>
-    {/if}
   </div>
 
   {#if !showForm && !showPresets}
@@ -2909,5 +2921,9 @@
         </div>
       </div>
     </div>
+  {/if}
+
+  {#if showVirtualProviders}
+    <VirtualProvidersDialog onclose={() => showVirtualProviders = false} />
   {/if}
 </div>

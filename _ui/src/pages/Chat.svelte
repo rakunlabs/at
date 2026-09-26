@@ -3414,7 +3414,7 @@
           Media storage is not configured, so attached images stay in this tab only and conversation history keeps a
           placeholder instead.
           <a
-            href="#/settings/media"
+            href="#/settings/storage"
             class="underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-200 focus-visible:outline-2 focus-visible:outline-accent"
           >Configure media storage</a>
         </span>

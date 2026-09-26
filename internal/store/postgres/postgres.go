@@ -98,9 +98,17 @@ type Postgres struct {
 	tableAuthChallenges             exp.IdentifierExpression
 	tablePlaygroundChats            exp.IdentifierExpression
 	tablePlaygroundMessages         exp.IdentifierExpression
-	tableMediaSettings              exp.IdentifierExpression
+	tableStorageSettings            exp.IdentifierExpression
 	tableTaskBoard                  exp.IdentifierExpression
 	tableMediaObjects               exp.IdentifierExpression
+	tableStorageObjects             exp.IdentifierExpression
+	tableDeveloperSpaces            exp.IdentifierExpression
+	tableDeveloperRepositories      exp.IdentifierExpression
+	tableDeveloperWorktrees         exp.IdentifierExpression
+	tableDeveloperSessions          exp.IdentifierExpression
+	tableDeveloperSessionMessages   exp.IdentifierExpression
+	tableDeveloperSessionSnapshots  exp.IdentifierExpression
+	tableDeveloperPendingTools      exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -207,9 +215,17 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableAuthChallenges:             goqu.T(tablePrefix + "auth_challenges"),
 		tablePlaygroundChats:            goqu.T(tablePrefix + "playground_conversations"),
 		tablePlaygroundMessages:         goqu.T(tablePrefix + "playground_messages"),
-		tableMediaSettings:              goqu.T(tablePrefix + "media_settings"),
+		tableStorageSettings:            goqu.T(tablePrefix + "storage_settings"),
 		tableTaskBoard:                  goqu.T(tablePrefix + "task_board_settings"),
-		tableMediaObjects:               goqu.T(tablePrefix + "media_objects"),
+		tableMediaObjects:               goqu.T(tablePrefix + "storage_objects"),
+		tableStorageObjects:             goqu.T(tablePrefix + "storage_objects"),
+		tableDeveloperSpaces:            goqu.T(tablePrefix + "developer_spaces"),
+		tableDeveloperRepositories:      goqu.T(tablePrefix + "developer_repositories"),
+		tableDeveloperWorktrees:         goqu.T(tablePrefix + "developer_worktrees"),
+		tableDeveloperSessions:          goqu.T(tablePrefix + "developer_sessions"),
+		tableDeveloperSessionMessages:   goqu.T(tablePrefix + "developer_session_messages"),
+		tableDeveloperSessionSnapshots:  goqu.T(tablePrefix + "developer_session_snapshots"),
+		tableDeveloperPendingTools:      goqu.T(tablePrefix + "developer_pending_tools"),
 		tableProviders:                  goqu.T(tablePrefix + "providers"),
 		tableAPITokens:                  goqu.T(tablePrefix + "tokens"),
 		tableWorkflows:                  goqu.T(tablePrefix + "workflows"),

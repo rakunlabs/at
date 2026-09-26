@@ -448,6 +448,32 @@ func (s *Server) deleteChatMediaBlobs(ctx context.Context, objects []service.Med
 	}
 }
 
+func (s *Server) deleteStorageBlobs(ctx context.Context, objects []service.StoredObject) {
+	if len(objects) == 0 {
+		return
+	}
+	store, ok := s.store.(service.StorageSettingsStorer)
+	if !ok {
+		return
+	}
+	settings, err := store.GetStorageSettings(ctx)
+	if err != nil {
+		return
+	}
+	target, err := blob.New(*settings)
+	if err != nil {
+		return
+	}
+	for _, object := range objects {
+		if object.Backend != settings.Backend {
+			continue
+		}
+		if err := target.Delete(ctx, object.StorageKey); err != nil {
+			slog.Warn("workspace storage blob cleanup failed", "namespace", object.Namespace, "key", object.StorageKey, "error", err.Error())
+		}
+	}
+}
+
 func (s *Server) ImportChatShareAPI(w http.ResponseWriter, r *http.Request) {
 	store, principal, owner := s.chatShareAccess(w, r)
 	if store == nil {

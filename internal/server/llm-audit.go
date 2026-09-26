@@ -83,7 +83,7 @@ const llmAuditCacheTTL = 30 * time.Second
 // fields are fine.
 type llmAuditParams struct {
 	auth      *authResult
-	source    string // "gateway" | "gateway_stream" | "responses" | "agent" | "chat" | "workflow"
+	source    string // "gateway" | "gateway_stream" | "responses" | "agent" | "chat" | "workflow" | "developer"
 	endpoint  string
 	traceID   string
 	sessionID string

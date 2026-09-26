@@ -39,24 +39,24 @@ const settings = (overrides = {}) => ({
 });
 const error = (status, message) => ({ response: { status, ...(message === undefined ? {} : { data: { message } }) } });
 
-test('settings reads preserve the redacted document verbatim', async () => {
+test('storage settings reads preserve the redacted document verbatim', async () => {
   response = settings();
-  assert.deepEqual(await api.getMediaSettings(), response);
+  assert.deepEqual(await api.getStorageSettings(), response);
   // The secret is never returned: `secret_access_key_set` is the only signal.
   assert.equal(response.s3.secret_access_key, '');
   assert.equal(response.secret_access_key_set, true);
-  assert.deepEqual(calls, [['get', '/media/settings']]);
+  assert.deepEqual(calls, [['get', '/storage/settings']]);
 });
 
 test('writes rebuild the document from the allowlist and never invent a field', async () => {
   const stored = settings();
   response = settings({ version: 3 });
-  await api.putMediaSettings(stored);
-  await api.testMediaSettings(stored);
+  await api.putStorageSettings(stored);
+  await api.testStorageSettings(stored);
   const body = { version: 2, backend: 's3', filesystem: { root: '' }, s3: s3() };
   assert.deepEqual(calls, [
-    ['put', '/media/settings', body],
-    ['post', '/media/settings/test', body],
+    ['put', '/storage/settings', body],
+    ['post', '/storage/settings/test', body],
   ]);
   // Any unknown key is a 400, and `secret_access_key_set` is read-only.
   for (const [, , sent] of calls) {
@@ -68,20 +68,20 @@ test('writes rebuild the document from the allowlist and never invent a field', 
 });
 
 test('an empty secret is sent as "" to keep the stored one, never omitted', () => {
-  const body = api.mediaSettingsBody(settings());
+  const body = api.storageSettingsBody(settings());
   assert.equal('secret_access_key' in body.s3, true);
   assert.equal(body.s3.secret_access_key, '');
   // A typed replacement rides through verbatim, including surrounding spaces.
-  assert.equal(api.mediaSettingsBody(settings({ s3: s3({ secret_access_key: ' s3cret ' }) })).s3.secret_access_key, ' s3cret ');
+  assert.equal(api.storageSettingsBody(settings({ s3: s3({ secret_access_key: ' s3cret ' }) })).s3.secret_access_key, ' s3cret ');
   // Missing or wrongly typed values normalise instead of serialising as null.
-  assert.deepEqual(api.mediaSettingsBody({}), {
+  assert.deepEqual(api.storageSettingsBody({}), {
     version: 0, backend: '', filesystem: { root: '' },
     s3: { endpoint: '', region: '', bucket: '', prefix: '', access_key_id: '', secret_access_key: '', use_path_style: false },
   });
-  assert.deepEqual(api.mediaSettingsBody(api.emptyMediaSettings()), api.mediaSettingsBody({}));
+  assert.deepEqual(api.storageSettingsBody(api.emptyStorageSettings()), api.storageSettingsBody({}));
   // `use_path_style` is strictly boolean: a truthy string is not a yes.
-  assert.equal(api.mediaSettingsBody(settings({ s3: s3({ use_path_style: 'true' }) })).s3.use_path_style, false);
-  assert.equal(api.mediaSettingsBody({ version: 1.5, backend: 'filesystem', filesystem: { root: '/srv/media' } }).filesystem.root, '/srv/media');
+  assert.equal(api.storageSettingsBody(settings({ s3: s3({ use_path_style: 'true' }) })).s3.use_path_style, false);
+  assert.equal(api.storageSettingsBody({ version: 1.5, backend: 'filesystem', filesystem: { root: '/srv/media' } }).filesystem.root, '/srv/media');
 });
 
 test('uploads are multipart under the field name file', async () => {
@@ -151,14 +151,14 @@ test('errors name the limit that was hit instead of failing generically', () => 
   for (const status of [400, 401, 403, 409, 413, 415, 502]) assert.equal(api.isMediaStorageDisabled(error(status)), false);
 
   // A 409 is a stale local version, not a bad request: it must offer a reload.
-  assert.equal(api.isMediaSettingsConflict(error(409)), true);
-  assert.equal(api.isMediaSettingsConflict(error(400)), false);
-  assert.match(api.mediaSettingsErrorMessage(error(409, 'version conflict')), /changed elsewhere/);
-  assert.match(api.mediaSettingsErrorMessage(error(413)), /too large/);
-  assert.equal(api.mediaSettingsErrorMessage(error(503, 'media storage is disabled')), 'media storage is disabled');
-  assert.match(api.mediaSettingsErrorMessage(error(503)), /unavailable right now/);
-  assert.equal(api.mediaSettingsErrorMessage(error(400, 'backend must be filesystem or s3')), 'backend must be filesystem or s3');
-  assert.equal(api.mediaSettingsErrorMessage(error(500)), 'Could not save media storage settings.');
+  assert.equal(api.isStorageSettingsConflict(error(409)), true);
+  assert.equal(api.isStorageSettingsConflict(error(400)), false);
+  assert.match(api.storageSettingsErrorMessage(error(409, 'version conflict')), /changed elsewhere/);
+  assert.match(api.storageSettingsErrorMessage(error(413)), /too large/);
+  assert.equal(api.storageSettingsErrorMessage(error(503, 'storage is disabled')), 'storage is disabled');
+  assert.match(api.storageSettingsErrorMessage(error(503)), /unavailable right now/);
+  assert.equal(api.storageSettingsErrorMessage(error(400, 'backend must be filesystem or s3')), 'backend must be filesystem or s3');
+  assert.equal(api.storageSettingsErrorMessage(error(500)), 'Could not save storage settings.');
 });
 
 test('limits mirror the server contract', () => {
@@ -170,9 +170,9 @@ test('limits mirror the server contract', () => {
 test('every endpoint propagates failures once, without retrying', async () => {
   failure = error(503, 'media storage is disabled');
   const operations = [
-    () => api.getMediaSettings(),
-    () => api.putMediaSettings(api.emptyMediaSettings()),
-    () => api.testMediaSettings(api.emptyMediaSettings()),
+    () => api.getStorageSettings(),
+    () => api.putStorageSettings(api.emptyStorageSettings()),
+    () => api.testStorageSettings(api.emptyStorageSettings()),
     () => api.uploadMedia(new Blob(['x'])),
     () => api.getMediaBlob('id'),
     () => api.deleteMedia('id'),

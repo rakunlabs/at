@@ -239,6 +239,8 @@ type Server struct {
 
 	// Active chat turns can be cancelled when their workspace is deleted.
 	activeChatTurns sync.Map
+	// Active native coding-session requests, keyed by session ID.
+	activeDeveloperSessions sync.Map
 
 	// Ephemeral background subagents are process-local by design. They create
 	// no durable organization task and disappear after a short terminal TTL.
@@ -1050,6 +1052,44 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/goals/{id}/projects", s.ListProjectsByGoalAPI)
 	apiGroup.GET("/v1/organizations/{id}/projects", s.ListProjectsByOrganizationAPI)
 
+	// User-owned coding environments. Repository/worktree/session execution is
+	// layered onto these opaque space IDs; callers never select host paths.
+	apiGroup.GET("/v1/developer-spaces", s.ListDeveloperSpacesAPI)
+	apiGroup.POST("/v1/developer-spaces", s.CreateDeveloperSpaceAPI)
+	apiGroup.GET("/v1/developer-spaces/{id}", s.GetDeveloperSpaceAPI)
+	apiGroup.PUT("/v1/developer-spaces/{id}", s.UpdateDeveloperSpaceAPI)
+	apiGroup.DELETE("/v1/developer-spaces/{id}", s.DeleteDeveloperSpaceAPI)
+	apiGroup.GET("/v1/developer-spaces/{id}/repositories", s.ListDeveloperRepositoriesAPI)
+	apiGroup.POST("/v1/developer-spaces/{id}/repositories", s.CreateDeveloperRepositoryAPI)
+	apiGroup.GET("/v1/developer-repositories/{id}", s.GetDeveloperRepositoryAPI)
+	apiGroup.DELETE("/v1/developer-repositories/{id}", s.DeleteDeveloperRepositoryAPI)
+	apiGroup.GET("/v1/developer-repositories/{id}/worktrees", s.ListDeveloperWorktreesAPI)
+	apiGroup.POST("/v1/developer-repositories/{id}/worktrees", s.CreateDeveloperWorktreeAPI)
+	apiGroup.GET("/v1/developer-worktrees/{id}", s.GetDeveloperWorktreeAPI)
+	apiGroup.DELETE("/v1/developer-worktrees/{id}", s.DeleteDeveloperWorktreeAPI)
+	apiGroup.GET("/v1/developer-spaces/{id}/sessions", s.ListDeveloperSessionsAPI)
+	apiGroup.POST("/v1/developer-spaces/{id}/sessions", s.CreateDeveloperSessionAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}", s.GetDeveloperSessionAPI)
+	apiGroup.DELETE("/v1/developer-sessions/{id}", s.DeleteDeveloperSessionAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/messages", s.ListDeveloperSessionMessagesAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/snapshots", s.ListDeveloperSessionSnapshotsAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/snapshots/{snapshotID}", s.GetDeveloperSessionSnapshotAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/pending", s.GetDeveloperSessionPendingToolAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/run", s.RunDeveloperSessionAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/confirm", s.ConfirmDeveloperSessionToolAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/answer", s.AnswerDeveloperSessionQuestionAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/cancel", s.CancelDeveloperSessionAPI)
+	apiGroup.POST("/v1/developer-spaces/{id}/start", s.StartDeveloperSpaceAPI)
+	apiGroup.POST("/v1/developer-spaces/{id}/stop", s.StopDeveloperSpaceAPI)
+	apiGroup.POST("/v1/developer-repositories/{id}/clone", s.CloneDeveloperRepositoryAPI)
+	apiGroup.POST("/v1/developer-worktrees/{id}/provision", s.ProvisionDeveloperWorktreeAPI)
+	apiGroup.GET("/v1/developer-worktrees/{id}/status", s.DeveloperWorktreeStatusAPI)
+	apiGroup.GET("/v1/developer-worktrees/{id}/diff", s.DeveloperWorktreeDiffAPI)
+	apiGroup.POST("/v1/developer-worktrees/{id}/stage", s.StageDeveloperWorktreeAPI)
+	apiGroup.POST("/v1/developer-worktrees/{id}/commit", s.CommitDeveloperWorktreeAPI)
+	apiGroup.POST("/v1/developer-worktrees/{id}/push", s.PushDeveloperWorktreeAPI)
+	apiGroup.GET("/v1/developer-worktrees/{id}/terminal", s.DeveloperWorktreeTerminalAPI)
+
 	// Issue comments
 	apiGroup.GET("/v1/tasks/{id}/comments", s.ListCommentsByTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/comments", s.CreateCommentAPI)
@@ -1291,9 +1331,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// Configurable media storage: administrator settings plus per-user,
 	// owner-scoped image objects (Playground attachments).
-	apiGroup.GET("/v1/media/settings", s.MediaSettingsAPI)
-	apiGroup.PUT("/v1/media/settings", s.MediaSettingsAPI)
-	apiGroup.POST("/v1/media/settings/test", s.MediaSettingsTestAPI)
+	apiGroup.GET("/v1/storage/settings", s.StorageSettingsAPI)
+	apiGroup.PUT("/v1/storage/settings", s.StorageSettingsAPI)
+	apiGroup.POST("/v1/storage/settings/test", s.StorageSettingsTestAPI)
 	apiGroup.POST("/v1/media", s.MediaUploadAPI)
 	apiGroup.GET("/v1/media/{id}", s.MediaObjectAPI)
 	apiGroup.DELETE("/v1/media/{id}", s.MediaObjectAPI)
@@ -1362,9 +1402,18 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// Cleanup containers on shutdown.
 	go func() {
-		<-ctx.Done()
-		slog.Info("server: cleaning up containers")
-		s.containerManager.StopAll(context.Background())
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.containerManager.CleanupIdle(ctx, 30*time.Minute)
+			case <-ctx.Done():
+				slog.Info("server: cleaning up containers")
+				s.containerManager.StopAll(context.Background())
+				return
+			}
+		}
 	}()
 
 	return s, nil

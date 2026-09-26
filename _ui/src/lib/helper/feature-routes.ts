@@ -56,6 +56,7 @@ export const routeFeatures: Record<string, string> = {
   '/sessions': FEATURE_CHAT_SESSIONS,
   '/bots': FEATURE_BOTS,
   '/agents': FEATURE_AGENTS,
+  '/developer-spaces': FEATURE_AGENTS,
   '/skills': FEATURE_SKILLS,
   '/marketplaces': FEATURE_MARKETPLACES,
   '/docs': FEATURE_GUIDES,

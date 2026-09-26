@@ -245,6 +245,15 @@ func TestRuntimeBindingManagementAPI(t *testing.T) {
 		if method == http.MethodGet && !strings.Contains(w.Body.String(), "machine-member") {
 			t.Fatalf("eligible identity absent: %s", w.Body.String())
 		}
+		if method == http.MethodPost {
+			get := httptest.NewRequest(http.MethodGet, "/api/v1/bots/"+bot.ID+"/execution-binding", nil).WithContext(f.ctx)
+			get.SetPathValue("id", bot.ID)
+			got := httptest.NewRecorder()
+			f.s.RuntimeBotBindingAPI(got, get)
+			if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"binding_valid":true`) {
+				t.Fatalf("valid binding status: %d %s", got.Code, got.Body.String())
+			}
+		}
 	}
 }
 

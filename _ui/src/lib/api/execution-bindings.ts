@@ -12,7 +12,7 @@ export interface ExecutionBinding {
 }
 
 export interface BindingCandidate { user_id: string; name: string; role: string }
-export interface BindingDetails { binding: ExecutionBinding | null; candidates: BindingCandidate[] }
+export interface BindingDetails { binding: ExecutionBinding | null; binding_valid: boolean; candidates: BindingCandidate[] }
 
 const path = (kind: 'bot' | 'mcp', id: string) => `${kind === 'bot' ? 'bots' : 'mcp/servers'}/${encodeURIComponent(id)}/execution-binding`;
 export const getExecutionBinding = async (kind: 'bot' | 'mcp', id: string) =>

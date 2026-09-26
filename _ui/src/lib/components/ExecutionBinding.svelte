@@ -6,6 +6,7 @@
   interface Props { kind: 'bot' | 'mcp'; subjectId: string; onchange?: () => void }
   let { kind, subjectId, onchange }: Props = $props();
   let binding = $state<ExecutionBinding | null>(null);
+  let bindingValid = $state(false);
   let candidates = $state<BindingCandidate[]>([]);
   let user = $state('');
   let loading = $state(true);
@@ -28,6 +29,7 @@
       const result = await getExecutionBinding(currentKind, id);
       if (request !== generation) return;
       binding = result.binding;
+      bindingValid = result.binding_valid;
       candidates = result.candidates || [];
       user = binding?.user_id || (candidates.length === 1 ? candidates[0].user_id : '');
     } catch (e: any) {
@@ -43,6 +45,7 @@
     error = notice = '';
     try {
       binding = await saveExecutionBinding(kind, subjectId, user);
+      bindingValid = true;
       notice = 'Execution identity saved.';
       if (kind === 'bot') {
         try {
@@ -66,6 +69,7 @@
     error = notice = '';
     try {
       binding = await revokeExecutionBinding(kind, subjectId);
+      bindingValid = false;
       notice = kind === 'bot' ? 'Execution identity revoked. Bot stopped.' : 'Execution identity revoked. New MCP requests will be rejected.';
       onchange?.();
     } catch (e: any) {
@@ -91,7 +95,7 @@
     <p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading execution identity…</p>
   {:else}
     <p class="text-xs text-gray-600 dark:text-dark-text-secondary">
-      {binding ? (binding.revoked ? 'Revoked' : `Bound · version ${binding.version} · policy ${binding.policy_version}`) : 'Setup required — no execution identity is bound.'}
+      {binding ? (binding.revoked ? 'Revoked' : bindingValid ? `Bound · version ${binding.version} · policy ${binding.policy_version}` : `Renewal required · saved version ${binding.version} · policy ${binding.policy_version}`) : 'Setup required — no execution identity is bound.'}
     </p>
     {#if candidates.length > 0}
       <div class="flex flex-col sm:flex-row sm:items-end gap-3">
@@ -105,7 +109,7 @@
           </select>
         </div>
         <button type="button" onclick={save} disabled={busy || !user} class="px-3 py-2 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-700 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed">
-          {busy ? 'Saving…' : kind === 'bot' ? 'Bind & start bot' : 'Save execution identity'}
+          {busy ? 'Saving…' : kind === 'bot' ? (binding && !bindingValid ? 'Renew & start bot' : 'Bind & start bot') : (binding && !bindingValid ? 'Renew execution identity' : 'Save execution identity')}
         </button>
       </div>
     {:else if !error}

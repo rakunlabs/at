@@ -17,7 +17,7 @@ import { routeFeatureEnabled } from './feature-routes';
 // reaches administration APIs.
 const capabilityRoutes: Record<string, string> = {
   '/providers': 'providers.read', '/routing-profiles': 'providers.read', '/virtual-providers': 'providers.read',
-  '/agents': 'agents.read', '/sessions': 'agents.read',
+  '/agents': 'agents.read', '/sessions': 'agents.read', '/developer-spaces': 'agents.read',
   '/workflows': 'workflows.read', '/runs': 'workflows.read',
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
   '/studio': 'files.read', '/files': 'files.read',
@@ -40,7 +40,7 @@ const platformRoutes = [
   // Policy reads are workspace-admitted, but this configuration surface is
   // only useful to installation administrators who can change the policy.
   '/settings/execution',
-  '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system', '/settings/git-credentials',
+  '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/storage', '/settings/system', '/settings/git-credentials',
   '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers',
 ];
@@ -78,11 +78,11 @@ export const configurationLinks = [
   { path: '/settings/authentication', label: 'Authentication', description: 'Local sign-in, admission policy and identity providers' },
   { path: '/settings/users', label: 'Users', description: 'Installation accounts and full account recovery' },
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
-  { path: '/settings/media', label: 'Media storage', description: 'Where image attachments in Chats are stored' },
+  { path: '/settings/storage', label: 'Storage', description: 'Durable backend for media, files, assets and space snapshots' },
   { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
   { path: '/settings/git-credentials', label: 'Git credentials', description: 'Deploy keys for private skill repositories' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
-  { path: '/virtual-providers', label: 'Provider governance', description: 'Provider budgets, account allowances and shared model collections' },
+  { path: '/virtual-providers', label: 'Provider governance', description: 'Provider budgets and account allowances' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },
   { path: '/variables', label: 'Variables', description: 'Workspace variables and secrets' },
   { path: '/mcp-servers', label: 'MCP servers', description: 'Tool servers and endpoints' },

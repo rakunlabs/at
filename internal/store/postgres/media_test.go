@@ -28,7 +28,7 @@ func mediaS3Settings(version int64, secret string) service.MediaSettings {
 func mediaRawConfig(t *testing.T, p *Postgres) string {
 	t.Helper()
 	var raw string
-	row := p.db.QueryRowContext(t.Context(), "SELECT config FROM "+p.tableMediaSettings.GetTable()+" WHERE singleton")
+	row := p.db.QueryRowContext(t.Context(), "SELECT config FROM "+p.tableStorageSettings.GetTable()+" WHERE singleton")
 	if err := row.Scan(&raw); err != nil {
 		t.Fatalf("scan raw config: %v", err)
 	}

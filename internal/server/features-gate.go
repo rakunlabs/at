@@ -305,6 +305,8 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureAgents
+	case "developer-spaces", "developer-repositories", "developer-worktrees", "developer-sessions":
+		return service.FeatureAgents
 	case "heartbeats", "heartbeat-runs", "wakeup-requests":
 		return service.FeatureAgentHeartbeats
 	case "agent-config-revisions":
@@ -338,6 +340,11 @@ func featureKeyForRoute(path, method, basePath string) string {
 	// ─── Data & integrations ───
 	case "files":
 		return service.FeatureFiles
+	case "storage":
+		if seg(1) == "files" {
+			return service.FeatureFiles
+		}
+		return ""
 	case "connections", "connectors", "oauth":
 		return service.FeatureExternalConnections
 	case "integration-packs", "pack-sources":

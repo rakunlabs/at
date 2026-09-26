@@ -71,6 +71,32 @@ type mediaSettingsRequest struct {
 	SecretAccessKeySet *bool                           `json:"secret_access_key_set"`
 }
 
+// storageSettingsAccess resolves only the installation-wide backend policy.
+// It deliberately does not return MediaStorer, whose object methods are
+// owner-scoped to Chats and are not the future Files authorization boundary.
+func (s *Server) storageSettingsAccess(w http.ResponseWriter, r *http.Request) service.StorageSettingsStorer {
+	w.Header().Set("Cache-Control", "no-store")
+	if nativeRuntimeFromRequest(r, s.nativeAuth) == nil {
+		nativeError(w, http.StatusServiceUnavailable, "storage requires native authentication")
+		return nil
+	}
+	id := identity.FromContext(r.Context())
+	if id == nil || id.Subject == "" || !id.HasRole("admin") {
+		nativeError(w, http.StatusForbidden, "storage settings require a native administrator")
+		return nil
+	}
+	if s.store == nil {
+		nativeError(w, http.StatusServiceUnavailable, "store not configured")
+		return nil
+	}
+	store, ok := s.store.(service.StorageSettingsStorer)
+	if !ok {
+		nativeError(w, http.StatusServiceUnavailable, "storage unavailable")
+		return nil
+	}
+	return store
+}
+
 func mediaSettingsRedacted(settings service.MediaSettings) mediaSettingsResponse {
 	out := mediaSettingsResponse{MediaSettings: settings, SecretAccessKeySet: settings.S3.SecretAccessKey != ""}
 	out.MediaSettings.S3.SecretAccessKey = ""
@@ -119,7 +145,7 @@ func mediaStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrMediaNotFound):
 		nativeError(w, http.StatusNotFound, "media object not found")
 	case errors.Is(err, service.ErrMediaConflict):
-		nativeError(w, http.StatusConflict, "media settings were changed by someone else; reload and retry")
+		nativeError(w, http.StatusConflict, "storage settings were changed by someone else; reload and retry")
 	default:
 		nativeError(w, http.StatusServiceUnavailable, "media storage unavailable")
 	}
@@ -143,7 +169,7 @@ func decodeMediaSettingsBody(w http.ResponseWriter, r *http.Request, dst *mediaS
 			nativeError(w, http.StatusRequestEntityTooLarge, "request body is too large")
 			return false
 		}
-		nativeError(w, http.StatusBadRequest, "invalid media settings request")
+		nativeError(w, http.StatusBadRequest, "invalid storage settings request")
 		return false
 	}
 	return true
@@ -161,13 +187,13 @@ func mediaSettingsFromRequest(req mediaSettingsRequest, current service.MediaSet
 	return settings.Normalized()
 }
 
-// MediaSettingsAPI handles GET and PUT /v1/media/settings.
-func (s *Server) MediaSettingsAPI(w http.ResponseWriter, r *http.Request) {
-	store, _ := s.mediaAccess(w, r, true)
+// StorageSettingsAPI handles the installation-wide durable storage policy.
+func (s *Server) StorageSettingsAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.storageSettingsAccess(w, r)
 	if store == nil {
 		return
 	}
-	current, err := store.GetMediaSettings(r.Context())
+	current, err := store.GetStorageSettings(r.Context())
 	if err != nil {
 		mediaStoreError(w, err)
 		return
@@ -181,13 +207,11 @@ func (s *Server) MediaSettingsAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		settings := mediaSettingsFromRequest(req, *current)
-		// Validate here so a malformed configuration is a 400, distinct from
-		// the 409 a stale version earns in the store.
 		if err := settings.Validate(); err != nil {
 			nativeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		saved, err := store.SaveMediaSettings(r.Context(), settings)
+		saved, err := store.SaveStorageSettings(r.Context(), settings)
 		if err != nil {
 			mediaStoreError(w, err)
 			return
@@ -198,11 +222,9 @@ func (s *Server) MediaSettingsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// MediaSettingsTestAPI handles POST /v1/media/settings/test. It probes the
-// SUBMITTED settings, not the saved ones, so an administrator can verify a
-// bucket before committing a configuration that would break uploads.
-func (s *Server) MediaSettingsTestAPI(w http.ResponseWriter, r *http.Request) {
-	store, _ := s.mediaAccess(w, r, true)
+// StorageSettingsTestAPI probes submitted settings without saving them.
+func (s *Server) StorageSettingsTestAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.storageSettingsAccess(w, r)
 	if store == nil {
 		return
 	}
@@ -210,7 +232,7 @@ func (s *Server) MediaSettingsTestAPI(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	current, err := store.GetMediaSettings(r.Context())
+	current, err := store.GetStorageSettings(r.Context())
 	if err != nil {
 		mediaStoreError(w, err)
 		return
@@ -229,9 +251,6 @@ func (s *Server) MediaSettingsTestAPI(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// The upstream message is returned verbatim: "NoSuchBucket" and
-	// "SignatureDoesNotMatch" are the whole value of this endpoint, and the
-	// caller is already an administrator who can read the configuration.
 	if err := target.Check(r.Context()); err != nil {
 		httpResponseJSON(w, map[string]any{"ok": false, "message": err.Error()}, http.StatusBadGateway)
 		return
@@ -248,13 +267,13 @@ func (s *Server) mediaBackend(w http.ResponseWriter, r *http.Request, store serv
 		return nil, service.MediaSettings{}, false
 	}
 	if !settings.Enabled() {
-		nativeError(w, http.StatusServiceUnavailable, "media storage is disabled; an administrator must configure a filesystem or s3 backend in media settings")
+		nativeError(w, http.StatusServiceUnavailable, "storage is disabled; an administrator must configure a filesystem or s3 backend in storage settings")
 		return nil, *settings, false
 	}
 	target, err := blob.New(*settings)
 	if err != nil {
 		slog.Error("media storage is misconfigured", "backend", settings.Backend, "error", err.Error())
-		nativeError(w, http.StatusServiceUnavailable, "media storage is misconfigured; an administrator must fix it in media settings")
+		nativeError(w, http.StatusServiceUnavailable, "storage is misconfigured; an administrator must fix it in storage settings")
 		return nil, *settings, false
 	}
 	return target, *settings, true

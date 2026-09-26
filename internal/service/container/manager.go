@@ -4,6 +4,7 @@ package container
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -12,23 +13,61 @@ import (
 	"time"
 )
 
+const containerCommandOutputMaxBytes = 16 << 20
+
+type boundedOutput struct {
+	buf       bytes.Buffer
+	remaining int
+	truncated bool
+}
+
+func newBoundedOutput(limit int) *boundedOutput {
+	return &boundedOutput{remaining: limit}
+}
+
+func (w *boundedOutput) Write(p []byte) (int, error) {
+	original := len(p)
+	if len(p) > w.remaining {
+		p = p[:max(0, w.remaining)]
+		w.truncated = true
+	}
+	if len(p) > 0 {
+		_, _ = w.buf.Write(p)
+		w.remaining -= len(p)
+	}
+	return original, nil
+}
+
+func (w *boundedOutput) String() string {
+	if !w.truncated {
+		return w.buf.String()
+	}
+	return w.buf.String() + "\n[output truncated at 16 MiB]\n"
+}
+
 // Config holds container configuration for an organization.
 type Config struct {
-	Enabled bool   `json:"enabled"`
-	Image   string `json:"image,omitempty"`  // Docker image (default: at-agent-runtime:latest)
-	CPU     string `json:"cpu,omitempty"`    // CPU limit (e.g., "2")
-	Memory  string `json:"memory,omitempty"` // Memory limit (e.g., "4g")
-	Network bool   `json:"network"`          // Allow network access
+	Enabled          bool   `json:"enabled"`
+	Image            string `json:"image,omitempty"`  // Docker image (default: at-agent-runtime:latest)
+	CPU              string `json:"cpu,omitempty"`    // CPU limit (e.g., "2")
+	Memory           string `json:"memory,omitempty"` // Memory limit (e.g., "4g")
+	Network          bool   `json:"network"`          // Allow network access
+	PersistentVolume bool   `json:"persistent_volume,omitempty"`
+	RequireRootless  bool   `json:"require_rootless,omitempty"`
+	ReadOnlyRoot     bool   `json:"read_only_root,omitempty"`
+	DiskLimitBytes   int64  `json:"disk_limit_bytes,omitempty"`
+	PidsLimit        int    `json:"pids_limit,omitempty"`
 }
 
 // DefaultConfig returns the default container configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled: false,
-		Image:   "at-agent-runtime:latest",
-		CPU:     "2",
-		Memory:  "4g",
-		Network: true,
+		Enabled:   false,
+		Image:     "at-agent-runtime:latest",
+		CPU:       "2",
+		Memory:    "4g",
+		Network:   true,
+		PidsLimit: 256,
 	}
 }
 
@@ -44,6 +83,7 @@ type containerInfo struct {
 	config      Config
 	createdAt   time.Time
 	lastUsed    time.Time
+	active      int
 }
 
 // New creates a new container manager.
@@ -64,11 +104,12 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 
 	// Check if container already exists and is running
 	if info, ok := m.containers[orgID]; ok {
-		if isContainerRunning(ctx, info.containerID) {
+		if info.config == cfg && isContainerRunning(ctx, info.containerID) {
 			info.lastUsed = time.Now()
 			return info.containerID, nil
 		}
 		// Container exists but stopped — remove and recreate
+		removeContainer(ctx, info.containerID)
 		delete(m.containers, orgID)
 	}
 
@@ -99,6 +140,17 @@ func (m *Manager) Exec(ctx context.Context, orgID string, cfg Config, command st
 	if containerID == "" {
 		return "", "", -1, fmt.Errorf("container not enabled for org %s", orgID)
 	}
+	if cfg.DiskLimitBytes > 0 {
+		used, err := workspaceUsage(ctx, containerID)
+		if err != nil {
+			return "", "", -1, fmt.Errorf("check workspace quota: %w", err)
+		}
+		if used > cfg.DiskLimitBytes {
+			return "", "", -1, fmt.Errorf("workspace quota exceeded: %d of %d bytes", used, cfg.DiskLimitBytes)
+		}
+	}
+	m.markActive(orgID, 1)
+	defer m.markActive(orgID, -1)
 
 	args := []string{"exec"}
 
@@ -110,9 +162,9 @@ func (m *Manager) Exec(ctx context.Context, orgID string, cfg Config, command st
 	args = append(args, containerID, "bash", "-c", command)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err = cmd.Run()
 	exitCode := 0
@@ -124,7 +176,82 @@ func (m *Manager) Exec(ctx context.Context, orgID string, cfg Config, command st
 		}
 	}
 
+	if cfg.DiskLimitBytes > 0 {
+		if used, usageErr := workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
+			return stdout.String(), stderr.String(), exitCode, fmt.Errorf("workspace quota exceeded after command: %d of %d bytes", used, cfg.DiskLimitBytes)
+		}
+	}
 	return stdout.String(), stderr.String(), exitCode, nil
+}
+
+// ExecArgs executes one binary without a shell. Coding-space Git operations use
+// this path so remote URLs, refs and commit messages never become shell syntax.
+func (m *Manager) ExecArgs(ctx context.Context, scopeID string, cfg Config, workDir string, env map[string]string, command string, commandArgs ...string) (string, string, int, error) {
+	if command == "" {
+		return "", "", -1, fmt.Errorf("command is required")
+	}
+	if workDir != "" && workDir != "/workspace" && !strings.HasPrefix(workDir, "/workspace/") {
+		return "", "", -1, fmt.Errorf("work directory must stay inside /workspace")
+	}
+	containerID, err := m.EnsureContainer(ctx, scopeID, cfg)
+	if err != nil {
+		return "", "", -1, err
+	}
+	if containerID == "" {
+		return "", "", -1, fmt.Errorf("container not enabled for scope %s", scopeID)
+	}
+	if cfg.DiskLimitBytes > 0 {
+		used, err := workspaceUsage(ctx, containerID)
+		if err != nil {
+			return "", "", -1, fmt.Errorf("check workspace quota: %w", err)
+		}
+		if used > cfg.DiskLimitBytes {
+			return "", "", -1, fmt.Errorf("workspace quota exceeded: %d of %d bytes", used, cfg.DiskLimitBytes)
+		}
+	}
+	m.markActive(scopeID, 1)
+	defer m.markActive(scopeID, -1)
+
+	args := []string{"exec"}
+	for key, value := range env {
+		args = append(args, "-e", key+"="+value)
+	}
+	if workDir != "" {
+		args = append(args, "-w", workDir)
+	}
+	args = append(args, containerID, command)
+	args = append(args, commandArgs...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err = cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return "", "", -1, fmt.Errorf("docker exec: %w", err)
+		}
+	}
+	if cfg.DiskLimitBytes > 0 {
+		if used, usageErr := workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
+			return stdout.String(), stderr.String(), exitCode, fmt.Errorf("workspace quota exceeded after command: %d of %d bytes", used, cfg.DiskLimitBytes)
+		}
+	}
+	return stdout.String(), stderr.String(), exitCode, nil
+}
+
+func (m *Manager) markActive(scopeID string, delta int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if info := m.containers[scopeID]; info != nil {
+		info.active += delta
+		if info.active < 0 {
+			info.active = 0
+		}
+		info.lastUsed = time.Now()
+	}
 }
 
 // ExecPython runs a Python script inside the org's container.
@@ -150,6 +277,29 @@ func (m *Manager) StopContainer(ctx context.Context, orgID string) error {
 	return nil
 }
 
+// RemoveScope removes the managed container and its persistent workspace
+// volume. Unlike StopContainer, this is destructive and is used only when the
+// owning developer space is deleted.
+func (m *Manager) RemoveScope(ctx context.Context, scopeID string) error {
+	m.mu.Lock()
+	if info := m.containers[scopeID]; info != nil {
+		removeContainer(ctx, info.containerID)
+		delete(m.containers, scopeID)
+	}
+	m.mu.Unlock()
+
+	scopeHash := fmt.Sprintf("%x", sha256.Sum256([]byte(scopeID)))[:20]
+	name := "at-scope-" + scopeHash
+	if output, err := exec.CommandContext(ctx, "docker", "rm", "-f", name).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such container") {
+		return fmt.Errorf("remove managed container: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	volume := "at-space-" + scopeHash
+	if output, err := exec.CommandContext(ctx, "docker", "volume", "rm", volume).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such volume") {
+		return fmt.Errorf("remove managed volume: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
 // StopAll stops all containers (called on shutdown).
 func (m *Manager) StopAll(ctx context.Context) {
 	m.mu.Lock()
@@ -169,7 +319,7 @@ func (m *Manager) CleanupIdle(ctx context.Context, maxIdle time.Duration) {
 
 	now := time.Now()
 	for orgID, info := range m.containers {
-		if now.Sub(info.lastUsed) > maxIdle {
+		if info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
 			removeContainer(ctx, info.containerID)
 			delete(m.containers, orgID)
 			slog.Info("container: cleaned up idle", "org_id", orgID, "idle", now.Sub(info.lastUsed))
@@ -189,6 +339,7 @@ func (m *Manager) ListContainers() map[string]map[string]any {
 			"created_at":   info.createdAt.Format(time.RFC3339),
 			"last_used":    info.lastUsed.Format(time.RFC3339),
 			"image":        info.config.Image,
+			"active":       info.active,
 		}
 	}
 	return result
@@ -202,14 +353,32 @@ func createContainer(ctx context.Context, orgID string, cfg Config) (string, err
 		image = "at-agent-runtime:latest"
 	}
 
-	name := fmt.Sprintf("at-org-%s", orgID[:min(12, len(orgID))])
+	if cfg.RequireRootless {
+		rootless, err := dockerIsRootless(ctx)
+		if err != nil {
+			return "", err
+		}
+		if !rootless {
+			return "", fmt.Errorf("docker rootless mode is required")
+		}
+	}
+
+	scopeHash := fmt.Sprintf("%x", sha256.Sum256([]byte(orgID)))[:20]
+	name := "at-scope-" + scopeHash
 
 	args := []string{
 		"run", "-d",
 		"--name", name,
-		"--label", "at.org.id=" + orgID,
+		"--label", "at.scope.hash=" + scopeHash,
 		"--label", "at.managed=true",
+		"--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges",
 	}
+	pids := cfg.PidsLimit
+	if pids <= 0 {
+		pids = 256
+	}
+	args = append(args, "--pids-limit", fmt.Sprintf("%d", pids))
 
 	// Resource limits
 	if cfg.CPU != "" {
@@ -223,9 +392,21 @@ func createContainer(ctx context.Context, orgID string, cfg Config) (string, err
 	if !cfg.Network {
 		args = append(args, "--network", "none")
 	}
+	if cfg.ReadOnlyRoot {
+		args = append(args, "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m")
+	}
 
-	// Workspace volume
-	args = append(args, "-v", fmt.Sprintf("/tmp/at-org-%s:/workspace", orgID[:min(12, len(orgID))]))
+	// Docker-managed volumes avoid caller-selected host mounts. Developer spaces
+	// keep theirs across idle container removal; transient scopes get tmpfs.
+	if cfg.PersistentVolume {
+		args = append(args, "-v", "at-space-"+scopeHash+":/workspace")
+	} else {
+		tmpfs := "/workspace:rw,nosuid,nodev"
+		if cfg.DiskLimitBytes > 0 {
+			tmpfs += fmt.Sprintf(",size=%d", cfg.DiskLimitBytes)
+		}
+		args = append(args, "--tmpfs", tmpfs)
+	}
 
 	args = append(args, image)
 
@@ -254,6 +435,28 @@ func createContainer(ctx context.Context, orgID string, cfg Config) (string, err
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+func dockerIsRootless(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .SecurityOptions}}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("inspect docker security options: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return strings.Contains(strings.ToLower(string(out)), "rootless"), nil
+}
+
+func workspaceUsage(ctx context.Context, containerID string) (int64, error) {
+	cmd := exec.CommandContext(ctx, "docker", "exec", containerID, "du", "-sk", "/workspace")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("docker exec du: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	var kib int64
+	if _, err := fmt.Sscan(string(out), &kib); err != nil {
+		return 0, fmt.Errorf("parse workspace usage: %w", err)
+	}
+	return kib * 1024, nil
+}
+
 func isContainerRunning(ctx context.Context, containerID string) bool {
 	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", containerID)
 	out, err := cmd.Output()
@@ -266,11 +469,4 @@ func isContainerRunning(ctx context.Context, containerID string) bool {
 func removeContainer(ctx context.Context, containerID string) {
 	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerID)
 	_ = cmd.Run()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
