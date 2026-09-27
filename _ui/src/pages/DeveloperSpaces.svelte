@@ -30,7 +30,7 @@
   // ─── Tabs in the main area ───
   type ChatTab = { kind: 'chat'; key: string; sessionId: string };
   type FileTab = { kind: 'file'; key: string; path: string; content: string; saved: string; version: string; loading: boolean; binary: boolean; tooLarge: boolean; preview: boolean; imageURL: string; error: string; stale: boolean };
-  type DiffTab = { kind: 'diff'; key: string; project: string; file: string; staged: boolean; untracked: boolean; diff: string; loading: boolean };
+  type DiffTab = { kind: 'diff'; key: string; project: string; file: string; staged: boolean; untracked: boolean; head: boolean; diff: string; loading: boolean };
   type Tab = ChatTab | FileTab | DiffTab;
 
   const LAYOUT_KEY = 'at.developer-space.layout';
@@ -528,11 +528,18 @@
 
   // ─── Diff tabs ───
 
-  async function openDiff(file: string, opts: { staged?: boolean; untracked?: boolean }) {
-    const key = `diff:${project}:${opts.staged ? 'staged' : 'work'}:${file}`;
-    if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'diff', key, project, file, staged: !!opts.staged, untracked: !!opts.untracked, diff: '', loading: true }];
+  async function openDiff(file: string, opts: { staged?: boolean; untracked?: boolean; head?: boolean }) {
+    const key = `diff:${project}:${opts.head ? 'head' : opts.staged ? 'staged' : 'work'}:${file}`;
+    if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'diff', key, project, file, staged: !!opts.staged, untracked: !!opts.untracked, head: !!opts.head, diff: '', loading: true }];
     activeKey = key;
     await loadDiff(key);
+  }
+
+  // Chat sessions are bound to their own project, which may differ from the
+  // one selected in the explorer.
+  async function openDiffIn(folder: string, file: string, opts: { untracked?: boolean; head?: boolean }) {
+    if (project !== folder) await openProject(folder, false);
+    await openDiff(file, opts);
   }
 
   async function loadDiff(key: string) {
@@ -540,7 +547,7 @@
     if (tab?.kind !== 'diff') return;
     patchTab(key, { loading: true });
     try {
-      const result = await getDeveloperGitDiff(tab.project, tab.file, { staged: tab.staged, untracked: tab.untracked });
+      const result = await getDeveloperGitDiff(tab.project, tab.file, { staged: tab.staged, untracked: tab.untracked, head: tab.head });
       patchTab(key, { diff: result.diff, loading: false });
     } catch (e: any) {
       patchTab(key, { diff: e?.response?.data?.message || 'Could not load the diff', loading: false });
@@ -863,7 +870,7 @@
             {#if tab.kind === 'chat'}
               {@const s = sessions.find(x => x.id === tab.sessionId)}
               {#if s}
-                <SessionChat session={s} {modelGroups} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} />
+                <SessionChat session={s} {modelGroups} revision={gitRevision} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} />
               {:else}
                 <p class="p-4 text-sm text-gray-500">This session no longer exists.</p>
               {/if}
@@ -906,7 +913,7 @@
               </div>
             {:else}
               <div class="flex h-8 shrink-0 items-center gap-2 border-b border-gray-200 dark:border-dark-border px-3 text-xs text-gray-500 dark:text-dark-text-muted">
-                <span class="min-w-0 flex-1 truncate font-mono">{tab.project}/{tab.file} · {tab.staged ? 'staged' : tab.untracked ? 'new file' : 'working tree'}</span>
+                <span class="min-w-0 flex-1 truncate font-mono">{tab.project}/{tab.file} · {tab.head ? 'all changes' : tab.staged ? 'staged' : tab.untracked ? 'new file' : 'working tree'}</span>
                 <button type="button" onclick={() => openFile(joinPath(tab.project, tab.file))} class="px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated">Open file</button>
                 <button type="button" onclick={() => loadDiff(tab.key)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated" aria-label="Reload diff"><RefreshCw size={13} /></button>
               </div>

@@ -10,9 +10,11 @@
     contextKey: number;
     recording?: boolean;
     transcribing?: boolean;
+    /** Borderless 28px controls for composers that frame their own toolbar. */
+    compact?: boolean;
     ontext: (text: string) => void;
   }
-  let { disabled = false, contextKey, recording = $bindable(false), transcribing = $bindable(false), ontext }: Props = $props();
+  let { disabled = false, contextKey, recording = $bindable(false), transcribing = $bindable(false), compact = false, ontext }: Props = $props();
   function preference(key: string, fallback: string, values: string[]) {
     try { const value = localStorage.getItem(key) || ''; return values.includes(value) ? value : fallback; }
     catch { return fallback; }
@@ -47,7 +49,10 @@
   let settingsLeft = $state(12);
   let settingsBottom = $state(64);
   const settingsId = $props.id();
-  const control = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
+  const control = $derived(compact
+    ? 'inline-flex h-9 min-w-9 sm:h-7 sm:min-w-7 shrink-0 items-center justify-center gap-1 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-elevated dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed'
+    : 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed');
+  const iconSize = $derived(compact ? 15 : 18);
   const label = $derived(method === 'browser' ? 'Browser' : method === 'openai' ? 'API' : model);
 
   function clearTimer() { clearInterval(timer); timer = undefined; duration = 0; }
@@ -145,19 +150,19 @@
   }
 </script>
 
-<div class="flex shrink-0 items-center gap-1">
+<div class={compact ? 'flex shrink-0 items-center' : 'flex shrink-0 items-center gap-1'}>
   {#if recording}
     <button onclick={stop} class={`${control} px-2 !text-red-700 dark:!text-red-300`} aria-label={starting ? 'Cancel microphone request' : 'Stop voice input'} title="Stop voice input">
-      <MicOff size={18} /><span class="text-xs tabular-nums">{starting ? '…' : `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`}</span>
+      <MicOff size={iconSize} /><span class="text-xs tabular-nums">{starting ? '…' : `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`}</span>
     </button>
     <span role="status" class="sr-only">{starting ? 'Waiting for microphone permission' : method === 'browser' ? 'Listening with browser dictation' : 'Recording voice'}</span>
   {:else if transcribing}
-    <button onclick={cancel} class={control} aria-label="Cancel transcription" title="Cancel transcription"><Loader2 size={18} class="animate-spin motion-reduce:animate-none" /></button>
+    <button onclick={cancel} class={control} aria-label="Cancel transcription" title="Cancel transcription"><Loader2 size={iconSize} class="animate-spin motion-reduce:animate-none" /></button>
     <span role="status" class="sr-only">Transcribing voice</span>
   {:else}
-    <button onclick={start} disabled={disabled || (method === 'browser' && !browserSupported)} class={control} aria-label={`Start voice input (${label})`} title={method === 'browser' && !browserSupported ? 'Browser dictation unavailable — choose another voice method' : `Voice input (${label})`}><Mic size={18} /></button>
+    <button onclick={start} disabled={disabled || (method === 'browser' && !browserSupported)} class={control} aria-label={`Start voice input (${label})`} title={method === 'browser' && !browserSupported ? 'Browser dictation unavailable — choose another voice method' : `Voice input (${label})`}><Mic size={iconSize} /></button>
   {/if}
-  <button onclick={toggleSettings} class={control} disabled={recording || transcribing || disabled} aria-label="Voice settings" aria-expanded={settingsOpen} aria-controls={settingsId} title={`Voice settings (${label})`}><Settings2 size={16} /></button>
+  <button onclick={toggleSettings} class={control} disabled={recording || transcribing || disabled} aria-label="Voice settings" aria-expanded={settingsOpen} aria-controls={settingsId} title={`Voice settings (${label})`}><Settings2 size={compact ? 13 : 16} /></button>
 </div>
 
 <div bind:this={settings} id={settingsId} popover="auto" role="dialog" aria-label="Voice input settings" ontoggle={event => { settingsOpen = event.newState === 'open'; }}

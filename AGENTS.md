@@ -2204,6 +2204,12 @@ switch/create, `pull --ff-only`, and push of the *current* branch only after the
 caller confirms that exact name. Pull and push re-validate the origin remote
 (no credentials in the URL, no private/loopback hosts), as clone does.
 
+The chat composer shows an "N files changed in <project> +A -D" strip above
+the input, from `git/status?numstat=true`. Counts cover staged, unstaged and
+untracked changes against HEAD, computed on a throwaway `GIT_INDEX_FILE`
+(untracked files added intent-to-add) so the real index is never touched.
+Each entry opens a `git/diff?head=true` tab (or the untracked diff).
+
 Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and
 checks `execution.run`; `GET /developer-space` and the session list/history only

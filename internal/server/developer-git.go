@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -37,6 +38,44 @@ type developerGitStatus struct {
 	Unstaged   []developerGitFile `json:"unstaged"`
 	Untracked  []string           `json:"untracked"`
 	Conflicted []string           `json:"conflicted"`
+	// Changes is filled only for ?numstat=true: line counts of every tracked
+	// change against HEAD (staged and unstaged together).
+	Changes []developerGitChange `json:"changes,omitempty"`
+}
+
+type developerGitChange struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary,omitempty"`
+}
+
+// parseDeveloperGitNumstat reads `git diff --numstat -z`. A rename leaves the
+// path field empty and carries the old and new paths in the next two fields.
+func parseDeveloperGitNumstat(out string) []developerGitChange {
+	changes := []developerGitChange{}
+	fields := strings.Split(out, "\x00")
+	for i := 0; i < len(fields); i++ {
+		parts := strings.SplitN(fields[i], "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		change := developerGitChange{Path: parts[2]}
+		if change.Path == "" && i+2 < len(fields) {
+			change.Path = fields[i+2]
+			i += 2
+		}
+		if parts[0] == "-" && parts[1] == "-" {
+			change.Binary = true
+		} else {
+			change.Additions, _ = strconv.Atoi(parts[0])
+			change.Deletions, _ = strconv.Atoi(parts[1])
+		}
+		if change.Path != "" {
+			changes = append(changes, change)
+		}
+	}
+	return changes
 }
 
 // parseDeveloperGitStatus reads `git status --porcelain=v2 --branch -z`.
@@ -115,8 +154,31 @@ func (s *Server) DeveloperGitStatusAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, developerCommandFailure("git status", stderr, nil).Error(), http.StatusBadGateway)
 		return
 	}
-	httpResponseJSON(w, parseDeveloperGitStatus(out), http.StatusOK)
+	status := parseDeveloperGitStatus(out)
+	if r.URL.Query().Get("numstat") == "true" {
+		out, stderr, code, err := h.exec(r.Context(), s, dir, "sh", "-c", developerGitNumstatScript)
+		if err != nil || code != 0 {
+			httpResponse(w, developerCommandFailure("git diff --numstat", stderr, err).Error(), http.StatusBadGateway)
+			return
+		}
+		status.Changes = parseDeveloperGitNumstat(out)
+	}
+	httpResponseJSON(w, status, http.StatusOK)
 }
+
+const developerGitEmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// developerGitNumstatScript reports every change against HEAD — staged,
+// unstaged and untracked — in one numstat. It works on a throwaway index
+// seeded from HEAD, with untracked files recorded as intent-to-add, so the
+// user's real index is never touched and no blobs are written.
+const developerGitNumstatScript = `set -e
+idx="$(git rev-parse --path-format=absolute --git-path at-numstat-index 2>/dev/null || git rev-parse --git-path at-numstat-index)"
+trap 'rm -f "$idx"' EXIT
+export GIT_INDEX_FILE="$idx"
+if git rev-parse -q --verify HEAD >/dev/null; then git read-tree HEAD; else git read-tree --empty; fi
+git ls-files -z -o --exclude-standard | xargs -0 -r git add -N --
+git diff --no-ext-diff --numstat -z`
 
 // DeveloperGitDiffAPI returns the diff for one file or the whole project.
 // Untracked files have no index entry, so they are diffed against /dev/null.
@@ -141,6 +203,12 @@ func (s *Server) DeveloperGitDiffAPI(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Query().Get("untracked") == "true" && file != "":
 		args = []string{"diff", "--no-ext-diff", "--no-index", "--", "/dev/null", file}
+	case r.URL.Query().Get("head") == "true":
+		base := "HEAD"
+		if _, _, code, err := h.exec(r.Context(), s, dir, "git", "rev-parse", "--verify", "-q", "HEAD"); err != nil || code != 0 {
+			base = developerGitEmptyTree
+		}
+		args = []string{"diff", "--no-ext-diff", base, "--"}
 	case r.URL.Query().Get("staged") == "true":
 		args = []string{"diff", "--no-ext-diff", "--cached", "--"}
 	default:

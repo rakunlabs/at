@@ -39,9 +39,12 @@ export interface DeveloperFileContent { path: string; size: number; content?: st
 export interface DeveloperSearchMatch { path: string; line: number; text: string }
 
 export interface DeveloperGitFile { path: string; orig_path?: string; index: string; worktree: string }
+export interface DeveloperGitChange { path: string; additions: number; deletions: number; binary?: boolean }
 export interface DeveloperGitStatus {
   repository: boolean; branch?: string; upstream?: string; ahead: number; behind: number;
   staged: DeveloperGitFile[]; unstaged: DeveloperGitFile[]; untracked: string[]; conflicted: string[];
+  /** Present only when requested with numstat: line counts against HEAD. */
+  changes?: DeveloperGitChange[];
 }
 export interface DeveloperGitBranch { name: string; current: boolean; remote: boolean }
 
@@ -79,9 +82,9 @@ export async function fetchDeveloperFileBlob(path: string): Promise<Blob> {
 
 // ─── Git ───
 
-export async function getDeveloperGitStatus(project: string) { return (await api.get<DeveloperGitStatus>('/developer-space/git/status', { params: { project } })).data; }
-export async function getDeveloperGitDiff(project: string, file = '', opts: { staged?: boolean; untracked?: boolean } = {}) {
-  return (await api.get<{ diff: string }>('/developer-space/git/diff', { params: { project, file, staged: !!opts.staged, untracked: !!opts.untracked } })).data;
+export async function getDeveloperGitStatus(project: string, numstat = false) { return (await api.get<DeveloperGitStatus>('/developer-space/git/status', { params: numstat ? { project, numstat: true } : { project } })).data; }
+export async function getDeveloperGitDiff(project: string, file = '', opts: { staged?: boolean; untracked?: boolean; head?: boolean } = {}) {
+  return (await api.get<{ diff: string }>('/developer-space/git/diff', { params: { project, file, staged: !!opts.staged, untracked: !!opts.untracked, ...(opts.head ? { head: true } : {}) } })).data;
 }
 export async function listDeveloperGitBranches(project: string) { return (await api.get<DeveloperGitBranch[]>('/developer-space/git/branches', { params: { project } })).data; }
 export async function stageDeveloperGit(project: string, paths: string[]) { await api.post('/developer-space/git/stage', { project, paths }); }

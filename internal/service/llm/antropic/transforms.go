@@ -162,31 +162,31 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 	}
 	if len(movedTexts) > 0 {
 		if msgs, ok := body["messages"].([]any); ok {
-			prepended := false
-			for i := range msgs {
-				m, mok := msgs[i].(map[string]any)
-				if !mok || m["role"] != "user" {
-					continue
-				}
-				prefix := strings.Join(movedTexts, "\n\n")
-				switch c := m["content"].(type) {
+			prefix := strings.Join(movedTexts, "\n\n")
+			first, _ := firstMessageMap(msgs)
+			if first != nil && first["role"] == "user" && !hasToolResultBlock(first["content"]) {
+				switch c := first["content"].(type) {
 				case string:
-					m["content"] = prefix + "\n\n" + c
-				case []any:
-					m["content"] = append([]any{
-						map[string]any{"type": "text", "text": prefix},
-					}, c...)
+					first["content"] = prefix + "\n\n" + c
 				default:
-					m["content"] = []any{
+					first["content"] = append([]any{
 						map[string]any{"type": "text", "text": prefix},
-					}
+					}, contentToAnySlice(c)...)
 				}
-				prepended = true
-				break
+			} else {
+				// The history begins with an assistant turn (a windowed or
+				// resumed conversation). The first user message then carries
+				// tool_result blocks, which must lead their message; putting
+				// the relocated system text in front of them is rejected with
+				// "tool_use ids were found without tool_result blocks
+				// immediately after". Open with a dedicated user message
+				// instead.
+				body["messages"] = append([]any{map[string]any{
+					"role":    "user",
+					"content": []any{map[string]any{"type": "text", "text": prefix}},
+				}}, msgs...)
 			}
-			if prepended {
-				systemArr = keptSystem
-			}
+			systemArr = keptSystem
 		}
 	}
 
@@ -506,6 +506,25 @@ func repairToolPairsAny(msgs []any) []any {
 		out = append(out, mm)
 	}
 	return out
+}
+
+// firstMessageMap returns the first message of a wire-shape slice.
+func firstMessageMap(msgs []any) (map[string]any, bool) {
+	if len(msgs) == 0 {
+		return nil, false
+	}
+	m, ok := msgs[0].(map[string]any)
+	return m, ok
+}
+
+// hasToolResultBlock reports whether content carries a tool_result block.
+func hasToolResultBlock(c any) bool {
+	for _, b := range contentToAnySlice(c) {
+		if blk, ok := b.(map[string]any); ok && blk["type"] == "tool_result" {
+			return true
+		}
+	}
+	return false
 }
 
 // contentToAnySlice normalises a message's content field into a []any

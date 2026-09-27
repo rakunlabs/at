@@ -1,9 +1,13 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { Brain, Check, ChevronRight, CircleAlert, FolderGit2, LoaderCircle, MessageCircleQuestion, Send, ShieldAlert, Square, Wrench, X } from 'lucide-svelte';
-  import Markdown from '@/lib/components/Markdown.svelte';
   import {
-    getDeveloperSessionPendingTool, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
+    ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
+    Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, Wrench, X,
+  } from 'lucide-svelte';
+  import Markdown from '@/lib/components/Markdown.svelte';
+  import VoiceInput from '@/lib/components/VoiceInput.svelte';
+  import {
+    getDeveloperGitStatus, getDeveloperSessionPendingTool, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
     type DeveloperMode, type DeveloperPendingTool, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
   } from '@/lib/api/developer-spaces';
   import { buildTranscript, toolSummary, MODE_HINTS, MODE_LABELS, STATUS_LABELS, type TranscriptEntry } from '@/lib/helper/developer-space';
@@ -14,12 +18,17 @@
   interface Props {
     session: DeveloperSession;
     modelGroups: ModelGroup[];
+    /** Bumped by the page whenever files may have changed (saves, git actions). */
+    revision?: number;
     onsession: (session: DeveloperSession) => void;
     /** Files the agent wrote, so open editors can reload them. */
     onfileschanged: (paths: string[], tree: boolean) => void;
     onopenfile: (path: string) => void;
+    ondiff: (file: string, opts: { untracked?: boolean; head?: boolean }) => void;
   }
-  let { session, modelGroups, onsession, onfileschanged, onopenfile }: Props = $props();
+  let { session, modelGroups, revision = 0, onsession, onfileschanged, onopenfile, ondiff }: Props = $props();
+
+  interface ChangedFile { path: string; additions: number; deletions: number; binary: boolean; untracked: boolean }
 
   let messages = $state<DeveloperSessionMessage[]>([]);
   let pending = $state<DeveloperPendingTool | null>(null);
@@ -39,12 +48,50 @@
   const transcript = $derived(buildTranscript(messages));
   const working = $derived(busy || session.status === 'running');
   const modelValue = $derived(session.provider ? `${session.provider}/${session.model ?? ''}` : '');
+  const modelLabel = $derived(session.model || 'Choose a model');
+
+  // ─── Changed files strip ───
+  let changes = $state<ChangedFile[]>([]);
+  let changesOpen = $state(false);
+  let expandedComposer = $state(false);
+  let changesSeq = 0;
+  let recording = $state(false);
+  let transcribing = $state(false);
+  let textarea = $state<HTMLTextAreaElement>();
+  const totals = $derived(changes.reduce((sum, c) => ({ add: sum.add + c.additions, del: sum.del + c.deletions }), { add: 0, del: 0 }));
+
+  async function loadChanges() {
+    const seq = ++changesSeq;
+    try {
+      const status = await getDeveloperGitStatus(session.project_path, true);
+      if (seq !== changesSeq) return;
+      const untracked = new Set(status.untracked);
+      changes = (status.changes ?? []).map(c => ({ path: c.path, additions: c.additions, deletions: c.deletions, binary: !!c.binary, untracked: untracked.has(c.path) }));
+    } catch {
+      // Not a repository, git missing or the space is stopped: the strip just stays hidden.
+      if (seq === changesSeq) changes = [];
+    }
+  }
+
+  $effect(() => {
+    void session.project_path;
+    void revision;
+    void loadChanges();
+  });
+
+  function toggleMode() {
+    if (working) return;
+    const order: DeveloperMode[] = ['build', 'plan', 'review'];
+    void changeSettings({ mode: order[(order.indexOf(session.mode) + 1) % order.length] });
+  }
 
   let loadedFor = '';
+  let voiceContext = $state(0);
   $effect(() => {
     const id = session.id;
     if (id === loadedFor) return;
     loadedFor = id;
+    voiceContext++;
     void load(id);
   });
 
@@ -129,12 +176,13 @@
       liveThinking = '';
       runningTools = {};
       controller = null;
+      void loadChanges();
     }
   }
 
   async function send() {
     const text = prompt.trim();
-    if (!text || working) return;
+    if (!text || working || recording || transcribing) return;
     if (!session.provider) { error = 'Choose a model first.'; return; }
     prompt = '';
     stickToBottom = true;
@@ -190,8 +238,11 @@
     }
   }
 
-  function grow(node: HTMLTextAreaElement, _value: string) {
-    const fit = () => { node.style.height = 'auto'; node.style.height = `${Math.min(node.scrollHeight, 240)}px`; };
+  function grow(node: HTMLTextAreaElement, _value: unknown) {
+    const fit = () => {
+      node.style.height = 'auto';
+      node.style.height = `${Math.min(node.scrollHeight, expandedComposer ? Math.round(window.innerHeight * 0.6) : 240)}px`;
+    };
     fit();
     return { update: fit };
   }
@@ -341,53 +392,125 @@
   </div>
 
   <!-- Composer -->
-  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2">
+  <div class="bg-gray-50 dark:bg-dark-base px-3 pb-3 pt-1">
     <div class="mx-auto max-w-3xl">
-      <textarea
-        bind:value={prompt}
-        use:grow={prompt}
-        onkeydown={keydown}
-        rows={1}
-        aria-label="Message the agent"
-        placeholder={pending ? 'Answer the prompt above first' : 'Ask the agent to change, explain or review code…  (Enter to send, Shift+Enter for a new line)'}
-        disabled={!!pending && !busy}
-        class="block max-h-60 min-h-10 w-full resize-none border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2 text-sm leading-[22px] dark:text-dark-text dark:placeholder:text-dark-text-muted focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 disabled:bg-gray-50 dark:disabled:bg-dark-base"
-      ></textarea>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
-        <div class="inline-flex border border-gray-300 dark:border-dark-border-subtle" role="radiogroup" aria-label="Agent mode">
-          {#each ['plan', 'build', 'review'] as mode}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={session.mode === mode}
-              disabled={working}
-              title={MODE_HINTS[mode]}
-              onclick={() => changeSettings({ mode: mode as DeveloperMode })}
-              class={['px-2.5 py-1 text-xs disabled:opacity-50', session.mode === mode ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-            >{MODE_LABELS[mode]}</button>
-          {/each}
+      {#if changes.length}
+        <div class="mb-1.5 text-xs">
+          <button
+            type="button"
+            onclick={() => (changesOpen = !changesOpen)}
+            aria-expanded={changesOpen}
+            class="inline-flex items-center gap-1.5 px-1 py-0.5 text-gray-600 hover:text-gray-900 dark:text-dark-text-secondary dark:hover:text-dark-text"
+          >
+            <FileDiff size={13} class="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>{changes.length} file{changes.length === 1 ? '' : 's'} changed in {session.project_path || 'workspace'}</span>
+            <span class="font-mono text-green-700 dark:text-green-400">+{totals.add}</span>
+            <span class="font-mono text-red-700 dark:text-red-400">-{totals.del}</span>
+            <ChevronDown size={13} class={changesOpen ? 'shrink-0 rotate-180' : 'shrink-0'} />
+          </button>
+          {#if changesOpen}
+            <ul class="mt-1 max-h-48 overflow-y-auto border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+              {#each changes as change (change.path)}
+                <li>
+                  <button
+                    type="button"
+                    onclick={() => ondiff(change.path, change.untracked ? { untracked: true } : { head: true })}
+                    class="flex w-full items-center gap-2 px-2.5 py-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated"
+                    title="Show diff"
+                  >
+                    <span class="min-w-0 flex-1 truncate font-mono text-gray-800 dark:text-dark-text">{change.path}</span>
+                    {#if change.untracked}<span class="shrink-0 text-[10px] uppercase text-gray-400">new</span>{/if}
+                    {#if change.binary}
+                      <span class="shrink-0 text-gray-400">binary</span>
+                    {:else}
+                      <span class="shrink-0 font-mono text-green-700 dark:text-green-400">+{change.additions}</span>
+                      <span class="shrink-0 font-mono text-red-700 dark:text-red-400">-{change.deletions}</span>
+                    {/if}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         </div>
-        <select
-          value={modelValue}
-          disabled={working}
-          onchange={event => chooseModel(event.currentTarget.value)}
-          aria-label="Model"
-          class="min-w-0 max-w-64 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-2 py-1 text-xs dark:text-dark-text"
-        >
-          {#if !modelValue}<option value="">Choose a model…</option>{/if}
-          {#if modelValue && !modelGroups.some(g => g.models.includes(modelValue))}<option value={modelValue}>{modelValue}</option>{/if}
-          {#each modelGroups as group}
-            <optgroup label={group.label}>
-              {#each group.models as model}<option value={model}>{model.slice(model.indexOf('/') + 1)}</option>{/each}
-            </optgroup>
-          {/each}
-        </select>
-        <span class="flex-1"></span>
-        {#if working}
-          <button type="button" onclick={stop} class="inline-flex size-9 items-center justify-center bg-red-600 text-white hover:bg-red-700" title="Stop" aria-label="Stop the agent"><Square size={16} /></button>
-        {:else}
-          <button type="button" onclick={send} disabled={!prompt.trim() || !!pending || !session.provider} class="inline-flex size-9 items-center justify-center bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-30 dark:bg-accent dark:hover:bg-accent-hover" title="Send (Enter)" aria-label="Send"><Send size={16} /></button>
-        {/if}
+      {/if}
+
+      <div class="border border-gray-300 bg-white focus-within:border-gray-400 dark:border-dark-border dark:bg-dark-surface dark:focus-within:border-dark-text-muted">
+        <textarea
+          bind:this={textarea}
+          bind:value={prompt}
+          use:grow={[prompt, expandedComposer]}
+          onkeydown={keydown}
+          rows={expandedComposer ? 8 : 2}
+          aria-label="Message the agent"
+          placeholder={pending ? 'Answer the prompt above first' : 'Ask the agent to change, explain or review code…  (Enter to send, Shift+Enter for a new line)'}
+          disabled={!!pending && !busy}
+          class="block w-full resize-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-[22px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0 disabled:opacity-60 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+        ></textarea>
+        <div class="flex items-center gap-1 px-1.5 pb-1.5">
+          <button
+            type="button"
+            onclick={() => (expandedComposer = !expandedComposer)}
+            class="inline-flex size-7 items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-dark-text-muted dark:hover:bg-dark-elevated dark:hover:text-dark-text"
+            title={expandedComposer ? 'Shrink the message box' : 'Enlarge the message box'}
+            aria-label={expandedComposer ? 'Shrink the message box' : 'Enlarge the message box'}
+            aria-pressed={expandedComposer}
+          >
+            {#if expandedComposer}<Minimize2 size={15} />{:else}<Maximize2 size={15} />{/if}
+          </button>
+          <span class="flex-1"></span>
+
+          <label
+            class={['relative inline-flex h-7 min-w-0 max-w-56 items-center gap-1.5 px-2 text-xs text-gray-700 dark:text-dark-text-secondary', working ? 'opacity-50' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-elevated']}
+            title={modelValue || 'Choose a model'}
+          >
+            <Cpu size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
+            <span class={['truncate font-medium', modelValue ? '' : 'text-amber-700 dark:text-amber-400']}>{modelLabel}</span>
+            <ChevronDown size={12} class="shrink-0 text-gray-400" />
+            <select
+              value={modelValue}
+              disabled={working}
+              onchange={event => chooseModel(event.currentTarget.value)}
+              aria-label="Model"
+              class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
+            >
+              {#if !modelValue}<option value="">Choose a model…</option>{/if}
+              {#if modelValue && !modelGroups.some(g => g.models.includes(modelValue))}<option value={modelValue}>{modelValue}</option>{/if}
+              {#each modelGroups as group}
+                <optgroup label={group.label}>
+                  {#each group.models as model}<option value={model}>{model.slice(model.indexOf('/') + 1)}</option>{/each}
+                </optgroup>
+              {/each}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onclick={toggleMode}
+            disabled={working}
+            title={`${MODE_HINTS[session.mode]} — click to switch mode`}
+            aria-label={`Mode: ${MODE_LABELS[session.mode]}. Click to switch.`}
+            class={['inline-flex h-7 items-center gap-1.5 px-2 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-dark-elevated',
+              session.mode === 'build' ? 'text-green-700 dark:text-green-400' : session.mode === 'plan' ? 'text-blue-700 dark:text-blue-400' : 'text-violet-700 dark:text-violet-400']}
+          >
+            {#if session.mode === 'build'}<Hammer size={13} />{:else if session.mode === 'plan'}<ListChecks size={13} />{:else}<Eye size={13} />{/if}
+            {MODE_LABELS[session.mode]}
+          </button>
+
+          <VoiceInput
+            compact
+            contextKey={voiceContext}
+            disabled={working || (!!pending && !busy)}
+            bind:recording
+            bind:transcribing
+            ontext={text => { prompt = (prompt ? prompt + ' ' : '') + text; textarea?.focus(); }}
+          />
+
+          {#if working}
+            <button type="button" onclick={stop} class="ml-1 inline-flex size-8 items-center justify-center bg-red-600 text-white hover:bg-red-700" title="Stop" aria-label="Stop the agent"><Square size={14} /></button>
+          {:else}
+            <button type="button" onclick={send} disabled={!prompt.trim() || !!pending || !session.provider || recording || transcribing} class="ml-1 inline-flex size-8 items-center justify-center bg-gray-900 text-white hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 dark:bg-accent dark:hover:bg-accent-hover dark:disabled:bg-dark-elevated dark:disabled:text-dark-text-muted" title="Send (Enter)" aria-label="Send"><ArrowUp size={16} /></button>
+          {/if}
+        </div>
       </div>
     </div>
   </div>

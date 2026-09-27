@@ -40,3 +40,22 @@ func TestParseDeveloperGitStatus(t *testing.T) {
 		t.Fatalf("untracked/conflicted = %+v %+v", got.Untracked, got.Conflicted)
 	}
 }
+
+func TestParseDeveloperGitNumstat(t *testing.T) {
+	out := strings.Join([]string{
+		"3\t1\tdir/with space.go",
+		"-\t-\timage.png",
+		"0\t2\t",
+		"old name.go",
+		"new name.go",
+		"",
+	}, "\x00")
+	want := []developerGitChange{
+		{Path: "dir/with space.go", Additions: 3, Deletions: 1},
+		{Path: "image.png", Binary: true},
+		{Path: "new name.go", Deletions: 2},
+	}
+	if got := parseDeveloperGitNumstat(out); !reflect.DeepEqual(got, want) {
+		t.Fatalf("numstat = %+v", got)
+	}
+}
