@@ -11,9 +11,17 @@ VERSION := $(or $(IMAGE_TAG),$(shell git describe --tags --first-parent --match 
 
 .DEFAULT_GOAL := help
 
+DEVFS_DIR := internal/devfs/devfsbin/bin
+
 .PHONY: run
-run: ## Run the at command-line tool
+run: build-devfs ## Run the at command-line tool
 	@go run $(MAIN_PKG)
+
+.PHONY: build-devfs
+build-devfs: ## Build the developer-space file helpers embedded into at
+	@for arch in amd64 arm64; do \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags="-s -w" -o $(DEVFS_DIR)/at-devfs-linux-$$arch ./cmd/at-devfs || exit 1; \
+	done
 
 .PHONY: run-ui
 run-ui: ## Run the UI in development mode
@@ -42,7 +50,7 @@ build-ui: install-ui ## Build the UI assets
 	@echo > internal/server/dist/.gitkeep
 
 .PHONY: build
-build: build-ui ## Build the Go binary
+build: build-ui build-devfs ## Build the Go binary
 	@echo "> Building $(PROJECT) binary with goreleaser"
 	GOOS=linux GOARCH=amd64 goreleaser build --snapshot --clean --single-target
 

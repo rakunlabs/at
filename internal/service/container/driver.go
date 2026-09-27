@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"io"
+	"io/fs"
 )
 
 // Driver is the backend that actually runs sandboxes. The Manager owns
@@ -38,6 +39,19 @@ type Driver interface {
 	// Purge deletes everything the driver keeps for scope, including
 	// persistent storage. Missing resources are not an error.
 	Purge(ctx context.Context, scope string) error
+}
+
+// FileInstaller is implemented by drivers that can place a file into a
+// sandbox without running anything inside it, so a helper can be installed
+// into an image that has no shell. It is optional: callers fall back when a
+// driver does not provide it.
+type FileInstaller interface {
+	// Platform reports the sandbox's platform as "os/arch" (e.g.
+	// "linux/arm64"), optionally followed by "/variant".
+	Platform(ctx context.Context, handle string) (string, error)
+	// InstallFile writes data to the absolute path inside the sandbox,
+	// creating missing parent directories and replacing an existing file.
+	InstallFile(ctx context.Context, handle, path string, data []byte, mode fs.FileMode) error
 }
 
 // ExecRequest describes one command. Argv is executed directly, never through

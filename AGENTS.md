@@ -2152,9 +2152,9 @@ left, tabs in the middle (chat sessions, CodeMirror files with Ctrl+S and
 version-checked saves, diffs), source control on the right, and one or more
 terminals at the bottom. Layout and the open project persist in localStorage.
 
-**Every path goes through one containment script.** `developerFSScript`
-(`developer-fs-script.go`) runs inside the container for the browser file API
-and the agent's file tools alike: paths are resolved (following symlinks) and
+**Every path goes through one containment helper.** `internal/devfs` runs
+inside the container for the browser file API and the agent's file tools alike:
+paths are resolved (following symlinks) and
 must remain under the project root, delete removes a link rather than its
 target, and content travels on stdin (`ExecArgsInput`) — base64 in argv was
 silently capped by the kernel's 128 KiB per-argument limit. Writes carry the
@@ -2162,6 +2162,21 @@ version returned by the read, so a save over a file the agent or terminal
 changed answers 409 and the page offers reload or overwrite. Server-side,
 `service.CleanDeveloperPath` refuses absolute paths, backslashes and `..`
 before anything reaches the container.
+
+The helper is a static stdlib-only binary (`cmd/at-devfs`, ~3 MB) built for
+linux/amd64 and linux/arm64 by `make build-devfs` (run by `make build`,
+`make run` and the goreleaser `before` hook) and embedded through
+`internal/devfs/devfsbin`. On first file operation per container the Manager
+copies it to `/usr/local/bin/at-devfs` (`Manager.EnsureFile` over the optional
+`container.FileInstaller` driver interface; Docker uses `docker cp` of a tar
+stream, so the image needs no shell or tar) after matching the image platform.
+It lives outside `/workspace`, so it is neither user data nor quota. A binary
+built without helpers (`go build`/`go test` alone), an unmatched platform or a
+failed copy falls back to `devfs.PythonScript` through the image's python3.
+Reading files from the volume's host mountpoint was rejected: it breaks with
+remote/rootless daemons and would follow user-created symlinks on the host.
+`TestPythonParity` runs both implementations on one tree and requires
+identical JSON; `TestHelperInStockImage` runs the helper in python-less debian.
 
 **The terminal attaches to the user's own container** (`GET
 .../developer-space/terminal?cwd=`), one shell per WebSocket; closing a tab
@@ -2205,9 +2220,10 @@ disk limit (`PUT /developer-space`; the page resends the stored `config`
 because PUT replaces the record). An empty image means
 `service.DefaultDeveloperImage` (`debian:13.7-slim`). **AT installs nothing
 into a space and checks for no tools.** The image and anything added from the
-terminal are the user's responsibility. Without `python3` the file explorer
-and agent file tools fail (`developerFSScript` runs through it), and without
-`git` source control fails. Both report the plain command error. AT does three
+terminal are the user's responsibility. File explorer and agent file tools
+need nothing in the image (the embedded `at-devfs` helper is copied in; only a
+build without helpers falls back to `python3`), while without
+`git` source control fails and reports the plain command error. AT does three
 things so that any image works:
 - `KeepAlive` sets `--entrypoint sleep … infinity`, because stock images exit
   immediately under `docker run -d`.

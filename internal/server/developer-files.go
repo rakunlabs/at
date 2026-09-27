@@ -11,6 +11,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/rakunlabs/at/internal/devfs"
+	"github.com/rakunlabs/at/internal/devfs/devfsbin"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -19,17 +21,36 @@ const (
 	developerUploadMaxBytes = 64 << 20
 )
 
-// developerFSError is a refusal reported by the in-container file script.
+// developerFSError is a refusal reported by the in-container file helper.
 type developerFSError struct{ message string }
 
 func (e *developerFSError) Error() string { return e.message }
 
-// runDeveloperFS executes one developerFSScript operation. root is the project
-// directory relative to /workspace ("" is the whole space); the script
-// resolves every argument against it and refuses anything that escapes.
+// developerFSHelperPath is where the embedded at-devfs helper is installed in
+// a space container. It is outside /workspace, so it is neither in the user's
+// projects nor counted against their quota, and it is re-copied whenever the
+// container is (re)started by this process, so an AT upgrade replaces it.
+const developerFSHelperPath = "/usr/local/bin/at-devfs"
+
+// runDeveloperFS executes one file operation in the space container. root is
+// the project directory relative to /workspace ("" is the whole space); every
+// argument is resolved against it and anything that escapes is refused.
+//
+// The embedded at-devfs helper is used when this binary carries one for the
+// container's platform, so no tool is required in the image. Otherwise the
+// equivalent devfs.PythonScript runs through the image's python3.
 func (s *Server) runDeveloperFS(ctx context.Context, h *developerRuntimeHandle, stdin io.Reader, op, root string, args ...string) (json.RawMessage, error) {
-	argv := append([]string{"-c", developerFSScript, op, root}, args...)
-	stdout, stderr, code, err := s.containerManager.ExecArgsInput(ctx, h.scope, h.cfg, service.DeveloperWorkspaceRoot, nil, stdin, "python3", argv...)
+	command, argv := "python3", append([]string{"-c", devfs.PythonScript, op, root}, args...)
+	if devfsbin.Available() {
+		installed, err := s.containerManager.EnsureFile(ctx, h.scope, h.cfg, developerFSHelperPath, 0o755, devfsbin.For)
+		if err != nil {
+			return nil, err
+		}
+		if installed {
+			command, argv = developerFSHelperPath, append([]string{op, root}, args...)
+		}
+	}
+	stdout, stderr, code, err := s.containerManager.ExecArgsInput(ctx, h.scope, h.cfg, service.DeveloperWorkspaceRoot, nil, stdin, command, argv...)
 	if err != nil {
 		return nil, err
 	}

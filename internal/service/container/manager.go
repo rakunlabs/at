@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"strings"
 	"sync"
@@ -86,6 +87,9 @@ type Manager struct {
 	driver     Driver
 	mu         sync.RWMutex
 	containers map[string]*containerInfo // scope -> container info
+	// installMu serializes helper installs so a concurrent call never execs a
+	// half-copied file. Only first use of a sandbox waits on it.
+	installMu sync.Mutex
 }
 
 type containerInfo struct {
@@ -95,6 +99,10 @@ type containerInfo struct {
 	createdAt   time.Time
 	lastUsed    time.Time
 	active      int
+	// files records helper installs into this sandbox by destination path:
+	// true once installed, false when it cannot be (no build for the
+	// platform, or the driver refused), so neither is retried per call.
+	files map[string]bool
 }
 
 // New creates a container manager backed by the Docker CLI.
@@ -224,6 +232,79 @@ func (m *Manager) markActive(scopeID string, delta int) {
 		}
 		info.lastUsed = time.Now()
 	}
+}
+
+// EnsureFile installs a helper file into the scope's sandbox once per sandbox
+// and reports whether it is available at dest. source picks the content for
+// the sandbox's platform and returns nil when it has none. It reports false
+// without an error when the driver cannot install files or no content matches
+// the platform, so the caller can fall back to something else.
+func (m *Manager) EnsureFile(ctx context.Context, scopeID string, cfg Config, dest string, mode fs.FileMode, source func(platform string) []byte) (bool, error) {
+	installer, ok := m.driver.(FileInstaller)
+	if !ok {
+		return false, nil
+	}
+	handle, err := m.EnsureContainer(ctx, scopeID, cfg)
+	if err != nil {
+		return false, err
+	}
+	if handle == "" {
+		return false, fmt.Errorf("container not enabled for scope %s", scopeID)
+	}
+	if state, known := m.fileState(scopeID, handle, dest); known {
+		return state, nil
+	}
+
+	m.installMu.Lock()
+	defer m.installMu.Unlock()
+	if state, known := m.fileState(scopeID, handle, dest); known {
+		return state, nil
+	}
+
+	installed := false
+	platform, err := installer.Platform(ctx, handle)
+	switch {
+	case err != nil:
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		slog.Warn("container: could not read sandbox platform", "driver", m.driver.Name(), "container_id", shortHandle(handle), "error", err.Error())
+	default:
+		data := source(platform)
+		if data == nil {
+			slog.Info("container: no helper for sandbox platform", "path", dest, "platform", platform)
+			break
+		}
+		if err := installer.InstallFile(ctx, handle, dest, data, mode); err != nil {
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			slog.Warn("container: helper install failed", "driver", m.driver.Name(), "container_id", shortHandle(handle), "path", dest, "error", err.Error())
+			break
+		}
+		installed = true
+	}
+
+	m.mu.Lock()
+	if info := m.containers[scopeID]; info != nil && info.containerID == handle {
+		if info.files == nil {
+			info.files = map[string]bool{}
+		}
+		info.files[dest] = installed
+	}
+	m.mu.Unlock()
+	return installed, nil
+}
+
+func (m *Manager) fileState(scopeID, handle, dest string) (installed, known bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	info := m.containers[scopeID]
+	if info == nil || info.containerID != handle {
+		return false, false
+	}
+	installed, known = info.files[dest]
+	return installed, known
 }
 
 // ExecPython runs a Python script inside the org's container.

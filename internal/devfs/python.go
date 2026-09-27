@@ -1,15 +1,13 @@
-package server
+package devfs
 
-// developerFSScript runs inside the space container and performs one file
-// operation under /workspace. It is the single place that resolves paths, so
-// every caller (browser file API and the agent's tools) shares the same
-// containment rules: symlinks are resolved and must stay inside the root, and
-// the result is re-checked after resolution rather than trusting the string.
+// PythonScript is the python3 fallback for the at-devfs helper, used when AT
+// was built without a helper for the space container's platform. It must stay
+// behaviourally identical to Run; TestPythonParity runs both on one tree.
 //
 // argv: op root [args...]; bulk payloads (file content) arrive on stdin. The
 // script prints one JSON document on success and exits 3 with {"error": ...}
 // for a refusal the caller should surface verbatim.
-const developerFSScript = `
+const PythonScript = `
 import base64, hashlib, json, os, pathlib, re, shutil, stat, sys
 
 MAX_READ = 2 * 1024 * 1024

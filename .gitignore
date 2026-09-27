@@ -12,3 +12,5 @@
 /opencode.json
 /dump.sql
 /data
+/internal/devfs/devfsbin/bin/*
+!/internal/devfs/devfsbin/bin/.gitkeep

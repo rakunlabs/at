@@ -1,17 +1,21 @@
 package container
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -220,6 +224,53 @@ func (d *dockerDriver) Attach(ctx context.Context, handle string, workDir string
 		return nil, fmt.Errorf("attach container shell: %w", err)
 	}
 	return &ptyTerminal{file: file, cmd: cmd}, nil
+}
+
+// Platform reads the platform of the image the container runs, which is what
+// decides which helper binary can execute inside it.
+func (d *dockerDriver) Platform(ctx context.Context, handle string) (string, error) {
+	imageID, err := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.Image}}", handle).Output()
+	if err != nil {
+		return "", fmt.Errorf("inspect container image: %w", err)
+	}
+	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", "-f",
+		"{{.Os}}/{{.Architecture}}{{if .Variant}}/{{.Variant}}{{end}}", strings.TrimSpace(string(imageID))).Output()
+	if err != nil {
+		return "", fmt.Errorf("inspect image platform: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// InstallFile streams a one-file tar archive through `docker cp`, which needs
+// nothing inside the container (no shell, no tar) and creates missing parent
+// directories itself.
+func (d *dockerDriver) InstallFile(ctx context.Context, handle, dest string, data []byte, mode fs.FileMode) error {
+	if !path.IsAbs(dest) || path.Clean(dest) != dest || dest == "/" {
+		return fmt.Errorf("install path must be a clean absolute file path: %q", dest)
+	}
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     strings.TrimPrefix(dest, "/"),
+		Mode:     int64(mode.Perm()),
+		Size:     int64(len(data)),
+		ModTime:  time.Now(),
+		Typeflag: tar.TypeReg,
+	}); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "docker", "cp", "-", handle+":/")
+	cmd.Stdin = &archive
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("copy file into container: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
 }
 
 func (d *dockerDriver) Stop(ctx context.Context, handle string) error {

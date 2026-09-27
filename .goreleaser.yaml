@@ -17,6 +17,8 @@ before:
   hooks:
     # You may remove this if you don't use go modules.
     - go mod tidy
+    # Developer-space file helpers, embedded into every at build.
+    - make build-devfs
 builds:
   - env:
       - CGO_ENABLED=0

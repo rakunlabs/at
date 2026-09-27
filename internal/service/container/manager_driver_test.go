@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 	"sync"
 	"testing"
@@ -282,5 +283,75 @@ func TestManagerLifecycle(t *testing.T) {
 	m.StopAll(ctx)
 	if driver.Running(ctx, busy) || len(m.ListContainers()) != 0 {
 		t.Fatal("StopAll must remove every sandbox")
+	}
+}
+
+// fakeInstaller adds FileInstaller to fakeDriver.
+type fakeInstaller struct {
+	*fakeDriver
+	platform string
+	installs []string
+	failCopy error
+	lastData []byte
+	lastMode fs.FileMode
+}
+
+func (f *fakeInstaller) Platform(context.Context, string) (string, error) { return f.platform, nil }
+
+func (f *fakeInstaller) InstallFile(_ context.Context, handle, path string, data []byte, mode fs.FileMode) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failCopy != nil {
+		return f.failCopy
+	}
+	f.installs = append(f.installs, handle+":"+path)
+	f.lastData, f.lastMode = data, mode
+	return nil
+}
+
+func TestManagerEnsureFile(t *testing.T) {
+	ctx := context.Background()
+	source := func(platform string) []byte {
+		if platform == "linux/arm64" {
+			return []byte("helper")
+		}
+		return nil
+	}
+
+	// A driver that cannot install files reports "not installed" without error.
+	if ok, err := NewWithDriver(newFakeDriver()).EnsureFile(ctx, "s", enabled, "/usr/local/bin/h", 0o755, source); ok || err != nil {
+		t.Fatalf("plain driver: %v, %v", ok, err)
+	}
+
+	driver := &fakeInstaller{fakeDriver: newFakeDriver(), platform: "linux/arm64"}
+	m := NewWithDriver(driver)
+	for range 3 {
+		if ok, err := m.EnsureFile(ctx, "s", enabled, "/usr/local/bin/h", 0o755, source); !ok || err != nil {
+			t.Fatalf("EnsureFile: %v, %v", ok, err)
+		}
+	}
+	if len(driver.installs) != 1 || string(driver.lastData) != "helper" || driver.lastMode != 0o755 {
+		t.Fatalf("the helper must be copied once per sandbox: %v", driver.installs)
+	}
+
+	// A replaced sandbox gets a fresh copy.
+	changed := enabled
+	changed.Image = "img:2"
+	if ok, _ := m.EnsureFile(ctx, "s", changed, "/usr/local/bin/h", 0o755, source); !ok || len(driver.installs) != 2 {
+		t.Fatalf("a new sandbox must be installed again: %v", driver.installs)
+	}
+
+	// No build for the platform, or a failed copy, is remembered as a fallback.
+	other := &fakeInstaller{fakeDriver: newFakeDriver(), platform: "linux/riscv64"}
+	m = NewWithDriver(other)
+	if ok, err := m.EnsureFile(ctx, "s", enabled, "/h", 0o755, source); ok || err != nil {
+		t.Fatalf("unsupported platform: %v, %v", ok, err)
+	}
+	failing := &fakeInstaller{fakeDriver: newFakeDriver(), platform: "linux/arm64", failCopy: errors.New("read-only")}
+	m = NewWithDriver(failing)
+	for range 2 {
+		if ok, err := m.EnsureFile(ctx, "s", enabled, "/h", 0o755, source); ok || err != nil {
+			t.Fatalf("failed copy: %v, %v", ok, err)
+		}
 	}
 }
