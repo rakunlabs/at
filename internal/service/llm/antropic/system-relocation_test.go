@@ -1,10 +1,24 @@
 package antropic
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+func firstMessageText(c any) string {
+	if s, ok := c.(string); ok {
+		return s
+	}
+	if blocks := contentToAnySlice(c); len(blocks) > 0 {
+		if b, ok := blocks[0].(map[string]any); ok {
+			s, _ := b["text"].(string)
+			return s
+		}
+	}
+	return ""
+}
 
 // A chat history windowed to start with an assistant tool_use used to get the
 // relocated system text prepended to the tool_result message, so tool_result no
@@ -39,8 +53,7 @@ func TestOAuthSystemRelocationKeepsToolResultFirst(t *testing.T) {
 	if first["role"] != "user" || hasToolResultBlock(first["content"]) {
 		t.Fatalf("first message must be a plain user message, got %#v", first)
 	}
-	if blocks := contentToAnySlice(first["content"]); len(blocks) == 0 ||
-		blocks[0].(map[string]any)["text"] != "task system prompt" {
+	if !strings.HasPrefix(firstMessageText(first["content"]), "task system prompt") {
 		t.Fatalf("relocated system text missing: %#v", first["content"])
 	}
 	if msgs[1].(map[string]any)["role"] != "assistant" {
@@ -50,6 +63,27 @@ func TestOAuthSystemRelocationKeepsToolResultFirst(t *testing.T) {
 	resultBlocks := contentToAnySlice(msgs[2].(map[string]any)["content"])
 	if len(resultBlocks) == 0 || resultBlocks[0].(map[string]any)["type"] != "tool_result" {
 		t.Fatalf("tool_result must lead the message after tool_use: %#v", resultBlocks)
+	}
+}
+
+// With a static API key the system prompt stays top-level, but Anthropic still
+// requires the first message to be a user turn.
+func TestStaticKeyHistoryOpensWithUserTurn(t *testing.T) {
+	p := &Provider{MaxTokens: 1024}
+	body := p.buildRequestBody("claude-sonnet-5", []service.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "assistant", Content: []service.ContentBlock{
+			{Type: "tool_use", ID: "toolu_1", Name: "lookup", Input: map[string]any{}},
+		}},
+		{Role: "user", Content: []service.ContentBlock{
+			{Type: "tool_result", ToolUseID: "toolu_1", Content: "ok"},
+		}},
+		{Role: "user", Content: "next"},
+	}, nil, nil)
+
+	msgs := body["messages"].([]service.Message)
+	if len(msgs) != 3 || msgs[0].Role != "user" || msgs[1].Role != "assistant" {
+		t.Fatalf("leading user turn missing: %#v", msgs)
 	}
 }
 

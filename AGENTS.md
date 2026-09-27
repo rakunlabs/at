@@ -2197,6 +2197,21 @@ read-only, Build edits (including the new `edit_file` exact-replacement tool)
 and asks before `run_command`, and push is never an agent tool. Mode and model
 are per session and cannot change while a turn is running or waiting.
 
+A session can instead **run as one of the workspace's agents** (migration 84,
+`developer_sessions.agent_id`; the composer's agent picker lists the built-in
+profiles and every agent the caller can see). `buildDeveloperToolkit`
+(`developer-toolkit.go`) then uses the agent's system prompt, skills (lazy
+`load_skill`), MCP sets and built-in tools, layered on top of the container
+tools, which keep their names on collision. Permissions come from the agent's
+`confirmation_required_tools`: listed tools pause for approval and everything
+else runs, so a read-only agent is expressed by giving it no editing tools or
+listing them. The model stays per session: choosing an agent adopts its model
+once, and changing the model afterwards never changes what the agent may do.
+The agent's built-in tools run on the AT host, not in the container, and the
+system prompt says so. Every resource passes the same execution admission as
+Sessions (`agents.run`, `skills.use`, `mcp.use`, tool class). A deleted agent
+fails the run with an explicit message rather than silently falling back.
+
 **Source control** works on the selected project: NUL-separated
 `git status --porcelain=v2` (paths with spaces are safe), per-file diff (untracked
 files via `--no-index`), stage/unstage, confirmed discard, commit, branch

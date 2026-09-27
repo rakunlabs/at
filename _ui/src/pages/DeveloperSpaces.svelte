@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     ChevronDown, CircleAlert, Download, FilePlus, FolderGit2, FolderPlus, GitBranch, LoaderCircle, MessageSquare,
     PanelBottom, PanelLeft, PanelRight, Plus, Power, RefreshCw, Search, Settings, Trash2, Upload, X, FileText, GitCompare,
@@ -22,8 +22,12 @@
   import Markdown from '@/lib/components/Markdown.svelte';
   import {
     baseName, isImagePath, isMarkdownFile, isWithin, joinPath, parentPath, renamedPath, validEntryName,
-    STATUS_LABELS, type DeveloperTerminalTab,
+    STATUS_LABELS, BUILTIN_AGENT_PREFIX, developerAgentChoices, developerAgentSettings, developerAgentValue,
+    type DeveloperAgentChoice, type DeveloperTerminalTab,
   } from '@/lib/helper/developer-space';
+  import { listAgents } from '@/lib/api/agents';
+  import { FEATURE_AGENTS } from '@/lib/api/features';
+  import { isFeatureEnabled } from '@/lib/store/features.svelte';
 
   storeNavbar.title = 'Developer Space';
 
@@ -47,6 +51,8 @@
   let activeKey = $state('');
   let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
   let defaultModel = $state('');
+  let agentChoices = $state<DeveloperAgentChoice[]>(developerAgentChoices([]));
+  const AGENT_KEY = 'at.developer-space.agent';
   let gitChanged = $state<Set<string>>(new Set());
   let gitRevision = $state(0);
   let sidebarView = $state<'files' | 'search'>('files');
@@ -108,6 +114,13 @@
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   });
 
+  // Keep the active tab visible when the strip overflows (e.g. a new chat opened at the end).
+  $effect(() => {
+    const key = activeKey;
+    if (!key) return;
+    void tick().then(() => document.querySelector(`[data-tab-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+  });
+
   async function boot() {
     loadError = '';
     try {
@@ -117,6 +130,7 @@
       return;
     }
     void loadModels();
+    void loadAgents();
     await Promise.all([loadSessions(), start()]);
   }
 
@@ -213,6 +227,15 @@
       modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
       defaultModel = localStorage.getItem('at.developer-space.model') || modelGroups[0]?.models[0] || '';
     } catch { modelGroups = []; }
+  }
+
+  // Agents the caller may run. A failure keeps the built-in profiles usable.
+  async function loadAgents() {
+    if (!isFeatureEnabled(FEATURE_AGENTS)) return;
+    try {
+      const result = await listAgents({ _limit: 1000 });
+      agentChoices = developerAgentChoices(result.data ?? []);
+    } catch { /* built-in profiles only */ }
   }
 
   async function loadSessions() {
@@ -491,17 +514,21 @@
 
   function openSession(id: string) {
     const key = `chat:${id}`;
-    if (!tabs.some(t => t.key === key)) tabs = [{ kind: 'chat', key, sessionId: id }, ...tabs.filter(t => t.kind !== 'chat' || t.key !== key)];
+    if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'chat', key, sessionId: id }];
     activeKey = key;
   }
 
   async function newSession() {
     const model = defaultModel;
     const slash = model.indexOf('/');
+    let saved = localStorage.getItem(AGENT_KEY) || '';
+    if (!agentChoices.some(c => c.value === saved)) saved = `${BUILTIN_AGENT_PREFIX}build`;
+    const choice = developerAgentSettings(saved);
     try {
+      // An agent session starts on the agent's own model; the server fills it in.
       const session = await createDeveloperSession({
-        project_path: project, mode: 'build',
-        provider: slash > 0 ? model.slice(0, slash) : '', model: slash > 0 ? model.slice(slash + 1) : '',
+        project_path: project, mode: choice.mode ?? 'build', agent_id: choice.agent_id,
+        ...(choice.agent_id ? {} : { provider: slash > 0 ? model.slice(0, slash) : '', model: slash > 0 ? model.slice(slash + 1) : '' }),
       });
       sessions = [session, ...sessions];
       openSession(session.id);
@@ -523,7 +550,8 @@
 
   function sessionUpdated(updated: DeveloperSession) {
     sessions = sessions.map(s => (s.id === updated.id ? updated : s)).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    if (updated.provider) localStorage.setItem('at.developer-space.model', `${updated.provider}/${updated.model ?? ''}`);
+    if (updated.provider && !updated.agent_id) localStorage.setItem('at.developer-space.model', `${updated.provider}/${updated.model ?? ''}`);
+    localStorage.setItem(AGENT_KEY, developerAgentValue(updated));
   }
 
   // ─── Diff tabs ───
@@ -838,7 +866,7 @@
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <div class="flex h-9 shrink-0 items-end overflow-x-auto border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface">
         {#each tabs as tab (tab.key)}
-          <div class={['group flex h-9 shrink-0 items-center gap-1.5 border-r border-gray-200 dark:border-dark-border pl-3 pr-1.5 text-xs', tab.key === activeKey ? 'bg-white text-gray-900 dark:bg-dark-base dark:text-dark-text' : 'text-gray-500 hover:bg-gray-100 dark:text-dark-text-muted dark:hover:bg-dark-elevated']}>
+          <div data-tab-key={tab.key} class={['group flex h-9 shrink-0 items-center gap-1.5 border-r border-gray-200 dark:border-dark-border pl-3 pr-1.5 text-xs', tab.key === activeKey ? 'bg-white text-gray-900 dark:bg-dark-base dark:text-dark-text' : 'text-gray-500 hover:bg-gray-100 dark:text-dark-text-muted dark:hover:bg-dark-elevated']}>
             <button type="button" onclick={() => (activeKey = tab.key)} class="inline-flex max-w-52 items-center gap-1.5" title={tab.kind === 'file' ? tab.path : tab.kind === 'diff' ? tab.file : ''}>
               {#if tab.kind === 'chat'}
                 {@const s = sessions.find(x => x.id === tab.sessionId)}
@@ -870,7 +898,7 @@
             {#if tab.kind === 'chat'}
               {@const s = sessions.find(x => x.id === tab.sessionId)}
               {#if s}
-                <SessionChat session={s} {modelGroups} revision={gitRevision} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} />
+                <SessionChat session={s} {modelGroups} {agentChoices} revision={gitRevision} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} />
               {:else}
                 <p class="p-4 text-sm text-gray-500">This session no longer exists.</p>
               {/if}

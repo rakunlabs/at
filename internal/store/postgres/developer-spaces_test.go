@@ -88,7 +88,7 @@ func TestDeveloperSessionLifecycle(t *testing.T) {
 	if renamed, err := p.RenameDeveloperSession(ctx, session.ID, "  Storage  "); err != nil || renamed.Title != "Storage" {
 		t.Fatalf("rename: %+v %v", renamed, err)
 	}
-	if changed, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperModePlan, "anthropic", "claude"); err != nil || changed.Mode != service.DeveloperModePlan || changed.Provider != "anthropic" {
+	if changed, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModePlan, AgentID: "agent-1", Provider: "anthropic", Model: "claude"}); err != nil || changed.Mode != service.DeveloperModePlan || changed.Provider != "anthropic" || changed.AgentID != "agent-1" {
 		t.Fatalf("settings: %+v %v", changed, err)
 	}
 	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: "Implement it"}); err != nil {
@@ -110,7 +110,7 @@ func TestDeveloperSessionLifecycle(t *testing.T) {
 	if _, err := p.BeginDeveloperSessionRun(ctx, session.ID); !errors.Is(err, service.ErrDeveloperSessionBusy) {
 		t.Fatalf("concurrent run: %v", err)
 	}
-	if _, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperModeBuild, "openai", "gpt"); !errors.Is(err, service.ErrDeveloperSessionBusy) {
+	if _, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", Model: "gpt"}); !errors.Is(err, service.ErrDeveloperSessionBusy) {
 		t.Fatalf("settings changed during a run: %v", err)
 	}
 	if _, err := p.SetDeveloperSessionRuntime(ctx, session.ID, service.DeveloperSessionCompleted, ""); err != nil {

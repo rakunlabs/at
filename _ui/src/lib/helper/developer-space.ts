@@ -216,6 +216,33 @@ export const MODE_HINTS: Record<string, string> = {
   review: 'Reviews changes. Cannot edit files or run commands.',
 };
 
+/** What the composer's agent picker offers: the built-in profiles plus the workspace's agents. */
+export interface DeveloperAgentChoice { value: string; label: string; hint: string; group: string }
+
+export const BUILTIN_AGENT_PREFIX = 'builtin:';
+
+/** Picker value for a session: `agent:<id>` or `builtin:<mode>`. */
+export function developerAgentValue(session: { agent_id?: string; mode: string }): string {
+  return session.agent_id ? `agent:${session.agent_id}` : `${BUILTIN_AGENT_PREFIX}${session.mode}`;
+}
+
+/** The settings a picker value selects. Built-ins clear the agent. */
+export function developerAgentSettings(value: string): { agent_id: string; mode?: 'plan' | 'build' | 'review' } {
+  if (value.startsWith('agent:')) return { agent_id: value.slice('agent:'.length) };
+  const mode = value.slice(BUILTIN_AGENT_PREFIX.length);
+  return { agent_id: '', mode: (mode === 'plan' || mode === 'review' ? mode : 'build') };
+}
+
+export function developerAgentChoices(agents: Array<{ id: string; name: string; config?: { description?: string; group?: string } }>): DeveloperAgentChoice[] {
+  const builtins = (['build', 'plan', 'review'] as const).map(mode => ({
+    value: `${BUILTIN_AGENT_PREFIX}${mode}`, label: MODE_LABELS[mode], hint: MODE_HINTS[mode], group: 'Built-in',
+  }));
+  const custom = [...agents]
+    .sort((a, b) => (a.config?.group || '').localeCompare(b.config?.group || '') || a.name.localeCompare(b.name))
+    .map(agent => ({ value: `agent:${agent.id}`, label: agent.name, hint: agent.config?.description || '', group: agent.config?.group || 'Agents' }));
+  return [...builtins, ...custom];
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   idle: 'New', running: 'Working', waiting_permission: 'Needs approval', waiting_question: 'Has a question',
   completed: 'Done', failed: 'Failed', cancelled: 'Stopped',

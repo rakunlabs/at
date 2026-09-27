@@ -108,3 +108,31 @@ func TestDeveloperToolPolicyLastMatchWins(t *testing.T) {
 		t.Fatalf("effect = %q", got)
 	}
 }
+
+func TestDeveloperAgentToolkitEffect(t *testing.T) {
+	agentKit := &developerToolkit{
+		agent:   &service.Agent{ID: "a1"},
+		confirm: map[string]bool{"run_command": true, "bash_execute": true},
+	}
+	builtinKit := &developerToolkit{profile: service.DefaultDeveloperSpaceConfig().Plan}
+	tests := []struct {
+		name string
+		kit  *developerToolkit
+		call string
+		want string
+	}{
+		{"agent listed tool asks", agentKit, "run_command", "ask"},
+		{"agent listed builtin asks", agentKit, "bash_execute", "ask"},
+		{"agent unlisted tool runs", agentKit, "write_file", "allow"},
+		{"agent question always pauses", agentKit, "ask_user", "ask"},
+		{"built-in profile keeps its rules", builtinKit, "write_file", "deny"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			call := service.ToolCall{Name: tt.call, Arguments: map[string]any{"path": "main.go", "command": "go"}}
+			if got := tt.kit.effect(call); got != tt.want {
+				t.Fatalf("effect = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

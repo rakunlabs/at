@@ -1041,6 +1041,9 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			Content: mm["content"],
 		})
 	}
+	if len(filteredMessages) > 0 && filteredMessages[0].Role != "user" {
+		filteredMessages = append([]service.Message{{Role: "user", Content: common.LeadingUserPlaceholder}}, filteredMessages...)
+	}
 
 	// Determine max_tokens: client override > explicit provider default > model
 	// default. Resolve against the requested model, not just the provider's model,

@@ -980,6 +980,10 @@ func (p *Provider) buildRequest(ctx context.Context, model string, messages []se
 		}
 	}
 
+	if len(req.Contents) > 0 && req.Contents[0].Role != "user" {
+		req.Contents = append([]content{{Role: "user", Parts: []part{{Text: common.LeadingUserPlaceholder}}}}, req.Contents...)
+	}
+
 	return req
 }
 

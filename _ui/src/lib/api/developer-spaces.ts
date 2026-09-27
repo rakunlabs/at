@@ -23,6 +23,8 @@ export type DeveloperSessionStatus = 'idle' | 'running' | 'waiting_permission' |
 export interface DeveloperSession {
   id: string; space_id: string; project_path: string; title?: string;
   mode: DeveloperMode; status: DeveloperSessionStatus; provider?: string; model?: string;
+  /** Runs as this workspace agent; empty uses the built-in profile named by `mode`. */
+  agent_id?: string;
   error?: string; started_at?: string; finished_at?: string; created_at: string; updated_at: string;
 }
 
@@ -98,8 +100,8 @@ export async function pushDeveloperGit(project: string, branch: string) { return
 // ─── Sessions ───
 
 export async function listDeveloperSessions() { return (await api.get<DeveloperSession[]>('/developer-sessions')).data; }
-export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; provider: string; model: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
-export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
+export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; agent_id?: string; provider?: string; model?: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
+export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
 export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
 export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
 export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }

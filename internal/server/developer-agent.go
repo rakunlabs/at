@@ -251,8 +251,13 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 	if model == "" {
 		model = info.defaultModel
 	}
-	profile := developerProfile(h.space, session.Mode)
-	maxIterations := s.loopGov.ClampIterations(profile.MaxIterations, 0)
+	kit, err := s.buildDeveloperToolkit(r.Context(), h.space, session)
+	if err != nil {
+		finish(service.DeveloperSessionFailed, err.Error())
+		return
+	}
+	defer kit.Close()
+	maxIterations := s.loopGov.ClampIterations(kit.maxIterations, 0)
 	if maxIterations <= 0 {
 		maxIterations = 20
 	}
@@ -269,11 +274,11 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 			finish(service.DeveloperSessionFailed, err.Error())
 			return
 		}
-		messages := developerMessages(records, profile.SystemPrompt, session.ProjectPath)
+		messages := developerMessages(records, kit.systemPrompt, session.ProjectPath)
 		step := len(records)
 		s.captureDeveloperSnapshot(r, session, h, step, "before")
 		stream.send(map[string]any{"type": "turn_start"})
-		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, developerAgentTools, func(delta agentloop.StreamDelta) {
+		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, func(delta agentloop.StreamDelta) {
 			event := map[string]any{"type": "delta"}
 			if delta.Content != "" {
 				event["content"] = delta.Content
@@ -302,7 +307,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 		generationID := s.recordLLMCallAsync(r.Context(), llmAuditParams{
 			source: "developer", endpoint: "developer_session", traceID: traceID, sessionID: session.ID,
 			requestedModel: session.Provider + "/" + model, fullModel: session.Provider + "/" + model,
-			requestBody: agentloop.GenerationRequestJSON(model, callMessages, developerAgentTools, ""), responseBody: responseBody,
+			requestBody: agentloop.GenerationRequestJSON(model, callMessages, kit.tools, ""), responseBody: responseBody,
 			latencyMs: latency, status: map[bool]string{true: "error", false: "success"}[err != nil],
 			finishReason: func() string {
 				if resp != nil {
@@ -322,7 +327,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 				}
 				return ""
 			}(),
-			metadata: map[string]any{"iteration": iteration, "mode": session.Mode, "project_path": session.ProjectPath},
+			metadata: developerObservationMetadata(session, map[string]any{"iteration": iteration}),
 		})
 		if err != nil {
 			status := service.DeveloperSessionFailed
@@ -376,7 +381,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 				waitingKind = "question"
 				break
 			}
-			if developerToolEffect(profile, call) == "ask" {
+			if kit.effect(call) == "ask" {
 				waitingKind = "permission"
 			}
 		}
@@ -401,7 +406,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 		blocks := make([]service.ContentBlock, 0, len(resp.ToolCalls))
 		for _, call := range resp.ToolCalls {
 			stream.send(map[string]any{"type": "tool_start", "tool_id": call.ID, "tool_name": call.Name})
-			blocks = append(blocks, s.runDeveloperToolCall(r, stream, h, session, profile, traceID, generationID, call, developerToolEffect(profile, call) == "allow", "tool denied by the active agent profile"))
+			blocks = append(blocks, s.runDeveloperToolCall(r, stream, h, session, kit, traceID, generationID, call, kit.effect(call) == "allow", "tool denied by the active agent profile"))
 		}
 		saved, err = store.AppendDeveloperSessionMessage(r.Context(), service.DeveloperSessionMessage{SessionID: session.ID, Role: "tool", Content: blocks})
 		if err != nil {
@@ -416,12 +421,22 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 
 // runDeveloperToolCall executes (or refuses) one call, records it, and tells
 // the page which files changed so open editors can reload.
-func (s *Server) runDeveloperToolCall(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, profile service.DeveloperAgentProfile, traceID, parentID string, call service.ToolCall, execute bool, refusal string) service.ContentBlock {
+func (s *Server) runDeveloperToolCall(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, traceID, parentID string, call service.ToolCall, execute bool, refusal string) service.ContentBlock {
 	output := refusal
 	var toolErr error
 	started := time.Now()
 	if execute {
-		output, toolErr = s.executeDeveloperTool(r, h, session.ProjectPath, call, profile.ToolTimeoutSeconds)
+		if isDeveloperContainerTool(call.Name) {
+			output, toolErr = s.executeDeveloperTool(r, h, session.ProjectPath, call, kit.toolTimeout)
+		} else {
+			timeout := kit.toolTimeout
+			if timeout <= 0 {
+				timeout = 60
+			}
+			ctx, cancel := context.WithTimeout(kit.agentContext(r.Context(), session), time.Duration(timeout)*time.Second)
+			output, toolErr = s.executeDeveloperAgentTool(ctx, kit, call)
+			cancel()
+		}
 		if toolErr != nil {
 			output = "tool error: " + toolErr.Error() + developerOutputSuffix(output)
 		}
@@ -440,6 +455,17 @@ func (s *Server) runDeveloperToolCall(r *http.Request, stream *developerStream, 
 	}
 	stream.send(event)
 	return block
+}
+
+func developerObservationMetadata(session *service.DeveloperSession, extra map[string]any) map[string]any {
+	metadata := map[string]any{"mode": session.Mode, "project_path": session.ProjectPath}
+	if session.AgentID != "" {
+		metadata["agent_id"] = session.AgentID
+	}
+	for key, value := range extra {
+		metadata[key] = value
+	}
+	return metadata
 }
 
 func developerOutputSuffix(output string) string {
@@ -548,17 +574,17 @@ func (s *Server) ConfirmDeveloperSessionToolAPI(w http.ResponseWriter, r *http.R
 		httpResponse(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.resumeDeveloperSession(w, r, "permission", func(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, profile service.DeveloperAgentProfile, pending *service.DeveloperPendingTool) []service.ContentBlock {
+	s.resumeDeveloperSession(w, r, "permission", func(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
 		blocks := make([]service.ContentBlock, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
-			effect := developerToolEffect(profile, call)
+			effect := kit.effect(call)
 			refusal := "tool denied by the active agent profile"
 			if effect == "ask" && !req.Approved {
 				refusal = "tool execution rejected by the user"
 			}
 			execute := effect == "allow" || (effect == "ask" && req.Approved)
 			stream.send(map[string]any{"type": "tool_start", "tool_id": call.ID, "tool_name": call.Name})
-			blocks = append(blocks, s.runDeveloperToolCall(r, stream, h, session, profile, pending.TraceID, pending.ParentObservationID, call, execute, refusal))
+			blocks = append(blocks, s.runDeveloperToolCall(r, stream, h, session, kit, pending.TraceID, pending.ParentObservationID, call, execute, refusal))
 		}
 		return blocks
 	})
@@ -572,7 +598,7 @@ func (s *Server) AnswerDeveloperSessionQuestionAPI(w http.ResponseWriter, r *htt
 		httpResponse(w, "answer is required", http.StatusBadRequest)
 		return
 	}
-	s.resumeDeveloperSession(w, r, "question", func(r *http.Request, stream *developerStream, _ *developerRuntimeHandle, session *service.DeveloperSession, _ service.DeveloperAgentProfile, pending *service.DeveloperPendingTool) []service.ContentBlock {
+	s.resumeDeveloperSession(w, r, "question", func(r *http.Request, stream *developerStream, _ *developerRuntimeHandle, session *service.DeveloperSession, _ *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
 		blocks := make([]service.ContentBlock, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
 			output := "tool deferred while waiting for the user's answer"
@@ -587,7 +613,7 @@ func (s *Server) AnswerDeveloperSessionQuestionAPI(w http.ResponseWriter, r *htt
 	})
 }
 
-func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, service.DeveloperAgentProfile, *service.DeveloperPendingTool) []service.ContentBlock) {
+func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return
@@ -618,8 +644,16 @@ func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
-	profile := developerProfile(h.space, session.Mode)
-	blocks := resolve(r, stream, h, session, profile, pending)
+	kit, err := s.buildDeveloperToolkit(r.Context(), h.space, session)
+	if err != nil {
+		// Keep the calls pending so the user can retry once the agent is fixed.
+		pending.State = "pending"
+		_, _ = store.SaveDeveloperPendingTool(context.WithoutCancel(r.Context()), *pending)
+		stream.fail(err.Error())
+		return
+	}
+	blocks := resolve(r, stream, h, session, kit, pending)
+	kit.Close()
 	saved, err := store.ResolveDeveloperPendingTool(r.Context(), session.ID, blocks)
 	if err != nil {
 		stream.fail(err.Error())
@@ -668,7 +702,7 @@ func (s *Server) recordDeveloperToolObservation(r *http.Request, session *servic
 		source: "developer", endpoint: "developer_session", traceID: traceID, sessionID: session.ID,
 		obsType: service.ObservationTool, parentObservationID: parentID, name: call.Name,
 		input: string(input), output: output, latencyMs: latencyMs, status: "success",
-		metadata: map[string]any{"mode": session.Mode, "project_path": session.ProjectPath},
+		metadata: developerObservationMetadata(session, nil),
 	}
 	if callErr != nil {
 		params.status = "error"

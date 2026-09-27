@@ -67,6 +67,7 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 		Title       string `json:"title"`
 		ProjectPath string `json:"project_path"`
 		Mode        string `json:"mode"`
+		AgentID     string `json:"agent_id"`
 		Provider    string `json:"provider"`
 		Model       string `json:"model"`
 	}
@@ -84,7 +85,17 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 	if req.Mode == "" {
 		req.Mode = service.DeveloperModeBuild
 	}
-	session := service.DeveloperSession{SpaceID: space.ID, Title: req.Title, ProjectPath: req.ProjectPath, Mode: req.Mode, Provider: req.Provider, Model: req.Model}
+	if req.AgentID = strings.TrimSpace(req.AgentID); req.AgentID != "" {
+		agent, ok := s.developerSessionAgent(w, r, req.AgentID)
+		if !ok {
+			return
+		}
+		// The agent's model is the starting choice; an explicit one wins.
+		if strings.TrimSpace(req.Provider) == "" {
+			req.Provider, req.Model = agent.Config.Provider, agent.Config.Model
+		}
+	}
+	session := service.DeveloperSession{SpaceID: space.ID, Title: req.Title, ProjectPath: req.ProjectPath, Mode: req.Mode, AgentID: req.AgentID, Provider: req.Provider, Model: req.Model}
 	if err := session.Validate(); err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
@@ -95,6 +106,26 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	httpResponseJSON(w, record, http.StatusCreated)
+}
+
+// developerSessionAgent resolves an agent the caller may see and run. The
+// store's visibility scope already hides other accounts' personal agents, so
+// a foreign ID answers exactly like an unknown one.
+func (s *Server) developerSessionAgent(w http.ResponseWriter, r *http.Request, id string) (*service.Agent, bool) {
+	if s.agentStore == nil {
+		httpResponse(w, "agent store not configured", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	agent, err := s.agentStore.GetAgent(r.Context(), id)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("get agent: %v", err), http.StatusInternalServerError)
+		return nil, false
+	}
+	if agent == nil {
+		httpResponse(w, "agent not found", http.StatusBadRequest)
+		return nil, false
+	}
+	return agent, true
 }
 
 func (s *Server) GetDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +151,7 @@ func (s *Server) UpdateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Title    *string `json:"title"`
 		Mode     *string `json:"mode"`
+		AgentID  *string `json:"agent_id"`
 		Provider *string `json:"provider"`
 		Model    *string `json:"model"`
 	}
@@ -140,22 +172,36 @@ func (s *Server) UpdateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if req.Mode != nil || req.Provider != nil || req.Model != nil {
-		mode, provider, model := record.Mode, record.Provider, record.Model
+	if req.Mode != nil || req.AgentID != nil || req.Provider != nil || req.Model != nil {
+		settings := service.DeveloperSessionSettings{Mode: record.Mode, AgentID: record.AgentID, Provider: record.Provider, Model: record.Model}
 		if req.Mode != nil {
-			mode = *req.Mode
+			settings.Mode = *req.Mode
+		}
+		if req.AgentID != nil {
+			settings.AgentID = strings.TrimSpace(*req.AgentID)
+			if settings.AgentID != "" && settings.AgentID != record.AgentID {
+				agent, ok := s.developerSessionAgent(w, r, settings.AgentID)
+				if !ok {
+					return
+				}
+				// Switching agents adopts the new agent's model unless the
+				// same request picks one explicitly.
+				if req.Provider == nil && agent.Config.Provider != "" {
+					settings.Provider, settings.Model = agent.Config.Provider, agent.Config.Model
+				}
+			}
 		}
 		if req.Provider != nil {
-			provider = *req.Provider
+			settings.Provider = *req.Provider
 		}
 		if req.Model != nil {
-			model = *req.Model
+			settings.Model = *req.Model
 		}
-		if !service.ValidDeveloperMode(mode) || strings.TrimSpace(provider) == "" {
+		if !service.ValidDeveloperMode(settings.Mode) || strings.TrimSpace(settings.Provider) == "" {
 			httpResponse(w, "mode must be plan, build or review and provider is required", http.StatusBadRequest)
 			return
 		}
-		if record, err = store.UpdateDeveloperSessionSettings(r.Context(), record.ID, mode, provider, model); err != nil {
+		if record, err = store.UpdateDeveloperSessionSettings(r.Context(), record.ID, settings); err != nil {
 			developerSpaceError(w, err)
 			return
 		}

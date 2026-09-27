@@ -439,6 +439,9 @@ func (p *Provider) buildConverseRequest(messages []service.Message, tools []serv
 			})
 		}
 	}
+	if len(out.Messages) > 0 && out.Messages[0].Role != "user" {
+		out.Messages = append([]converseMessage{{Role: "user", Content: []converseContentB{{Text: common.LeadingUserPlaceholder}}}}, out.Messages...)
+	}
 
 	// Inference config.
 	if opts != nil {

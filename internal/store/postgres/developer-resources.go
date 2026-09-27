@@ -30,7 +30,7 @@ func developerParentExists(ctx context.Context, db *goqu.Database, table exp.Ide
 
 var developerSessionColumns = []any{
 	"id", "space_id", "project_path", "workspace_id", "owner_user_id",
-	"title", "mode", "status", "provider", "model", "config", "error",
+	"title", "mode", "agent_id", "status", "provider", "model", "config", "error",
 	"started_at", "finished_at", "created_at", "updated_at",
 }
 
@@ -42,6 +42,7 @@ type developerSessionRow struct {
 	OwnerUserID string       `db:"owner_user_id"`
 	Title       string       `db:"title"`
 	Mode        string       `db:"mode"`
+	AgentID     string       `db:"agent_id"`
 	Status      string       `db:"status"`
 	Provider    string       `db:"provider"`
 	Model       string       `db:"model"`
@@ -56,7 +57,7 @@ type developerSessionRow struct {
 func developerSessionRecord(row developerSessionRow) (*service.DeveloperSession, error) {
 	record := &service.DeveloperSession{
 		ID: row.ID, SpaceID: row.SpaceID, ProjectPath: row.ProjectPath,
-		WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID, Title: row.Title, Mode: row.Mode,
+		WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID, Title: row.Title, Mode: row.Mode, AgentID: row.AgentID,
 		Status: row.Status, Provider: row.Provider, Model: row.Model, Error: row.Error,
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -143,7 +144,7 @@ func (p *Postgres) CreateDeveloperSession(ctx context.Context, session service.D
 	_, err = p.goqu.Insert(p.tableDeveloperSessions).Rows(goqu.Record{
 		"id": session.ID, "space_id": session.SpaceID, "project_path": projectPath,
 		"workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID, "title": strings.TrimSpace(session.Title),
-		"mode": session.Mode, "status": service.DeveloperSessionIdle, "provider": strings.TrimSpace(session.Provider),
+		"mode": session.Mode, "agent_id": strings.TrimSpace(session.AgentID), "status": service.DeveloperSessionIdle, "provider": strings.TrimSpace(session.Provider),
 		"model": strings.TrimSpace(session.Model), "config": string(encoded),
 	}).Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
@@ -156,14 +157,14 @@ func (p *Postgres) RenameDeveloperSession(ctx context.Context, id, title string)
 	return p.updateDeveloperSession(ctx, id, goqu.Record{"title": strings.TrimSpace(title)})
 }
 
-// UpdateDeveloperSessionSettings changes the agent profile and model used by
+// UpdateDeveloperSessionSettings changes the agent, profile and model used by
 // the next run. A running or waiting session keeps its settings until it
 // finishes, so a turn never switches permissions halfway through.
-func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id, mode, provider, model string) (*service.DeveloperSession, error) {
-	if !service.ValidDeveloperMode(mode) {
+func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id string, settings service.DeveloperSessionSettings) (*service.DeveloperSession, error) {
+	if !service.ValidDeveloperMode(settings.Mode) {
 		return nil, fmt.Errorf("mode must be plan, build, or review")
 	}
-	if strings.TrimSpace(provider) == "" {
+	if strings.TrimSpace(settings.Provider) == "" {
 		return nil, fmt.Errorf("provider is required")
 	}
 	actor, err := developerSpaceActor(ctx)
@@ -172,7 +173,8 @@ func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id, mode,
 	}
 	var row developerSessionRow
 	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
-		"mode": mode, "provider": strings.TrimSpace(provider), "model": strings.TrimSpace(model), "updated_at": goqu.L("clock_timestamp()"),
+		"mode": settings.Mode, "agent_id": strings.TrimSpace(settings.AgentID),
+		"provider": strings.TrimSpace(settings.Provider), "model": strings.TrimSpace(settings.Model), "updated_at": goqu.L("clock_timestamp()"),
 	}).Where(developerOwned(actor, goqu.Ex{"id": id}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
 		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {

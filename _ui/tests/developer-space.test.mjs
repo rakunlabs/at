@@ -73,3 +73,19 @@ test('event stream reports errors and dropped connections', async () => {
   await assert.rejects(api.consumeDeveloperEvents(stream('data: {"type":"delta","content":"partial"}\n\n'), e => seen.push(e)), /Connection ended/);
   assert.equal(seen[0].content, 'partial');
 });
+
+test('agent picker values round-trip between built-in profiles and agents', () => {
+  assert.equal(helper.developerAgentValue({ mode: 'plan' }), 'builtin:plan');
+  assert.equal(helper.developerAgentValue({ mode: 'build', agent_id: 'A1' }), 'agent:A1');
+  assert.deepEqual(helper.developerAgentSettings('agent:A1'), { agent_id: 'A1' });
+  assert.deepEqual(helper.developerAgentSettings('builtin:review'), { agent_id: '', mode: 'review' });
+  assert.deepEqual(helper.developerAgentSettings('builtin:bogus'), { agent_id: '', mode: 'build' }, 'an unknown built-in falls back to Build');
+
+  const choices = helper.developerAgentChoices([
+    { id: 'z', name: 'Zed', config: {} },
+    { id: 'a', name: 'Alpha', config: { group: 'Coding', description: 'Go expert' } },
+  ]);
+  assert.deepEqual(choices.map(c => c.value), ['builtin:build', 'builtin:plan', 'builtin:review', 'agent:z', 'agent:a']);
+  assert.equal(choices.find(c => c.value === 'agent:a').group, 'Coding');
+  assert.equal(choices.find(c => c.value === 'agent:a').hint, 'Go expert');
+});

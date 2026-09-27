@@ -154,6 +154,7 @@ func TestSyntheticIDsAreNotEchoedUpstream(t *testing.T) {
 	p := &Provider{}
 	synthetic := toolCallID("")
 	body := p.buildRequest(context.Background(), "gemini-2.5-pro", []service.Message{
+		{Role: "user", Content: "go"},
 		{Role: "assistant", Content: []service.ContentBlock{
 			{Type: "tool_use", ID: synthetic, Name: "lookup"},
 		}},
@@ -162,10 +163,10 @@ func TestSyntheticIDsAreNotEchoedUpstream(t *testing.T) {
 		}},
 	}, nil, nil)
 
-	if got := body.Contents[0].Parts[0].FunctionCall.ID; got != "" {
+	if got := body.Contents[1].Parts[0].FunctionCall.ID; got != "" {
 		t.Fatalf("synthetic functionCall id echoed: %q", got)
 	}
-	if got := body.Contents[1].Parts[0].FunctionResponse.ID; got != "" {
+	if got := body.Contents[2].Parts[0].FunctionResponse.ID; got != "" {
 		t.Fatalf("synthetic functionResponse id echoed: %q", got)
 	}
 }

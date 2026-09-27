@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import {
-    ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
+    ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
     Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, Wrench, X,
   } from 'lucide-svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -10,7 +10,10 @@
     getDeveloperGitStatus, getDeveloperSessionPendingTool, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
     type DeveloperMode, type DeveloperPendingTool, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
   } from '@/lib/api/developer-spaces';
-  import { buildTranscript, toolSummary, MODE_HINTS, MODE_LABELS, STATUS_LABELS, type TranscriptEntry } from '@/lib/helper/developer-space';
+  import {
+    buildTranscript, developerAgentSettings, developerAgentValue, toolSummary, MODE_HINTS, STATUS_LABELS,
+    type DeveloperAgentChoice, type TranscriptEntry,
+  } from '@/lib/helper/developer-space';
   import { formatMessageTime } from '@/lib/helper/format';
   import { addToast } from '@/lib/store/toast.svelte';
 
@@ -18,6 +21,8 @@
   interface Props {
     session: DeveloperSession;
     modelGroups: ModelGroup[];
+    /** Built-in profiles plus the workspace's agents. */
+    agentChoices: DeveloperAgentChoice[];
     /** Bumped by the page whenever files may have changed (saves, git actions). */
     revision?: number;
     onsession: (session: DeveloperSession) => void;
@@ -26,7 +31,7 @@
     onopenfile: (path: string) => void;
     ondiff: (file: string, opts: { untracked?: boolean; head?: boolean }) => void;
   }
-  let { session, modelGroups, revision = 0, onsession, onfileschanged, onopenfile, ondiff }: Props = $props();
+  let { session, modelGroups, agentChoices, revision = 0, onsession, onfileschanged, onopenfile, ondiff }: Props = $props();
 
   interface ChangedFile { path: string; additions: number; deletions: number; binary: boolean; untracked: boolean }
 
@@ -79,10 +84,24 @@
     void loadChanges();
   });
 
-  function toggleMode() {
-    if (working) return;
-    const order: DeveloperMode[] = ['build', 'plan', 'review'];
-    void changeSettings({ mode: order[(order.indexOf(session.mode) + 1) % order.length] });
+  const agentValue = $derived(developerAgentValue(session));
+  const agentChoice = $derived(agentChoices.find(c => c.value === agentValue));
+  // A deleted or no longer visible agent still shows what the session was set to.
+  const agentLabel = $derived(agentChoice?.label ?? (session.agent_id ? 'Unavailable agent' : 'Build'));
+  const agentHint = $derived(agentChoice?.hint || (session.agent_id ? 'This agent no longer exists or is not available to you. Choose another one.' : MODE_HINTS[session.mode]));
+  const agentGroups = $derived.by(() => {
+    const groups: Array<{ label: string; choices: DeveloperAgentChoice[] }> = [];
+    for (const choice of agentChoices) {
+      const group = groups.find(g => g.label === choice.group);
+      if (group) group.choices.push(choice);
+      else groups.push({ label: choice.group, choices: [choice] });
+    }
+    return groups;
+  });
+
+  function chooseAgent(value: string) {
+    if (working || value === agentValue) return;
+    void changeSettings(developerAgentSettings(value));
   }
 
   let loadedFor = '';
@@ -217,7 +236,7 @@
     pending = null;
   }
 
-  async function changeSettings(body: { mode?: DeveloperMode; provider?: string; model?: string }) {
+  async function changeSettings(body: { mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) {
     try {
       onsession(await updateDeveloperSession(session.id, body));
     } catch (e: any) {
@@ -312,7 +331,7 @@
       {:else if transcript.length === 0 && !liveText}
         <div class="mt-10 text-center text-sm text-gray-500 dark:text-dark-text-muted">
           <p class="font-medium text-gray-700 dark:text-dark-text-secondary">What should the agent do in {session.project_path || 'this space'}?</p>
-          <p class="mt-1">{MODE_HINTS[session.mode]}</p>
+          <p class="mt-1">{agentHint}</p>
         </div>
       {/if}
       {#each transcript as entry (entry.key)}
@@ -483,18 +502,30 @@
             </select>
           </label>
 
-          <button
-            type="button"
-            onclick={toggleMode}
-            disabled={working}
-            title={`${MODE_HINTS[session.mode]} — click to switch mode`}
-            aria-label={`Mode: ${MODE_LABELS[session.mode]}. Click to switch.`}
-            class={['inline-flex h-7 items-center gap-1.5 px-2 text-xs font-medium hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-dark-elevated',
-              session.mode === 'build' ? 'text-green-700 dark:text-green-400' : session.mode === 'plan' ? 'text-blue-700 dark:text-blue-400' : 'text-violet-700 dark:text-violet-400']}
+          <label
+            class={['relative inline-flex h-7 min-w-0 max-w-48 items-center gap-1.5 px-2 text-xs font-medium', working ? 'opacity-50' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-elevated',
+              session.agent_id ? (agentChoice ? 'text-gray-800 dark:text-dark-text' : 'text-amber-700 dark:text-amber-400')
+                : session.mode === 'build' ? 'text-green-700 dark:text-green-400' : session.mode === 'plan' ? 'text-blue-700 dark:text-blue-400' : 'text-violet-700 dark:text-violet-400']}
+            title={agentHint}
           >
-            {#if session.mode === 'build'}<Hammer size={13} />{:else if session.mode === 'plan'}<ListChecks size={13} />{:else}<Eye size={13} />{/if}
-            {MODE_LABELS[session.mode]}
-          </button>
+            {#if session.agent_id}<Bot size={13} class="shrink-0" />{:else if session.mode === 'build'}<Hammer size={13} class="shrink-0" />{:else if session.mode === 'plan'}<ListChecks size={13} class="shrink-0" />{:else}<Eye size={13} class="shrink-0" />{/if}
+            <span class="truncate">{agentLabel}</span>
+            <ChevronDown size={12} class="shrink-0 text-gray-400" />
+            <select
+              value={agentValue}
+              disabled={working}
+              onchange={event => chooseAgent(event.currentTarget.value)}
+              aria-label="Agent"
+              class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
+            >
+              {#if !agentChoice}<option value={agentValue}>{agentLabel}</option>{/if}
+              {#each agentGroups as group}
+                <optgroup label={group.label}>
+                  {#each group.choices as choice}<option value={choice.value}>{choice.label}</option>{/each}
+                </optgroup>
+              {/each}
+            </select>
+          </label>
 
           <VoiceInput
             compact

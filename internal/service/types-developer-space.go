@@ -137,22 +137,36 @@ type DeveloperSpace struct {
 }
 
 type DeveloperSession struct {
-	ID          string         `json:"id"`
-	SpaceID     string         `json:"space_id"`
-	ProjectPath string         `json:"project_path"`
-	WorkspaceID string         `json:"workspace_id"`
-	OwnerUserID string         `json:"owner_user_id"`
-	Title       string         `json:"title,omitempty"`
-	Mode        string         `json:"mode"`
-	Status      string         `json:"status"`
-	Provider    string         `json:"provider,omitempty"`
-	Model       string         `json:"model,omitempty"`
-	Config      map[string]any `json:"config,omitempty"`
-	Error       string         `json:"error,omitempty"`
-	StartedAt   string         `json:"started_at,omitempty"`
-	FinishedAt  string         `json:"finished_at,omitempty"`
-	CreatedAt   string         `json:"created_at"`
-	UpdatedAt   string         `json:"updated_at"`
+	ID          string `json:"id"`
+	SpaceID     string `json:"space_id"`
+	ProjectPath string `json:"project_path"`
+	WorkspaceID string `json:"workspace_id"`
+	OwnerUserID string `json:"owner_user_id"`
+	Title       string `json:"title,omitempty"`
+	Mode        string `json:"mode"`
+	// AgentID runs the session as one of the workspace's agents: its system
+	// prompt, skills, MCP sets, built-in tools and confirmation list. Empty
+	// uses the built-in coding profile named by Mode. Provider/Model stay
+	// per session, so the agent's model is only the starting choice.
+	AgentID    string         `json:"agent_id,omitempty"`
+	Status     string         `json:"status"`
+	Provider   string         `json:"provider,omitempty"`
+	Model      string         `json:"model,omitempty"`
+	Config     map[string]any `json:"config,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	StartedAt  string         `json:"started_at,omitempty"`
+	FinishedAt string         `json:"finished_at,omitempty"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
+}
+
+// DeveloperSessionSettings are the per-session choices that may change
+// between runs.
+type DeveloperSessionSettings struct {
+	Mode     string
+	AgentID  string
+	Provider string
+	Model    string
 }
 
 type DeveloperSessionMessage struct {
@@ -256,7 +270,7 @@ type DeveloperSpaceStorer interface {
 
 	ListDeveloperSessions(ctx context.Context, spaceID string) ([]DeveloperSession, error)
 	RenameDeveloperSession(ctx context.Context, id, title string) (*DeveloperSession, error)
-	UpdateDeveloperSessionSettings(ctx context.Context, id, mode, provider, model string) (*DeveloperSession, error)
+	UpdateDeveloperSessionSettings(ctx context.Context, id string, settings DeveloperSessionSettings) (*DeveloperSession, error)
 	GetDeveloperSession(ctx context.Context, id string) (*DeveloperSession, error)
 	CreateDeveloperSession(ctx context.Context, session DeveloperSession) (*DeveloperSession, error)
 	SetDeveloperSessionRuntime(ctx context.Context, id, status, runtimeError string) (*DeveloperSession, error)

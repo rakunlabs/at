@@ -21,7 +21,11 @@ func TestInstructionsAndAgentToolHistory(t *testing.T) {
 	if body.SystemInstruction == nil || len(body.SystemInstruction.Parts) != 2 {
 		t.Fatalf("instructions lost: %+v", body.SystemInstruction)
 	}
-	if got := body.Contents[1].Parts[0].FunctionResponse.Name; got != "lookup" {
+	// Gemini requires the conversation to open with a user turn.
+	if body.Contents[0].Role != "user" || body.Contents[1].Role != "model" {
+		t.Fatalf("leading user turn missing: %+v", body.Contents)
+	}
+	if got := body.Contents[2].Parts[0].FunctionResponse.Name; got != "lookup" {
 		t.Fatalf("tool name = %q", got)
 	}
 	if result[0].Name != "" {
