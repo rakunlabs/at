@@ -21,42 +21,55 @@ var (
 // behaviour that copied every workspace secret into every shell process.
 func (s *Server) inlineToolVariables(ctx context.Context, tool service.MCPInlineTool) (workflow.VarLookup, workflow.VarLister, error) {
 	keys := inlineToolVariableKeys(tool.Handler)
-	values := make(map[string]string, len(keys))
+	declared := make(map[string]bool, len(keys))
 	for _, key := range keys {
+		declared[key] = true
+	}
+
+	baseLookup := func(key string) (string, error) {
 		if s.variableStore == nil {
-			return nil, nil, fmt.Errorf("variable store not configured")
+			return "", nil
 		}
 		variable, err := s.variableStore.GetVariableByKey(ctx, key)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve variable %q: %w", key, err)
+			return "", fmt.Errorf("resolve variable %q: %w", key, err)
 		}
 		if variable == nil && strings.ToUpper(key) != key {
 			variable, err = s.variableStore.GetVariableByKey(ctx, strings.ToUpper(key))
 			if err != nil {
-				return nil, nil, fmt.Errorf("resolve variable %q: %w", key, err)
+				return "", fmt.Errorf("resolve variable %q: %w", key, err)
 			}
 		}
 		if variable == nil {
-			continue
+			return "", nil
 		}
 		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.use", ResourceID: variable.ID}); err != nil {
-			return nil, nil, fmt.Errorf("use variable %q: %w", key, err)
+			return "", fmt.Errorf("use variable %q: %w", key, err)
 		}
-		values[key] = variable.Value
+		return variable.Value, nil
 	}
+
+	agentConnections, skillConnections := workflow.AgentConnectionsFromContext(ctx, tool.SourceSkillID)
+	bindings := workflow.ResolveAgentConnectionBindings(ctx, s.connectionLookupFunc(), agentConnections, skillConnections)
+	resolvedLookup := workflow.WrapVarLookupWithConnectionsContext(ctx, baseLookup, bindings)
 	lookup := func(key string) (string, error) {
-		value, ok := values[key]
-		if !ok {
+		if !declared[key] {
 			return "", fmt.Errorf("variable %q is not declared by this MCP tool", key)
 		}
-		return value, nil
+		return resolvedLookup(key)
 	}
 	lister := func() (map[string]string, error) {
-		copyValues := make(map[string]string, len(values))
-		for key, value := range values {
-			copyValues[key] = value
+		values := make(map[string]string, len(keys))
+		for _, key := range keys {
+			value, err := lookup(key)
+			if err != nil {
+				return nil, err
+			}
+			if value != "" {
+				values[key] = value
+			}
 		}
-		return copyValues, nil
+		return values, nil
 	}
 	return lookup, lister, nil
 }

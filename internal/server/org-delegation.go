@@ -303,6 +303,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	skillResources := map[string]*service.Skill{}
 	var skillPromptFragments []string
 	var skillToolSets []string
+	skillConnectionOverrides := map[string]map[string]string{}
 
 	if s.skillStore != nil {
 		for _, skillRef := range agent.Config.Skills {
@@ -329,6 +330,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				}
 				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
 			}
+			if len(skillRef.Connections) > 0 {
+				skillConnectionOverrides[nameOrID] = skillRef.Connections
+				if skill.ID != "" {
+					skillConnectionOverrides[skill.ID] = skillRef.Connections
+				}
+				if skill.Name != "" {
+					skillConnectionOverrides[skill.Name] = skillRef.Connections
+				}
+			}
 			if service.HasLegacySkillTools(skill) {
 				skillToolSets = append(skillToolSets, service.SkillToolMCPSetName(skill.ID))
 			}
@@ -350,6 +360,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 	}
+	ctx = workflow.ContextWithAgentConnections(ctx, agent.Config.Connections, skillConnectionOverrides)
 
 	// e3) Load builtin tools for this agent.
 	type builtinToolHandler struct {

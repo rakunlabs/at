@@ -673,6 +673,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	if err != nil {
 		return fmt.Errorf("agentic loop: skill runtime: %w", err)
 	}
+	ctx = workflow.ContextWithAgentConnections(ctx, agent.Config.Connections, skillRuntime.ConnectionOverrides(agent.Config.Skills))
 	// Legacy handlers live in paired MCP sets after the documentation-only
 	// migration. Attach those executable resources automatically so existing
 	// agent skill references continue to work without restoring skill execution.

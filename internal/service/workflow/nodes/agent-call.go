@@ -432,6 +432,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	if err != nil {
 		return nil, fmt.Errorf("agent_call: skill runtime: %w", err)
 	}
+	if preset != nil {
+		ctx = workflow.ContextWithAgentConnections(ctx, preset.Config.Connections, skillRuntime.ConnectionOverrides(preset.Config.Skills))
+	}
 	activatedSkillPrompt := ""
 	if activateSkill != "" {
 		activatedSkillPrompt, err = skillRuntime.HandleLoadSkill(map[string]any{"skill_name": activateSkill})

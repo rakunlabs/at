@@ -7,6 +7,45 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
+type agentConnectionConfigKey struct{}
+
+type agentConnectionConfig struct {
+	agent  map[string]string
+	skills map[string]map[string]string
+}
+
+// ContextWithAgentConnections makes an agent's default and per-skill named
+// connection bindings available to executable resources attached through a
+// migrated skill MCP set. The maps are copied so later config mutation cannot
+// change an in-flight run.
+func ContextWithAgentConnections(ctx context.Context, agent map[string]string, skills map[string]map[string]string) context.Context {
+	copyMap := func(in map[string]string) map[string]string {
+		if len(in) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(in))
+		for key, value := range in {
+			out[key] = value
+		}
+		return out
+	}
+	cfg := agentConnectionConfig{agent: copyMap(agent)}
+	if len(skills) > 0 {
+		cfg.skills = make(map[string]map[string]string, len(skills))
+		for skill, bindings := range skills {
+			cfg.skills[skill] = copyMap(bindings)
+		}
+	}
+	return context.WithValue(ctx, agentConnectionConfigKey{}, cfg)
+}
+
+// AgentConnectionsFromContext returns the bindings for one executable skill.
+// The caller still resolves and authorizes the referenced connection records.
+func AgentConnectionsFromContext(ctx context.Context, sourceSkillID string) (map[string]string, map[string]string) {
+	cfg, _ := ctx.Value(agentConnectionConfigKey{}).(agentConnectionConfig)
+	return cfg.agent, cfg.skills[sourceSkillID]
+}
+
 // ConnectionKeySuffixes lists the trailing variable-name fragments that map
 // to individual credential fields. A tool handler calling getVar("youtube_refresh_token")
 // is broken into provider = "youtube" and suffix = "_refresh_token" so the

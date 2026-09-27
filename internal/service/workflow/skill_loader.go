@@ -69,6 +69,28 @@ type SkillRuntime struct {
 	loadedSkills map[string]bool
 }
 
+// ConnectionOverrides indexes per-skill connection overrides by every skill
+// identity known to the runtime. Migrated inline tools carry the canonical
+// skill ID, while older agent configs commonly reference the skill by name.
+func (r *SkillRuntime) ConnectionOverrides(refs []service.SkillRef) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, ref := range refs {
+		if len(ref.Connections) == 0 {
+			continue
+		}
+		out[ref.ID] = ref.Connections
+		if skill := r.registry[ref.ID]; skill != nil {
+			if skill.ID != "" {
+				out[skill.ID] = ref.Connections
+			}
+			if skill.Name != "" {
+				out[skill.Name] = ref.Connections
+			}
+		}
+	}
+	return out
+}
+
 // NewSkillRuntime resolves every attached SkillRef once via lookup and
 // returns a runtime ready for lazy activation. extraNames lets callers add
 // skill names from edge inputs (e.g. workflow `skill_config` nodes) on top
