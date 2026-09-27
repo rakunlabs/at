@@ -2193,28 +2193,52 @@ Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and
 checks `execution.run`; `GET /developer-space` and the session list/history only
 need `agents.read`. Containers keep their existing limits (capabilities dropped,
-`no-new-privileges`, PID/CPU/RAM/disk quotas, removed after 30 minutes idle
-while the volume survives). Rootless Docker is recommended but not required: a
-rootful daemon only logs a warning at container creation, because AT often runs
-as a host binary talking to the system daemon. **Reset** deletes the space,
-its sessions and its volume after an explicit confirmation.
+`no-new-privileges`, PID/CPU/RAM/disk quotas). After 30 minutes idle, or on
+Stop, the container is **stopped, not deleted** (`RetainWhenIdle`), so what
+the user installed in it survives. Rootless Docker is recommended but not
+required: a rootful daemon only logs a warning at container creation, because
+AT often runs as a host binary talking to the system daemon. **Reset** deletes
+the space, its sessions and its volume after an explicit confirmation.
 
 The toolbar's settings button edits the space's base image, CPU, memory and
 disk limit (`PUT /developer-space`; the page resends the stored `config`
 because PUT replaces the record). An empty image means
-`service.DefaultDeveloperImage` (`debian:13.7-slim`). Stock images lack `git`
-and `python3` and exit immediately under `docker run -d`, and packages cannot
-be installed inside the container because every capability is dropped. So
-`container.Config.ProvisionTools` builds a derived image once per base
-(`internal/service/container/runtime-image.go`). It adds bash/git/python3/
-coreutils through apt, apk or dnf only when they are missing, and uses a
-`sleep infinity` entrypoint. The derived image is tagged
-`at-developer-runtime:<hash of recipe+base>`, so a recipe change rebuilds it.
-The build runs outside the manager lock. An image reference is validated
-strictly (`service.ValidContainerImage`) because it becomes a Dockerfile
-`FROM` line. A leftover container is reused only when it was started from the
-same image. Changing the image restarts the container; `/workspace` survives
-and tools installed inside the old container do not. Regressions:
+`service.DefaultDeveloperImage` (`debian:13.7-slim`). **AT installs nothing
+into a space and checks for no tools.** The image and anything added from the
+terminal are the user's responsibility. Without `python3` the file explorer
+and agent file tools fail (`developerFSScript` runs through it), and without
+`git` source control fails. Both report the plain command error. AT does three
+things so that any image works:
+- `KeepAlive` sets `--entrypoint sleep … infinity`, because stock images exit
+  immediately under `docker run -d`.
+- The terminal falls back from `bash -l` to `sh -l`.
+- A one-line `APT::Sandbox::User "root"` file is written into
+  `/etc/apt/apt.conf.d` when that directory exists. With every capability
+  dropped, apt cannot switch to its `_apt` user, and downloads die with
+  "Method http has died unexpectedly". apk and dnf need nothing.
+
+An image reference is validated strictly (`service.ValidContainerImage`, plus a
+flag/whitespace refusal in the driver). Containers carry an `at.config` label
+hashing their configuration. A leftover or stopped container is resumed only
+when that label matches; changing the image or limits replaces it. That loses
+the installed packages, while `/workspace` survives.
+
+Sandboxes run through a backend-neutral `container.Manager` over a
+`container.Driver` (`internal/service/container/driver.go`). The Manager owns
+what does not depend on the backend: live scopes, activity and idle expiry
+(stop vs delete), the `/workspace` boundary, quota checks (`du` run inside the
+sandbox) and terminal bookkeeping. The driver owns create/resume, running,
+exec, attach, stop, remove and purge. The only driver today is `docker.go`,
+which uses the host's docker CLI: `DOCKER_HOST` or the docker context selects
+a local, rootless or remote daemon. A terminal is a `Terminal` interface rather
+than a PTY file, because a Kubernetes exec stream has no local PTY. Adding a
+backend means writing a new Driver and choosing it at construction
+(`container.NewWithDriver`). Callers do not change. Scope state is still in
+process memory, so two AT replicas do not share it. Regressions:
+`manager_driver_test.go` (fake driver) and `TestDockerStockImageSandbox` (real
+Docker with network: no tools preinstalled, apt install works, install survives
+stop, config change starts fresh but keeps `/workspace`; skipped without
+Docker). Other regressions:
 `developer-spaces_test.go` (store + HTTP, including the migration),
 `developer-git_test.go`, `agentloop` `TestCollectStream`,
 `_ui/tests/developer-space.test.mjs`.

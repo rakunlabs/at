@@ -38,13 +38,14 @@ var uiFS embed.FS
 
 // ProviderInfo holds a provider instance along with its metadata.
 type ProviderInfo struct {
-	provider     service.LLMProvider
-	providerID   string
-	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
-	authType     string // "", "copilot", "chatgpt", "claude-code", ...
-	defaultModel string
-	models       []string // all supported chat models; if empty, only defaultModel is advertised
-	modelLimits  map[string]config.ModelLimit
+	provider          service.LLMProvider
+	providerID        string
+	providerType      string // "anthropic", "openai", "vertex", "gemini", "minimax"
+	authType          string // "", "copilot", "chatgpt", "claude-code", ...
+	defaultModel      string
+	models            []string // all supported chat models; if empty, only defaultModel is advertised
+	modelLimits       map[string]config.ModelLimit
+	modelCapabilities map[string]config.ModelCapability
 
 	// embeddingModels lists the embedding models this provider serves via
 	// /gateway/v1/embeddings. Advertised by /gateway/v1/models; advisory.
@@ -1433,15 +1434,16 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		cap = cfg.RateLimit.RetryAfterCap()
 	}
 	return ProviderInfo{
-		provider:        provider,
-		providerType:    cfg.Type,
-		authType:        cfg.AuthType,
-		defaultModel:    cfg.Model,
-		models:          cfg.Models,
-		modelLimits:     cfg.ModelLimits,
-		embeddingModels: cfg.EmbeddingModels,
-		disabled:        cfg.Disabled,
-		retryAfterCap:   cap,
+		provider:          provider,
+		providerType:      cfg.Type,
+		authType:          cfg.AuthType,
+		defaultModel:      cfg.Model,
+		models:            cfg.Models,
+		modelLimits:       cfg.ModelLimits,
+		modelCapabilities: cfg.ModelCapabilities,
+		embeddingModels:   cfg.EmbeddingModels,
+		disabled:          cfg.Disabled,
+		retryAfterCap:     cap,
 	}
 }
 

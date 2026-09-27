@@ -42,6 +42,7 @@
         "provider_create",
         "provider_update",
         "provider_set_model_limit",
+        "provider_set_model_capability",
         "provider_delete",
         "provider_discover_models",
         "apitoken_list",

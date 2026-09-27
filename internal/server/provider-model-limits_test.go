@@ -35,3 +35,31 @@ func TestValidateModelLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateModelCapabilities(t *testing.T) {
+	enabled, disabled := true, false
+	tests := []struct {
+		name   string
+		config config.LLMConfig
+		want   string
+	}{
+		{name: "unset"},
+		{name: "enabled", config: config.LLMConfig{Model: "vision", ModelCapabilities: map[string]config.ModelCapability{"vision": {ImageInput: &enabled}}}},
+		{name: "explicitly disabled", config: config.LLMConfig{Models: []string{"text"}, ModelCapabilities: map[string]config.ModelCapability{"text": {ImageInput: &disabled}}}},
+		{name: "empty model", config: config.LLMConfig{ModelCapabilities: map[string]config.ModelCapability{" ": {ImageInput: &enabled}}}, want: "keys must not be empty"},
+		{name: "not advertised", config: config.LLMConfig{Model: "other", ModelCapabilities: map[string]config.ModelCapability{"vision": {ImageInput: &enabled}}}, want: "does not match an advertised chat model"},
+		{name: "empty capability", config: config.LLMConfig{Model: "vision", ModelCapabilities: map[string]config.ModelCapability{"vision": {}}}, want: "image_input must be true or false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validateModelCapabilities(tt.config)
+			if tt.want == "" && got != "" {
+				t.Fatalf("unexpected error: %s", got)
+			}
+			if tt.want != "" && !strings.Contains(got, tt.want) {
+				t.Fatalf("error %q does not contain %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -481,6 +481,17 @@ var builtinTools = []builtinToolDef{
 							"required": []string{"context", "output"},
 						},
 					},
+					"model_capabilities": map[string]any{
+						"type":        "object",
+						"description": "Per-model client capability overrides advertised through /gateway/v1/models. Omit a model to use AT's automatic detection.",
+						"additionalProperties": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"image_input": map[string]any{"type": "boolean", "description": "Whether the model accepts image input"},
+							},
+							"required": []string{"image_input"},
+						},
+					},
 					"auth_type":     map[string]any{"type": "string", "description": "For Anthropic-style providers: e.g. 'oauth' or empty"},
 					"extra_headers": map[string]any{"type": "object", "description": "Extra HTTP headers added on every request"},
 					"proxy":         map[string]any{"type": "string", "description": "HTTP/HTTPS proxy URL"},
@@ -519,6 +530,16 @@ var builtinTools = []builtinToolDef{
 			"context": map[string]any{"type": "integer", "minimum": 1, "description": "Complete context window in tokens"},
 			"output":  map[string]any{"type": "integer", "minimum": 1, "description": "Maximum generated tokens"},
 			"clear":   map[string]any{"type": "boolean", "description": "Remove the stored limit for this model; context and output are then ignored"},
+		},
+		"required": []string{"key", "model"},
+	}},
+	{Name: "provider_set_model_capability", Description: "Set or clear client-facing capabilities for one existing provider model without rewriting the rest of the provider config. image_input controls whether OpenCode and other catalog clients may send images; clear restores AT's automatic detection.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":         map[string]any{"type": "string", "description": "Existing provider key"},
+			"model":       map[string]any{"type": "string", "description": "Provider-local model ID"},
+			"image_input": map[string]any{"type": "boolean", "description": "Whether the model accepts image input"},
+			"clear":       map[string]any{"type": "boolean", "description": "Remove the override and restore automatic capability detection"},
 		},
 		"required": []string{"key", "model"},
 	}},

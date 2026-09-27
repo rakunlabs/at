@@ -179,16 +179,29 @@ type ModelsResponse struct {
 }
 
 type ModelData struct {
-	ID              string `json:"id"`
-	Object          string `json:"object"`
-	OwnedBy         string `json:"owned_by"`
-	ContextLength   int    `json:"context_length,omitempty"`
-	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ID               string                    `json:"id"`
+	Object           string                    `json:"object"`
+	OwnedBy          string                    `json:"owned_by"`
+	ContextLength    int                       `json:"context_length,omitempty"`
+	MaxOutputTokens  int                       `json:"max_output_tokens,omitempty"`
+	InputModalities  []string                  `json:"input_modalities,omitempty"`
+	OutputModalities []string                  `json:"output_modalities,omitempty"`
+	Capabilities     *GatewayModelCapabilities `json:"capabilities,omitempty"`
 	// RoutingProfile marks an entry that is a stored model chain rather than a
 	// concrete provider model. It is an AT extension on an otherwise standard
 	// OpenAI object; the object stays "model" so that clients with a fixed model
 	// picker — which is the reason profiles exist — actually render it.
 	RoutingProfile bool `json:"at_routing_profile,omitempty"`
+}
+
+// GatewayModelCapabilities carries optional model metadata understood by dynamic
+// OpenAI-compatible catalog clients such as OmniRoute and OpenCode. These are
+// extensions to the OpenAI model object; clients that only implement the
+// standard shape safely ignore them.
+type GatewayModelCapabilities struct {
+	Vision      *bool `json:"vision,omitempty"`
+	Attachment  *bool `json:"attachment,omitempty"`
+	ToolCalling *bool `json:"tool_calling,omitempty"`
 }
 
 // ─── Streaming response types (SSE / chat.completion.chunk format) ───

@@ -31,6 +31,10 @@ function buildCleanConfig(config: LLMConfig): Record<string, unknown> {
     clean.model_limits = config.model_limits;
   }
 
+  if (config.model_capabilities && Object.keys(config.model_capabilities).length > 0) {
+    clean.model_capabilities = config.model_capabilities;
+  }
+
   if (config.extra_headers && Object.keys(config.extra_headers).length > 0) {
     clean.extra_headers = config.extra_headers;
   }

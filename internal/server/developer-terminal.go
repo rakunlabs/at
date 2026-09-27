@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/container"
 )
 
 // DeveloperSpaceTerminalAPI attaches an interactive shell inside the caller's
@@ -50,12 +49,12 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 			workDir = service.DeveloperWorkspaceRoot
 		}
 	}
-	file, closeShell, err := s.containerManager.AttachShell(ctx, h.scope, h.cfg, workDir, 120, 30)
+	term, err := s.containerManager.AttachShell(ctx, h.scope, h.cfg, workDir, 120, 30)
 	if err != nil {
 		_ = ws.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
 		return
 	}
-	defer closeShell() //nolint:errcheck
+	defer term.Close() //nolint:errcheck
 	_, _ = h.store.SetDeveloperSpaceRuntime(context.WithoutCancel(ctx), h.space.ID, service.DeveloperSpaceReady, "")
 	var writeMu sync.Mutex
 	write := func(kind int, data []byte) error {
@@ -68,7 +67,7 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 	go func() {
 		buf := make([]byte, 16384)
 		for {
-			n, err := file.Read(buf)
+			n, err := term.Read(buf)
 			if n > 0 && write(websocket.BinaryMessage, buf[:n]) != nil {
 				cancel()
 				return
@@ -88,7 +87,7 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 		switch kind {
 		case websocket.BinaryMessage:
 			if len(data) <= 16384 {
-				_, _ = file.Write(data)
+				_, _ = term.Write(data)
 			}
 		case websocket.TextMessage:
 			var message struct {
@@ -97,7 +96,7 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 				Rows uint16 `json:"rows"`
 			}
 			if json.Unmarshal(data, &message) == nil && message.Type == "resize" && message.Cols >= 2 && message.Rows >= 2 {
-				_ = container.ResizePTY(file, message.Cols, message.Rows)
+				_ = term.Resize(message.Cols, message.Rows)
 			}
 		}
 	}

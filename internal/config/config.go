@@ -276,6 +276,11 @@ type LLMConfig struct {
 	// request quota. OpenAI-compatible clients may ignore the extension fields.
 	ModelLimits map[string]ModelLimit `cfg:"model_limits" json:"model_limits,omitempty"`
 
+	// ModelCapabilities overrides model capability metadata advertised through
+	// /gateway/v1/models. A nil capability uses AT's provider/model inference;
+	// an explicit false disables that inference for the model.
+	ModelCapabilities map[string]ModelCapability `cfg:"model_capabilities" json:"model_capabilities,omitempty"`
+
 	// EmbeddingModels is the list of embedding models this provider serves via
 	// POST /gateway/v1/embeddings. They are advertised by /gateway/v1/models
 	// alongside chat models. Advisory — requests for models outside this list
@@ -353,6 +358,13 @@ type LLMConfig struct {
 type ModelLimit struct {
 	Context int `cfg:"context" json:"context"`
 	Output  int `cfg:"output" json:"output"`
+}
+
+// ModelCapability describes optional client-facing capabilities for one model.
+// Pointer fields preserve the distinction between automatic detection and an
+// explicit false value.
+type ModelCapability struct {
+	ImageInput *bool `cfg:"image_input" json:"image_input,omitempty"`
 }
 
 // RateLimitConfig describes the per-provider rate-limit policy. All fields

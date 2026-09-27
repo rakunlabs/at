@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Plus, RotateCw, TerminalSquare, X } from 'lucide-svelte';
+  import { ChevronDown, ChevronUp, Plus, RotateCw, TerminalSquare, X } from 'lucide-svelte';
   import HostTerminal from '@/lib/components/HostTerminal.svelte';
   import { developerTerminalURL } from '@/lib/api/developer-spaces';
   import type { DeveloperTerminalTab } from '@/lib/helper/developer-space';
@@ -11,8 +11,10 @@
     onclose: (id: string) => void;
     onnew: () => void;
     onreconnect: (id: string) => void;
+    minimized?: boolean;
+    ontoggleminimize?: () => void;
   }
-  let { tabs, active, onselect, onclose, onnew, onreconnect }: Props = $props();
+  let { tabs, active, onselect, onclose, onnew, onreconnect, minimized = false, ontoggleminimize }: Props = $props();
   let statuses = $state<Record<string, { status: string; message: string }>>({});
 </script>
 
@@ -21,7 +23,7 @@
     {#each tabs as tab, index (tab.id)}
       {@const state = statuses[tab.id]?.status}
       <div class={['group flex h-7 shrink-0 items-center gap-1 pl-2 pr-1', tab.id === active ? 'bg-white text-gray-900 dark:bg-dark-base dark:text-dark-text' : 'text-gray-600 hover:bg-gray-200 dark:text-dark-text-muted dark:hover:bg-dark-elevated']}>
-        <button type="button" class="inline-flex items-center gap-1.5" onclick={() => onselect(tab.id)} title={`/workspace${tab.cwd ? `/${tab.cwd}` : ''}`}>
+        <button type="button" class="inline-flex items-center gap-1.5" onclick={() => { onselect(tab.id); if (minimized) ontoggleminimize?.(); }} title={`/workspace${tab.cwd ? `/${tab.cwd}` : ''}`}>
           <TerminalSquare size={12} class={state === 'connected' ? 'text-green-600' : state === 'error' || state === 'disconnected' ? 'text-red-500' : ''} />
           <span class="max-w-40 truncate">{tab.cwd || 'workspace'} {tabs.length > 1 ? index + 1 : ''}</span>
         </button>
@@ -33,6 +35,11 @@
     {#if statuses[active] && statuses[active].status !== 'connected' && statuses[active].status !== 'connecting'}
       <span class="truncate px-2 text-gray-500 dark:text-dark-text-muted">{statuses[active].message}</span>
       <button type="button" onclick={() => onreconnect(active)} class="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 text-gray-700 hover:bg-gray-200 dark:text-dark-text-secondary dark:hover:bg-dark-elevated"><RotateCw size={12} /> Reconnect</button>
+    {/if}
+    {#if ontoggleminimize}
+      <button type="button" onclick={ontoggleminimize} class="shrink-0 p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated dark:hover:text-dark-text" title={minimized ? 'Restore terminal' : 'Minimize terminal'} aria-label={minimized ? 'Restore terminal' : 'Minimize terminal'} aria-expanded={!minimized}>
+        {#if minimized}<ChevronUp size={14} />{:else}<ChevronDown size={14} />{/if}
+      </button>
     {/if}
   </div>
   <div class="relative min-h-0 flex-1">

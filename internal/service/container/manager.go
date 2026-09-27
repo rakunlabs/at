@@ -1,14 +1,14 @@
-// Package container manages per-organization Docker containers for isolated agent execution.
+// Package container manages isolated sandboxes for agent execution and
+// developer spaces. The Manager is backend-neutral; a Driver (docker.go)
+// talks to whatever actually runs them.
 package container
 
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -58,10 +58,14 @@ type Config struct {
 	ReadOnlyRoot     bool   `json:"read_only_root,omitempty"`
 	DiskLimitBytes   int64  `json:"disk_limit_bytes,omitempty"`
 	PidsLimit        int    `json:"pids_limit,omitempty"`
-	// ProvisionTools starts the container from an image derived from Image that
-	// adds the developer toolchain and a keep-alive entrypoint (see
-	// runtime-image.go), so a stock distribution image can be used directly.
-	ProvisionTools bool `json:"provision_tools,omitempty"`
+	// KeepAlive replaces the image's entrypoint with `sleep infinity`, so a
+	// stock image whose default command exits (debian, ubuntu, alpine…) stays
+	// up for exec and terminals. Commands are always run through exec.
+	KeepAlive bool `json:"keep_alive,omitempty"`
+	// RetainWhenIdle stops an idle or explicitly stopped sandbox instead of
+	// deleting it, so whatever the user installed in it survives until the
+	// configuration changes or the scope is purged.
+	RetainWhenIdle bool `json:"retain_when_idle,omitempty"`
 }
 
 // DefaultConfig returns the default container configuration.
@@ -76,13 +80,12 @@ func DefaultConfig() Config {
 	}
 }
 
-// Manager manages per-organization containers.
+// Manager tracks live sandboxes per scope and delegates running them to a
+// Driver.
 type Manager struct {
+	driver     Driver
 	mu         sync.RWMutex
-	containers map[string]*containerInfo // orgID -> container info
-
-	imageMu sync.Mutex
-	images  map[string]string // base image -> derived runtime image
+	containers map[string]*containerInfo // scope -> container info
 }
 
 type containerInfo struct {
@@ -94,13 +97,21 @@ type containerInfo struct {
 	active      int
 }
 
-// New creates a new container manager.
+// New creates a container manager backed by the Docker CLI.
 func New() *Manager {
+	return NewWithDriver(NewDockerDriver())
+}
+
+// NewWithDriver creates a container manager backed by driver.
+func NewWithDriver(driver Driver) *Manager {
 	return &Manager{
+		driver:     driver,
 		containers: make(map[string]*containerInfo),
-		images:     make(map[string]string),
 	}
 }
+
+// Driver returns the backend this manager runs sandboxes on.
+func (m *Manager) Driver() Driver { return m.driver }
 
 // EnsureContainer creates or returns an existing container for the given org.
 func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
@@ -108,34 +119,26 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 		return "", nil
 	}
 
-	// Resolved before m.mu: preparing a derived image can take a while and must
-	// not block commands in other, already running scopes.
-	image, err := m.resolveImage(ctx, cfg)
-	if err != nil {
-		return "", fmt.Errorf("create container for %s: %w", orgID, err)
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Check if container already exists and is running
 	if info, ok := m.containers[orgID]; ok {
-		if info.config == cfg && isContainerRunning(ctx, info.containerID) {
+		if info.config == cfg && m.driver.Running(ctx, info.containerID) {
 			info.lastUsed = time.Now()
 			return info.containerID, nil
 		}
-		// Container exists but stopped — remove and recreate
-		removeContainer(ctx, info.containerID)
+		// Reconfigured sandboxes are replaced. A stopped one with the same
+		// configuration is left for Create to resume, keeping what was
+		// installed in it.
+		if info.config != cfg {
+			m.removeLogged(ctx, info.containerID)
+		}
 		delete(m.containers, orgID)
 	}
 
-	// Create new container
-	containerID, err := createContainer(ctx, orgID, image, cfg)
+	containerID, err := m.driver.Create(ctx, orgID, cfg)
 	if err != nil {
-		if cfg.ProvisionTools {
-			// The derived image may have been pruned; re-check it next time.
-			m.forgetImage(baseImage(cfg))
-		}
 		return "", fmt.Errorf("create container for org %s: %w", orgID, err)
 	}
 
@@ -147,61 +150,13 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 		lastUsed:    time.Now(),
 	}
 
-	slog.Info("container: created", "org_id", orgID, "container_id", containerID[:12])
+	slog.Info("container: created", "driver", m.driver.Name(), "org_id", orgID, "container_id", shortHandle(containerID))
 	return containerID, nil
 }
 
-// Exec runs a command inside the org's container and returns stdout.
+// Exec runs a shell command inside the org's container and returns stdout.
 func (m *Manager) Exec(ctx context.Context, orgID string, cfg Config, command string, env map[string]string) (string, string, int, error) {
-	containerID, err := m.EnsureContainer(ctx, orgID, cfg)
-	if err != nil {
-		return "", "", -1, err
-	}
-	if containerID == "" {
-		return "", "", -1, fmt.Errorf("container not enabled for org %s", orgID)
-	}
-	if cfg.DiskLimitBytes > 0 {
-		used, err := workspaceUsage(ctx, containerID)
-		if err != nil {
-			return "", "", -1, fmt.Errorf("check workspace quota: %w", err)
-		}
-		if used > cfg.DiskLimitBytes {
-			return "", "", -1, fmt.Errorf("workspace quota exceeded: %d of %d bytes", used, cfg.DiskLimitBytes)
-		}
-	}
-	m.markActive(orgID, 1)
-	defer m.markActive(orgID, -1)
-
-	args := []string{"exec"}
-
-	// Pass environment variables
-	for k, v := range env {
-		args = append(args, "-e", k+"="+v)
-	}
-
-	args = append(args, containerID, "bash", "-c", command)
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-
-	err = cmd.Run()
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return "", "", -1, fmt.Errorf("docker exec: %w", err)
-		}
-	}
-
-	if cfg.DiskLimitBytes > 0 {
-		if used, usageErr := workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
-			return stdout.String(), stderr.String(), exitCode, fmt.Errorf("workspace quota exceeded after command: %d of %d bytes", used, cfg.DiskLimitBytes)
-		}
-	}
-	return stdout.String(), stderr.String(), exitCode, nil
+	return m.run(ctx, orgID, cfg, ExecRequest{Argv: []string{"bash", "-c", command}, Env: env})
 }
 
 // ExecArgs executes one binary without a shell. Coding-space Git operations use
@@ -217,9 +172,14 @@ func (m *Manager) ExecArgsInput(ctx context.Context, scopeID string, cfg Config,
 	if command == "" {
 		return "", "", -1, fmt.Errorf("command is required")
 	}
-	if workDir != "" && workDir != "/workspace" && !strings.HasPrefix(workDir, "/workspace/") {
+	if workDir != "" && !insideWorkspace(workDir) {
 		return "", "", -1, fmt.Errorf("work directory must stay inside /workspace")
 	}
+	argv := append([]string{command}, commandArgs...)
+	return m.run(ctx, scopeID, cfg, ExecRequest{Argv: argv, Env: env, WorkDir: workDir, Stdin: stdin})
+}
+
+func (m *Manager) run(ctx context.Context, scopeID string, cfg Config, req ExecRequest) (string, string, int, error) {
 	containerID, err := m.EnsureContainer(ctx, scopeID, cfg)
 	if err != nil {
 		return "", "", -1, err
@@ -228,7 +188,7 @@ func (m *Manager) ExecArgsInput(ctx context.Context, scopeID string, cfg Config,
 		return "", "", -1, fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
 	if cfg.DiskLimitBytes > 0 {
-		used, err := workspaceUsage(ctx, containerID)
+		used, err := m.workspaceUsage(ctx, containerID)
 		if err != nil {
 			return "", "", -1, fmt.Errorf("check workspace quota: %w", err)
 		}
@@ -239,34 +199,15 @@ func (m *Manager) ExecArgsInput(ctx context.Context, scopeID string, cfg Config,
 	m.markActive(scopeID, 1)
 	defer m.markActive(scopeID, -1)
 
-	args := []string{"exec"}
-	if stdin != nil {
-		args = append(args, "-i")
-	}
-	for key, value := range env {
-		args = append(args, "-e", key+"="+value)
-	}
-	if workDir != "" {
-		args = append(args, "-w", workDir)
-	}
-	args = append(args, containerID, command)
-	args = append(args, commandArgs...)
-	cmd := exec.CommandContext(ctx, "docker", args...)
 	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
-	cmd.Stdin = stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	err = cmd.Run()
-	exitCode := 0
+	req.Stdout, req.Stderr = stdout, stderr
+	exitCode, err := m.driver.Exec(ctx, containerID, req)
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return "", "", -1, fmt.Errorf("docker exec: %w", err)
-		}
+		return "", "", -1, err
 	}
+
 	if cfg.DiskLimitBytes > 0 {
-		if used, usageErr := workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
+		if used, usageErr := m.workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
 			return stdout.String(), stderr.String(), exitCode, fmt.Errorf("workspace quota exceeded after command: %d of %d bytes", used, cfg.DiskLimitBytes)
 		}
 	}
@@ -292,7 +233,8 @@ func (m *Manager) ExecPython(ctx context.Context, orgID string, cfg Config, scri
 	return m.Exec(ctx, orgID, cfg, command, env)
 }
 
-// StopContainer stops and removes a container for an org.
+// StopContainer stops a container for an org. It is deleted unless its
+// configuration asks to retain it.
 func (m *Manager) StopContainer(ctx context.Context, orgID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -302,9 +244,9 @@ func (m *Manager) StopContainer(ctx context.Context, orgID string) error {
 		return nil
 	}
 
-	removeContainer(ctx, info.containerID)
+	m.release(ctx, info)
 	delete(m.containers, orgID)
-	slog.Info("container: stopped", "org_id", orgID, "container_id", info.containerID[:12])
+	slog.Info("container: stopped", "org_id", orgID, "container_id", shortHandle(info.containerID), "retained", info.config.RetainWhenIdle)
 	return nil
 }
 
@@ -314,21 +256,11 @@ func (m *Manager) StopContainer(ctx context.Context, orgID string) error {
 func (m *Manager) RemoveScope(ctx context.Context, scopeID string) error {
 	m.mu.Lock()
 	if info := m.containers[scopeID]; info != nil {
-		removeContainer(ctx, info.containerID)
+		m.removeLogged(ctx, info.containerID)
 		delete(m.containers, scopeID)
 	}
 	m.mu.Unlock()
-
-	scopeHash := fmt.Sprintf("%x", sha256.Sum256([]byte(scopeID)))[:20]
-	name := "at-scope-" + scopeHash
-	if output, err := exec.CommandContext(ctx, "docker", "rm", "-f", name).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such container") {
-		return fmt.Errorf("remove managed container: %s: %w", strings.TrimSpace(string(output)), err)
-	}
-	volume := "at-space-" + scopeHash
-	if output, err := exec.CommandContext(ctx, "docker", "volume", "rm", volume).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such volume") {
-		return fmt.Errorf("remove managed volume: %s: %w", strings.TrimSpace(string(output)), err)
-	}
-	return nil
+	return m.driver.Purge(ctx, scopeID)
 }
 
 // StopAll stops all containers (called on shutdown).
@@ -337,7 +269,7 @@ func (m *Manager) StopAll(ctx context.Context) {
 	defer m.mu.Unlock()
 
 	for orgID, info := range m.containers {
-		removeContainer(ctx, info.containerID)
+		m.release(ctx, info)
 		slog.Info("container: stopped", "org_id", orgID)
 	}
 	m.containers = make(map[string]*containerInfo)
@@ -351,7 +283,7 @@ func (m *Manager) CleanupIdle(ctx context.Context, maxIdle time.Duration) {
 	now := time.Now()
 	for orgID, info := range m.containers {
 		if info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
-			removeContainer(ctx, info.containerID)
+			m.release(ctx, info)
 			delete(m.containers, orgID)
 			slog.Info("container: cleaned up idle", "org_id", orgID, "idle", now.Sub(info.lastUsed))
 		}
@@ -366,7 +298,7 @@ func (m *Manager) ListContainers() map[string]map[string]any {
 	result := make(map[string]map[string]any, len(m.containers))
 	for orgID, info := range m.containers {
 		result[orgID] = map[string]any{
-			"container_id": info.containerID[:12],
+			"container_id": shortHandle(info.containerID),
 			"created_at":   info.createdAt.Format(time.RFC3339),
 			"last_used":    info.lastUsed.Format(time.RFC3339),
 			"image":        info.config.Image,
@@ -376,139 +308,49 @@ func (m *Manager) ListContainers() map[string]map[string]any {
 	return result
 }
 
-// ─── Docker helpers ───
-
-func createContainer(ctx context.Context, orgID, image string, cfg Config) (string, error) {
-	if image == "" {
-		image = baseImage(cfg)
+// release ends a sandbox that is no longer needed: stopped when its
+// configuration retains it, deleted otherwise.
+func (m *Manager) release(ctx context.Context, info *containerInfo) {
+	if !info.config.RetainWhenIdle {
+		m.removeLogged(ctx, info.containerID)
+		return
 	}
-
-	if cfg.PreferRootless {
-		// Rootless Docker is recommended, not required: a rootful daemon still
-		// gets the dropped capabilities, no-new-privileges and quotas below.
-		rootless, err := dockerIsRootless(ctx)
-		switch {
-		case err != nil:
-			slog.Warn("container: could not determine whether docker is rootless", "scope", orgID, "error", err.Error())
-		case !rootless:
-			slog.Warn("container: docker is not running in rootless mode; continuing with a rootful daemon (rootless Docker is recommended for stronger isolation)", "scope", orgID)
-		}
+	if err := m.driver.Stop(ctx, info.containerID); err != nil {
+		slog.Warn("container: stop failed", "driver", m.driver.Name(), "container_id", shortHandle(info.containerID), "error", err.Error())
 	}
-
-	scopeHash := fmt.Sprintf("%x", sha256.Sum256([]byte(orgID)))[:20]
-	name := "at-scope-" + scopeHash
-
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--label", "at.scope.hash=" + scopeHash,
-		"--label", "at.managed=true",
-		"--cap-drop", "ALL",
-		"--security-opt", "no-new-privileges",
-	}
-	pids := cfg.PidsLimit
-	if pids <= 0 {
-		pids = 256
-	}
-	args = append(args, "--pids-limit", fmt.Sprintf("%d", pids))
-
-	// Resource limits
-	if cfg.CPU != "" {
-		args = append(args, "--cpus", cfg.CPU)
-	}
-	if cfg.Memory != "" {
-		args = append(args, "--memory", cfg.Memory)
-	}
-
-	// Network
-	if !cfg.Network {
-		args = append(args, "--network", "none")
-	}
-	if cfg.ReadOnlyRoot {
-		args = append(args, "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m")
-	}
-
-	// Docker-managed volumes avoid caller-selected host mounts. Developer spaces
-	// keep theirs across idle container removal; transient scopes get tmpfs.
-	if cfg.PersistentVolume {
-		args = append(args, "-v", "at-space-"+scopeHash+":/workspace")
-	} else {
-		tmpfs := "/workspace:rw,nosuid,nodev"
-		if cfg.DiskLimitBytes > 0 {
-			tmpfs += fmt.Sprintf(",size=%d", cfg.DiskLimitBytes)
-		}
-		args = append(args, "--tmpfs", tmpfs)
-	}
-
-	args = append(args, image)
-
-	run := func() (string, string, error) {
-		cmd := exec.CommandContext(ctx, "docker", args...)
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		err := cmd.Run()
-		return stdout.String(), stderr.String(), err
-	}
-
-	stdout, stderr, err := run()
-	if err != nil && strings.Contains(stderr, "Conflict") {
-		// A container from an earlier run of this process still holds the name.
-		// Reuse it only when it was started from the same image; otherwise an
-		// image change would be ignored until someone removed it by hand.
-		var existing bytes.Buffer
-		inspect := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.Id}} {{.Config.Image}}", name)
-		inspect.Stdout = &existing
-		if inspect.Run() == nil {
-			id, existingImage, _ := strings.Cut(strings.TrimSpace(existing.String()), " ")
-			if existingImage == image {
-				if exec.CommandContext(ctx, "docker", "start", name).Run() == nil {
-					return id, nil
-				}
-			}
-			removeContainer(ctx, name)
-			stdout, stderr, err = run()
-		}
-	}
-	if err != nil {
-		return "", fmt.Errorf("docker run: %s: %w", strings.TrimSpace(stderr), err)
-	}
-
-	return strings.TrimSpace(stdout), nil
 }
 
-func dockerIsRootless(ctx context.Context) (bool, error) {
-	cmd := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .SecurityOptions}}")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("inspect docker security options: %s: %w", strings.TrimSpace(string(out)), err)
+func (m *Manager) removeLogged(ctx context.Context, handle string) {
+	if err := m.driver.Remove(ctx, handle); err != nil {
+		slog.Warn("container: remove failed", "driver", m.driver.Name(), "container_id", shortHandle(handle), "error", err.Error())
 	}
-	return strings.Contains(strings.ToLower(string(out)), "rootless"), nil
 }
 
-func workspaceUsage(ctx context.Context, containerID string) (int64, error) {
-	cmd := exec.CommandContext(ctx, "docker", "exec", containerID, "du", "-sk", "/workspace")
-	out, err := cmd.CombinedOutput()
+// workspaceUsage measures /workspace from inside the sandbox, so it works the
+// same on every backend.
+func (m *Manager) workspaceUsage(ctx context.Context, handle string) (int64, error) {
+	out := newBoundedOutput(4096)
+	code, err := m.driver.Exec(ctx, handle, ExecRequest{Argv: []string{"du", "-sk", "/workspace"}, Stdout: out, Stderr: out})
 	if err != nil {
-		return 0, fmt.Errorf("docker exec du: %s: %w", strings.TrimSpace(string(out)), err)
+		return 0, fmt.Errorf("measure workspace: %w", err)
+	}
+	if code != 0 {
+		return 0, fmt.Errorf("measure workspace: du exited %d: %s", code, strings.TrimSpace(out.String()))
 	}
 	var kib int64
-	if _, err := fmt.Sscan(string(out), &kib); err != nil {
+	if _, err := fmt.Sscan(out.String(), &kib); err != nil {
 		return 0, fmt.Errorf("parse workspace usage: %w", err)
 	}
 	return kib * 1024, nil
 }
 
-func isContainerRunning(ctx context.Context, containerID string) bool {
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Running}}", containerID)
-	out, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(out)) == "true"
+func insideWorkspace(dir string) bool {
+	return dir == "/workspace" || strings.HasPrefix(dir, "/workspace/")
 }
 
-func removeContainer(ctx context.Context, containerID string) {
-	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", containerID)
-	_ = cmd.Run()
+func shortHandle(handle string) string {
+	if len(handle) > 12 {
+		return handle[:12]
+	}
+	return handle
 }

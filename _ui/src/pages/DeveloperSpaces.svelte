@@ -56,6 +56,7 @@
   let leftWidth = $state(260);
   let rightWidth = $state(300);
   let terminalHeight = $state(240);
+  let terminalMinimized = $state(false);
   let terminals = $state<DeveloperTerminalTab[]>([]);
   let activeTerminal = $state('');
   let projectMenu = $state(false);
@@ -90,6 +91,7 @@
       if (typeof saved.rightWidth === 'number') rightWidth = saved.rightWidth;
       if (typeof saved.terminalHeight === 'number') terminalHeight = saved.terminalHeight;
       if (typeof saved.showTerminal === 'boolean') showTerminal = saved.showTerminal;
+      if (typeof saved.terminalMinimized === 'boolean') terminalMinimized = saved.terminalMinimized;
       if (typeof saved.showLeft === 'boolean') showLeft = saved.showLeft;
       if (saved.rightView === 'git' || saved.rightView === 'none') rightView = saved.rightView;
       if (typeof saved.project === 'string') project = saved.project;
@@ -102,7 +104,7 @@
   });
 
   $effect(() => {
-    const layout = { leftWidth, rightWidth, terminalHeight, showTerminal, showLeft, rightView, project };
+    const layout = { leftWidth, rightWidth, terminalHeight, terminalMinimized, showTerminal, showLeft, rightView, project };
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   });
 
@@ -162,7 +164,6 @@
       addToast('Disk limit must be a positive number of GiB', 'alert');
       return;
     }
-    const imageChanged = (settingsForm.image.trim() || DEFAULT_DEVELOPER_IMAGE) !== (space.image || DEFAULT_DEVELOPER_IMAGE);
     const running = space.status === 'ready';
     if (running && dirty.size && !confirm('Applying these settings restarts the container. You have unsaved files; continue? Unsaved edits stay in the editor.')) return;
     settingsSaving = true;
@@ -174,7 +175,7 @@
       });
       settingsOpen = false;
       if (running) {
-        addToast(imageChanged ? 'Settings saved. Restarting with the new image; the first start prepares it and can take a minute.' : 'Settings saved. Restarting the container.', 'info');
+        addToast('Settings saved. Restarting the container; packages installed in the old one are not carried over.', 'info');
         terminals = [];
         await start();
       } else {
@@ -578,6 +579,7 @@
     terminals = [...terminals, { id, cwd: project, generation: 0 }];
     activeTerminal = id;
     showTerminal = true;
+    terminalMinimized = false;
   }
 
   function closeTerminal(id: string) {
@@ -710,8 +712,8 @@
         <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-gray-600 hover:bg-gray-200 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">Cancel</button>
       </div>
       <p class="mt-1.5 text-gray-500 dark:text-dark-text-muted">
-        Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT adds bash, git, python3 and coreutils if the image lacks them (apt, apk or dnf based images), so the first start with a new image takes a minute.
-        Files in <code class="font-mono">/workspace</code> are kept when the image changes; tools installed inside the old container are not.
+        Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT installs nothing: add whatever you need from the terminal.
+        Installed packages stay while the container is stopped and are lost when the image or limits change; files in <code class="font-mono">/workspace</code> are always kept.
       </p>
     </form>
   {/if}
@@ -932,14 +934,20 @@
       </div>
 
       {#if showTerminal}
-        <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize bg-gray-200 hover:bg-accent/50 dark:bg-dark-border" onpointerdown={resizeTerminal}></div>
-        <div class="shrink-0" style={`height:${terminalHeight}px`}>
-          {#if space?.status === 'ready'}
-            <TerminalPanel tabs={terminals} active={activeTerminal} onselect={id => (activeTerminal = id)} onclose={closeTerminal} onnew={newTerminal} onreconnect={id => { terminals = terminals.map(t => (t.id === id ? { ...t, generation: t.generation + 1 } : t)); }} />
-          {:else}
-            <div class="flex h-full items-center justify-center bg-[#1e1e1e] text-xs text-gray-400">{starting ? 'Starting your space…' : 'Start the space to open a terminal.'}</div>
-          {/if}
-        </div>
+        {#if !terminalMinimized || space?.status !== 'ready'}
+          <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize bg-gray-200 hover:bg-accent/50 dark:bg-dark-border" onpointerdown={resizeTerminal}></div>
+        {/if}
+        {#if space?.status === 'ready'}
+          <!-- Minimizing clips the panel to its tab strip instead of unmounting
+               it, so the shells stay connected and xterm keeps its size. -->
+          <div class="shrink-0 overflow-hidden" style={`height:${terminalMinimized ? 32 : terminalHeight}px`}>
+            <div style={`height:${terminalHeight}px`}>
+              <TerminalPanel tabs={terminals} active={activeTerminal} minimized={terminalMinimized} ontoggleminimize={() => (terminalMinimized = !terminalMinimized)} onselect={id => (activeTerminal = id)} onclose={closeTerminal} onnew={newTerminal} onreconnect={id => { terminals = terminals.map(t => (t.id === id ? { ...t, generation: t.generation + 1 } : t)); }} />
+            </div>
+          </div>
+        {:else}
+          <div class="flex shrink-0 items-center justify-center bg-[#1e1e1e] text-xs text-gray-400" style={`height:${terminalHeight}px`}>{starting ? 'Starting your space…' : 'Start the space to open a terminal.'}</div>
+        {/if}
       {/if}
     </div>
 
@@ -977,7 +985,7 @@
       {#if !menu.entry.path.includes('/')}
         <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openProject(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open as project</button>
       {/if}
-      <button type="button" role="menuitem" onclick={() => { const cwd = menu!.entry!.path; menu = null; terminals = [...terminals, { id: `t${Date.now()}`, cwd, generation: 0 }]; activeTerminal = terminals[terminals.length - 1].id; showTerminal = true; }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open terminal here</button>
+      <button type="button" role="menuitem" onclick={() => { const cwd = menu!.entry!.path; menu = null; terminals = [...terminals, { id: `t${Date.now()}`, cwd, generation: 0 }]; activeTerminal = terminals[terminals.length - 1].id; showTerminal = true; terminalMinimized = false; }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open terminal here</button>
     {/if}
     {#if menu.entry}
       <div class="my-1 border-t border-gray-200 dark:border-dark-border"></div>

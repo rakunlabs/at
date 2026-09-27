@@ -692,6 +692,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 					Object:  "model",
 					OwnedBy: key,
 				}
+				applyGatewayModelCapabilities(&model, info, m)
 				if limit, ok := info.modelLimits[m]; ok {
 					model.ContextLength = limit.Context
 					model.MaxOutputTokens = limit.Output
@@ -743,6 +744,57 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   models,
 	}, http.StatusOK)
+}
+
+// applyGatewayModelCapabilities adds only capabilities AT can determine from
+// the provider protocol and model family. Advertising image input matters to
+// clients such as OpenCode: without it they reject an image locally before AT
+// or the upstream model gets a chance to process it.
+func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID string) {
+	imageInput, configured := false, false
+	if capability, ok := info.modelCapabilities[modelID]; ok && capability.ImageInput != nil {
+		imageInput = *capability.ImageInput
+		configured = true
+	} else if info.providerType == "anthropic" && isVisionClaudeModel(modelID) {
+		imageInput = true
+		configured = true
+	}
+	if !configured {
+		return
+	}
+
+	model.InputModalities = []string{"text"}
+	if imageInput {
+		model.InputModalities = append(model.InputModalities, "image")
+	}
+	model.OutputModalities = []string{"text"}
+	model.Capabilities = &GatewayModelCapabilities{
+		Vision:     &imageInput,
+		Attachment: &imageInput,
+	}
+	if info.providerType == "anthropic" && isVisionClaudeModel(modelID) {
+		toolCalling := true
+		model.Capabilities.ToolCalling = &toolCalling
+	}
+}
+
+// isVisionClaudeModel deliberately recognizes named Claude families rather
+// than every model exposed by an Anthropic-compatible endpoint. The latter may
+// serve unrelated text-only models, for which claiming image support would be
+// worse than omitting unknown metadata.
+func isVisionClaudeModel(modelID string) bool {
+	modelID = strings.ToLower(modelID)
+	if !strings.HasPrefix(modelID, "claude-") {
+		return false
+	}
+
+	for _, family := range []string{"opus", "sonnet", "haiku", "fable"} {
+		if strings.Contains(modelID, family) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GatewayNotFound answers any path under /gateway that no route matched.

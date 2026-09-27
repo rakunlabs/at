@@ -38,7 +38,7 @@ func developerContainerConfig(space *service.DeveloperSpace) container.Config {
 	}
 	return container.Config{
 		Enabled: true, Image: image, CPU: cpu, Memory: memory,
-		Network: true, PersistentVolume: true, PreferRootless: true, ProvisionTools: true, DiskLimitBytes: diskLimit, PidsLimit: 256,
+		Network: true, PersistentVolume: true, PreferRootless: true, KeepAlive: true, RetainWhenIdle: true, DiskLimitBytes: diskLimit, PidsLimit: 256,
 	}
 }
 

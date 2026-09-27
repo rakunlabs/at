@@ -251,6 +251,8 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execProviderUpdate(ctx, args)
 	case "provider_set_model_limit":
 		return s.execProviderSetModelLimit(ctx, args)
+	case "provider_set_model_capability":
+		return s.execProviderSetModelCapability(ctx, args)
 	case "provider_delete":
 		return s.execProviderDelete(ctx, args)
 	case "provider_discover_models":

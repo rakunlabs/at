@@ -24,6 +24,10 @@ export interface ModelLimitConfig {
   output: number;
 }
 
+export interface ModelCapabilityConfig {
+  image_input?: boolean;
+}
+
 export interface LLMConfig {
   type: string;
   shared_with_all_workspaces?: boolean;
@@ -41,6 +45,7 @@ export interface LLMConfig {
   model: string;
   models?: string[];
   model_limits?: Record<string, ModelLimitConfig>;
+  model_capabilities?: Record<string, ModelCapabilityConfig>;
   embedding_models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;

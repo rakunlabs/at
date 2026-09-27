@@ -493,6 +493,47 @@ func TestDispatch_ProviderSetModelLimit_PreservesConfig(t *testing.T) {
 	}
 }
 
+func TestDispatch_ProviderSetModelCapability_PreservesConfig(t *testing.T) {
+	store := newFakeProviderStore()
+	store.providers["custom"] = &service.ProviderRecord{
+		Key: "custom",
+		Config: config.LLMConfig{
+			Type:    "openai",
+			APIKey:  "secret",
+			Model:   "vision-model",
+			BaseURL: "https://example.test",
+		},
+	}
+	s := &Server{store: store}
+
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_set_model_capability", map[string]any{
+		"key":         "custom",
+		"model":       "vision-model",
+		"image_input": true,
+	}); err != nil {
+		t.Fatalf("set model capability: %v", err)
+	}
+
+	got := store.providers["custom"].Config
+	if got.APIKey != "secret" || got.BaseURL != "https://example.test" {
+		t.Fatalf("unrelated config changed: %+v", got)
+	}
+	if capability := got.ModelCapabilities["vision-model"]; capability.ImageInput == nil || !*capability.ImageInput {
+		t.Fatalf("model capability = %+v", capability)
+	}
+
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_set_model_capability", map[string]any{
+		"key":   "custom",
+		"model": "vision-model",
+		"clear": true,
+	}); err != nil {
+		t.Fatalf("clear model capability: %v", err)
+	}
+	if _, ok := store.providers["custom"].Config.ModelCapabilities["vision-model"]; ok {
+		t.Fatal("model capability was not cleared")
+	}
+}
+
 func TestDispatch_ProviderUpdate_DoesNotReuseCredentialAcrossAuthTypes(t *testing.T) {
 	store := newFakeProviderStore()
 	store.providers["chatgpt"] = &service.ProviderRecord{

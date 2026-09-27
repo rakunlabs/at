@@ -48,9 +48,10 @@ func TestGatewayRouting(t *testing.T) {
 	// Deliberately unsorted keys and models: the response must not depend on
 	// Go's map iteration order.
 	s, err := New(ctx, cfg, map[string]ProviderInfo{
-		"zeta":  {defaultModel: "fallback", models: []string{"delta", "beta"}, modelLimits: map[string]config.ModelLimit{"beta": {Context: 1_000_000, Output: 128_000}}},
-		"alpha": {defaultModel: "only"},
-		"empty": {},
+		"anthropic": {providerType: "anthropic", defaultModel: "claude-opus-5-5"},
+		"zeta":      {defaultModel: "fallback", models: []string{"delta", "beta"}, modelLimits: map[string]config.ModelLimit{"beta": {Context: 1_000_000, Output: 128_000}}},
+		"alpha":     {defaultModel: "only"},
+		"empty":     {},
 	}, p, "postgres", nil, nil, "test", "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -88,12 +89,19 @@ func TestGatewayRouting(t *testing.T) {
 		}
 		// "empty" declares neither a model list nor a default, so it
 		// contributes nothing; the rest are sorted by full ID.
-		want := []string{"alpha/only", "zeta/beta", "zeta/delta"}
+		want := []string{"alpha/only", "anthropic/claude-opus-5-5", "zeta/beta", "zeta/delta"}
 		if strings.Join(ids, ",") != strings.Join(want, ",") {
 			t.Fatalf("ids %v want %v", ids, want)
 		}
-		if got.Data[1].ContextLength != 1_000_000 || got.Data[1].MaxOutputTokens != 128_000 {
-			t.Fatalf("beta limits = context %d output %d", got.Data[1].ContextLength, got.Data[1].MaxOutputTokens)
+		if got.Data[2].ContextLength != 1_000_000 || got.Data[2].MaxOutputTokens != 128_000 {
+			t.Fatalf("beta limits = context %d output %d", got.Data[2].ContextLength, got.Data[2].MaxOutputTokens)
+		}
+		claude := got.Data[1]
+		if strings.Join(claude.InputModalities, ",") != "text,image" || strings.Join(claude.OutputModalities, ",") != "text" {
+			t.Fatalf("claude modalities = input %v output %v", claude.InputModalities, claude.OutputModalities)
+		}
+		if claude.Capabilities == nil || claude.Capabilities.Vision == nil || !*claude.Capabilities.Vision || claude.Capabilities.Attachment == nil || !*claude.Capabilities.Attachment || claude.Capabilities.ToolCalling == nil || !*claude.Capabilities.ToolCalling {
+			t.Fatalf("claude capabilities = %+v", claude.Capabilities)
 		}
 	})
 
@@ -190,4 +198,46 @@ func TestGatewayRouting(t *testing.T) {
 			t.Fatalf("Location = %q", got)
 		}
 	})
+}
+
+func TestApplyGatewayModelCapabilities(t *testing.T) {
+	enabled, disabled := true, false
+	tests := []struct {
+		name         string
+		providerType string
+		model        string
+		capability   *bool
+		wantImage    bool
+		wantMetadata bool
+	}{
+		{name: "anthropic opus", providerType: "anthropic", model: "claude-opus-5-5", wantImage: true, wantMetadata: true},
+		{name: "anthropic dated sonnet", providerType: "anthropic", model: "claude-sonnet-4-5-20250929", wantImage: true, wantMetadata: true},
+		{name: "explicit enable", providerType: "openai", model: "custom-vision", capability: &enabled, wantImage: true, wantMetadata: true},
+		{name: "override automatic detection", providerType: "anthropic", model: "claude-opus-5-5", capability: &disabled, wantMetadata: true},
+		{name: "legacy claude", providerType: "anthropic", model: "claude-2.1"},
+		{name: "unknown compatible model", providerType: "anthropic", model: "custom-text-model"},
+		{name: "same model on unknown protocol", providerType: "openai", model: "claude-opus-5-5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := ModelData{}
+			info := ProviderInfo{providerType: tt.providerType}
+			if tt.capability != nil {
+				info.modelCapabilities = map[string]config.ModelCapability{tt.model: {ImageInput: tt.capability}}
+			}
+			applyGatewayModelCapabilities(&model, info, tt.model)
+
+			gotImage := len(model.InputModalities) == 2 && model.InputModalities[1] == "image"
+			if gotImage != tt.wantImage {
+				t.Fatalf("image capability = %v, want %v: %+v", gotImage, tt.wantImage, model)
+			}
+			if (model.Capabilities != nil) != tt.wantMetadata {
+				t.Fatalf("metadata presence = %v, want %v: %+v", model.Capabilities != nil, tt.wantMetadata, model)
+			}
+			if tt.wantMetadata && (model.Capabilities.Vision == nil || *model.Capabilities.Vision != tt.wantImage) {
+				t.Fatalf("vision metadata = %+v, want %v", model.Capabilities, tt.wantImage)
+			}
+		})
+	}
 }

@@ -162,6 +162,32 @@ func validateModelLimits(cfg config.LLMConfig) string {
 	return ""
 }
 
+// validateModelCapabilities ensures overrides can only describe chat models
+// that the provider actually advertises. An empty entry is ambiguous and is
+// rejected; omit it to retain automatic detection.
+func validateModelCapabilities(cfg config.LLMConfig) string {
+	advertised := make(map[string]bool, len(cfg.Models)+1)
+	if len(cfg.Models) > 0 {
+		for _, model := range cfg.Models {
+			advertised[model] = true
+		}
+	} else if cfg.Model != "" {
+		advertised[cfg.Model] = true
+	}
+	for model, capability := range cfg.ModelCapabilities {
+		if strings.TrimSpace(model) == "" {
+			return "model_capabilities keys must not be empty"
+		}
+		if !advertised[model] {
+			return fmt.Sprintf("model_capabilities.%s does not match an advertised chat model", model)
+		}
+		if capability.ImageInput == nil {
+			return fmt.Sprintf("model_capabilities.%s.image_input must be true or false", model)
+		}
+	}
+	return ""
+}
+
 // providerResponse wraps a single provider record for JSON output.
 type providerResponse struct {
 	service.ProviderRecord
@@ -273,6 +299,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
+	if msg := validateModelCapabilities(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
 
 	if msg := validateProviderCredentialsJSON(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
@@ -348,6 +378,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := validateModelLimits(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+	if msg := validateModelCapabilities(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}

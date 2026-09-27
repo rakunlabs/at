@@ -63,8 +63,8 @@ func TestDeveloperContainerConfigEnforcesDefaults(t *testing.T) {
 	if !cfg.PreferRootless || !cfg.PersistentVolume || cfg.CPU == "" || cfg.Memory == "" || cfg.DiskLimitBytes <= 0 || cfg.PidsLimit <= 0 {
 		t.Fatalf("developer container defaults are not bounded: %+v", cfg)
 	}
-	if cfg.Image != service.DefaultDeveloperImage || !cfg.ProvisionTools {
-		t.Fatalf("developer container should default to a provisioned %s: %+v", service.DefaultDeveloperImage, cfg)
+	if cfg.Image != service.DefaultDeveloperImage || !cfg.KeepAlive || !cfg.RetainWhenIdle {
+		t.Fatalf("developer container should default to a retained, kept-alive %s: %+v", service.DefaultDeveloperImage, cfg)
 	}
 	custom := developerContainerConfig(&service.DeveloperSpace{Image: " ghcr.io/org/dev:1 ", CPULimit: "4", MemoryLimit: "8g"})
 	if custom.Image != "ghcr.io/org/dev:1" || custom.CPU != "4" || custom.Memory != "8g" {

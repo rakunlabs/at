@@ -1018,6 +1018,8 @@
   let newModelInput = $state('');
   let formModelLimits = $state<Record<string, { context: string; output: string }>>({});
   let showModelLimitsSection = $state(false);
+  let formModelCapabilities = $state<Record<string, 'auto' | 'enabled' | 'disabled'>>({});
+  let showModelCapabilitiesSection = $state(false);
   let formEmbeddingModels = $state<string[]>([]);
   let newEmbeddingModelInput = $state('');
   let formAuthType = $state('');
@@ -1133,6 +1135,8 @@
     newModelInput = '';
     formModelLimits = {};
     showModelLimitsSection = false;
+    formModelCapabilities = {};
+    showModelCapabilitiesSection = false;
     formEmbeddingModels = [];
     newEmbeddingModelInput = '';
     formAuthType = '';
@@ -1187,6 +1191,13 @@
       ]),
     );
     showModelLimitsSection = Object.keys(formModelLimits).length > 0;
+    formModelCapabilities = Object.fromEntries(
+      Object.entries(preset.config.model_capabilities || {}).map(([model, capability]) => [
+        model,
+        capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
+      ]),
+    );
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(preset.config.embedding_models || [])];
     formAuthType = preset.config.auth_type || '';
     formProxy = '';
@@ -1220,6 +1231,13 @@
       ]),
     );
     showModelLimitsSection = Object.keys(formModelLimits).length > 0;
+    formModelCapabilities = Object.fromEntries(
+      Object.entries(rec.config.model_capabilities || {}).map(([model, capability]) => [
+        model,
+        capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
+      ]),
+    );
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(rec.config.embedding_models || [])];
     formAuthType = rec.config.auth_type || '';
     formProxy = rec.config.proxy || '';
@@ -1271,6 +1289,13 @@
       }
     }
     if (Object.keys(modelLimits).length > 0) cfg.model_limits = modelLimits;
+
+    const modelCapabilities: NonNullable<LLMConfig['model_capabilities']> = {};
+    for (const model of modelLimitModels) {
+      const mode = formModelCapabilities[model] || 'auto';
+      if (mode !== 'auto') modelCapabilities[model] = { image_input: mode === 'enabled' };
+    }
+    if (Object.keys(modelCapabilities).length > 0) cfg.model_capabilities = modelCapabilities;
 
     const embeddingModels = formEmbeddingModels.filter(Boolean);
     if (embeddingModels.length > 0) cfg.embedding_models = embeddingModels;
@@ -1498,6 +1523,8 @@
     if (model && model !== formModel) {
       const { [model]: _, ...rest } = formModelLimits;
       formModelLimits = rest;
+      const { [model]: _capability, ...remainingCapabilities } = formModelCapabilities;
+      formModelCapabilities = remainingCapabilities;
     }
   }
 
@@ -1507,6 +1534,10 @@
       ...formModelLimits,
       [model]: { ...current, [field]: value },
     };
+  }
+
+  function setModelImageMode(model: string, mode: 'auto' | 'enabled' | 'disabled') {
+    formModelCapabilities = { ...formModelCapabilities, [model]: mode };
   }
 
   function validateModelLimitsForm(): string {
@@ -2656,6 +2687,51 @@
                       aria-label={`${model} maximum output tokens`}
                       class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
                     />
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Model capabilities -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <button
+            type="button"
+            onclick={() => showModelCapabilitiesSection = !showModelCapabilitiesSection}
+            class="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-dark-base text-left"
+          >
+            <span>
+              <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model capabilities</span>
+              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Control image availability in OpenCode and other gateway clients</span>
+            </span>
+            <ChevronDown size={15} class={showModelCapabilitiesSection ? 'rotate-180' : ''} />
+          </button>
+          {#if showModelCapabilitiesSection}
+            <div class="p-3 space-y-3 border-t border-gray-200 dark:border-dark-border">
+              <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                Automatic uses AT's known model families. Override it when a compatible endpoint reports incomplete metadata or a deployment differs from the standard model.
+              </p>
+              {#if modelLimitModels.length === 0}
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
+              {:else}
+                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_10rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
+                  <span>Model</span>
+                  <span>Image input</span>
+                </div>
+                {#each modelLimitModels as model}
+                  <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_10rem] gap-2 items-center">
+                    <span class="truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
+                    <select
+                      value={formModelCapabilities[model] || 'auto'}
+                      onchange={(e) => setModelImageMode(model, e.currentTarget.value as 'auto' | 'enabled' | 'disabled')}
+                      aria-label={`${model} image input capability`}
+                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                    >
+                      <option value="auto">Automatic</option>
+                      <option value="enabled">Supported</option>
+                      <option value="disabled">Text only</option>
+                    </select>
                   </div>
                 {/each}
               {/if}

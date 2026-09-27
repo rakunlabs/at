@@ -26,14 +26,15 @@ func (s *Server) execProviderList(ctx context.Context, args map[string]any) (str
 	}
 
 	type providerSummary struct {
-		Key          string                       `json:"key"`
-		Type         string                       `json:"type"`
-		DefaultModel string                       `json:"default_model"`
-		Models       []string                     `json:"models,omitempty"`
-		ModelLimits  map[string]config.ModelLimit `json:"model_limits,omitempty"`
-		BaseURL      string                       `json:"base_url,omitempty"`
-		AuthType     string                       `json:"auth_type,omitempty"`
-		CreatedAt    string                       `json:"created_at"`
+		Key               string                            `json:"key"`
+		Type              string                            `json:"type"`
+		DefaultModel      string                            `json:"default_model"`
+		Models            []string                          `json:"models,omitempty"`
+		ModelLimits       map[string]config.ModelLimit      `json:"model_limits,omitempty"`
+		ModelCapabilities map[string]config.ModelCapability `json:"model_capabilities,omitempty"`
+		BaseURL           string                            `json:"base_url,omitempty"`
+		AuthType          string                            `json:"auth_type,omitempty"`
+		CreatedAt         string                            `json:"created_at"`
 	}
 
 	summaries := make([]providerSummary, len(result.Data))
@@ -49,14 +50,15 @@ func (s *Server) execProviderList(ctx context.Context, args map[string]any) (str
 		}
 
 		summaries[i] = providerSummary{
-			Key:          p.Key,
-			Type:         p.Config.Type,
-			DefaultModel: strings.TrimSpace(p.Config.Model),
-			Models:       models,
-			ModelLimits:  p.Config.ModelLimits,
-			BaseURL:      p.Config.BaseURL,
-			AuthType:     p.Config.AuthType,
-			CreatedAt:    p.CreatedAt,
+			Key:               p.Key,
+			Type:              p.Config.Type,
+			DefaultModel:      strings.TrimSpace(p.Config.Model),
+			Models:            models,
+			ModelLimits:       p.Config.ModelLimits,
+			ModelCapabilities: p.Config.ModelCapabilities,
+			BaseURL:           p.Config.BaseURL,
+			AuthType:          p.Config.AuthType,
+			CreatedAt:         p.CreatedAt,
 		}
 	}
 
@@ -100,16 +102,17 @@ func (s *Server) execProviderGet(ctx context.Context, args map[string]any) (stri
 		}
 
 		out := map[string]any{
-			"key":           record.Key,
-			"type":          record.Config.Type,
-			"default_model": strings.TrimSpace(record.Config.Model),
-			"models":        models,
-			"model_limits":  record.Config.ModelLimits,
-			"base_url":      record.Config.BaseURL,
-			"auth_type":     record.Config.AuthType,
-			"extra_headers": record.Config.ExtraHeaders,
-			"created_at":    record.CreatedAt,
-			"updated_at":    record.UpdatedAt,
+			"key":                record.Key,
+			"type":               record.Config.Type,
+			"default_model":      strings.TrimSpace(record.Config.Model),
+			"models":             models,
+			"model_limits":       record.Config.ModelLimits,
+			"model_capabilities": record.Config.ModelCapabilities,
+			"base_url":           record.Config.BaseURL,
+			"auth_type":          record.Config.AuthType,
+			"extra_headers":      record.Config.ExtraHeaders,
+			"created_at":         record.CreatedAt,
+			"updated_at":         record.UpdatedAt,
 		}
 
 		data, _ := json.MarshalIndent(out, "", "  ")
@@ -168,6 +171,9 @@ func (s *Server) execProviderCreate(ctx context.Context, args map[string]any) (s
 	if msg := validateModelLimits(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
+	if msg := validateModelCapabilities(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
 	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
@@ -219,6 +225,9 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("%s", msg)
 	}
 	if msg := validateModelLimits(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
+	if msg := validateModelCapabilities(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
 
@@ -325,6 +334,73 @@ func (s *Server) execProviderSetModelLimit(ctx context.Context, args map[string]
 	}, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal provider model limits: %w", err)
+	}
+	return string(out), nil
+}
+
+func (s *Server) execProviderSetModelCapability(ctx context.Context, args map[string]any) (string, error) {
+	if s.store == nil {
+		return "", fmt.Errorf("provider store not configured")
+	}
+	key, _ := args["key"].(string)
+	model, _ := args["model"].(string)
+	key = strings.TrimSpace(key)
+	model = strings.TrimSpace(model)
+	if key == "" {
+		return "", fmt.Errorf("key is required")
+	}
+	if model == "" {
+		return "", fmt.Errorf("model is required")
+	}
+
+	record, err := s.store.GetProvider(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("read provider %q: %w", key, err)
+	}
+	if record == nil {
+		return "", fmt.Errorf("provider %q not found", key)
+	}
+
+	cfg := record.Config
+	if cfg.ModelCapabilities == nil {
+		cfg.ModelCapabilities = make(map[string]config.ModelCapability)
+	}
+	clear, _ := args["clear"].(bool)
+	if clear {
+		delete(cfg.ModelCapabilities, model)
+	} else {
+		imageInput, ok := args["image_input"].(bool)
+		if !ok {
+			return "", fmt.Errorf("image_input must be true or false when clear is not set")
+		}
+		cfg.ModelCapabilities[model] = config.ModelCapability{ImageInput: &imageInput}
+	}
+	if msg := validateModelCapabilities(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
+
+	updated, err := s.store.UpdateProvider(ctx, key, service.ProviderRecord{
+		Key:       key,
+		Config:    cfg,
+		UpdatedBy: "mcp",
+	})
+	if err != nil {
+		return "", fmt.Errorf("set model capability on provider %q: %w", key, err)
+	}
+	if updated == nil {
+		return "", fmt.Errorf("provider %q not found", key)
+	}
+	if err := s.reloadProvider(key, cfg); err != nil {
+		slog.Warn("provider model capability updated in DB but failed to hot-reload", "key", key, "model", model, "error", err)
+	}
+
+	out, err := json.MarshalIndent(map[string]any{
+		"key":                key,
+		"model":              model,
+		"model_capabilities": cfg.ModelCapabilities,
+	}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal provider model capabilities: %w", err)
 	}
 	return string(out), nil
 }
