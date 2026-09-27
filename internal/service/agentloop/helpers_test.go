@@ -298,3 +298,49 @@ type stubProvider struct {
 func (p stubProvider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	return p.chat(ctx, model, messages, tools, opts)
 }
+
+func TestCollectStream(t *testing.T) {
+	feed := func(chunks ...service.StreamChunk) <-chan service.StreamChunk {
+		ch := make(chan service.StreamChunk, len(chunks))
+		for _, chunk := range chunks {
+			ch <- chunk
+		}
+		close(ch)
+		return ch
+	}
+	var deltas []string
+	resp, err := CollectStream(t.Context(), feed(
+		service.StreamChunk{Content: "Hel"},
+		service.StreamChunk{Content: "lo", ReasoningContent: "think"},
+		service.StreamChunk{ToolCalls: []service.ToolCall{{ID: "a", Name: "read_file"}}},
+		service.StreamChunk{ToolCalls: []service.ToolCall{{ID: "a", Name: "read_file", Arguments: map[string]any{"path": "x"}}}},
+		service.StreamChunk{FinishReason: "stop", Usage: &service.Usage{PromptTokens: 3}},
+	), func(d StreamDelta) { deltas = append(deltas, d.Content) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "Hello" || resp.ReasoningContent != "think" || len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Arguments["path"] != "x" {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if resp.FinishReason != "tool_calls" || resp.Finished || resp.Usage.PromptTokens != 3 {
+		t.Fatalf("stop reconciliation: %+v", resp)
+	}
+	if strings.Join(deltas, "|") != "Hel|lo" {
+		t.Fatalf("deltas = %v", deltas)
+	}
+
+	truncated, err := CollectStream(t.Context(), feed(
+		service.StreamChunk{ToolCalls: []service.ToolCall{{ID: "b", Name: "write_file"}}},
+		service.StreamChunk{FinishReason: "max_tokens"},
+	), nil)
+	if err != nil || len(truncated.ToolCalls) != 0 || truncated.FinishReason != "length" {
+		t.Fatalf("truncated calls must not survive: %+v %v", truncated, err)
+	}
+
+	if _, err := CollectStream(t.Context(), feed(), nil); err == nil {
+		t.Fatal("an empty stream was treated as a response")
+	}
+	if _, err := CollectStream(t.Context(), feed(service.StreamChunk{Error: errors.New("boom")}), nil); err == nil || err.Error() != "boom" {
+		t.Fatalf("stream error: %v", err)
+	}
+}

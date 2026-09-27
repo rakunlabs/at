@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -13,16 +15,6 @@ const (
 	DeveloperSpaceReady   = "ready"
 	DeveloperSpaceStopped = "stopped"
 	DeveloperSpaceError   = "error"
-
-	DeveloperRepositoryPending = "pending"
-	DeveloperRepositoryCloning = "cloning"
-	DeveloperRepositoryReady   = "ready"
-	DeveloperRepositoryError   = "error"
-
-	DeveloperWorktreePending = "pending"
-	DeveloperWorktreeReady   = "ready"
-	DeveloperWorktreeInvalid = "invalid"
-	DeveloperWorktreeMissing = "missing"
 
 	DeveloperModePlan   = "plan"
 	DeveloperModeBuild  = "build"
@@ -39,7 +31,6 @@ const (
 
 var (
 	ErrDeveloperSpaceNotFound = errors.New("developer space not found")
-	ErrDeveloperSpaceConflict = errors.New("developer space conflict")
 	ErrDeveloperSessionBusy   = errors.New("developer session is already running or waiting")
 )
 
@@ -127,55 +118,23 @@ type DeveloperSpace struct {
 	UpdatedAt      string               `json:"updated_at"`
 }
 
-type DeveloperRepository struct {
-	ID            string `json:"id"`
-	SpaceID       string `json:"space_id"`
-	WorkspaceID   string `json:"workspace_id"`
-	OwnerUserID   string `json:"owner_user_id"`
-	Name          string `json:"name"`
-	RemoteURL     string `json:"remote_url"`
-	DefaultBranch string `json:"default_branch,omitempty"`
-	Status        string `json:"status"`
-	HeadSHA       string `json:"head_sha,omitempty"`
-	Error         string `json:"error,omitempty"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
-}
-
-type DeveloperWorktree struct {
-	ID           string `json:"id"`
-	RepositoryID string `json:"repository_id"`
-	SpaceID      string `json:"space_id"`
-	WorkspaceID  string `json:"workspace_id"`
-	OwnerUserID  string `json:"owner_user_id"`
-	Name         string `json:"name"`
-	Branch       string `json:"branch"`
-	BaseRef      string `json:"base_ref,omitempty"`
-	HeadSHA      string `json:"head_sha,omitempty"`
-	State        string `json:"state"`
-	Error        string `json:"error,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-}
-
 type DeveloperSession struct {
-	ID           string         `json:"id"`
-	SpaceID      string         `json:"space_id"`
-	RepositoryID string         `json:"repository_id,omitempty"`
-	WorktreeID   string         `json:"worktree_id,omitempty"`
-	WorkspaceID  string         `json:"workspace_id"`
-	OwnerUserID  string         `json:"owner_user_id"`
-	Title        string         `json:"title,omitempty"`
-	Mode         string         `json:"mode"`
-	Status       string         `json:"status"`
-	Provider     string         `json:"provider,omitempty"`
-	Model        string         `json:"model,omitempty"`
-	Config       map[string]any `json:"config,omitempty"`
-	Error        string         `json:"error,omitempty"`
-	StartedAt    string         `json:"started_at,omitempty"`
-	FinishedAt   string         `json:"finished_at,omitempty"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
+	ID          string         `json:"id"`
+	SpaceID     string         `json:"space_id"`
+	ProjectPath string         `json:"project_path"`
+	WorkspaceID string         `json:"workspace_id"`
+	OwnerUserID string         `json:"owner_user_id"`
+	Title       string         `json:"title,omitempty"`
+	Mode        string         `json:"mode"`
+	Status      string         `json:"status"`
+	Provider    string         `json:"provider,omitempty"`
+	Model       string         `json:"model,omitempty"`
+	Config      map[string]any `json:"config,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	StartedAt   string         `json:"started_at,omitempty"`
+	FinishedAt  string         `json:"finished_at,omitempty"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
 }
 
 type DeveloperSessionMessage struct {
@@ -212,9 +171,6 @@ type DeveloperSessionSnapshot struct {
 }
 
 func (v DeveloperSpace) Validate() error {
-	if strings.TrimSpace(v.Name) == "" {
-		return errors.New("name is required")
-	}
 	if v.DiskLimitBytes < 0 {
 		return errors.New("disk_limit_bytes must not be negative")
 	}
@@ -244,65 +200,12 @@ func ValidDeveloperMode(mode string) bool {
 	return mode == DeveloperModePlan || mode == DeveloperModeBuild || mode == DeveloperModeReview
 }
 
-func (v DeveloperRepository) Validate() error {
-	if strings.TrimSpace(v.Name) == "" {
-		return errors.New("name is required")
-	}
-	remote := strings.TrimSpace(v.RemoteURL)
-	if remote == "" {
-		return errors.New("remote_url is required")
-	}
-	if strings.HasPrefix(remote, "git@") && strings.Contains(remote, ":") {
-		return nil
-	}
-	parsed, err := url.Parse(remote)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "git") {
-		return errors.New("remote_url must be an https, ssh, git, or git@host remote")
-	}
-	if parsed.User != nil {
-		return errors.New("remote_url must not contain credentials")
-	}
-	return nil
-}
-
-func (v DeveloperWorktree) Validate() error {
-	if strings.TrimSpace(v.Name) == "" {
-		return errors.New("name is required")
-	}
-	branch := strings.TrimSpace(v.Branch)
-	if branch == "" {
-		return errors.New("branch is required")
-	}
-	if !ValidDeveloperBranch(branch) {
-		return errors.New("branch is invalid")
-	}
-	return nil
-}
-
-// ValidDeveloperBranch applies Git's safety-relevant ref-name constraints
-// before a value reaches worktree or push argv. Git remains the authority for
-// less common repository-specific restrictions.
-func ValidDeveloperBranch(branch string) bool {
-	if branch == "" || branch == "@" || strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, ".") ||
-		strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, "/") || strings.Contains(branch, "..") ||
-		strings.Contains(branch, "@{") || strings.Contains(branch, "//") || strings.Contains(branch, "/.") ||
-		strings.ContainsAny(branch, "\x00\r\n ~^:?*[\\") {
-		return false
-	}
-	for _, part := range strings.Split(branch, "/") {
-		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
-			return false
-		}
-	}
-	return true
-}
-
 func (v DeveloperSession) Validate() error {
 	if v.SpaceID == "" {
 		return errors.New("space_id is required")
 	}
-	if v.WorktreeID == "" {
-		return errors.New("worktree_id is required")
+	if _, err := CleanDeveloperPath(v.ProjectPath); err != nil {
+		return fmt.Errorf("project_path: %w", err)
 	}
 	if strings.TrimSpace(v.Provider) == "" {
 		return errors.New("provider is required")
@@ -314,26 +217,17 @@ func (v DeveloperSession) Validate() error {
 }
 
 type DeveloperSpaceStorer interface {
-	ListDeveloperSpaces(ctx context.Context) ([]DeveloperSpace, error)
+	// EnsureDeveloperSpace returns the caller's single space in the selected
+	// workspace, creating it with the default profiles on first use.
+	EnsureDeveloperSpace(ctx context.Context) (*DeveloperSpace, error)
 	GetDeveloperSpace(ctx context.Context, id string) (*DeveloperSpace, error)
-	CreateDeveloperSpace(ctx context.Context, space DeveloperSpace) (*DeveloperSpace, error)
 	UpdateDeveloperSpace(ctx context.Context, space DeveloperSpace) (*DeveloperSpace, error)
 	SetDeveloperSpaceRuntime(ctx context.Context, id, status, runtimeError string) (*DeveloperSpace, error)
 	DeleteDeveloperSpace(ctx context.Context, id string) error
 
-	ListDeveloperRepositories(ctx context.Context, spaceID string) ([]DeveloperRepository, error)
-	GetDeveloperRepository(ctx context.Context, id string) (*DeveloperRepository, error)
-	CreateDeveloperRepository(ctx context.Context, repository DeveloperRepository) (*DeveloperRepository, error)
-	SetDeveloperRepositoryRuntime(ctx context.Context, id, status, headSHA, runtimeError string) (*DeveloperRepository, error)
-	DeleteDeveloperRepository(ctx context.Context, id string) error
-
-	ListDeveloperWorktrees(ctx context.Context, repositoryID string) ([]DeveloperWorktree, error)
-	GetDeveloperWorktree(ctx context.Context, id string) (*DeveloperWorktree, error)
-	CreateDeveloperWorktree(ctx context.Context, worktree DeveloperWorktree) (*DeveloperWorktree, error)
-	SetDeveloperWorktreeRuntime(ctx context.Context, id, state, headSHA, runtimeError string) (*DeveloperWorktree, error)
-	DeleteDeveloperWorktree(ctx context.Context, id string) error
-
 	ListDeveloperSessions(ctx context.Context, spaceID string) ([]DeveloperSession, error)
+	RenameDeveloperSession(ctx context.Context, id, title string) (*DeveloperSession, error)
+	UpdateDeveloperSessionSettings(ctx context.Context, id, mode, provider, model string) (*DeveloperSession, error)
 	GetDeveloperSession(ctx context.Context, id string) (*DeveloperSession, error)
 	CreateDeveloperSession(ctx context.Context, session DeveloperSession) (*DeveloperSession, error)
 	SetDeveloperSessionRuntime(ctx context.Context, id, status, runtimeError string) (*DeveloperSession, error)
@@ -348,4 +242,80 @@ type DeveloperSpaceStorer interface {
 	DeleteDeveloperPendingTool(ctx context.Context, sessionID string) error
 	ClaimDeveloperPendingTool(ctx context.Context, sessionID string) (*DeveloperPendingTool, error)
 	ResolveDeveloperPendingTool(ctx context.Context, sessionID string, content []ContentBlock) (*DeveloperSessionMessage, error)
+}
+
+// DeveloperWorkspaceRoot is the persistent volume mount inside a space.
+const DeveloperWorkspaceRoot = "/workspace"
+
+// CleanDeveloperPath canonicalizes a path relative to the space root. The
+// empty string is the root itself. Absolute paths, backslashes and parent
+// segments are refused rather than resolved, so a typo cannot address a
+// different location than the one displayed.
+func CleanDeveloperPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimSuffix(raw, "/")
+	if raw == "" || raw == "." {
+		return "", nil
+	}
+	if strings.HasPrefix(raw, "/") || strings.ContainsRune(raw, '\\') || strings.ContainsRune(raw, 0) {
+		return "", errors.New("path must be relative to the space")
+	}
+	for _, part := range strings.Split(raw, "/") {
+		if part == "" || part == "." || part == ".." {
+			return "", errors.New("path contains an invalid segment")
+		}
+	}
+	if len(raw) > 4096 {
+		return "", errors.New("path is too long")
+	}
+	return raw, nil
+}
+
+// DeveloperAbsolutePath joins a cleaned relative path onto the space root.
+func DeveloperAbsolutePath(rel string) string {
+	if rel == "" {
+		return DeveloperWorkspaceRoot
+	}
+	return path.Join(DeveloperWorkspaceRoot, rel)
+}
+
+// ValidDeveloperRemote accepts https, ssh, git and scp-style remotes without
+// embedded credentials. Host reachability is checked separately at clone time.
+func ValidDeveloperRemote(remote string) error {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return errors.New("remote URL is required")
+	}
+	if strings.HasPrefix(remote, "-") {
+		return errors.New("remote URL is invalid")
+	}
+	if strings.HasPrefix(remote, "git@") && strings.Contains(remote, ":") {
+		return nil
+	}
+	parsed, err := url.Parse(remote)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "ssh" && parsed.Scheme != "git") {
+		return errors.New("remote URL must be an https, ssh, git, or git@host remote")
+	}
+	if parsed.User != nil {
+		return errors.New("remote URL must not contain credentials")
+	}
+	return nil
+}
+
+// ValidDeveloperBranch applies Git's safety-relevant ref-name constraints
+// before a value reaches checkout or push argv. Git remains the authority for
+// less common repository-specific restrictions.
+func ValidDeveloperBranch(branch string) bool {
+	if branch == "" || branch == "@" || strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, ".") ||
+		strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, "/") || strings.Contains(branch, "..") ||
+		strings.Contains(branch, "@{") || strings.Contains(branch, "//") || strings.Contains(branch, "/.") ||
+		strings.ContainsAny(branch, "\x00\r\n ~^:?*[\\") {
+		return false
+	}
+	for _, part := range strings.Split(branch, "/") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
 }

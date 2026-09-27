@@ -55,7 +55,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/virtual-providers":     {"GET", "/virtual-providers"},
 	"/agents":                {"GET", "/agents"},
 	"/sessions":              {"GET", "/chat/sessions"},
-	"/developer-spaces":      {"GET", "/developer-spaces"},
+	"/developer-spaces":      {"GET", "/developer-space"},
 	"/workflows":             {"GET", "/workflows"},
 	"/runs":                  {"GET", "/runs"},
 	"/bots":                  {"GET", "/bots"},

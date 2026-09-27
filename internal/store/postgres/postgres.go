@@ -103,8 +103,6 @@ type Postgres struct {
 	tableMediaObjects               exp.IdentifierExpression
 	tableStorageObjects             exp.IdentifierExpression
 	tableDeveloperSpaces            exp.IdentifierExpression
-	tableDeveloperRepositories      exp.IdentifierExpression
-	tableDeveloperWorktrees         exp.IdentifierExpression
 	tableDeveloperSessions          exp.IdentifierExpression
 	tableDeveloperSessionMessages   exp.IdentifierExpression
 	tableDeveloperSessionSnapshots  exp.IdentifierExpression
@@ -220,8 +218,6 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableMediaObjects:               goqu.T(tablePrefix + "storage_objects"),
 		tableStorageObjects:             goqu.T(tablePrefix + "storage_objects"),
 		tableDeveloperSpaces:            goqu.T(tablePrefix + "developer_spaces"),
-		tableDeveloperRepositories:      goqu.T(tablePrefix + "developer_repositories"),
-		tableDeveloperWorktrees:         goqu.T(tablePrefix + "developer_worktrees"),
 		tableDeveloperSessions:          goqu.T(tablePrefix + "developer_sessions"),
 		tableDeveloperSessionMessages:   goqu.T(tablePrefix + "developer_session_messages"),
 		tableDeveloperSessionSnapshots:  goqu.T(tablePrefix + "developer_session_snapshots"),

@@ -32,18 +32,29 @@ func TestDeveloperDefaultProfileToolPolicy(t *testing.T) {
 	}
 }
 
-func TestDeveloperWorktreeFilePath(t *testing.T) {
-	for _, candidate := range []string{".git/config", ".git", "../outside", "/absolute"} {
-		if _, err := developerWorktreeFilePath(candidate); err == nil {
-			t.Fatalf("developerWorktreeFilePath(%q) unexpectedly succeeded", candidate)
+func TestDeveloperProjectFilePath(t *testing.T) {
+	for _, candidate := range []string{".git/config", ".git", "../outside", "/absolute", ""} {
+		if _, err := developerProjectFilePath(candidate); err == nil {
+			t.Fatalf("developerProjectFilePath(%q) unexpectedly succeeded", candidate)
 		}
 	}
-	got, err := developerWorktreeFilePath("internal/server/main.go")
+	got, err := developerProjectFilePath("internal/server/main.go")
 	if err != nil || got != "internal/server/main.go" {
-		t.Fatalf("developerWorktreeFilePath() = %q, %v", got, err)
+		t.Fatalf("developerProjectFilePath() = %q, %v", got, err)
 	}
-	if got, err := developerWorktreeFilePath(".github/workflows/test.yml"); err != nil || got == "" {
+	if got, err := developerProjectFilePath(".github/workflows/test.yml"); err != nil || got == "" {
 		t.Fatalf(".github must remain available: %q, %v", got, err)
+	}
+}
+
+func TestDeveloperEditIsAnEdit(t *testing.T) {
+	config := service.DefaultDeveloperSpaceConfig()
+	call := service.ToolCall{Name: "edit_file", Arguments: map[string]any{"path": "main.go"}}
+	if got := developerToolEffect(config.Plan, call); got != "deny" {
+		t.Fatalf("plan edit_file = %q, want deny", got)
+	}
+	if got := developerToolEffect(config.Build, call); got != "allow" {
+		t.Fatalf("build edit_file = %q, want allow", got)
 	}
 }
 

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { authFetch, workspaceTransport } from './transport';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -7,70 +8,176 @@ export interface DeveloperAgentProfile { system_prompt?: string; max_iterations?
 export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: DeveloperAgentProfile; review?: DeveloperAgentProfile }
 
 export interface DeveloperSpace {
-  id: string; workspace_id: string; owner_user_id: string; name: string;
+  id: string; workspace_id: string; owner_user_id: string;
   status: 'pending' | 'ready' | 'stopped' | 'error'; image?: string;
   cpu_limit?: string; memory_limit?: string; disk_limit_bytes?: number;
   config: DeveloperSpaceConfig; error?: string; last_active_at?: string;
   created_at: string; updated_at: string;
 }
 
-export interface DeveloperRepository {
-  id: string; space_id: string; name: string; remote_url: string; default_branch?: string;
-  status: 'pending' | 'cloning' | 'ready' | 'error'; head_sha?: string; error?: string;
-  created_at: string; updated_at: string;
-}
-
-export interface DeveloperWorktree {
-  id: string; repository_id: string; space_id: string; name: string; branch: string;
-  base_ref?: string; head_sha?: string; state: 'pending' | 'ready' | 'invalid' | 'missing';
-  error?: string; created_at: string; updated_at: string;
-}
+export type DeveloperMode = 'plan' | 'build' | 'review';
+export type DeveloperSessionStatus = 'idle' | 'running' | 'waiting_permission' | 'waiting_question' | 'completed' | 'failed' | 'cancelled';
 
 export interface DeveloperSession {
-  id: string; space_id: string; repository_id?: string; worktree_id?: string; title?: string;
-  mode: 'plan' | 'build' | 'review'; status: string; provider?: string; model?: string;
-  error?: string; created_at: string; updated_at: string;
+  id: string; space_id: string; project_path: string; title?: string;
+  mode: DeveloperMode; status: DeveloperSessionStatus; provider?: string; model?: string;
+  error?: string; started_at?: string; finished_at?: string; created_at: string; updated_at: string;
 }
-export interface DeveloperSessionMessage { id: string; session_id: string; role: string; content: unknown; created_at: string }
+
+export interface DeveloperContentBlock {
+  type: string; text?: string; thinking?: string; id?: string; name?: string;
+  input?: Record<string, unknown>; tool_use_id?: string; content?: unknown;
+}
+export interface DeveloperSessionMessage { id: string; session_id: string; role: 'user' | 'assistant' | 'tool' | 'system'; content: string | DeveloperContentBlock[]; created_at: string }
 export interface DeveloperToolCall { ID: string; Name: string; Arguments: Record<string, unknown> }
 export interface DeveloperPendingTool { session_id: string; kind: 'permission' | 'question'; state: 'pending' | 'executing'; tool_calls: DeveloperToolCall[]; trace_id?: string; step: number; created_at: string }
-export interface DeveloperSessionSnapshot { id: string; session_id: string; step: number; phase: 'before' | 'after'; head_sha?: string; storage_object_id?: string; created_at: string }
-export interface DeveloperSnapshotPayload { version: number; head_sha: string; diff: string; untracked: string[]; truncated?: boolean }
 
-export async function listDeveloperSpaces() { return (await api.get<DeveloperSpace[]>('/developer-spaces')).data; }
-export async function createDeveloperSpace(body: Partial<DeveloperSpace>) { return (await api.post<DeveloperSpace>('/developer-spaces', body)).data; }
-export async function deleteDeveloperSpace(id: string) { await api.delete(`/developer-spaces/${encodeURIComponent(id)}`); }
-export async function startDeveloperSpace(id: string) { return (await api.post<DeveloperSpace>(`/developer-spaces/${encodeURIComponent(id)}/start`)).data; }
-export async function stopDeveloperSpace(id: string) { return (await api.post<DeveloperSpace>(`/developer-spaces/${encodeURIComponent(id)}/stop`)).data; }
+export interface DeveloperFileEntry { name: string; path: string; type: 'file' | 'dir' | 'symlink'; size: number; mtime: number }
+export interface DeveloperFileContent { path: string; size: number; content?: string; version?: string; binary?: boolean; too_large?: boolean }
+export interface DeveloperSearchMatch { path: string; line: number; text: string }
 
-export async function listDeveloperRepositories(spaceID: string) { return (await api.get<DeveloperRepository[]>(`/developer-spaces/${encodeURIComponent(spaceID)}/repositories`)).data; }
-export async function createDeveloperRepository(spaceID: string, body: Partial<DeveloperRepository>) { return (await api.post<DeveloperRepository>(`/developer-spaces/${encodeURIComponent(spaceID)}/repositories`, body)).data; }
-export async function cloneDeveloperRepository(id: string) { return (await api.post<DeveloperRepository>(`/developer-repositories/${encodeURIComponent(id)}/clone`)).data; }
-export async function deleteDeveloperRepository(id: string) { await api.delete(`/developer-repositories/${encodeURIComponent(id)}`); }
+export interface DeveloperGitFile { path: string; orig_path?: string; index: string; worktree: string }
+export interface DeveloperGitStatus {
+  repository: boolean; branch?: string; upstream?: string; ahead: number; behind: number;
+  staged: DeveloperGitFile[]; unstaged: DeveloperGitFile[]; untracked: string[]; conflicted: string[];
+}
+export interface DeveloperGitBranch { name: string; current: boolean; remote: boolean }
 
-export async function listDeveloperWorktrees(repositoryID: string) { return (await api.get<DeveloperWorktree[]>(`/developer-repositories/${encodeURIComponent(repositoryID)}/worktrees`)).data; }
-export async function createDeveloperWorktree(repositoryID: string, body: Partial<DeveloperWorktree>) { return (await api.post<DeveloperWorktree>(`/developer-repositories/${encodeURIComponent(repositoryID)}/worktrees`, body)).data; }
-export async function provisionDeveloperWorktree(id: string) { return (await api.post<DeveloperWorktree>(`/developer-worktrees/${encodeURIComponent(id)}/provision`)).data; }
-export async function getDeveloperWorktreeStatus(id: string) { return (await api.get<{worktree_id: string; porcelain_v2: string}>(`/developer-worktrees/${encodeURIComponent(id)}/status`)).data; }
-export async function getDeveloperWorktreeDiff(id: string, staged = false) { return (await api.get<{worktree_id: string; diff: string}>(`/developer-worktrees/${encodeURIComponent(id)}/diff`, { params: { staged } })).data; }
-export async function stageDeveloperWorktree(id: string, paths: string[]) { return (await api.post<{staged: string[]}>(`/developer-worktrees/${encodeURIComponent(id)}/stage`, { paths })).data; }
-export async function commitDeveloperWorktree(id: string, message: string) { return (await api.post<DeveloperWorktree>(`/developer-worktrees/${encodeURIComponent(id)}/commit`, { message })).data; }
-export async function pushDeveloperWorktree(id: string, branch: string) { return (await api.post<{branch: string; output: string}>(`/developer-worktrees/${encodeURIComponent(id)}/push`, { confirm: true, branch })).data; }
-export async function deleteDeveloperWorktree(id: string) { await api.delete(`/developer-worktrees/${encodeURIComponent(id)}`); }
+// ─── Space ───
 
-export async function listDeveloperSessions(spaceID: string) { return (await api.get<DeveloperSession[]>(`/developer-spaces/${encodeURIComponent(spaceID)}/sessions`)).data; }
-export async function createDeveloperSession(spaceID: string, body: Partial<DeveloperSession>) { return (await api.post<DeveloperSession>(`/developer-spaces/${encodeURIComponent(spaceID)}/sessions`, body)).data; }
+export async function getDeveloperSpace() { return (await api.get<DeveloperSpace>('/developer-space')).data; }
+export async function updateDeveloperSpace(body: Partial<DeveloperSpace>) { return (await api.put<DeveloperSpace>('/developer-space', body)).data; }
+export async function startDeveloperSpace() { return (await api.post<DeveloperSpace>('/developer-space/start')).data; }
+export async function stopDeveloperSpace() { return (await api.post<DeveloperSpace>('/developer-space/stop')).data; }
+export async function resetDeveloperSpace() { return (await api.post<{ deleted: string; cleanup_warning?: string }>('/developer-space/reset', { confirm: true })).data; }
+
+// ─── Files ───
+
+export async function listDeveloperFiles(path: string) { return (await api.get<{ path: string; entries: DeveloperFileEntry[]; truncated: boolean }>('/developer-space/files', { params: { path } })).data; }
+export async function readDeveloperFile(path: string) { return (await api.get<DeveloperFileContent>('/developer-space/files/content', { params: { path } })).data; }
+export async function writeDeveloperFile(path: string, content: string, version = '') { return (await api.put<{ path: string; size: number; version: string }>('/developer-space/files/content', { path, content, version })).data; }
+export async function createDeveloperFile(path: string, type: 'file' | 'dir') { return (await api.post<DeveloperFileEntry>('/developer-space/files', { path, type })).data; }
+export async function renameDeveloperFile(from: string, to: string) { return (await api.post<DeveloperFileEntry>('/developer-space/files/rename', { from, to })).data; }
+export async function deleteDeveloperFile(path: string) { await api.delete('/developer-space/files', { params: { path } }); }
+export async function uploadDeveloperFile(folder: string, file: File) {
+  const form = new FormData();
+  form.append('path', folder);
+  form.append('file', file);
+  return (await api.post<{ path: string }>('/developer-space/files/upload', form)).data;
+}
+export async function searchDeveloperFiles(project: string, pattern: string) { return (await api.get<{ matches: DeveloperSearchMatch[]; truncated: boolean }>('/developer-space/search', { params: { path: project, pattern } })).data; }
+export async function cloneDeveloperProject(remote: string, name = '', branch = '') { return (await api.post<{ path: string }>('/developer-space/clone', { remote, name, branch })).data; }
+
+/** Raw bytes for images/downloads. Fetched (not linked) so the workspace header is sent. */
+export async function fetchDeveloperFileBlob(path: string): Promise<Blob> {
+  const response = await authFetch(new URL(`api/v1/developer-space/files/raw?path=${encodeURIComponent(path)}`, document.baseURI));
+  if (!response.ok) throw new Error((await response.text()) || `download failed (${response.status})`);
+  return response.blob();
+}
+
+// ─── Git ───
+
+export async function getDeveloperGitStatus(project: string) { return (await api.get<DeveloperGitStatus>('/developer-space/git/status', { params: { project } })).data; }
+export async function getDeveloperGitDiff(project: string, file = '', opts: { staged?: boolean; untracked?: boolean } = {}) {
+  return (await api.get<{ diff: string }>('/developer-space/git/diff', { params: { project, file, staged: !!opts.staged, untracked: !!opts.untracked } })).data;
+}
+export async function listDeveloperGitBranches(project: string) { return (await api.get<DeveloperGitBranch[]>('/developer-space/git/branches', { params: { project } })).data; }
+export async function stageDeveloperGit(project: string, paths: string[]) { await api.post('/developer-space/git/stage', { project, paths }); }
+export async function unstageDeveloperGit(project: string, paths: string[]) { await api.post('/developer-space/git/unstage', { project, paths }); }
+export async function discardDeveloperGit(project: string, paths: string[]) { await api.post('/developer-space/git/discard', { project, paths, confirm: true }); }
+export async function commitDeveloperGit(project: string, message: string) { return (await api.post<{ head: string }>('/developer-space/git/commit', { project, message })).data; }
+export async function checkoutDeveloperGit(project: string, branch: string, create = false) { await api.post('/developer-space/git/checkout', { project, branch, create }); }
+export async function pullDeveloperGit(project: string) { return (await api.post<{ output: string }>('/developer-space/git/pull', { project })).data; }
+export async function pushDeveloperGit(project: string, branch: string) { return (await api.post<{ branch: string; output: string }>('/developer-space/git/push', { project, branch, confirm: true })).data; }
+
+// ─── Sessions ───
+
+export async function listDeveloperSessions() { return (await api.get<DeveloperSession[]>('/developer-sessions')).data; }
+export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; provider: string; model: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
+export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
 export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
 export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
-export async function listDeveloperSessionSnapshots(id: string) { return (await api.get<DeveloperSessionSnapshot[]>(`/developer-sessions/${encodeURIComponent(id)}/snapshots`)).data; }
-export async function getDeveloperSessionSnapshot(sessionID: string, snapshotID: string) { return (await api.get<DeveloperSnapshotPayload>(`/developer-sessions/${encodeURIComponent(sessionID)}/snapshots/${encodeURIComponent(snapshotID)}`)).data; }
 export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }
-export async function runDeveloperSession(id: string, prompt: string) { return (await api.post<{session: DeveloperSession; content?: string; pending_tool?: DeveloperPendingTool}>(`/developer-sessions/${encodeURIComponent(id)}/run`, { prompt })).data; }
-export async function confirmDeveloperSessionTool(id: string, approved: boolean) { return (await api.post<{session: DeveloperSession; content?: string; pending_tool?: DeveloperPendingTool}>(`/developer-sessions/${encodeURIComponent(id)}/confirm`, { approved })).data; }
-export async function answerDeveloperSessionQuestion(id: string, answer: string) { return (await api.post<{session: DeveloperSession; content?: string; pending_tool?: DeveloperPendingTool}>(`/developer-sessions/${encodeURIComponent(id)}/answer`, { answer })).data; }
 export async function cancelDeveloperSession(id: string) { return (await api.post<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}/cancel`)).data; }
-export function developerWorktreeTerminalURL(id: string) {
-  const base = new URL(document.baseURI);
-  const path = `${base.pathname.replace(/\/$/, '')}/api/v1/developer-worktrees/${encodeURIComponent(id)}/terminal`;
-  return `${base.protocol === 'https:' ? 'wss:' : 'ws:'}//${base.host}${path}`;
+
+export type DeveloperStreamEvent =
+  | { type: 'status' | 'done'; session: DeveloperSession }
+  | { type: 'turn_start' }
+  | { type: 'delta'; content?: string; reasoning?: string }
+  | { type: 'message'; message: DeveloperSessionMessage }
+  | { type: 'tool_start'; tool_id: string; tool_name: string }
+  | { type: 'tool_result'; tool_id: string; tool_name: string; error: boolean; changed?: string[]; changed_tree?: boolean }
+  | { type: 'pending'; pending_tool: DeveloperPendingTool }
+  | { type: 'error'; error: string };
+
+/**
+ * Reads the run/confirm/answer event stream. Resolves after the terminal
+ * `done` event, rejects on `error` or when the connection ends without one:
+ * a dropped stream must not look like a finished turn.
+ */
+export async function streamDeveloperSession(
+  id: string,
+  action: 'run' | 'confirm' | 'answer',
+  body: Record<string, unknown>,
+  onEvent: (event: DeveloperStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await authFetch(new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}/${action}`, document.baseURI), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    let message = `request failed (${response.status})`;
+    try { const data = await response.json(); message = data.message || data.error || message; } catch { /* keep status */ }
+    throw new Error(message);
+  }
+  await consumeDeveloperEvents(response, onEvent);
+}
+
+export async function consumeDeveloperEvents(response: Response, onEvent: (event: DeveloperStreamEvent) => void): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let data: string[] = [];
+  const dispatch = () => {
+    if (!data.length) return false;
+    const event = JSON.parse(data.join('\n')) as DeveloperStreamEvent;
+    data = [];
+    if (event.type === 'error') throw new Error(event.error || 'The agent could not complete this turn');
+    onEvent(event);
+    return event.type === 'done';
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      let end: number;
+      while ((end = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, end).replace(/\r$/, '');
+        buffer = buffer.slice(end + 1);
+        if (line === '') { if (dispatch()) return; continue; }
+        if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+      }
+      if (done) {
+        if (buffer.startsWith('data:')) data.push(buffer.slice(5).replace(/^ /, ''));
+        if (dispatch()) return;
+        throw new Error('Connection ended before the agent finished. Reload the session to see what was saved.');
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+/** WebSockets cannot send X-AT-Workspace-ID, so the selection rides the query. */
+export function developerTerminalURL(cwd: string) {
+  const url = new URL(`api/v1/developer-space/terminal`, document.baseURI);
+  if (cwd) url.searchParams.set('cwd', cwd);
+  if (workspaceTransport.selected) url.searchParams.set('workspace_id', workspaceTransport.selected);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.href;
 }

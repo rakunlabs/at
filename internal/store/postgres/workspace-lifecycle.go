@@ -15,7 +15,7 @@ var _ service.WorkspaceLifecycleStorer = (*Postgres)(nil)
 // represented by workspaceResourceTable. Deletion is one scoped transaction.
 var workspaceDeletionTables = []string{
 	"workflow_executions",
-	"developer_pending_tools", "developer_session_snapshots", "developer_session_messages", "developer_sessions", "developer_worktrees", "developer_repositories", "developer_spaces",
+	"developer_pending_tools", "developer_session_snapshots", "developer_session_messages", "developer_sessions", "developer_spaces",
 	"chat_shares",
 	"storage_objects",
 	"execution_service_bindings", "execution_provenance", "execution_policies",

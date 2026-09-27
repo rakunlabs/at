@@ -94,7 +94,7 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 				// Native media elements and download/new-tab navigations cannot set
 				// custom headers. A nonsecret, explicit workspace selector is allowed
 				// only for blob reads; all live admission below remains mandatory.
-				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && nativeBlobReadPath(a.session.Cookie.Path, r.URL.Path) {
+				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (nativeBlobReadPath(a.session.Cookie.Path, r.URL.Path) || nativeWebSocketPath(a.session.Cookie.Path, r.URL.Path)) {
 					q, parseErr := url.ParseQuery(r.URL.RawQuery)
 					if parseErr != nil {
 						nativeError(w, 400, "invalid file query")
@@ -168,6 +168,13 @@ func (s *Server) withRuntimeAuth(next http.Handler) http.Handler {
 // behind Playground image previews. Both answer with bytes, never JSON, and
 // both stay scoped by ownership or rooted paths after the selector resolves
 // the workspace.
+// nativeWebSocketPath lists WebSocket endpoints that are workspace-scoped.
+// Browsers cannot attach custom headers to a WebSocket handshake, so these
+// take the same explicit query selector as native blob reads.
+func nativeWebSocketPath(cookiePath, path string) bool {
+	return path == cookiePath+"api/v1/developer-space/terminal"
+}
+
 func nativeBlobReadPath(cookiePath, path string) bool {
 	if path == cookiePath+"api/v1/files/serve" {
 		return true

@@ -2135,40 +2135,71 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 
 ## Developer Spaces
 
-Developer Spaces are user-owned, workspace-scoped coding environments under
-`/api/v1/developer-*`. Migration 79 adds the space → repository → worktree →
-session model; migration 80 adds retained session messages and before/after
-snapshot metadata. A pruned worktree or repository sets the session reference
-to NULL rather than deleting its history.
+A Developer Space is **one persistent coding environment per account and
+workspace** (`/api/v1/developer-space*`, UI `#/developer-spaces`). There is no
+space ID in any path: every handler resolves the caller's own space through
+`EnsureDeveloperSpace`, which creates it with the default profiles on first use
+(unique `(workspace_id, owner_user_id)` index, so concurrent first visits
+converge). Migration 83 replaced the old space → repository → worktree model:
+each account keeps its oldest space, the repository/worktree tables are dropped,
+and sessions store `project_path` instead. **Upgrade note**: the dropped rows
+and any extra spaces' sessions are gone; files already in the kept volume stay.
 
-Runtime filesystem and container names are derived only from opaque record IDs.
-Callers cannot submit host paths. Coding spaces require a rootless Docker daemon,
-use Docker-managed persistent volumes, drop all capabilities, enable
-`no-new-privileges`, enforce PID/CPU/RAM/application disk limits, and are removed
-after 30 minutes idle while their volume survives. Git clone/worktree/status/
-diff/stage/commit/push use typed argv execution rather than shell interpolation;
-push requires explicit confirmation of the exact branch. Clone refuses remotes
-that resolve to local/private addresses. Every runtime action rebinds the live
-workspace execution identity and checks `execution.run`.
+**Projects are folders**, not records. `/workspace` is a Docker-managed volume;
+each top-level folder is a project (created empty or by `POST .../clone`). The
+page is laid out like an editor: sessions and a lazily-loaded file tree on the
+left, tabs in the middle (chat sessions, CodeMirror files with Ctrl+S and
+version-checked saves, diffs), source control on the right, and one or more
+terminals at the bottom. Layout and the open project persist in localStorage.
 
-The configured runtime image must provide `bash`, `git`, `python3`, GNU
-`timeout`, and ordinary core utilities. Typed coding tools use Python for
-symlink-contained UTF-8 file access, and `timeout` supplies an in-container
-process-group deadline even when cancelling the host-side Docker client cannot
-directly kill an exec process.
+**Every path goes through one containment script.** `developerFSScript`
+(`developer-fs-script.go`) runs inside the container for the browser file API
+and the agent's file tools alike: paths are resolved (following symlinks) and
+must remain under the project root, delete removes a link rather than its
+target, and content travels on stdin (`ExecArgsInput`) — base64 in argv was
+silently capped by the kernel's 128 KiB per-argument limit. Writes carry the
+version returned by the read, so a save over a file the agent or terminal
+changed answers 409 and the page offers reload or overwrite. Server-side,
+`service.CleanDeveloperPath` refuses absolute paths, backslashes and `..`
+before anything reaches the container.
 
-Agent profiles are native AT configuration, not an OpenCode dependency. The
-defaults are Plan (read-only), Build (edits allowed, arbitrary commands ask),
-and Review (read-only), with ordered last-match-wins allow/ask/deny rules. The
-native loop persists canonical assistant/tool blocks, is governed by loopgov,
-records generation and tool observations, pauses durably for permission or a
-user question, and resumes on approve/reject/answer. Pending calls are claimed
-at most once; transcript append and pending deletion commit together. With
-Storage configured, model steps best-effort store before/after Git patches in
-the `snapshots` namespace and link them through
-`developer_session_snapshots`. The UI at `#/developer-spaces` exposes retained
-transcripts, approvals/questions, cancel, diff/stage/commit/confirmed push, and
-a worktree terminal WebSocket.
+**The terminal attaches to the user's own container** (`GET
+.../developer-space/terminal?cwd=`), one shell per WebSocket; closing a tab
+never stops the container. WebSockets cannot send `X-AT-Workspace-ID`, so this
+single endpoint accepts the `workspace_id` query selector
+(`nativeWebSocketPath`), with the same admission as a header.
+
+**Chat streams.** `run`/`confirm`/`answer` answer with SSE: `status`, `delta`
+(text/reasoning), `message` (each stored transcript row), `tool_start`,
+`tool_result` (with `changed` paths so open editors reload), `pending`, and
+exactly one terminal `done` or `error`. Streaming reaches the provider through
+`executionProvider.StreamChat` — deliberately not `ChatStream`, which would also
+expose `Proxy` — and `agentloop.CollectStream` assembles the same response the
+non-streaming path produced (truncated `length`/`content_filter` responses drop
+their partial tool calls). Providers without streaming fall back to one Chat
+call delivered as a single delta. Profiles are unchanged: Plan and Review are
+read-only, Build edits (including the new `edit_file` exact-replacement tool)
+and asks before `run_command`, and push is never an agent tool. Mode and model
+are per session and cannot change while a turn is running or waiting.
+
+**Source control** works on the selected project: NUL-separated
+`git status --porcelain=v2` (paths with spaces are safe), per-file diff (untracked
+files via `--no-index`), stage/unstage, confirmed discard, commit, branch
+switch/create, `pull --ff-only`, and push of the *current* branch only after the
+caller confirms that exact name. Pull and push re-validate the origin remote
+(no credentials in the URL, no private/loopback hosts), as clone does.
+
+Every `/developer-space/*` route — including reads, because they start the
+container — requires `agents.execute`, rebinds the live execution identity and
+checks `execution.run`; `GET /developer-space` and the session list/history only
+need `agents.read`. Containers keep their existing limits (rootless Docker,
+capabilities dropped, `no-new-privileges`, PID/CPU/RAM/disk quotas, removed
+after 30 minutes idle while the volume survives). **Reset** deletes the space,
+its sessions and its volume after an explicit confirmation. The runtime image
+must provide `bash`, `git`, `python3` and GNU `timeout`. Regressions:
+`developer-spaces_test.go` (store + HTTP, including the migration),
+`developer-git_test.go`, `agentloop` `TestCollectStream`,
+`_ui/tests/developer-space.test.mjs`.
 
 ## Go Code Style
 

@@ -290,3 +290,14 @@ func mustJSON(t *testing.T, value any) string {
 	}
 	return string(data)
 }
+
+func TestNativeWebSocketPathIsExact(t *testing.T) {
+	if !nativeWebSocketPath("/at/", "/at/api/v1/developer-space/terminal") {
+		t.Fatal("developer terminal must accept the workspace query selector")
+	}
+	for _, path := range []string{"/at/api/v1/developer-space/files", "/at/api/v1/terminals/x/ws", "/at/api/v1/developer-space/terminal/x"} {
+		if nativeWebSocketPath("/at/", path) {
+			t.Fatalf("%s must not accept a query workspace selector", path)
+		}
+	}
+}

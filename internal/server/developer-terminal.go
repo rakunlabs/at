@@ -9,12 +9,17 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
-func (s *Server) DeveloperWorktreeTerminalAPI(w http.ResponseWriter, r *http.Request) {
-	_, worktree, cfg, scope, ok := s.developerWorktreeCommand(w, r)
-	if !ok {
+// DeveloperSpaceTerminalAPI attaches an interactive shell inside the caller's
+// own space container, starting in ?cwd= (a folder relative to /workspace).
+// Each connection is its own shell; closing it never stops the container.
+func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Request) {
+	cwd, err := service.CleanDeveloperPath(r.URL.Query().Get("cwd"))
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	auth := nativeRuntimeFromRequest(r, s.nativeAuth)
@@ -25,6 +30,10 @@ func (s *Server) DeveloperWorktreeTerminalAPI(w http.ResponseWriter, r *http.Req
 	if !auth.sameOrigin(w, r) {
 		return
 	}
+	h, ok := s.developerRuntime(w, r)
+	if !ok {
+		return
+	}
 	upgrader := websocket.Upgrader{ReadBufferSize: 4096, WriteBufferSize: 16384, CheckOrigin: func(*http.Request) bool { return true }}
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -33,12 +42,21 @@ func (s *Server) DeveloperWorktreeTerminalAPI(w http.ResponseWriter, r *http.Req
 	defer ws.Close()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	file, closeShell, err := s.containerManager.AttachShell(ctx, scope, cfg, developerWorktreePath(worktree.ID), 120, 30)
+	// A folder deleted since the tab was opened falls back to the space root
+	// rather than failing the attach with an opaque docker error.
+	workDir := service.DeveloperAbsolutePath(cwd)
+	if cwd != "" {
+		if _, _, code, err := h.exec(ctx, s, service.DeveloperWorkspaceRoot, "test", "-d", workDir); err != nil || code != 0 {
+			workDir = service.DeveloperWorkspaceRoot
+		}
+	}
+	file, closeShell, err := s.containerManager.AttachShell(ctx, h.scope, h.cfg, workDir, 120, 30)
 	if err != nil {
 		_ = ws.WriteJSON(map[string]string{"type": "error", "message": err.Error()})
 		return
 	}
 	defer closeShell() //nolint:errcheck
+	_, _ = h.store.SetDeveloperSpaceRuntime(context.WithoutCancel(ctx), h.space.ID, service.DeveloperSpaceReady, "")
 	var writeMu sync.Mutex
 	write := func(kind int, data []byte) error {
 		writeMu.Lock()

@@ -15,35 +15,6 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
-var developerRepositoryColumns = []any{
-	"id", "space_id", "workspace_id", "owner_user_id", "name", "remote_url",
-	"default_branch", "status", "head_sha", "error", "created_at", "updated_at",
-}
-
-type developerRepositoryRow struct {
-	ID            string    `db:"id"`
-	SpaceID       string    `db:"space_id"`
-	WorkspaceID   string    `db:"workspace_id"`
-	OwnerUserID   string    `db:"owner_user_id"`
-	Name          string    `db:"name"`
-	RemoteURL     string    `db:"remote_url"`
-	DefaultBranch string    `db:"default_branch"`
-	Status        string    `db:"status"`
-	HeadSHA       string    `db:"head_sha"`
-	Error         string    `db:"error"`
-	CreatedAt     time.Time `db:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at"`
-}
-
-func developerRepositoryRecord(row developerRepositoryRow) service.DeveloperRepository {
-	return service.DeveloperRepository{
-		ID: row.ID, SpaceID: row.SpaceID, WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID,
-		Name: row.Name, RemoteURL: row.RemoteURL, DefaultBranch: row.DefaultBranch,
-		Status: row.Status, HeadSHA: row.HeadSHA, Error: row.Error,
-		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-}
-
 func developerOwned(actor service.AccessPrincipal, extra goqu.Ex) goqu.Ex {
 	where := goqu.Ex{"workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID}
 	for key, value := range extra {
@@ -57,253 +28,34 @@ func developerParentExists(ctx context.Context, db *goqu.Database, table exp.Ide
 	return count > 0, err
 }
 
-func (p *Postgres) ListDeveloperRepositories(ctx context.Context, spaceID string) ([]service.DeveloperRepository, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var rows []developerRepositoryRow
-	if err := p.goqu.From(p.tableDeveloperRepositories).Select(developerRepositoryColumns...).
-		Where(developerOwned(actor, goqu.Ex{"space_id": spaceID})).Order(goqu.I("updated_at").Desc()).ScanStructsContext(ctx, &rows); err != nil {
-		return nil, fmt.Errorf("list developer repositories: %w", err)
-	}
-	result := make([]service.DeveloperRepository, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, developerRepositoryRecord(row))
-	}
-	return result, nil
-}
-
-func (p *Postgres) GetDeveloperRepository(ctx context.Context, id string) (*service.DeveloperRepository, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var row developerRepositoryRow
-	found, err := p.goqu.From(p.tableDeveloperRepositories).Select(developerRepositoryColumns...).
-		Where(developerOwned(actor, goqu.Ex{"id": id})).ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("get developer repository: %w", err)
-	}
-	if !found {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	record := developerRepositoryRecord(row)
-	return &record, nil
-}
-
-func (p *Postgres) CreateDeveloperRepository(ctx context.Context, repository service.DeveloperRepository) (*service.DeveloperRepository, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	repository.Name = strings.TrimSpace(repository.Name)
-	repository.RemoteURL = strings.TrimSpace(repository.RemoteURL)
-	if repository.SpaceID == "" {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	if err := repository.Validate(); err != nil {
-		return nil, err
-	}
-	exists, err := developerParentExists(ctx, p.goqu, p.tableDeveloperSpaces, actor, repository.SpaceID)
-	if err != nil {
-		return nil, fmt.Errorf("check developer space: %w", err)
-	}
-	if !exists {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	if repository.ID == "" {
-		repository.ID = ulid.Make().String()
-	}
-	var row developerRepositoryRow
-	_, err = p.goqu.Insert(p.tableDeveloperRepositories).Rows(goqu.Record{
-		"id": repository.ID, "space_id": repository.SpaceID, "workspace_id": actor.WorkspaceID,
-		"owner_user_id": actor.UserID, "name": repository.Name, "remote_url": repository.RemoteURL,
-		"default_branch": strings.TrimSpace(repository.DefaultBranch), "status": service.DeveloperRepositoryPending,
-	}).Returning(developerRepositoryColumns...).Executor().ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("create developer repository: %w", developerSpaceStoreError(err))
-	}
-	record := developerRepositoryRecord(row)
-	return &record, nil
-}
-
-func (p *Postgres) DeleteDeveloperRepository(ctx context.Context, id string) error {
-	return p.deleteDeveloperResource(ctx, p.tableDeveloperRepositories, id, "repository")
-}
-
-func (p *Postgres) SetDeveloperRepositoryRuntime(ctx context.Context, id, status, headSHA, runtimeError string) (*service.DeveloperRepository, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status != service.DeveloperRepositoryPending && status != service.DeveloperRepositoryCloning && status != service.DeveloperRepositoryReady && status != service.DeveloperRepositoryError {
-		return nil, fmt.Errorf("invalid developer repository status")
-	}
-	var row developerRepositoryRow
-	found, err := p.goqu.Update(p.tableDeveloperRepositories).Set(goqu.Record{
-		"status": status, "head_sha": headSHA, "error": runtimeError, "updated_at": goqu.L("clock_timestamp()"),
-	}).Where(developerOwned(actor, goqu.Ex{"id": id})).Returning(developerRepositoryColumns...).Executor().ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("set developer repository runtime: %w", err)
-	}
-	if !found {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	record := developerRepositoryRecord(row)
-	return &record, nil
-}
-
-var developerWorktreeColumns = []any{
-	"id", "repository_id", "space_id", "workspace_id", "owner_user_id", "name",
-	"branch", "base_ref", "head_sha", "state", "error", "created_at", "updated_at",
-}
-
-type developerWorktreeRow struct {
-	ID           string    `db:"id"`
-	RepositoryID string    `db:"repository_id"`
-	SpaceID      string    `db:"space_id"`
-	WorkspaceID  string    `db:"workspace_id"`
-	OwnerUserID  string    `db:"owner_user_id"`
-	Name         string    `db:"name"`
-	Branch       string    `db:"branch"`
-	BaseRef      string    `db:"base_ref"`
-	HeadSHA      string    `db:"head_sha"`
-	State        string    `db:"state"`
-	Error        string    `db:"error"`
-	CreatedAt    time.Time `db:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at"`
-}
-
-func developerWorktreeRecord(row developerWorktreeRow) service.DeveloperWorktree {
-	return service.DeveloperWorktree{
-		ID: row.ID, RepositoryID: row.RepositoryID, SpaceID: row.SpaceID,
-		WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID, Name: row.Name,
-		Branch: row.Branch, BaseRef: row.BaseRef, HeadSHA: row.HeadSHA, State: row.State, Error: row.Error,
-		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-}
-
-func (p *Postgres) ListDeveloperWorktrees(ctx context.Context, repositoryID string) ([]service.DeveloperWorktree, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var rows []developerWorktreeRow
-	if err := p.goqu.From(p.tableDeveloperWorktrees).Select(developerWorktreeColumns...).
-		Where(developerOwned(actor, goqu.Ex{"repository_id": repositoryID})).Order(goqu.I("updated_at").Desc()).ScanStructsContext(ctx, &rows); err != nil {
-		return nil, fmt.Errorf("list developer worktrees: %w", err)
-	}
-	result := make([]service.DeveloperWorktree, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, developerWorktreeRecord(row))
-	}
-	return result, nil
-}
-
-func (p *Postgres) GetDeveloperWorktree(ctx context.Context, id string) (*service.DeveloperWorktree, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var row developerWorktreeRow
-	found, err := p.goqu.From(p.tableDeveloperWorktrees).Select(developerWorktreeColumns...).
-		Where(developerOwned(actor, goqu.Ex{"id": id})).ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("get developer worktree: %w", err)
-	}
-	if !found {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	record := developerWorktreeRecord(row)
-	return &record, nil
-}
-
-func (p *Postgres) CreateDeveloperWorktree(ctx context.Context, worktree service.DeveloperWorktree) (*service.DeveloperWorktree, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	worktree.Name = strings.TrimSpace(worktree.Name)
-	worktree.Branch = strings.TrimSpace(worktree.Branch)
-	if err := worktree.Validate(); err != nil {
-		return nil, err
-	}
-	repository, err := p.GetDeveloperRepository(ctx, worktree.RepositoryID)
-	if err != nil {
-		return nil, err
-	}
-	if worktree.ID == "" {
-		worktree.ID = ulid.Make().String()
-	}
-	var row developerWorktreeRow
-	_, err = p.goqu.Insert(p.tableDeveloperWorktrees).Rows(goqu.Record{
-		"id": worktree.ID, "repository_id": repository.ID, "space_id": repository.SpaceID,
-		"workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID, "name": worktree.Name,
-		"branch": worktree.Branch, "base_ref": strings.TrimSpace(worktree.BaseRef), "state": service.DeveloperWorktreePending,
-	}).Returning(developerWorktreeColumns...).Executor().ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("create developer worktree: %w", developerSpaceStoreError(err))
-	}
-	record := developerWorktreeRecord(row)
-	return &record, nil
-}
-
-func (p *Postgres) DeleteDeveloperWorktree(ctx context.Context, id string) error {
-	return p.deleteDeveloperResource(ctx, p.tableDeveloperWorktrees, id, "worktree")
-}
-
-func (p *Postgres) SetDeveloperWorktreeRuntime(ctx context.Context, id, state, headSHA, runtimeError string) (*service.DeveloperWorktree, error) {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if state != service.DeveloperWorktreePending && state != service.DeveloperWorktreeReady && state != service.DeveloperWorktreeInvalid && state != service.DeveloperWorktreeMissing {
-		return nil, fmt.Errorf("invalid developer worktree state")
-	}
-	var row developerWorktreeRow
-	found, err := p.goqu.Update(p.tableDeveloperWorktrees).Set(goqu.Record{
-		"state": state, "head_sha": headSHA, "error": runtimeError, "updated_at": goqu.L("clock_timestamp()"),
-	}).Where(developerOwned(actor, goqu.Ex{"id": id})).Returning(developerWorktreeColumns...).Executor().ScanStructContext(ctx, &row)
-	if err != nil {
-		return nil, fmt.Errorf("set developer worktree runtime: %w", err)
-	}
-	if !found {
-		return nil, service.ErrDeveloperSpaceNotFound
-	}
-	record := developerWorktreeRecord(row)
-	return &record, nil
-}
-
 var developerSessionColumns = []any{
-	"id", "space_id", "repository_id", "worktree_id", "workspace_id", "owner_user_id",
+	"id", "space_id", "project_path", "workspace_id", "owner_user_id",
 	"title", "mode", "status", "provider", "model", "config", "error",
 	"started_at", "finished_at", "created_at", "updated_at",
 }
 
 type developerSessionRow struct {
-	ID           string         `db:"id"`
-	SpaceID      string         `db:"space_id"`
-	RepositoryID sql.NullString `db:"repository_id"`
-	WorktreeID   sql.NullString `db:"worktree_id"`
-	WorkspaceID  string         `db:"workspace_id"`
-	OwnerUserID  string         `db:"owner_user_id"`
-	Title        string         `db:"title"`
-	Mode         string         `db:"mode"`
-	Status       string         `db:"status"`
-	Provider     string         `db:"provider"`
-	Model        string         `db:"model"`
-	Config       string         `db:"config"`
-	Error        string         `db:"error"`
-	StartedAt    sql.NullTime   `db:"started_at"`
-	FinishedAt   sql.NullTime   `db:"finished_at"`
-	CreatedAt    time.Time      `db:"created_at"`
-	UpdatedAt    time.Time      `db:"updated_at"`
+	ID          string       `db:"id"`
+	SpaceID     string       `db:"space_id"`
+	ProjectPath string       `db:"project_path"`
+	WorkspaceID string       `db:"workspace_id"`
+	OwnerUserID string       `db:"owner_user_id"`
+	Title       string       `db:"title"`
+	Mode        string       `db:"mode"`
+	Status      string       `db:"status"`
+	Provider    string       `db:"provider"`
+	Model       string       `db:"model"`
+	Config      string       `db:"config"`
+	Error       string       `db:"error"`
+	StartedAt   sql.NullTime `db:"started_at"`
+	FinishedAt  sql.NullTime `db:"finished_at"`
+	CreatedAt   time.Time    `db:"created_at"`
+	UpdatedAt   time.Time    `db:"updated_at"`
 }
 
 func developerSessionRecord(row developerSessionRow) (*service.DeveloperSession, error) {
 	record := &service.DeveloperSession{
-		ID: row.ID, SpaceID: row.SpaceID, RepositoryID: row.RepositoryID.String, WorktreeID: row.WorktreeID.String,
+		ID: row.ID, SpaceID: row.SpaceID, ProjectPath: row.ProjectPath,
 		WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID, Title: row.Title, Mode: row.Mode,
 		Status: row.Status, Provider: row.Provider, Model: row.Model, Error: row.Error,
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
@@ -373,21 +125,9 @@ func (p *Postgres) CreateDeveloperSession(ctx context.Context, session service.D
 	if !exists {
 		return nil, service.ErrDeveloperSpaceNotFound
 	}
-	var repository any
-	var worktree any
-	if session.WorktreeID != "" {
-		wt, err := p.GetDeveloperWorktree(ctx, session.WorktreeID)
-		if err != nil || wt.SpaceID != session.SpaceID {
-			return nil, service.ErrDeveloperSpaceNotFound
-		}
-		session.RepositoryID = wt.RepositoryID
-		repository, worktree = wt.RepositoryID, wt.ID
-	} else if session.RepositoryID != "" {
-		repo, err := p.GetDeveloperRepository(ctx, session.RepositoryID)
-		if err != nil || repo.SpaceID != session.SpaceID {
-			return nil, service.ErrDeveloperSpaceNotFound
-		}
-		repository = repo.ID
+	projectPath, err := service.CleanDeveloperPath(session.ProjectPath)
+	if err != nil {
+		return nil, err
 	}
 	if session.Config == nil {
 		session.Config = map[string]any{}
@@ -401,13 +141,66 @@ func (p *Postgres) CreateDeveloperSession(ctx context.Context, session service.D
 	}
 	var row developerSessionRow
 	_, err = p.goqu.Insert(p.tableDeveloperSessions).Rows(goqu.Record{
-		"id": session.ID, "space_id": session.SpaceID, "repository_id": repository, "worktree_id": worktree,
+		"id": session.ID, "space_id": session.SpaceID, "project_path": projectPath,
 		"workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID, "title": strings.TrimSpace(session.Title),
 		"mode": session.Mode, "status": service.DeveloperSessionIdle, "provider": strings.TrimSpace(session.Provider),
 		"model": strings.TrimSpace(session.Model), "config": string(encoded),
 	}).Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("create developer session: %w", err)
+	}
+	return developerSessionRecord(row)
+}
+
+func (p *Postgres) RenameDeveloperSession(ctx context.Context, id, title string) (*service.DeveloperSession, error) {
+	return p.updateDeveloperSession(ctx, id, goqu.Record{"title": strings.TrimSpace(title)})
+}
+
+// UpdateDeveloperSessionSettings changes the agent profile and model used by
+// the next run. A running or waiting session keeps its settings until it
+// finishes, so a turn never switches permissions halfway through.
+func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id, mode, provider, model string) (*service.DeveloperSession, error) {
+	if !service.ValidDeveloperMode(mode) {
+		return nil, fmt.Errorf("mode must be plan, build, or review")
+	}
+	if strings.TrimSpace(provider) == "" {
+		return nil, fmt.Errorf("provider is required")
+	}
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var row developerSessionRow
+	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
+		"mode": mode, "provider": strings.TrimSpace(provider), "model": strings.TrimSpace(model), "updated_at": goqu.L("clock_timestamp()"),
+	}).Where(developerOwned(actor, goqu.Ex{"id": id}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
+		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("update developer session: %w", err)
+	}
+	if !found {
+		if _, err := p.GetDeveloperSession(ctx, id); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrDeveloperSessionBusy
+	}
+	return developerSessionRecord(row)
+}
+
+func (p *Postgres) updateDeveloperSession(ctx context.Context, id string, set goqu.Record) (*service.DeveloperSession, error) {
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	set["updated_at"] = goqu.L("clock_timestamp()")
+	var row developerSessionRow
+	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(set).Where(developerOwned(actor, goqu.Ex{"id": id})).
+		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("update developer session: %w", err)
+	}
+	if !found {
+		return nil, service.ErrDeveloperSpaceNotFound
 	}
 	return developerSessionRecord(row)
 }

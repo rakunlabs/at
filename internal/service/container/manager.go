@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -187,6 +188,13 @@ func (m *Manager) Exec(ctx context.Context, orgID string, cfg Config, command st
 // ExecArgs executes one binary without a shell. Coding-space Git operations use
 // this path so remote URLs, refs and commit messages never become shell syntax.
 func (m *Manager) ExecArgs(ctx context.Context, scopeID string, cfg Config, workDir string, env map[string]string, command string, commandArgs ...string) (string, string, int, error) {
+	return m.ExecArgsInput(ctx, scopeID, cfg, workDir, env, nil, command, commandArgs...)
+}
+
+// ExecArgsInput is ExecArgs with stdin attached. File contents travel this way
+// rather than as an argument: a single argv string is limited to 128 KiB by the
+// kernel, which silently capped every write that used base64 arguments.
+func (m *Manager) ExecArgsInput(ctx context.Context, scopeID string, cfg Config, workDir string, env map[string]string, stdin io.Reader, command string, commandArgs ...string) (string, string, int, error) {
 	if command == "" {
 		return "", "", -1, fmt.Errorf("command is required")
 	}
@@ -213,6 +221,9 @@ func (m *Manager) ExecArgs(ctx context.Context, scopeID string, cfg Config, work
 	defer m.markActive(scopeID, -1)
 
 	args := []string{"exec"}
+	if stdin != nil {
+		args = append(args, "-i")
+	}
 	for key, value := range env {
 		args = append(args, "-e", key+"="+value)
 	}
@@ -223,6 +234,7 @@ func (m *Manager) ExecArgs(ctx context.Context, scopeID string, cfg Config, work
 	args = append(args, commandArgs...)
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
+	cmd.Stdin = stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err = cmd.Run()

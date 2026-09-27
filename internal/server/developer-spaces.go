@@ -8,7 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"path"
+	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/blob"
@@ -31,8 +31,6 @@ func developerSpaceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrDeveloperSpaceNotFound):
 		httpResponse(w, "developer space not found", http.StatusNotFound)
-	case errors.Is(err, service.ErrDeveloperSpaceConflict):
-		httpResponse(w, "a developer space with this name already exists", http.StatusConflict)
 	case errors.Is(err, service.ErrDeveloperSessionBusy):
 		httpResponse(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, service.ErrAccessDenied):
@@ -42,326 +40,17 @@ func developerSpaceError(w http.ResponseWriter, err error) {
 	}
 }
 
-func (s *Server) ListDeveloperSpacesAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	records, err := store.ListDeveloperSpaces(r.Context())
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, records, http.StatusOK)
-}
-
-func (s *Server) CreateDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	var req service.DeveloperSpace
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	if err := req.Validate(); err != nil {
-		httpResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	record, err := store.CreateDeveloperSpace(r.Context(), req)
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusCreated)
-}
-
-func (s *Server) GetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	record, err := store.GetDeveloperSpace(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusOK)
-}
-
-func (s *Server) UpdateDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	current, err := store.GetDeveloperSpace(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	var req service.DeveloperSpace
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	req.ID = current.ID
-	req.WorkspaceID = current.WorkspaceID
-	req.OwnerUserID = current.OwnerUserID
-	if err := req.Validate(); err != nil {
-		httpResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	record, err := store.UpdateDeveloperSpace(r.Context(), req)
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusOK)
-}
-
-func (s *Server) DeleteDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	space, err := store.GetDeveloperSpace(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	sessions, err := store.ListDeveloperSessions(r.Context(), space.ID)
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	for _, session := range sessions {
-		if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
-			value.(*activeDeveloperSession).cancel()
-		}
-	}
-	if err := store.DeleteDeveloperSpace(r.Context(), space.ID); err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	for _, session := range sessions {
-		s.deleteDeveloperSnapshotObjects(r.Context(), session)
-	}
-	response := map[string]any{"deleted": space.ID}
-	if s.containerManager != nil {
-		if err := s.containerManager.RemoveScope(r.Context(), developerContainerScope(space)); err != nil {
-			slog.Warn("developer space deleted but runtime cleanup failed", "space_id", space.ID, "error", err.Error())
-			response["cleanup_warning"] = "Developer-space records were deleted, but its container volume could not be removed."
-		}
-	}
-	httpResponseJSON(w, response, http.StatusOK)
-}
-
-func (s *Server) ListDeveloperRepositoriesAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	records, err := store.ListDeveloperRepositories(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, records, http.StatusOK)
-}
-
-func (s *Server) CreateDeveloperRepositoryAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	var req service.DeveloperRepository
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	req.SpaceID = r.PathValue("id")
-	if err := req.Validate(); err != nil {
-		httpResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	record, err := store.CreateDeveloperRepository(r.Context(), req)
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusCreated)
-}
-
-func (s *Server) GetDeveloperRepositoryAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	record, err := store.GetDeveloperRepository(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusOK)
-}
-
-func (s *Server) DeleteDeveloperRepositoryAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	repository, err := store.GetDeveloperRepository(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	sessions, _ := store.ListDeveloperSessions(r.Context(), repository.SpaceID)
-	for _, session := range sessions {
-		if session.RepositoryID == repository.ID {
-			if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
-				value.(*activeDeveloperSession).cancel()
-			}
-		}
-	}
-	cleanupWarning := s.cleanupDeveloperRepositoryRuntime(r.Context(), store, repository)
-	if err := store.DeleteDeveloperRepository(r.Context(), repository.ID); err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	response := map[string]any{"deleted": repository.ID}
-	if cleanupWarning != "" {
-		response["cleanup_warning"] = cleanupWarning
-	}
-	httpResponseJSON(w, response, http.StatusOK)
-}
-
-func (s *Server) cleanupDeveloperRepositoryRuntime(ctx context.Context, store service.DeveloperSpaceStorer, repository *service.DeveloperRepository) string {
-	space, err := store.GetDeveloperSpace(ctx, repository.SpaceID)
-	if err != nil || s.containerManager == nil {
-		return "Repository metadata was deleted, but its runtime files could not be removed."
-	}
-	cfg, scope := developerContainerConfig(space), developerContainerScope(space)
-	worktrees, _ := store.ListDeveloperWorktrees(ctx, repository.ID)
-	for _, worktree := range worktrees {
-		if _, stderr, code, err := s.containerManager.ExecArgs(ctx, scope, cfg, "/workspace", nil, "rm", "-rf", "--", developerWorktreePath(worktree.ID)); err != nil || code != 0 {
-			slog.Warn("remove developer worktree runtime", "worktree_id", worktree.ID, "error", developerCommandFailure("remove worktree", stderr, err).Error())
-		}
-	}
-	if _, stderr, code, err := s.containerManager.ExecArgs(ctx, scope, cfg, "/workspace", nil, "rm", "-rf", "--", path.Dir(developerRepositoryPath(repository.ID))); err != nil || code != 0 {
-		slog.Warn("remove developer repository runtime", "repository_id", repository.ID, "error", developerCommandFailure("remove repository", stderr, err).Error())
-		return "Repository metadata was deleted, but its runtime files could not be removed."
-	}
-	return ""
-}
-
-func (s *Server) ListDeveloperWorktreesAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	records, err := store.ListDeveloperWorktrees(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, records, http.StatusOK)
-}
-
-func (s *Server) CreateDeveloperWorktreeAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	var req service.DeveloperWorktree
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	req.RepositoryID = r.PathValue("id")
-	if err := req.Validate(); err != nil {
-		httpResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	record, err := store.CreateDeveloperWorktree(r.Context(), req)
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusCreated)
-}
-
-func (s *Server) GetDeveloperWorktreeAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	record, err := store.GetDeveloperWorktree(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	httpResponseJSON(w, record, http.StatusOK)
-}
-
-func (s *Server) DeleteDeveloperWorktreeAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	worktree, err := store.GetDeveloperWorktree(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	sessions, _ := store.ListDeveloperSessions(r.Context(), worktree.SpaceID)
-	for _, session := range sessions {
-		if session.WorktreeID == worktree.ID {
-			if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
-				value.(*activeDeveloperSession).cancel()
-			}
-		}
-	}
-	cleanupWarning := ""
-	space, spaceErr := store.GetDeveloperSpace(r.Context(), worktree.SpaceID)
-	if spaceErr == nil && s.containerManager != nil {
-		cfg, scope := developerContainerConfig(space), developerContainerScope(space)
-		if _, stderr, code, execErr := s.containerManager.ExecArgs(r.Context(), scope, cfg, "/workspace", nil, "rm", "-rf", "--", developerWorktreePath(worktree.ID)); execErr != nil || code != 0 {
-			slog.Warn("remove developer worktree runtime", "worktree_id", worktree.ID, "error", developerCommandFailure("remove worktree", stderr, execErr).Error())
-			cleanupWarning = "Worktree metadata was deleted, but its runtime files could not be removed."
-		} else if repository, repoErr := store.GetDeveloperRepository(r.Context(), worktree.RepositoryID); repoErr == nil {
-			if _, stderr, code, pruneErr := s.containerManager.ExecArgs(r.Context(), scope, cfg, developerRepositoryPath(repository.ID), nil, "git", "worktree", "prune"); pruneErr != nil || code != 0 {
-				slog.Warn("prune developer worktree metadata", "worktree_id", worktree.ID, "error", developerCommandFailure("prune worktree", stderr, pruneErr).Error())
-			}
-		}
-	} else {
-		cleanupWarning = "Worktree metadata was deleted, but its runtime files could not be removed."
-	}
-	if err := store.DeleteDeveloperWorktree(r.Context(), worktree.ID); err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	response := map[string]any{"deleted": worktree.ID}
-	if cleanupWarning != "" {
-		response["cleanup_warning"] = cleanupWarning
-	}
-	httpResponseJSON(w, response, http.StatusOK)
-}
-
 func (s *Server) ListDeveloperSessionsAPI(w http.ResponseWriter, r *http.Request) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return
 	}
-	records, err := store.ListDeveloperSessions(r.Context(), r.PathValue("id"))
+	space, err := store.EnsureDeveloperSpace(r.Context())
+	if err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	records, err := store.ListDeveloperSessions(r.Context(), space.ID)
 	if err != nil {
 		developerSpaceError(w, err)
 		return
@@ -374,19 +63,33 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 	if store == nil {
 		return
 	}
-	var req service.DeveloperSession
+	var req struct {
+		Title       string `json:"title"`
+		ProjectPath string `json:"project_path"`
+		Mode        string `json:"mode"`
+		Provider    string `json:"provider"`
+		Model       string `json:"model"`
+	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
-	req.SpaceID = r.PathValue("id")
-	if err := req.Validate(); err != nil {
+	space, err := store.EnsureDeveloperSpace(r.Context())
+	if err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = service.DeveloperModeBuild
+	}
+	session := service.DeveloperSession{SpaceID: space.ID, Title: req.Title, ProjectPath: req.ProjectPath, Mode: req.Mode, Provider: req.Provider, Model: req.Model}
+	if err := session.Validate(); err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	record, err := store.CreateDeveloperSession(r.Context(), req)
+	record, err := store.CreateDeveloperSession(r.Context(), session)
 	if err != nil {
 		developerSpaceError(w, err)
 		return
@@ -403,6 +106,59 @@ func (s *Server) GetDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		developerSpaceError(w, err)
 		return
+	}
+	httpResponseJSON(w, record, http.StatusOK)
+}
+
+// UpdateDeveloperSessionAPI renames a session and/or changes the profile and
+// model used by its next run.
+func (s *Server) UpdateDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.developerSpaceStore(w)
+	if store == nil {
+		return
+	}
+	var req struct {
+		Title    *string `json:"title"`
+		Mode     *string `json:"mode"`
+		Provider *string `json:"provider"`
+		Model    *string `json:"model"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	record, err := store.GetDeveloperSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	if req.Title != nil {
+		if record, err = store.RenameDeveloperSession(r.Context(), record.ID, *req.Title); err != nil {
+			developerSpaceError(w, err)
+			return
+		}
+	}
+	if req.Mode != nil || req.Provider != nil || req.Model != nil {
+		mode, provider, model := record.Mode, record.Provider, record.Model
+		if req.Mode != nil {
+			mode = *req.Mode
+		}
+		if req.Provider != nil {
+			provider = *req.Provider
+		}
+		if req.Model != nil {
+			model = *req.Model
+		}
+		if !service.ValidDeveloperMode(mode) || strings.TrimSpace(provider) == "" {
+			httpResponse(w, "mode must be plan, build or review and provider is required", http.StatusBadRequest)
+			return
+		}
+		if record, err = store.UpdateDeveloperSessionSettings(r.Context(), record.ID, mode, provider, model); err != nil {
+			developerSpaceError(w, err)
+			return
+		}
 	}
 	httpResponseJSON(w, record, http.StatusOK)
 }

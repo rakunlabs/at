@@ -105,3 +105,26 @@ func (p *executionProvider) Rerank(ctx context.Context, req RerankRequest) (*Rer
 	}
 	return provider.Rerank(ctx, req)
 }
+
+// StreamChat opens a streaming completion through the same per-call admission
+// as Chat. It deliberately is not ChatStream: satisfying LLMStreamProvider
+// would also require Proxy, which scoped execution must never expose.
+// ErrUnsupportedOperation means the caller should fall back to Chat.
+func (p *executionProvider) StreamChat(ctx context.Context, model string, messages []Message, tools []Tool, opts *ChatOptions) (<-chan StreamChunk, error) {
+	current, err := p.current(ctx, model)
+	if err != nil {
+		return nil, err
+	}
+	streamer, ok := current.(LLMStreamProvider)
+	if !ok {
+		return nil, ErrUnsupportedOperation
+	}
+	chunks, _, err := streamer.ChatStream(ctx, model, messages, tools, opts)
+	return chunks, err
+}
+
+// ExecutionStreamer is implemented by scoped execution providers whose
+// underlying adapter can stream.
+type ExecutionStreamer interface {
+	StreamChat(ctx context.Context, model string, messages []Message, tools []Tool, opts *ChatOptions) (<-chan StreamChunk, error)
+}
