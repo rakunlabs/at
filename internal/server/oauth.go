@@ -432,6 +432,75 @@ func exchangeOAuthCode(ctx context.Context, c *service.Connector, clientID, clie
 	}, nil
 }
 
+// verifyConnectionOAuthTokens proves that an offline OAuth credential can
+// actually mint a fresh access token before the UI reports the connection as
+// successful. Some providers return an access token but omit a refresh token
+// on a repeated consent flow. Keeping the old (possibly revoked) refresh token
+// in that case creates a false-positive "connected" state.
+//
+// A refresh response may rotate the refresh token. When it does, adopt the new
+// value immediately so providers with single-use refresh tokens are not broken
+// by the verification call itself.
+func verifyConnectionOAuthTokens(ctx context.Context, c *service.Connector, clientID, clientSecret string, tok *oauthTokenResult) error {
+	if c == nil || c.OAuth == nil || !strings.EqualFold(c.OAuth.AccessType, "offline") {
+		return nil
+	}
+	if tok == nil || tok.RefreshToken == "" {
+		return fmt.Errorf("provider did not return a refresh token; revoke the app's existing access and authorize again")
+	}
+
+	form := url.Values{
+		"client_id":     {clientID},
+		"refresh_token": {tok.RefreshToken},
+		"grant_type":    {"refresh_token"},
+	}
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.OAuth.TokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("build refresh verification request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("refresh verification failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	var refreshed struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
+	}
+	if err := json.Unmarshal(body, &refreshed); err != nil {
+		return fmt.Errorf("invalid refresh verification response: %w", err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices || refreshed.Error != "" {
+		message := strings.TrimSpace(strings.Join([]string{refreshed.Error, refreshed.ErrorDesc}, ": "))
+		if message == "" || message == ":" {
+			message = http.StatusText(resp.StatusCode)
+		}
+		return fmt.Errorf("refresh token was rejected: %s", message)
+	}
+	if refreshed.AccessToken == "" {
+		return fmt.Errorf("refresh verification returned no access token")
+	}
+
+	tok.AccessToken = refreshed.AccessToken
+	if refreshed.RefreshToken != "" {
+		tok.RefreshToken = refreshed.RefreshToken
+	}
+	if refreshed.ExpiresIn > 0 {
+		tok.ExpiresIn = refreshed.ExpiresIn
+	}
+	return nil
+}
+
 // OAuthExchangeAPI exchanges a manually-pasted authorization code for tokens.
 // POST /api/v1/oauth/exchange {provider, code, redirect_uri, connection_id?}
 func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
@@ -499,11 +568,19 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "no token received — try revoking access and re-authorizing", http.StatusBadRequest)
 		return
 	}
+	verified := false
+	if req.ConnectionID != "" && connector.OAuth != nil && strings.EqualFold(connector.OAuth.AccessType, "offline") {
+		if err := verifyConnectionOAuthTokens(r.Context(), connector, clientID, clientSecret, tok); err != nil {
+			httpResponse(w, "connection verification failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		verified = true
+	}
 
 	userEmail := s.getUserEmail(r)
 
 	if req.ConnectionID != "" {
-		if err := s.saveTokensToConnection(r.Context(), req.ConnectionID, connector, tok.RefreshToken, tok.AccessToken, userEmail); err != nil {
+		if err := s.saveTokensToConnection(r.Context(), req.ConnectionID, connector, tok, verified, userEmail); err != nil {
 			httpResponse(w, "failed to save token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -588,12 +665,21 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		renderOAuthResult(w, false, "no token received — try revoking access and re-authorizing")
 		return
 	}
+	verified := false
+	if connectionID != "" && connector.OAuth != nil && strings.EqualFold(connector.OAuth.AccessType, "offline") {
+		if err := verifyConnectionOAuthTokens(r.Context(), connector, clientID, clientSecret, tok); err != nil {
+			slog.Error("oauth connection verification failed", "provider", providerName, "connection_id", connectionID, "error", err)
+			renderOAuthResult(w, false, "connection verification failed: "+err.Error())
+			return
+		}
+		verified = true
+	}
 
 	userEmail := s.getUserEmail(r)
 
 	switch {
 	case connectionID != "":
-		if err := s.saveTokensToConnection(r.Context(), connectionID, connector, tok.RefreshToken, tok.AccessToken, userEmail); err != nil {
+		if err := s.saveTokensToConnection(r.Context(), connectionID, connector, tok, verified, userEmail); err != nil {
 			slog.Error("failed to save token to connection", "provider", providerName, "connection_id", connectionID, "error", err)
 			renderOAuthResult(w, false, "failed to save token: "+err.Error())
 			return
@@ -796,22 +882,33 @@ func (s *Server) loadConnectionForOAuth(ctx context.Context, connectionID string
 // fetching the account label from the connector's userinfo endpoint. A refresh
 // token is stored on the dedicated field; when a provider returns only an
 // access token, it is stored in Extra under "<slug>_access_token".
-func (s *Server) saveTokensToConnection(ctx context.Context, connectionID string, c *service.Connector, refreshToken, accessToken, userEmail string) error {
+func (s *Server) saveTokensToConnection(ctx context.Context, connectionID string, c *service.Connector, tok *oauthTokenResult, verified bool, userEmail string) error {
 	conn, err := s.loadConnectionForOAuth(ctx, connectionID)
 	if err != nil {
 		return err
 	}
-	if refreshToken != "" {
-		conn.Credentials.RefreshToken = refreshToken
-	} else if accessToken != "" {
+	if tok.RefreshToken != "" {
+		conn.Credentials.RefreshToken = tok.RefreshToken
+	} else if tok.AccessToken != "" {
 		if conn.Credentials.Extra == nil {
 			conn.Credentials.Extra = map[string]string{}
 		}
-		conn.Credentials.Extra[c.Slug+"_access_token"] = accessToken
+		conn.Credentials.Extra[c.Slug+"_access_token"] = tok.AccessToken
 	}
-	if conn.AccountLabel == "" && accessToken != "" {
-		if label := fetchConnectorAccountLabel(ctx, c, accessToken); label != "" {
+	if conn.AccountLabel == "" && tok.AccessToken != "" {
+		if label := fetchConnectorAccountLabel(ctx, c, tok.AccessToken); label != "" {
 			conn.AccountLabel = label
+		}
+	}
+	if verified {
+		if conn.Metadata == nil {
+			conn.Metadata = map[string]any{}
+		}
+		now := time.Now().UTC()
+		conn.Metadata["oauth_status"] = "verified"
+		conn.Metadata["oauth_verified_at"] = now.Format(time.RFC3339)
+		if tok.ExpiresIn > 0 {
+			conn.Metadata["oauth_access_expires_at"] = now.Add(time.Duration(tok.ExpiresIn) * time.Second).Format(time.RFC3339)
 		}
 	}
 	conn.UpdatedBy = userEmail

@@ -181,6 +181,10 @@
     return isSetupComplete(conn, connector);
   }
 
+  function isOAuthVerified(conn: Connection): boolean {
+    return conn.metadata?.oauth_status === 'verified';
+  }
+
   function isSetupComplete(conn: Connection, connector?: Connector): boolean {
     const fields = effectiveFields(connector, conn.provider).filter((f) => !f.key.endsWith('_refresh_token'));
     let required = fields.filter((f) => f.required);
@@ -619,15 +623,22 @@
         {:else}
           <div class="divide-y divide-gray-100 dark:divide-dark-border">
             {#each section.items as c (c.id)}
+              {@const connectionVerified = isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
               <div>
                 <div class="flex items-start justify-between gap-3 p-4">
                   <div class="flex items-start gap-3 min-w-0">
                     <div class={[
                       'mt-0.5 w-8 h-8 border flex items-center justify-center shrink-0',
-                      isConnected(c, connector) ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/40' : 'bg-gray-50 dark:bg-dark-elevated border-gray-200 dark:border-dark-border',
+                      connectionVerified
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/40'
+                        : isOAuth(connector) && isConnected(c, connector)
+                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                          : 'bg-gray-50 dark:bg-dark-elevated border-gray-200 dark:border-dark-border',
                     ]}>
-                      {#if isConnected(c, connector)}
+                      {#if connectionVerified}
                         <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
+                      {:else if isOAuth(connector) && isConnected(c, connector)}
+                        <AlertCircle size={18} class="text-amber-600 dark:text-amber-400" />
                       {:else}
                         <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
                       {/if}
@@ -641,9 +652,13 @@
                         <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{c.description}</p>
                       {/if}
                       <div class="mt-2 flex flex-wrap items-center gap-2">
-                        {#if isConnected(c, connector)}
+                        {#if isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border">
-                            <CheckCircle2 size={10} /> Connected
+                            <CheckCircle2 size={10} /> {isOAuth(connector) ? 'Verified' : 'Connected'}
+                          </span>
+                        {:else if isOAuth(connector) && isConnected(c, connector)}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800" title="Stored credentials have not been verified by refreshing an access token">
+                            <AlertCircle size={10} /> Stored — re-authorize to verify
                           </span>
                         {:else if isSetupComplete(c, connector)}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 border">
