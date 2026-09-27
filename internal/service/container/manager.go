@@ -54,10 +54,14 @@ type Config struct {
 	Memory           string `json:"memory,omitempty"` // Memory limit (e.g., "4g")
 	Network          bool   `json:"network"`          // Allow network access
 	PersistentVolume bool   `json:"persistent_volume,omitempty"`
-	RequireRootless  bool   `json:"require_rootless,omitempty"`
+	PreferRootless   bool   `json:"prefer_rootless,omitempty"` // warn (never fail) when the daemon is rootful
 	ReadOnlyRoot     bool   `json:"read_only_root,omitempty"`
 	DiskLimitBytes   int64  `json:"disk_limit_bytes,omitempty"`
 	PidsLimit        int    `json:"pids_limit,omitempty"`
+	// ProvisionTools starts the container from an image derived from Image that
+	// adds the developer toolchain and a keep-alive entrypoint (see
+	// runtime-image.go), so a stock distribution image can be used directly.
+	ProvisionTools bool `json:"provision_tools,omitempty"`
 }
 
 // DefaultConfig returns the default container configuration.
@@ -76,6 +80,9 @@ func DefaultConfig() Config {
 type Manager struct {
 	mu         sync.RWMutex
 	containers map[string]*containerInfo // orgID -> container info
+
+	imageMu sync.Mutex
+	images  map[string]string // base image -> derived runtime image
 }
 
 type containerInfo struct {
@@ -91,6 +98,7 @@ type containerInfo struct {
 func New() *Manager {
 	return &Manager{
 		containers: make(map[string]*containerInfo),
+		images:     make(map[string]string),
 	}
 }
 
@@ -98,6 +106,13 @@ func New() *Manager {
 func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
 	if !cfg.Enabled {
 		return "", nil
+	}
+
+	// Resolved before m.mu: preparing a derived image can take a while and must
+	// not block commands in other, already running scopes.
+	image, err := m.resolveImage(ctx, cfg)
+	if err != nil {
+		return "", fmt.Errorf("create container for %s: %w", orgID, err)
 	}
 
 	m.mu.Lock()
@@ -115,8 +130,12 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 	}
 
 	// Create new container
-	containerID, err := createContainer(ctx, orgID, cfg)
+	containerID, err := createContainer(ctx, orgID, image, cfg)
 	if err != nil {
+		if cfg.ProvisionTools {
+			// The derived image may have been pruned; re-check it next time.
+			m.forgetImage(baseImage(cfg))
+		}
 		return "", fmt.Errorf("create container for org %s: %w", orgID, err)
 	}
 
@@ -359,19 +378,20 @@ func (m *Manager) ListContainers() map[string]map[string]any {
 
 // ─── Docker helpers ───
 
-func createContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
-	image := cfg.Image
+func createContainer(ctx context.Context, orgID, image string, cfg Config) (string, error) {
 	if image == "" {
-		image = "at-agent-runtime:latest"
+		image = baseImage(cfg)
 	}
 
-	if cfg.RequireRootless {
+	if cfg.PreferRootless {
+		// Rootless Docker is recommended, not required: a rootful daemon still
+		// gets the dropped capabilities, no-new-privileges and quotas below.
 		rootless, err := dockerIsRootless(ctx)
-		if err != nil {
-			return "", err
-		}
-		if !rootless {
-			return "", fmt.Errorf("docker rootless mode is required")
+		switch {
+		case err != nil:
+			slog.Warn("container: could not determine whether docker is rootless", "scope", orgID, "error", err.Error())
+		case !rootless:
+			slog.Warn("container: docker is not running in rootless mode; continuing with a rootful daemon (rootless Docker is recommended for stronger isolation)", "scope", orgID)
 		}
 	}
 
@@ -422,29 +442,39 @@ func createContainer(ctx context.Context, orgID string, cfg Config) (string, err
 
 	args = append(args, image)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		// If container name exists, try to start it
-		if strings.Contains(stderr.String(), "Conflict") {
-			startCmd := exec.CommandContext(ctx, "docker", "start", name)
-			if startErr := startCmd.Run(); startErr == nil {
-				// Get container ID
-				idCmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.Id}}", name)
-				var idOut bytes.Buffer
-				idCmd.Stdout = &idOut
-				if idErr := idCmd.Run(); idErr == nil {
-					return strings.TrimSpace(idOut.String()), nil
-				}
-			}
-		}
-		return "", fmt.Errorf("docker run: %s: %w", stderr.String(), err)
+	run := func() (string, string, error) {
+		cmd := exec.CommandContext(ctx, "docker", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	stdout, stderr, err := run()
+	if err != nil && strings.Contains(stderr, "Conflict") {
+		// A container from an earlier run of this process still holds the name.
+		// Reuse it only when it was started from the same image; otherwise an
+		// image change would be ignored until someone removed it by hand.
+		var existing bytes.Buffer
+		inspect := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.Id}} {{.Config.Image}}", name)
+		inspect.Stdout = &existing
+		if inspect.Run() == nil {
+			id, existingImage, _ := strings.Cut(strings.TrimSpace(existing.String()), " ")
+			if existingImage == image {
+				if exec.CommandContext(ctx, "docker", "start", name).Run() == nil {
+					return id, nil
+				}
+			}
+			removeContainer(ctx, name)
+			stdout, stderr, err = run()
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("docker run: %s: %w", strings.TrimSpace(stderr), err)
+	}
+
+	return strings.TrimSpace(stdout), nil
 }
 
 func dockerIsRootless(ctx context.Context) (bool, error) {

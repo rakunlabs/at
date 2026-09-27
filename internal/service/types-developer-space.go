@@ -7,10 +7,17 @@ import (
 	"net/url"
 	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
 const (
+	// DefaultDeveloperImage is the base image of a space that has not chosen
+	// one. It is a stock distribution image: the container manager derives a
+	// runtime image from it that adds bash/git/python3/coreutils.
+	DefaultDeveloperImage = "debian:13.7-slim"
+
 	DeveloperSpacePending = "pending"
 	DeveloperSpaceReady   = "ready"
 	DeveloperSpaceStopped = "stopped"
@@ -32,7 +39,18 @@ const (
 var (
 	ErrDeveloperSpaceNotFound = errors.New("developer space not found")
 	ErrDeveloperSessionBusy   = errors.New("developer session is already running or waiting")
+
+	developerMemoryPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[bkmgBKMG]?$`)
+	containerImagePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]*$`)
 )
+
+// ValidContainerImage accepts a Docker image reference (`debian:13.7-slim`,
+// `ghcr.io/org/tool:1.2`, `repo@sha256:…`). It is deliberately strict: the
+// value becomes a Dockerfile FROM line and a docker argument, so whitespace,
+// a leading dash or any other syntax must never get through.
+func ValidContainerImage(ref string) bool {
+	return len(ref) <= 255 && containerImagePattern.MatchString(ref)
+}
 
 // DeveloperToolRule follows the same ordered, last-match-wins model used by
 // mature coding agents while remaining native to AT.
@@ -173,6 +191,17 @@ type DeveloperSessionSnapshot struct {
 func (v DeveloperSpace) Validate() error {
 	if v.DiskLimitBytes < 0 {
 		return errors.New("disk_limit_bytes must not be negative")
+	}
+	if image := strings.TrimSpace(v.Image); image != "" && !ValidContainerImage(image) {
+		return errors.New("image must be a Docker image reference such as debian:13.7-slim")
+	}
+	if cpu := strings.TrimSpace(v.CPULimit); cpu != "" {
+		if value, err := strconv.ParseFloat(cpu, 64); err != nil || value <= 0 || value > 256 {
+			return errors.New("cpu_limit must be a positive number of cores, e.g. 2 or 0.5")
+		}
+	}
+	if memory := strings.TrimSpace(v.MemoryLimit); memory != "" && !developerMemoryPattern.MatchString(memory) {
+		return errors.New("memory_limit must be a size such as 512m or 4g")
 	}
 	for name, profile := range map[string]DeveloperAgentProfile{"plan": v.Config.Plan, "build": v.Config.Build, "review": v.Config.Review} {
 		if profile.MaxIterations < 0 {

@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import {
     ChevronDown, CircleAlert, Download, FilePlus, FolderGit2, FolderPlus, GitBranch, LoaderCircle, MessageSquare,
-    PanelBottom, PanelLeft, PanelRight, Plus, Power, RefreshCw, Search, Trash2, Upload, X, FileText, GitCompare,
+    PanelBottom, PanelLeft, PanelRight, Plus, Power, RefreshCw, Search, Settings, Trash2, Upload, X, FileText, GitCompare,
   } from 'lucide-svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -11,7 +11,7 @@
     cloneDeveloperProject, createDeveloperFile, createDeveloperSession, deleteDeveloperFile, deleteDeveloperSession,
     fetchDeveloperFileBlob, getDeveloperGitDiff, getDeveloperGitStatus, getDeveloperSpace, listDeveloperFiles, listDeveloperSessions,
     readDeveloperFile, renameDeveloperFile, resetDeveloperSpace, searchDeveloperFiles, startDeveloperSpace, stopDeveloperSpace,
-    uploadDeveloperFile, writeDeveloperFile,
+    updateDeveloperSpace, uploadDeveloperFile, writeDeveloperFile, DEFAULT_DEVELOPER_IMAGE,
     type DeveloperFileEntry, type DeveloperSearchMatch, type DeveloperSession, type DeveloperSpace,
   } from '@/lib/api/developer-spaces';
   import FileTree from '@/lib/components/developer/FileTree.svelte';
@@ -70,6 +70,9 @@
   let searching = $state(false);
   let searchTruncated = $state(false);
   let starting = $state(false);
+  let settingsOpen = $state(false);
+  let settingsSaving = $state(false);
+  let settingsForm = $state({ image: '', cpu: '', memory: '', diskGiB: '' });
   let uploadInput: HTMLInputElement;
   let uploadFolder = '';
 
@@ -137,6 +140,50 @@
       terminals = [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not stop the space', 'alert');
+    }
+  }
+
+  function openSettings() {
+    if (!space) return;
+    settingsForm = {
+      image: space.image || '',
+      cpu: space.cpu_limit || '',
+      memory: space.memory_limit || '',
+      diskGiB: space.disk_limit_bytes ? String(+(space.disk_limit_bytes / 2 ** 30).toFixed(2)) : '',
+    };
+    settingsOpen = true;
+  }
+
+  async function saveSettings() {
+    if (!space) return;
+    const disk = settingsForm.diskGiB.trim();
+    const diskBytes = disk ? Math.round(Number(disk) * 2 ** 30) : 0;
+    if (disk && (!Number.isFinite(diskBytes) || diskBytes <= 0)) {
+      addToast('Disk limit must be a positive number of GiB', 'alert');
+      return;
+    }
+    const imageChanged = (settingsForm.image.trim() || DEFAULT_DEVELOPER_IMAGE) !== (space.image || DEFAULT_DEVELOPER_IMAGE);
+    const running = space.status === 'ready';
+    if (running && dirty.size && !confirm('Applying these settings restarts the container. You have unsaved files; continue? Unsaved edits stay in the editor.')) return;
+    settingsSaving = true;
+    try {
+      // PUT replaces the record, so the stored profiles are sent back unchanged.
+      space = await updateDeveloperSpace({
+        image: settingsForm.image.trim(), cpu_limit: settingsForm.cpu.trim(), memory_limit: settingsForm.memory.trim(),
+        disk_limit_bytes: diskBytes, config: space.config,
+      });
+      settingsOpen = false;
+      if (running) {
+        addToast(imageChanged ? 'Settings saved. Restarting with the new image; the first start prepares it and can take a minute.' : 'Settings saved. Restarting the container.', 'info');
+        terminals = [];
+        await start();
+      } else {
+        addToast('Settings saved. They apply the next time the space starts.', 'info');
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Could not save the settings', 'alert');
+    } finally {
+      settingsSaving = false;
     }
   }
 
@@ -639,6 +686,7 @@
       {:else if !starting}
         <button type="button" onclick={start} class="inline-flex items-center gap-1 bg-gray-900 px-2.5 py-1 text-xs text-white hover:bg-gray-800 dark:bg-accent" title="Start the container">Start</button>
       {/if}
+      <button type="button" onclick={() => (settingsOpen ? (settingsOpen = false) : openSettings())} class={['p-1.5 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated', settingsOpen ? 'text-gray-900 dark:text-dark-text' : 'text-gray-500']} title="Space settings (image and resource limits)" aria-label="Space settings" aria-expanded={settingsOpen}><Settings size={14} /></button>
       <button type="button" onclick={reset} class="p-1.5 text-gray-400 hover:bg-gray-200 hover:text-red-700 dark:hover:bg-dark-elevated" title="Reset the space (deletes everything)" aria-label="Reset the space"><Trash2 size={14} /></button>
     {/if}
     <button type="button" onclick={() => { showTerminal = !showTerminal; if (showTerminal && !terminals.length) newTerminal(); }} class={['p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated', showTerminal ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400']} title="Toggle terminal (Ctrl+`)" aria-label="Toggle terminal" aria-pressed={showTerminal}><PanelBottom size={15} /></button>
@@ -647,6 +695,25 @@
 
   {#if space?.status === 'error' && !starting}
     <p role="alert" class="flex items-start gap-2 border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-800 dark:text-red-300"><CircleAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
+  {/if}
+
+  {#if settingsOpen && space}
+    <form class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void saveSettings(); }}>
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="min-w-64 flex-[2]">Base image
+          <input bind:value={settingsForm.image} placeholder={DEFAULT_DEVELOPER_IMAGE} spellcheck="false" autocomplete="off" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" />
+        </label>
+        <label class="w-24">CPU cores<input bind:value={settingsForm.cpu} placeholder="2" inputmode="decimal" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
+        <label class="w-24">Memory<input bind:value={settingsForm.memory} placeholder="4g" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
+        <label class="w-24">Disk (GiB)<input bind:value={settingsForm.diskGiB} placeholder="20" inputmode="decimal" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
+        <button type="submit" disabled={settingsSaving || starting} class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-accent">{#if settingsSaving}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{space.status === 'ready' ? 'Save & restart' : 'Save'}</button>
+        <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-gray-600 hover:bg-gray-200 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">Cancel</button>
+      </div>
+      <p class="mt-1.5 text-gray-500 dark:text-dark-text-muted">
+        Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT adds bash, git, python3 and coreutils if the image lacks them (apt, apk or dnf based images), so the first start with a new image takes a minute.
+        Files in <code class="font-mono">/workspace</code> are kept when the image changes; tools installed inside the old container are not.
+      </p>
+    </form>
   {/if}
 
   {#if newProjectMode}

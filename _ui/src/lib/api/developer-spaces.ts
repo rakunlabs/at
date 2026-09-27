@@ -7,6 +7,8 @@ export interface DeveloperToolRule { action: string; resource: string; effect: '
 export interface DeveloperAgentProfile { system_prompt?: string; max_iterations?: number; tool_timeout_seconds?: number; rules?: DeveloperToolRule[] }
 export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: DeveloperAgentProfile; review?: DeveloperAgentProfile }
 
+export const DEFAULT_DEVELOPER_IMAGE = 'debian:13.7-slim';
+
 export interface DeveloperSpace {
   id: string; workspace_id: string; owner_user_id: string;
   status: 'pending' | 'ready' | 'stopped' | 'error'; image?: string;

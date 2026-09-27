@@ -22,7 +22,7 @@ func developerContainerScope(space *service.DeveloperSpace) string {
 func developerContainerConfig(space *service.DeveloperSpace) container.Config {
 	image := strings.TrimSpace(space.Image)
 	if image == "" {
-		image = "at-agent-runtime:latest"
+		image = service.DefaultDeveloperImage
 	}
 	cpu := strings.TrimSpace(space.CPULimit)
 	if cpu == "" {
@@ -38,7 +38,7 @@ func developerContainerConfig(space *service.DeveloperSpace) container.Config {
 	}
 	return container.Config{
 		Enabled: true, Image: image, CPU: cpu, Memory: memory,
-		Network: true, PersistentVolume: true, RequireRootless: true, DiskLimitBytes: diskLimit, PidsLimit: 256,
+		Network: true, PersistentVolume: true, PreferRootless: true, ProvisionTools: true, DiskLimitBytes: diskLimit, PidsLimit: 256,
 	}
 }
 

@@ -2192,11 +2192,29 @@ caller confirms that exact name. Pull and push re-validate the origin remote
 Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and
 checks `execution.run`; `GET /developer-space` and the session list/history only
-need `agents.read`. Containers keep their existing limits (rootless Docker,
-capabilities dropped, `no-new-privileges`, PID/CPU/RAM/disk quotas, removed
-after 30 minutes idle while the volume survives). **Reset** deletes the space,
-its sessions and its volume after an explicit confirmation. The runtime image
-must provide `bash`, `git`, `python3` and GNU `timeout`. Regressions:
+need `agents.read`. Containers keep their existing limits (capabilities dropped,
+`no-new-privileges`, PID/CPU/RAM/disk quotas, removed after 30 minutes idle
+while the volume survives). Rootless Docker is recommended but not required: a
+rootful daemon only logs a warning at container creation, because AT often runs
+as a host binary talking to the system daemon. **Reset** deletes the space,
+its sessions and its volume after an explicit confirmation.
+
+The toolbar's settings button edits the space's base image, CPU, memory and
+disk limit (`PUT /developer-space`; the page resends the stored `config`
+because PUT replaces the record). An empty image means
+`service.DefaultDeveloperImage` (`debian:13.7-slim`). Stock images lack `git`
+and `python3` and exit immediately under `docker run -d`, and packages cannot
+be installed inside the container because every capability is dropped. So
+`container.Config.ProvisionTools` builds a derived image once per base
+(`internal/service/container/runtime-image.go`). It adds bash/git/python3/
+coreutils through apt, apk or dnf only when they are missing, and uses a
+`sleep infinity` entrypoint. The derived image is tagged
+`at-developer-runtime:<hash of recipe+base>`, so a recipe change rebuilds it.
+The build runs outside the manager lock. An image reference is validated
+strictly (`service.ValidContainerImage`) because it becomes a Dockerfile
+`FROM` line. A leftover container is reused only when it was started from the
+same image. Changing the image restarts the container; `/workspace` survives
+and tools installed inside the old container do not. Regressions:
 `developer-spaces_test.go` (store + HTTP, including the migration),
 `developer-git_test.go`, `agentloop` `TestCollectStream`,
 `_ui/tests/developer-space.test.mjs`.

@@ -60,8 +60,42 @@ func TestDeveloperEditIsAnEdit(t *testing.T) {
 
 func TestDeveloperContainerConfigEnforcesDefaults(t *testing.T) {
 	cfg := developerContainerConfig(&service.DeveloperSpace{ID: "space", WorkspaceID: "workspace", OwnerUserID: "owner"})
-	if !cfg.RequireRootless || !cfg.PersistentVolume || cfg.CPU == "" || cfg.Memory == "" || cfg.DiskLimitBytes <= 0 || cfg.PidsLimit <= 0 {
+	if !cfg.PreferRootless || !cfg.PersistentVolume || cfg.CPU == "" || cfg.Memory == "" || cfg.DiskLimitBytes <= 0 || cfg.PidsLimit <= 0 {
 		t.Fatalf("developer container defaults are not bounded: %+v", cfg)
+	}
+	if cfg.Image != service.DefaultDeveloperImage || !cfg.ProvisionTools {
+		t.Fatalf("developer container should default to a provisioned %s: %+v", service.DefaultDeveloperImage, cfg)
+	}
+	custom := developerContainerConfig(&service.DeveloperSpace{Image: " ghcr.io/org/dev:1 ", CPULimit: "4", MemoryLimit: "8g"})
+	if custom.Image != "ghcr.io/org/dev:1" || custom.CPU != "4" || custom.Memory != "8g" {
+		t.Fatalf("developer container ignores the space settings: %+v", custom)
+	}
+}
+
+func TestDeveloperSpaceValidateRuntimeSettings(t *testing.T) {
+	tests := []struct {
+		name  string
+		space service.DeveloperSpace
+		ok    bool
+	}{
+		{"defaults", service.DeveloperSpace{}, true},
+		{"image with registry and tag", service.DeveloperSpace{Image: "ghcr.io/org/dev-env:1.2"}, true},
+		{"image digest", service.DeveloperSpace{Image: "debian@sha256:abc123"}, true},
+		{"image with space", service.DeveloperSpace{Image: "debian:13 AS x"}, false},
+		{"image newline injection", service.DeveloperSpace{Image: "debian\nRUN id"}, false},
+		{"image flag", service.DeveloperSpace{Image: "--privileged"}, false},
+		{"fractional cpu", service.DeveloperSpace{CPULimit: "0.5"}, true},
+		{"bad cpu", service.DeveloperSpace{CPULimit: "two"}, false},
+		{"zero cpu", service.DeveloperSpace{CPULimit: "0"}, false},
+		{"memory", service.DeveloperSpace{MemoryLimit: "512m"}, true},
+		{"bad memory", service.DeveloperSpace{MemoryLimit: "4 GB"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.space.Validate(); (err == nil) != tt.ok {
+				t.Fatalf("Validate() error = %v, want ok=%v", err, tt.ok)
+			}
+		})
 	}
 }
 
