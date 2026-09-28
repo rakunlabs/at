@@ -102,6 +102,9 @@ type nativeAuth struct {
 	mobileStore        service.AuthMobileStorer
 	mobileBeginMu      sync.Mutex
 	mobileBeginSources map[string]nativeMobileSource
+	// onUserDeleted releases resources held outside the database for a
+	// deleted account (its developer home volume). Failures are logged only.
+	onUserDeleted func(ctx context.Context, userID string)
 }
 
 func newNativeAuth(cfg config.Server, store any) (*nativeAuth, error) {

@@ -19,7 +19,7 @@ func developerContainerScope(space *service.DeveloperSpace) string {
 	return "developer:" + space.WorkspaceID + ":" + space.OwnerUserID + ":" + space.ID
 }
 
-func developerContainerConfig(space *service.DeveloperSpace) container.Config {
+func developerContainerConfig(space *service.DeveloperSpace, home developerHome) container.Config {
 	image := strings.TrimSpace(space.Image)
 	if image == "" {
 		image = service.DefaultDeveloperImage
@@ -36,10 +36,15 @@ func developerContainerConfig(space *service.DeveloperSpace) container.Config {
 	if diskLimit <= 0 {
 		diskLimit = 20 << 30
 	}
-	return container.Config{
+	cfg := container.Config{
 		Enabled: true, Image: image, CPU: cpu, Memory: memory,
 		Network: true, PersistentVolume: true, PreferRootless: true, KeepAlive: true, RetainWhenIdle: true, DiskLimitBytes: diskLimit, PidsLimit: 256,
+		CapAdd: container.PackageManagerCapabilities,
 	}
+	if home.Enabled {
+		cfg.HomeScope, cfg.HomePath = developerHomeScope(space.OwnerUserID), home.path()
+	}
+	return cfg
 }
 
 func developerCommandFailure(operation, stderr string, err error) error {
@@ -121,7 +126,12 @@ func (s *Server) developerRuntime(w http.ResponseWriter, r *http.Request) (*deve
 		httpResponse(w, "container runtime unavailable", http.StatusServiceUnavailable)
 		return nil, false
 	}
-	return &developerRuntimeHandle{store: store, space: space, cfg: developerContainerConfig(space), scope: developerContainerScope(space)}, true
+	home, err := s.loadDeveloperHome(r.Context(), space.OwnerUserID)
+	if err != nil {
+		httpResponse(w, "home settings unavailable", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	return &developerRuntimeHandle{store: store, space: space, cfg: developerContainerConfig(space, home), scope: developerContainerScope(space)}, true
 }
 
 func (h *developerRuntimeHandle) exec(ctx context.Context, s *Server, workDir string, command string, args ...string) (string, string, int, error) {

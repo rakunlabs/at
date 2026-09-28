@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,7 +70,12 @@ func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
 		if body.EncodingFormat != "base64" || body.Dimensions == nil || *body.Dimensions != 256 || body.User != "user-123" {
 			t.Errorf("request = %+v", body)
 		}
-		_, _ = w.Write([]byte(`{"data":[{"embedding":"AQIDBA=="}],"model":"text-embedding-3-small","usage":{"prompt_tokens":2,"total_tokens":2}}`))
+		embedding := base64.StdEncoding.EncodeToString(make([]byte, 256*4))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":  []any{map[string]any{"embedding": embedding}},
+			"model": "text-embedding-3-small",
+			"usage": map[string]any{"prompt_tokens": 2, "total_tokens": 2},
+		})
 	}))
 	defer server.Close()
 
@@ -88,8 +94,39 @@ func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding: %v", err)
 	}
-	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != "AQIDBA==" {
+	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != base64.StdEncoding.EncodeToString(make([]byte, 256*4)) {
 		t.Fatalf("base64 embeddings = %#v", resp.Base64Embeddings)
+	}
+}
+
+func TestCreateEmbeddingRestoresResponseIndexOrder(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"index":1,"embedding":[2]},{"index":0,"embedding":[1]}],"model":"embed","usage":{"prompt_tokens":2,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+	provider, err := New("key", "embed", server.URL+"/v1/chat/completions", "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{Input: []string{"a", "b"}, Model: "embed"})
+	if err != nil {
+		t.Fatalf("CreateEmbedding: %v", err)
+	}
+	if resp.Embeddings[0][0] != 1 || resp.Embeddings[1][0] != 2 {
+		t.Fatalf("embeddings = %#v", resp.Embeddings)
+	}
+}
+
+func TestCreateEmbeddingConfiguredBatchLimit(t *testing.T) {
+	provider, err := New("key", "embed", "https://example.invalid/v1/chat/completions", "", false, nil, WithEmbeddingMaxInputs(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{Input: []string{"a", "b"}, Model: "embed"})
+	if err == nil || !strings.Contains(err.Error(), "configured maximum 1") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

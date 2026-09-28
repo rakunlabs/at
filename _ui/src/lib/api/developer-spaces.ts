@@ -58,6 +58,22 @@ export async function startDeveloperSpace() { return (await api.post<DeveloperSp
 export async function stopDeveloperSpace() { return (await api.post<DeveloperSpace>('/developer-space/stop')).data; }
 export async function resetDeveloperSpace() { return (await api.post<{ deleted: string; cleanup_warning?: string }>('/developer-space/reset', { confirm: true })).data; }
 
+// ─── Home (per account, shared by the account's spaces in every workspace) ───
+
+export interface DeveloperHome { enabled: boolean; path: string; default_path: string }
+
+export async function getDeveloperHome() { return (await api.get<DeveloperHome>('/developer-space/home')).data; }
+export async function updateDeveloperHome(body: { enabled: boolean; path: string }) { return (await api.put<DeveloperHome>('/developer-space/home', body)).data; }
+/** Writes one file into the home at `path` (relative to it), default mode 600. */
+export async function uploadDeveloperHomeFile(file: File, path = '', mode = '') {
+  const form = new FormData();
+  form.append('file', file);
+  if (path) form.append('path', path);
+  if (mode) form.append('mode', mode);
+  return (await api.post<{ path: string; size: number; mode: string }>('/developer-space/home/files', form)).data;
+}
+export async function resetDeveloperHome() { return (await api.post<{ deleted: boolean }>('/developer-space/home/reset', { confirm: true })).data; }
+
 // ─── Files ───
 
 export async function listDeveloperFiles(path: string) { return (await api.get<{ path: string; entries: DeveloperFileEntry[]; truncated: boolean }>('/developer-space/files', { params: { path } })).data; }

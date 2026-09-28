@@ -195,7 +195,7 @@ export const workflowNodeDefinitions = [
     label: 'Embedding',
     description: 'Create vector embeddings',
     paletteGroup: 'Media',
-    createDefaultData: () => ({ label: 'Embedding', provider: '', model: '', dimensions: 0 }),
+    createDefaultData: () => ({ label: 'Embedding', provider: '', model: '', dimensions: 0, input_type: '' }),
   },
   {
     type: 'conditional',

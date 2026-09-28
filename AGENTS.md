@@ -2229,7 +2229,11 @@ Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and
 checks `execution.run`; `GET /developer-space` and the session list/history only
 need `agents.read`. Containers keep their existing limits (capabilities dropped,
-`no-new-privileges`, PID/CPU/RAM/disk quotas). After 30 minutes idle, or on
+`no-new-privileges`, PID/CPU/RAM/disk quotas). Developer spaces re-add only
+`container.PackageManagerCapabilities` (CHOWN, DAC_OVERRIDE, FOWNER, FSETID,
+KILL, SETGID, SETUID — a subset of Docker's defaults). With none of them, apt
+could download packages but dpkg failed in maintainer scripts. For example,
+openssh-client's `groupadd _ssh` could not write `/etc/gshadow`. After 30 minutes idle, or on
 Stop, the container is **stopped, not deleted** (`RetainWhenIdle`), so what
 the user installed in it survives. Rootless Docker is recommended but not
 required: a rootful daemon only logs a warning at container creation, because
@@ -2259,6 +2263,24 @@ flag/whitespace refusal in the driver). Containers carry an `at.config` label
 hashing their configuration. A leftover or stopped container is resumed only
 when that label matches; changing the image or limits replaces it. That loses
 the installed packages, while `/workspace` survives.
+
+**Persistent home (opt-in, per account).** Space settings → *Persistent home*
+mounts a second Docker volume (`at-home-<hash of "developer-home:<user>">`) at a
+chosen path (default `/root`) and sets `$HOME` to it, so SSH keys, `.gitconfig`
+and tool settings survive container rebuilds. It is keyed by account only, so
+one home is shared by the account's spaces in every workspace. The settings live
+in `user_preferences` (`developer_home`), so no migration is needed. The mount
+path must be absolute and outside `/workspace` and system directories
+(`container.ValidHomePath`). Home settings are part of `container.Config`, so
+enabling or moving the home recreates the container; they are empty when off,
+so existing containers keep their `at.config` label. `POST
+.../home/files` copies an upload in with `docker cp` (default mode 600), because
+exec-based file tools are confined to `/workspace`. `POST .../home/reset`
+removes the volume and every managed container mounting it. Deleting an account
+does the same (`nativeAuth.onUserDeleted`). Storage is **not encrypted by AT**:
+it relies on the host disk. Agent commands run as the same user and can read
+the home, which the UI states. Regression: `internal/service/container/home_test.go`
+(including `TestDockerPersistentHome` against real Docker).
 
 Sandboxes run through a backend-neutral `container.Manager` over a
 `container.Driver` (`internal/service/container/driver.go`). The Manager owns

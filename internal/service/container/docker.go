@@ -36,12 +36,27 @@ func newDockerDriver() *dockerDriver {
 
 func (d *dockerDriver) Name() string { return "docker" }
 
+func validCapabilityName(name string) bool {
+	if name == "" || strings.EqualFold(name, "ALL") {
+		return false
+	}
+	for _, r := range name {
+		if (r < 'A' || r > 'Z') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
 func scopeHash(scope string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(scope)))[:20]
 }
 
 func dockerContainerName(scope string) string { return "at-scope-" + scopeHash(scope) }
 func dockerVolumeName(scope string) string    { return "at-space-" + scopeHash(scope) }
+func dockerHomeVolumeName(scope string) string {
+	return "at-home-" + scopeHash(scope)
+}
 
 // dockerConfigLabel records the configuration a container was created with,
 // so a leftover container is resumed only when nothing has changed since.
@@ -83,6 +98,12 @@ func (d *dockerDriver) Create(ctx context.Context, scope string, cfg Config) (st
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
 	}
+	for _, capability := range cfg.CapAdd {
+		if !validCapabilityName(capability) {
+			return "", fmt.Errorf("invalid capability %q", capability)
+		}
+		args = append(args, "--cap-add", capability)
+	}
 	pids := cfg.PidsLimit
 	if pids <= 0 {
 		pids = 256
@@ -115,6 +136,12 @@ func (d *dockerDriver) Create(ctx context.Context, scope string, cfg Config) (st
 			tmpfs += fmt.Sprintf(",size=%d", cfg.DiskLimitBytes)
 		}
 		args = append(args, "--tmpfs", tmpfs)
+	}
+	if cfg.HomeScope != "" {
+		if !ValidHomePath(cfg.HomePath) {
+			return "", fmt.Errorf("invalid home path %q", cfg.HomePath)
+		}
+		args = append(args, "-v", dockerHomeVolumeName(cfg.HomeScope)+":"+cfg.HomePath, "-e", "HOME="+cfg.HomePath)
 	}
 
 	if cfg.KeepAlive {
@@ -161,13 +188,12 @@ func (d *dockerDriver) Create(ctx context.Context, scope string, cfg Config) (st
 	return id, nil
 }
 
-// aptSandboxConfig lets apt run inside a container with every capability
-// dropped. apt normally downloads as the unprivileged `_apt` user, and
-// switching to it needs CAP_SETUID, which the container does not have; the
-// download then dies with "Method http has died unexpectedly". Downloading as
-// root inside the sandbox is the same trust level as the shell the user
-// already has, and it keeps the capability set empty. apk and dnf need no
-// equivalent.
+// aptSandboxConfig lets apt run inside a container whose capabilities are
+// all dropped (sandboxes that do not opt into PackageManagerCapabilities).
+// apt normally downloads as the unprivileged `_apt` user, and switching to it
+// needs CAP_SETUID; without it the download dies with "Method http has died
+// unexpectedly". Downloading as root inside the sandbox is the same trust
+// level as the shell the user already has. apk and dnf need no equivalent.
 const aptSandboxConfig = `if [ -d /etc/apt/apt.conf.d ]; then printf 'APT::Sandbox::User "root";\n' > /etc/apt/apt.conf.d/99at-sandbox; fi`
 
 func (d *dockerDriver) allowPackageInstalls(ctx context.Context, handle string) {
@@ -295,6 +321,25 @@ func (d *dockerDriver) Purge(ctx context.Context, scope string) error {
 	}
 	if output, err := exec.CommandContext(ctx, "docker", "volume", "rm", dockerVolumeName(scope)).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such volume") {
 		return fmt.Errorf("remove managed volume: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+// RemoveHome removes every sandbox mounting the home volume (a volume in use
+// cannot be removed), then the volume.
+func (d *dockerDriver) RemoveHome(ctx context.Context, homeScope string) error {
+	volume := dockerHomeVolumeName(homeScope)
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label=at.managed=true", "--filter", "volume="+volume).Output()
+	if err != nil {
+		return fmt.Errorf("list containers using the home: %w", err)
+	}
+	for _, id := range strings.Fields(string(out)) {
+		if err := d.Remove(ctx, id); err != nil {
+			return err
+		}
+	}
+	if output, err := exec.CommandContext(ctx, "docker", "volume", "rm", volume).CombinedOutput(); err != nil && !strings.Contains(string(output), "No such volume") {
+		return fmt.Errorf("remove home volume: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }

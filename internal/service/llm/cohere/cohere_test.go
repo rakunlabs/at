@@ -2,11 +2,13 @@ package cohere
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -51,7 +53,11 @@ func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
 		if !reflect.DeepEqual(body.EmbeddingTypes, []string{"base64"}) {
 			t.Errorf("embedding_types = %#v", body.EmbeddingTypes)
 		}
-		_, _ = w.Write([]byte(`{"embeddings":{"base64":["AQIDBA=="]},"meta":{"billed_units":{"input_tokens":2}}}`))
+		embedding := base64.StdEncoding.EncodeToString(make([]byte, 512*4))
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": map[string]any{"base64": []string{embedding}},
+			"meta":       map[string]any{"billed_units": map[string]any{"input_tokens": 2}},
+		})
 	}))
 	defer server.Close()
 
@@ -69,8 +75,59 @@ func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateEmbedding: %v", err)
 	}
-	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != "AQIDBA==" {
+	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != base64.StdEncoding.EncodeToString(make([]byte, 512*4)) {
 		t.Fatalf("base64 embeddings = %#v", resp.Base64Embeddings)
+	}
+}
+
+func TestCreateEmbeddingChunksAndPreservesOrder(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body embedRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(body.Texts) == 0 || len(body.Texts) > 96 {
+			t.Fatalf("chunk size = %d", len(body.Texts))
+		}
+		if body.InputType != "search_query" {
+			t.Errorf("input_type = %q", body.InputType)
+		}
+		embeddings := make([][]float64, len(body.Texts))
+		for i, text := range body.Texts {
+			embeddings[i] = []float64{float64(len(text))}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": map[string]any{"float": embeddings},
+			"meta":       map[string]any{"billed_units": map[string]any{"input_tokens": len(body.Texts)}},
+		})
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL, "", false)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	input := make([]string, 200)
+	for i := range input {
+		input[i] = strings.Repeat("x", i%10+1)
+	}
+	resp, err := provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{
+		Input: input, Model: "embed-v4.0", InputType: "search_query",
+	})
+	if err != nil {
+		t.Fatalf("CreateEmbedding: %v", err)
+	}
+	if calls != 3 || len(resp.Embeddings) != len(input) || resp.Usage.TotalTokenCount() != len(input) {
+		t.Fatalf("calls=%d embeddings=%d usage=%d", calls, len(resp.Embeddings), resp.Usage.TotalTokenCount())
+	}
+	for i := range input {
+		if got := resp.Embeddings[i][0]; got != float64(len(input[i])) {
+			t.Fatalf("embedding %d = %v", i, got)
+		}
 	}
 }
 

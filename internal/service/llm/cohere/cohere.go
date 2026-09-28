@@ -26,17 +26,19 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.cohere.com"
-	defaultModel   = "command-r-plus-08-2024"
+	defaultBaseURL       = "https://api.cohere.com"
+	defaultModel         = "command-r-plus-08-2024"
+	jsonResponseMaxBytes = 256 << 20
 )
 
 // Provider implements service.LLMProvider plus EmbeddingProvider and RerankProvider.
 type Provider struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	httpClient *http.Client
-	limiter    *ratelimit.Limiter
+	apiKey             string
+	model              string
+	baseURL            string
+	httpClient         *http.Client
+	limiter            *ratelimit.Limiter
+	embeddingMaxInputs int
 }
 
 // Option mutates a Provider during construction.
@@ -45,6 +47,13 @@ type Option func(*Provider)
 // WithRateLimiter attaches a per-provider rate limiter.
 func WithRateLimiter(l *ratelimit.Limiter) Option {
 	return func(p *Provider) { p.limiter = l }
+}
+
+// WithEmbeddingMaxInputs sets an optional operator-defined maximum batch
+// size. Zero leaves the provider unrestricted; calls are still split to
+// Cohere's mandatory maximum of 96 texts per upstream request.
+func WithEmbeddingMaxInputs(limit int) Option {
+	return func(p *Provider) { p.embeddingMaxInputs = limit }
 }
 
 // New creates a Cohere provider.
@@ -114,9 +123,12 @@ func (p *Provider) doJSON(ctx context.Context, method, path string, body any, ou
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, jsonResponseMaxBytes+1))
 	if err != nil {
 		return resp.Header, resp.StatusCode, fmt.Errorf("read body: %w", err)
+	}
+	if len(respBody) > jsonResponseMaxBytes {
+		return resp.Header, resp.StatusCode, fmt.Errorf("read body: response exceeds %d bytes", jsonResponseMaxBytes)
 	}
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return resp.Header, resp.StatusCode, &service.RateLimitError{
@@ -511,6 +523,9 @@ type embedResponse struct {
 
 // CreateEmbedding implements service.EmbeddingProvider.
 func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingRequest) (*service.EmbeddingResponse, error) {
+	if p.embeddingMaxInputs > 0 && len(req.Input) > p.embeddingMaxInputs {
+		return nil, fmt.Errorf("embedding input count %d exceeds configured maximum %d", len(req.Input), p.embeddingMaxInputs)
+	}
 	model := req.Model
 	if model == "" {
 		model = "embed-english-v3.0"
@@ -519,26 +534,45 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 	if req.EncodingFormat == "base64" {
 		embeddingType = "base64"
 	}
-	body := embedRequest{
-		Model:           model,
-		Texts:           req.Input,
-		InputType:       "search_document",
-		EmbeddingTypes:  []string{embeddingType},
-		OutputDimension: req.Dimensions,
+	inputType := req.InputType
+	if inputType == "" {
+		inputType = "search_document"
 	}
-	var parsed embedResponse
-	if _, _, err := p.doJSON(ctx, http.MethodPost, "/v2/embed", body, &parsed); err != nil {
-		return nil, err
+	result := &service.EmbeddingResponse{Model: model}
+	for start := 0; start < len(req.Input); start += 96 {
+		end := min(start+96, len(req.Input))
+		chunk := req.Input[start:end]
+		release, err := p.limiter.Acquire(ctx, common.EstimateEmbeddingInputTokens(chunk))
+		if err != nil {
+			return nil, err
+		}
+		body := embedRequest{
+			Model:           model,
+			Texts:           chunk,
+			InputType:       inputType,
+			EmbeddingTypes:  []string{embeddingType},
+			OutputDimension: req.Dimensions,
+		}
+		var parsed embedResponse
+		_, _, callErr := p.doJSON(ctx, http.MethodPost, "/v2/embed", body, &parsed)
+		release()
+		if callErr != nil {
+			return nil, callErr
+		}
+		result.Embeddings = append(result.Embeddings, parsed.Embeddings.Float...)
+		result.Base64Embeddings = append(result.Base64Embeddings, parsed.Embeddings.Base64...)
+		result.Usage.PromptTokens += parsed.Meta.BilledUnits.InputTokens
+		result.Usage.TotalTokens += parsed.Meta.BilledUnits.InputTokens
 	}
-	return &service.EmbeddingResponse{
-		Embeddings:       parsed.Embeddings.Float,
-		Base64Embeddings: parsed.Embeddings.Base64,
-		Model:            model,
-		Usage: service.Usage{
-			PromptTokens: parsed.Meta.BilledUnits.InputTokens,
-			TotalTokens:  parsed.Meta.BilledUnits.InputTokens,
-		},
-	}, nil
+	if result.Usage.TotalTokenCount() == 0 {
+		result.Usage.PromptTokens = common.EstimateEmbeddingInputTokens(req.Input)
+		result.Usage.TotalTokens = result.Usage.PromptTokens
+		result.UsageEstimated = true
+	}
+	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
+		return nil, fmt.Errorf("cohere embed: invalid upstream response: %w", err)
+	}
+	return result, nil
 }
 
 // ─── Rerank ───

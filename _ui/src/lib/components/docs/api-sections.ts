@@ -35,6 +35,12 @@ export const apiSections: ApiSectionMeta[] = [
     body: 'gateway proxy provider path passthrough gemini file search credential injection forwarding',
   },
   {
+    id: 'embeddings',
+    title: 'Embeddings',
+    description: 'Generate single or batched vector embeddings.',
+    body: 'embeddings vector batch input dimensions base64 search document query classification clustering limits',
+  },
+  {
     id: 'authentication',
     title: 'Authentication',
     description: 'Bearer tokens, scoping, and where to create them.',

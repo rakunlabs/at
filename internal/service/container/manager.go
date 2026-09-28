@@ -10,6 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"path"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +69,28 @@ type Config struct {
 	// deleting it, so whatever the user installed in it survives until the
 	// configuration changes or the scope is purged.
 	RetainWhenIdle bool `json:"retain_when_idle,omitempty"`
+	// CapAdd re-adds capabilities after every capability is dropped. Names
+	// are Linux capability names without the CAP_ prefix.
+	CapAdd []string `json:"cap_add,omitempty"`
+	// HomeScope names a persistent home volume shared by every sandbox of the
+	// same owner; HomePath is where it is mounted and becomes $HOME. Both are
+	// empty when no home is configured, which keeps the configuration label of
+	// existing sandboxes unchanged.
+	HomeScope string `json:"home_scope,omitempty"`
+	HomePath  string `json:"home_path,omitempty"`
+}
+
+// PackageManagerCapabilities is the subset of Docker's default capability
+// set that root inside a sandbox needs to install packages: maintainer
+// scripts create users and groups (writing /etc/shadow and /etc/gshadow),
+// chown and chmod files they did not create, and apt/dpkg drop to helper
+// users. Without them apt downloads but dpkg fails in postinst (for example
+// openssh-client's `groupadd _ssh`). no-new-privileges stays in force.
+var PackageManagerCapabilities = []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID"}
+
+// Equal reports whether two configurations describe the same sandbox.
+func (c Config) Equal(other Config) bool {
+	return reflect.DeepEqual(c, other)
 }
 
 // DefaultConfig returns the default container configuration.
@@ -132,14 +156,14 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 
 	// Check if container already exists and is running
 	if info, ok := m.containers[orgID]; ok {
-		if info.config == cfg && m.driver.Running(ctx, info.containerID) {
+		if info.config.Equal(cfg) && m.driver.Running(ctx, info.containerID) {
 			info.lastUsed = time.Now()
 			return info.containerID, nil
 		}
 		// Reconfigured sandboxes are replaced. A stopped one with the same
 		// configuration is left for Create to resume, keeping what was
 		// installed in it.
-		if info.config != cfg {
+		if !info.config.Equal(cfg) {
 			m.removeLogged(ctx, info.containerID)
 		}
 		delete(m.containers, orgID)
@@ -427,6 +451,79 @@ func (m *Manager) workspaceUsage(ctx context.Context, handle string) (int64, err
 
 func insideWorkspace(dir string) bool {
 	return dir == "/workspace" || strings.HasPrefix(dir, "/workspace/")
+}
+
+// DefaultHomePath is where a persistent home is mounted when the owner has not
+// chosen a location. It is root's home because the stock images sandboxes run
+// have no other user.
+const DefaultHomePath = "/root"
+
+// homeReservedPaths cannot hold a home: mounting over them would break the
+// image or collide with the workspace volume.
+var homeReservedPaths = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/run", "/sbin", "/sys", "/tmp", "/usr", "/var", "/workspace"}
+
+// ValidHomePath reports whether p may be the mount point of a persistent home:
+// a clean absolute directory that is neither the root nor inside a system
+// directory or the workspace.
+func ValidHomePath(p string) bool {
+	if p == "" || len(p) > 256 || !strings.HasPrefix(p, "/") || p == "/" || path.Clean(p) != p {
+		return false
+	}
+	for _, r := range p {
+		if r < 0x20 || r == 0x7f || r == ':' || r == ',' || r == '\\' {
+			return false
+		}
+	}
+	for _, reserved := range homeReservedPaths {
+		if p == reserved || strings.HasPrefix(p, reserved+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+// HomeRemover is implemented by drivers that keep a persistent home outside
+// the scope's own storage.
+type HomeRemover interface {
+	// RemoveHome deletes every sandbox that mounts homeScope's home, then the
+	// home itself. A missing home is not an error.
+	RemoveHome(ctx context.Context, homeScope string) error
+}
+
+// RemoveHome deletes a persistent home. The listed scopes are forgotten
+// first, because the driver removes the sandboxes that mount the home and
+// they must be created again (with an empty home) on next use.
+func (m *Manager) RemoveHome(ctx context.Context, homeScope string, scopes ...string) error {
+	remover, ok := m.driver.(HomeRemover)
+	if !ok {
+		return fmt.Errorf("the %s runtime does not support persistent homes", m.driver.Name())
+	}
+	m.mu.Lock()
+	for _, scope := range scopes {
+		delete(m.containers, scope)
+	}
+	m.mu.Unlock()
+	return remover.RemoveHome(ctx, homeScope)
+}
+
+// CopyFile writes data to an absolute path inside the scope's sandbox without
+// running anything in it. Unlike command execution it is not limited to
+// /workspace, so it is used only for destinations the caller has validated.
+func (m *Manager) CopyFile(ctx context.Context, scopeID string, cfg Config, dest string, data []byte, mode fs.FileMode) error {
+	installer, ok := m.driver.(FileInstaller)
+	if !ok {
+		return fmt.Errorf("the %s runtime cannot copy files", m.driver.Name())
+	}
+	handle, err := m.EnsureContainer(ctx, scopeID, cfg)
+	if err != nil {
+		return err
+	}
+	if handle == "" {
+		return fmt.Errorf("container not enabled for scope %s", scopeID)
+	}
+	m.markActive(scopeID, 1)
+	defer m.markActive(scopeID, -1)
+	return installer.InstallFile(ctx, handle, dest, data, mode)
 }
 
 func shortHandle(handle string) string {

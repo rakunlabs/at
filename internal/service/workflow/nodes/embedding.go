@@ -2,7 +2,9 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -29,6 +31,7 @@ type embeddingNode struct {
 	providerKey string
 	model       string
 	dimensions  int
+	inputType   string
 }
 
 func init() {
@@ -38,6 +41,10 @@ func init() {
 func newEmbeddingNode(node service.WorkflowNode) (workflow.Noder, error) {
 	providerKey, _ := node.Data["provider"].(string)
 	model, _ := node.Data["model"].(string)
+	inputType, _ := node.Data["input_type"].(string)
+	if !service.ValidEmbeddingInputType(inputType) {
+		return nil, fmt.Errorf("embedding: invalid input_type %q", inputType)
+	}
 	dimensions := 0
 	if value, ok := node.Data["dimensions"].(float64); ok && value > 0 {
 		dimensions = int(value)
@@ -47,6 +54,7 @@ func newEmbeddingNode(node service.WorkflowNode) (workflow.Noder, error) {
 		providerKey: providerKey,
 		model:       model,
 		dimensions:  dimensions,
+		inputType:   inputType,
 	}, nil
 }
 
@@ -70,6 +78,7 @@ func (n *embeddingNode) Meta() workflow.NodeMeta {
 			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
 			{Name: "model", Type: "string", Description: "Embedding model name"},
 			{Name: "dimensions", Type: "number", Description: "Output vector dimensions (provider/model dependent)"},
+			{Name: "input_type", Type: "string", Description: "Embedding task: search_document, search_query, classification, or clustering"},
 		},
 		Color: "teal",
 	}
@@ -127,16 +136,46 @@ func (n *embeddingNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 
 	req := service.EmbeddingRequest{
-		Input: texts,
-		Model: n.model,
+		Input:     texts,
+		Model:     n.model,
+		InputType: n.inputType,
 	}
 	if n.dimensions > 0 {
 		req.Dimensions = &n.dimensions
 	}
+	requestedModel := n.providerKey
+	if n.model != "" {
+		requestedModel += "/" + n.model
+	}
 
+	requestBody, _ := json.Marshal(req)
+	started := time.Now()
 	resp, err := embProvider.CreateEmbedding(ctx, req)
+	latencyMs := time.Since(started).Milliseconds()
 	if err != nil {
+		if reg.RecordObservation != nil {
+			reg.RecordObservation(ctx, service.LLMCall{
+				ObservationType: service.ObservationGeneration,
+				Name:            "embeddings", Source: "workflow",
+				Provider: n.providerKey, Model: n.model, RequestedModel: requestedModel,
+				RequestBody: string(requestBody), LatencyMs: latencyMs,
+				Status: "error", ErrorCode: "embedding_error", ErrorMessage: err.Error(), Level: service.ObservationLevelError,
+				Metadata: map[string]any{"input_count": len(texts), "input_type": n.inputType},
+			})
+		}
 		return nil, fmt.Errorf("embedding: %w", err)
+	}
+	if reg.RecordObservation != nil {
+		responseBody, _ := json.Marshal(resp)
+		reg.RecordObservation(ctx, service.LLMCall{
+			ObservationType: service.ObservationGeneration,
+			Name:            "embeddings", Source: "workflow",
+			Provider: n.providerKey, Model: resp.Model, RequestedModel: requestedModel,
+			RequestBody: string(requestBody), ResponseBody: string(responseBody),
+			InputTokens: int64(resp.Usage.PromptTokens), LatencyMs: latencyMs,
+			Status: "ok", FinishReason: "stop",
+			Metadata: map[string]any{"input_count": len(texts), "input_type": n.inputType, "usage_estimated": resp.UsageEstimated},
+		})
 	}
 
 	// Convert embeddings to []any for JSON output.
@@ -161,6 +200,11 @@ func (n *embeddingNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		"data": map[string]any{
 			"model":      resp.Model,
 			"embeddings": embeddingsAny,
+			"usage": map[string]any{
+				"prompt_tokens": resp.Usage.PromptTokens,
+				"total_tokens":  resp.Usage.TotalTokenCount(),
+				"estimated":     resp.UsageEstimated,
+			},
 		},
 	}), nil
 }

@@ -17,6 +17,16 @@ func TestDockerCreateRejectsFlagImages(t *testing.T) {
 	}
 }
 
+func TestDockerCreateRejectsInvalidCapabilities(t *testing.T) {
+	d := newDockerDriver()
+	for _, capability := range []string{"ALL", "all", "", "SYS_ADMIN --privileged", "--privileged", "cap_chown"} {
+		_, err := d.Create(context.Background(), "scope", Config{Enabled: true, Image: "debian:13.7-slim", CapAdd: []string{capability}})
+		if err == nil || !strings.Contains(err.Error(), "invalid capability") {
+			t.Fatalf("capability %q must be refused before docker runs, got %v", capability, err)
+		}
+	}
+}
+
 func TestDockerConfigLabelTracksConfiguration(t *testing.T) {
 	base := Config{Enabled: true, Image: "debian:13.7-slim", KeepAlive: true}
 	changed := base
@@ -49,7 +59,7 @@ func TestDockerStockImageSandbox(t *testing.T) {
 	ctx := context.Background()
 	m := New()
 	scope := "test-stock-image-sandbox"
-	cfg := Config{Enabled: true, Image: "debian:13.7-slim", Network: true, KeepAlive: true, RetainWhenIdle: true, PersistentVolume: true, PidsLimit: 128}
+	cfg := Config{Enabled: true, Image: "debian:13.7-slim", Network: true, KeepAlive: true, RetainWhenIdle: true, PersistentVolume: true, PidsLimit: 128, CapAdd: PackageManagerCapabilities}
 	t.Cleanup(func() { _ = m.RemoveScope(context.Background(), scope) })
 
 	// Nothing is installed by AT: the stock image has no git.
@@ -57,7 +67,9 @@ func TestDockerStockImageSandbox(t *testing.T) {
 		t.Fatalf("AT must not provision tools, found: %s", out)
 	}
 	dockerTestShell(t, m, scope, cfg, "echo kept > /workspace/file")
-	dockerTestShell(t, m, scope, cfg, "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git >/dev/null")
+	// openssh-client's postinst runs `groupadd _ssh`, which needs the package
+	// manager capabilities; git pulls it in as a recommendation.
+	dockerTestShell(t, m, scope, cfg, "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends git openssh-client >/dev/null")
 
 	term, err := m.AttachShell(ctx, scope, cfg, "/workspace", 80, 24)
 	if err != nil {

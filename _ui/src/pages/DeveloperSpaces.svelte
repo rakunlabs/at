@@ -19,6 +19,7 @@
   import SessionChat from '@/lib/components/developer/SessionChat.svelte';
   import GitPanel from '@/lib/components/developer/GitPanel.svelte';
   import TerminalPanel from '@/lib/components/developer/TerminalPanel.svelte';
+  import HomeSettings from '@/lib/components/developer/HomeSettings.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
   import {
     baseName, isImagePath, isMarkdownFile, isWithin, joinPath, parentPath, renamedPath, validEntryName,
@@ -200,6 +201,12 @@
     } finally {
       settingsSaving = false;
     }
+  }
+
+  async function restartForHome() {
+    if (dirty.size && !confirm('Mounting the home restarts the container. You have unsaved files; continue? Unsaved edits stay in the editor.')) return;
+    terminals = [];
+    await start();
   }
 
   async function reset() {
@@ -750,6 +757,7 @@
         Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT installs nothing: add whatever you need from the terminal.
         Installed packages stay while the container is stopped and are lost when the image or limits change; files in <code class="font-mono">/workspace</code> are always kept.
       </p>
+      <HomeSettings running={space.status === 'ready'} onrestart={restartForHome} />
     </form>
   {/if}
 

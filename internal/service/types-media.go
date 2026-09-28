@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 )
 
 // ErrUnsupportedOperation is returned by providers that implement a media
@@ -120,6 +122,7 @@ type EmbeddingRequest struct {
 	EncodingFormat string   `json:"encoding_format,omitempty"` // "float" (default) or "base64"
 	Dimensions     *int     `json:"dimensions,omitempty"`
 	User           string   `json:"user,omitempty"`
+	InputType      string   `json:"input_type,omitempty"` // search_document, search_query, classification, clustering
 }
 
 // EmbeddingResponse is the result of an embedding operation.
@@ -128,6 +131,73 @@ type EmbeddingResponse struct {
 	Base64Embeddings []string    `json:"base64_embeddings,omitempty"`
 	Model            string      `json:"model"`
 	Usage            Usage       `json:"usage,omitempty"`
+	UsageEstimated   bool        `json:"usage_estimated,omitempty"`
+}
+
+// ValidEmbeddingInputType reports whether value is a portable embedding task
+// understood by AT's native embedding adapters. Empty preserves each
+// provider's existing default.
+func ValidEmbeddingInputType(value string) bool {
+	switch value {
+	case "", "search_document", "search_query", "classification", "clustering":
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateEmbeddingResponse prevents a partial or malformed upstream batch
+// from being presented as a successful, positionally aligned response.
+func ValidateEmbeddingResponse(req EmbeddingRequest, resp *EmbeddingResponse) error {
+	if resp == nil {
+		return errors.New("embedding response is nil")
+	}
+
+	useBase64 := req.EncodingFormat == "base64" && len(resp.Base64Embeddings) > 0
+	count := len(resp.Embeddings)
+	if useBase64 {
+		count = len(resp.Base64Embeddings)
+	}
+	if count != len(req.Input) {
+		return fmt.Errorf("embedding response count %d does not match input count %d", count, len(req.Input))
+	}
+
+	expected := 0
+	if req.Dimensions != nil {
+		expected = *req.Dimensions
+	}
+	if useBase64 {
+		for i, encoded := range resp.Base64Embeddings {
+			raw, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return fmt.Errorf("embedding %d is not valid base64: %w", i, err)
+			}
+			if len(raw) == 0 || len(raw)%4 != 0 {
+				return fmt.Errorf("embedding %d has invalid float32 byte length %d", i, len(raw))
+			}
+			dimensions := len(raw) / 4
+			if expected == 0 {
+				expected = dimensions
+			}
+			if dimensions != expected {
+				return fmt.Errorf("embedding %d has %d dimensions, expected %d", i, dimensions, expected)
+			}
+		}
+		return nil
+	}
+
+	for i, embedding := range resp.Embeddings {
+		if len(embedding) == 0 {
+			return fmt.Errorf("embedding %d is empty", i)
+		}
+		if expected == 0 {
+			expected = len(embedding)
+		}
+		if len(embedding) != expected {
+			return fmt.Errorf("embedding %d has %d dimensions, expected %d", i, len(embedding), expected)
+		}
+	}
+	return nil
 }
 
 // ModerationRequest describes a content-moderation request.

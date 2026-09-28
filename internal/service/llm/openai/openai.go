@@ -33,6 +33,8 @@ type Provider struct {
 	// limiter is shared by all callers of this provider; nil means no
 	// rate limiting.
 	limiter *ratelimit.Limiter
+
+	embeddingMaxInputs int
 }
 
 // Option configures the Provider.
@@ -47,12 +49,20 @@ func WithTokenSource(ts TokenSource) Option {
 	}
 }
 
-// WithRateLimiter attaches a per-provider rate limiter. All Chat and
-// ChatStream calls will Acquire before issuing the upstream request.
+// WithRateLimiter attaches a per-provider rate limiter. Chat, ChatStream,
+// embedding, and proxy calls Acquire before issuing upstream requests.
 // Pass nil (or omit the option) to disable limiting.
 func WithRateLimiter(l *ratelimit.Limiter) Option {
 	return func(p *Provider) {
 		p.limiter = l
+	}
+}
+
+// WithEmbeddingMaxInputs sets an optional operator-defined maximum batch
+// size. Zero leaves the provider unrestricted beyond upstream limits.
+func WithEmbeddingMaxInputs(limit int) Option {
+	return func(p *Provider) {
+		p.embeddingMaxInputs = limit
 	}
 }
 

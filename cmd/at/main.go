@@ -198,6 +198,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "openai":
 		var opts []openai.Option
+		opts = append(opts, openai.WithEmbeddingMaxInputs(cfg.EmbeddingMaxInputs))
 
 		// Clone extra headers so we don't mutate the original config map.
 		headers := make(map[string]string, len(cfg.ExtraHeaders)+4)
@@ -291,6 +292,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 		}
 		var opts []gemini.Option
+		opts = append(opts, gemini.WithEmbeddingMaxInputs(cfg.EmbeddingMaxInputs))
 		if limiter != nil {
 			opts = append(opts, gemini.WithRateLimiter(limiter))
 		}
@@ -328,6 +330,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		// Azure auth is `api-key: <key>` rather than `Authorization: Bearer`.
 		headers["api-key"] = cfg.APIKey
 		var azOpts []openai.Option
+		azOpts = append(azOpts, openai.WithEmbeddingMaxInputs(cfg.EmbeddingMaxInputs))
 		if limiter != nil {
 			azOpts = append(azOpts, openai.WithRateLimiter(limiter))
 		}
@@ -366,6 +369,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		var gopts []gemini.Option
 		gopts = append(gopts, gemini.WithGoogleTokenSource(&googleAccessTokenSource{inner: ts}))
 		gopts = append(gopts, gemini.WithPathPrefix(pathPrefix))
+		gopts = append(gopts, gemini.WithEmbeddingMaxInputs(cfg.EmbeddingMaxInputs))
 		if limiter != nil {
 			gopts = append(gopts, gemini.WithRateLimiter(limiter))
 		}
@@ -375,6 +379,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("cohere provider requires an api_key (get one from https://dashboard.cohere.com)")
 		}
 		var copts []cohere.Option
+		copts = append(copts, cohere.WithEmbeddingMaxInputs(cfg.EmbeddingMaxInputs))
 		if limiter != nil {
 			copts = append(copts, cohere.WithRateLimiter(limiter))
 		}

@@ -6,6 +6,7 @@
   import ApiOverview from './ApiOverview.svelte';
   import ApiEndpoints from './ApiEndpoints.svelte';
   import ApiProxy from './ApiProxy.svelte';
+  import ApiEmbeddings from './ApiEmbeddings.svelte';
   import ApiAuthentication from './ApiAuthentication.svelte';
   import ApiCodeExamples from './ApiCodeExamples.svelte';
   import ApiOpencodeConfig from './ApiOpencodeConfig.svelte';
@@ -51,6 +52,8 @@
   <ApiEndpoints {baseUrl} />
 {:else if sectionId === 'proxy'}
   <ApiProxy {baseUrl} />
+{:else if sectionId === 'embeddings'}
+  <ApiEmbeddings {baseUrl} model={exampleModel} />
 {:else if sectionId === 'authentication'}
   <ApiAuthentication />
 {:else if sectionId === 'code-examples'}

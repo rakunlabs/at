@@ -35,6 +35,14 @@ function buildCleanConfig(config: LLMConfig): Record<string, unknown> {
     clean.model_capabilities = config.model_capabilities;
   }
 
+  if (config.embedding_models && config.embedding_models.length > 0) {
+    clean.embedding_models = config.embedding_models;
+  }
+
+  if (config.embedding_max_inputs) {
+    clean.embedding_max_inputs = config.embedding_max_inputs;
+  }
+
   if (config.extra_headers && Object.keys(config.extra_headers).length > 0) {
     clean.extra_headers = config.extra_headers;
   }

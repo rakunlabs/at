@@ -25,6 +25,22 @@
     placeholder="text-embedding-3-small"
   /></label>
 </div>
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Input type</span>
+    <select
+      bind:value={data.input_type}
+      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-400 dark:border-dark-border dark:bg-dark-surface"
+    >
+      <option value="">Provider default</option>
+      <option value="search_document">Search document</option>
+      <option value="search_query">Search query</option>
+      <option value="classification">Classification</option>
+      <option value="clustering">Clustering</option>
+    </select>
+  </label>
+  <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Use matching document/query modes for semantic search.</p>
+</div>
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>

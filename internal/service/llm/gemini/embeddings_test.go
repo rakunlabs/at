@@ -24,7 +24,12 @@ func TestCreateEmbeddingForwardsDimensions(t *testing.T) {
 		if len(body.Requests) != 1 || body.Requests[0].OutputDimensionality == nil || *body.Requests[0].OutputDimensionality != 768 {
 			t.Errorf("requests = %+v", body.Requests)
 		}
-		_, _ = w.Write([]byte(`{"embeddings":[{"values":[1,2]}]}`))
+		if body.Requests[0].TaskType != "RETRIEVAL_QUERY" {
+			t.Errorf("taskType = %q", body.Requests[0].TaskType)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": []any{map[string]any{"values": make([]float64, 768)}},
+		})
 	}))
 	defer server.Close()
 
@@ -37,11 +42,15 @@ func TestCreateEmbeddingForwardsDimensions(t *testing.T) {
 		Input:      []string{"hello"},
 		Model:      "gemini-embedding-001",
 		Dimensions: &dimensions,
+		InputType:  "search_query",
 	})
 	if err != nil {
 		t.Fatalf("CreateEmbedding: %v", err)
 	}
-	if len(resp.Embeddings) != 1 || len(resp.Embeddings[0]) != 2 {
+	if len(resp.Embeddings) != 1 || len(resp.Embeddings[0]) != 768 {
 		t.Fatalf("embeddings = %#v", resp.Embeddings)
+	}
+	if !resp.UsageEstimated || resp.Usage.TotalTokenCount() == 0 {
+		t.Fatalf("estimated usage = %+v flag=%v", resp.Usage, resp.UsageEstimated)
 	}
 }

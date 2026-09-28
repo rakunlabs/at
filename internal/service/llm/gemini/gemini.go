@@ -42,6 +42,8 @@ type Provider struct {
 	// rate limiting.
 	limiter *ratelimit.Limiter
 
+	embeddingMaxInputs int
+
 	// tokenSource, when non-nil, replaces the x-goog-api-key auth scheme
 	// with `Authorization: Bearer <token>` on every outgoing request.
 	// Used by the Vertex-Gemini path to authenticate via Google ADC.
@@ -81,12 +83,20 @@ func WithPathPrefix(prefix string) Option {
 	}
 }
 
-// WithRateLimiter attaches a per-provider rate limiter. All Chat and
-// ChatStream calls will Acquire before issuing the upstream request.
+// WithRateLimiter attaches a per-provider rate limiter. Chat, ChatStream,
+// embedding, and proxy calls Acquire before issuing upstream requests.
 // Pass nil (or omit the option) to disable limiting.
 func WithRateLimiter(l *ratelimit.Limiter) Option {
 	return func(p *Provider) {
 		p.limiter = l
+	}
+}
+
+// WithEmbeddingMaxInputs sets an optional operator-defined maximum batch
+// size. Zero leaves the provider unrestricted beyond upstream limits.
+func WithEmbeddingMaxInputs(limit int) Option {
+	return func(p *Provider) {
+		p.embeddingMaxInputs = limit
 	}
 }
 

@@ -59,16 +59,24 @@ func TestDeveloperEditIsAnEdit(t *testing.T) {
 }
 
 func TestDeveloperContainerConfigEnforcesDefaults(t *testing.T) {
-	cfg := developerContainerConfig(&service.DeveloperSpace{ID: "space", WorkspaceID: "workspace", OwnerUserID: "owner"})
+	cfg := developerContainerConfig(&service.DeveloperSpace{ID: "space", WorkspaceID: "workspace", OwnerUserID: "owner"}, developerHome{})
 	if !cfg.PreferRootless || !cfg.PersistentVolume || cfg.CPU == "" || cfg.Memory == "" || cfg.DiskLimitBytes <= 0 || cfg.PidsLimit <= 0 {
 		t.Fatalf("developer container defaults are not bounded: %+v", cfg)
 	}
 	if cfg.Image != service.DefaultDeveloperImage || !cfg.KeepAlive || !cfg.RetainWhenIdle {
 		t.Fatalf("developer container should default to a retained, kept-alive %s: %+v", service.DefaultDeveloperImage, cfg)
 	}
-	custom := developerContainerConfig(&service.DeveloperSpace{Image: " ghcr.io/org/dev:1 ", CPULimit: "4", MemoryLimit: "8g"})
+	if cfg.HomeScope != "" || cfg.HomePath != "" {
+		t.Fatalf("a home must be opt-in so existing containers keep their configuration label: %+v", cfg)
+	}
+	custom := developerContainerConfig(&service.DeveloperSpace{Image: " ghcr.io/org/dev:1 ", CPULimit: "4", MemoryLimit: "8g"}, developerHome{})
 	if custom.Image != "ghcr.io/org/dev:1" || custom.CPU != "4" || custom.Memory != "8g" {
 		t.Fatalf("developer container ignores the space settings: %+v", custom)
+	}
+	a := developerContainerConfig(&service.DeveloperSpace{ID: "a", WorkspaceID: "w1", OwnerUserID: "owner"}, developerHome{Enabled: true})
+	b := developerContainerConfig(&service.DeveloperSpace{ID: "b", WorkspaceID: "w2", OwnerUserID: "owner"}, developerHome{Enabled: true, Path: "/home/dev"})
+	if a.HomePath != "/root" || b.HomePath != "/home/dev" || a.HomeScope == "" || a.HomeScope != b.HomeScope {
+		t.Fatalf("one account's spaces must share one home, mounted where it chose: %+v %+v", a, b)
 	}
 }
 

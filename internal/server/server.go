@@ -49,7 +49,8 @@ type ProviderInfo struct {
 
 	// embeddingModels lists the embedding models this provider serves via
 	// /gateway/v1/embeddings. Advertised by /gateway/v1/models; advisory.
-	embeddingModels []string
+	embeddingModels    []string
+	embeddingMaxInputs int
 
 	// disabled parks the provider: it stays in the registry (so availability
 	// can be toggled without rebuilding it) but getProviderInfo refuses it, so
@@ -568,6 +569,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		lspManager:       newLSPManager(),
 		containerManager: container.New(),
 	}
+	if native != nil {
+		native.onUserDeleted = s.removeDeveloperHome
+	}
 
 	// Wire the OAuth refresh persistence callback on every initially-loaded
 	// provider. This is a no-op for providers that don't use an OAuth
@@ -1063,6 +1067,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/developer-space/reset", s.ResetDeveloperSpaceAPI)
 	apiGroup.POST("/v1/developer-space/start", s.StartDeveloperSpaceAPI)
 	apiGroup.POST("/v1/developer-space/stop", s.StopDeveloperSpaceAPI)
+	apiGroup.GET("/v1/developer-space/home", s.DeveloperHomeAPI)
+	apiGroup.PUT("/v1/developer-space/home", s.DeveloperHomeAPI)
+	apiGroup.POST("/v1/developer-space/home/files", s.UploadDeveloperHomeFileAPI)
+	apiGroup.POST("/v1/developer-space/home/reset", s.ResetDeveloperHomeAPI)
 	apiGroup.GET("/v1/developer-space/terminal", s.DeveloperSpaceTerminalAPI)
 	apiGroup.GET("/v1/developer-space/files", s.ListDeveloperFilesAPI)
 	apiGroup.GET("/v1/developer-space/files/content", s.ReadDeveloperFileAPI)
@@ -1434,16 +1442,17 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		cap = cfg.RateLimit.RetryAfterCap()
 	}
 	return ProviderInfo{
-		provider:          provider,
-		providerType:      cfg.Type,
-		authType:          cfg.AuthType,
-		defaultModel:      cfg.Model,
-		models:            cfg.Models,
-		modelLimits:       cfg.ModelLimits,
-		modelCapabilities: cfg.ModelCapabilities,
-		embeddingModels:   cfg.EmbeddingModels,
-		disabled:          cfg.Disabled,
-		retryAfterCap:     cap,
+		provider:           provider,
+		providerType:       cfg.Type,
+		authType:           cfg.AuthType,
+		defaultModel:       cfg.Model,
+		models:             cfg.Models,
+		modelLimits:        cfg.ModelLimits,
+		modelCapabilities:  cfg.ModelCapabilities,
+		embeddingModels:    cfg.EmbeddingModels,
+		embeddingMaxInputs: cfg.EmbeddingMaxInputs,
+		disabled:           cfg.Disabled,
+		retryAfterCap:      cap,
 	}
 }
 

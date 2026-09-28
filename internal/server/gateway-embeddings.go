@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -13,6 +14,8 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
+const embeddingRequestBodyMaxBytes = 16 << 20
+
 // embeddingsRequest mirrors the OpenAI /v1/embeddings request body.
 //
 // `input` may be a single string OR an array of strings (per OpenAI spec);
@@ -20,17 +23,19 @@ import (
 type embeddingsRequest struct {
 	Input          json.RawMessage `json:"input"`
 	Model          string          `json:"model"`
-	EncodingFormat string          `json:"encoding_format,omitempty"` // "float" | "base64" — currently we always return float
+	EncodingFormat string          `json:"encoding_format,omitempty"` // "float" | "base64"
 	Dimensions     *int            `json:"dimensions,omitempty"`      // accepted but only forwarded to providers that support it
 	User           string          `json:"user,omitempty"`
+	InputType      string          `json:"input_type,omitempty"` // AT extension: search_document | search_query | classification | clustering
 }
 
 // embeddingsResponse mirrors the OpenAI /v1/embeddings response body.
 type embeddingsResponse struct {
-	Object string           `json:"object"` // "list"
-	Data   []embeddingDatum `json:"data"`
-	Model  string           `json:"model"`
-	Usage  embeddingsUsage  `json:"usage"`
+	Object         string           `json:"object"` // "list"
+	Data           []embeddingDatum `json:"data"`
+	Model          string           `json:"model"`
+	Usage          embeddingsUsage  `json:"usage"`
+	UsageEstimated bool             `json:"at_usage_estimated,omitempty"`
 }
 
 type embeddingDatum struct {
@@ -64,7 +69,18 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req embeddingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, embeddingRequestBodyMaxBytes)).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			httpResponseJSON(w, map[string]any{
+				"error": map[string]any{
+					"message": fmt.Sprintf("request body exceeds %d bytes", embeddingRequestBodyMaxBytes),
+					"type":    "invalid_request_error",
+					"code":    "request_too_large",
+				},
+			}, http.StatusRequestEntityTooLarge)
+			return
+		}
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("invalid request body: %v", err),
@@ -101,6 +117,38 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 				"message": "input is required",
 				"type":    "invalid_request_error",
 				"param":   "input",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
+	for i, input := range inputs {
+		if input == "" {
+			httpResponseJSON(w, map[string]any{
+				"error": map[string]any{
+					"message": fmt.Sprintf("input[%d] must not be an empty string", i),
+					"type":    "invalid_request_error",
+					"param":   "input",
+				},
+			}, http.StatusBadRequest)
+			return
+		}
+	}
+	if !service.ValidEmbeddingInputType(req.InputType) {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": "input_type must be one of search_document, search_query, classification, or clustering",
+				"type":    "invalid_request_error",
+				"param":   "input_type",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
+	if req.Dimensions != nil && *req.Dimensions < 0 {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": "dimensions must be greater than 0 (or 0 to use the model default)",
+				"type":    "invalid_request_error",
+				"param":   "dimensions",
 			},
 		}, http.StatusBadRequest)
 		return
@@ -156,6 +204,17 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusNotFound)
 		return
 	}
+	if info.embeddingMaxInputs > 0 && len(inputs) > info.embeddingMaxInputs {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": fmt.Sprintf("input contains %d texts; provider maximum is %d", len(inputs), info.embeddingMaxInputs),
+				"type":    "invalid_request_error",
+				"param":   "input",
+				"code":    "batch_too_large",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
 
 	embProvider, ok := info.provider.(service.EmbeddingProvider)
 	if !ok {
@@ -175,20 +234,50 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	callStart := time.Now()
+	traceID, sessionID := auditTraceInfo(r)
+	rawBody, _ := json.Marshal(req)
 	resp, err := embProvider.CreateEmbedding(r.Context(), service.EmbeddingRequest{
 		Input:          inputs,
 		Model:          actualModel,
 		EncodingFormat: req.EncodingFormat,
 		Dimensions:     dimensions,
 		User:           req.User,
+		InputType:      req.InputType,
 	})
 	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
+		s.noteProviderError(providerKey, err)
 		slog.Error("embeddings provider call failed", "provider", providerKey, "error", err)
 		s.recordUsageAsync(r.Context(), auth, req.Model, service.Usage{}, latencyMs, "error", classifyHTTPError(err), err.Error())
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "gateway", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model, fullModel: req.Model,
+			latencyMs: latencyMs, status: "error", errCode: classifyHTTPError(err), errMsg: err.Error(),
+			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, false),
+		})
 		status, body := classifyGatewayError(err)
 		addGatewayRateLimitHeaders(w, err)
 		httpResponseJSON(w, body, status)
+		return
+	}
+	validationReq := service.EmbeddingRequest{
+		Input: inputs, EncodingFormat: req.EncodingFormat, Dimensions: dimensions,
+	}
+	if err := service.ValidateEmbeddingResponse(validationReq, resp); err != nil {
+		err = fmt.Errorf("invalid upstream embedding response: %w", err)
+		slog.Error("embeddings provider returned invalid response", "provider", providerKey, "error", err)
+		s.recordUsageAsync(r.Context(), auth, req.Model, service.Usage{}, latencyMs, "error", "invalid_upstream_response", err.Error())
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "gateway", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model, fullModel: req.Model,
+			latencyMs: latencyMs, status: "error", errCode: "invalid_upstream_response", errMsg: err.Error(),
+			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
+		})
+		httpResponseJSON(w, map[string]any{"error": map[string]any{
+			"message": err.Error(), "type": "server_error", "code": "invalid_upstream_response",
+		}}, http.StatusBadGateway)
 		return
 	}
 
@@ -220,10 +309,40 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 			PromptTokens: resp.Usage.PromptTokens,
 			TotalTokens:  resp.Usage.TotalTokenCount(),
 		},
+		UsageEstimated: resp.UsageEstimated,
+	}
+	if costCents := s.estimateGatewayUsageCostCents(r.Context(), providerKey, actualModel, req.Model, resp.Usage); costCents > 0 {
+		w.Header().Set("x-at-response-cost-cents", fmt.Sprintf("%.6f", costCents))
 	}
 
 	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage, latencyMs, "ok", "", "")
+	if responseBody, marshalErr := json.Marshal(out); marshalErr == nil {
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "gateway", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, responseBody: responseBody,
+			requestedModel: req.Model, fullModel: req.Model,
+			usage: resp.Usage, latencyMs: latencyMs, status: "ok", finishReason: "stop",
+			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
+		})
+	}
 	httpResponseJSON(w, out, http.StatusOK)
+}
+
+func embeddingAuditMetadata(inputs []string, req embeddingsRequest, usageEstimated bool) map[string]any {
+	inputBytes := 0
+	for _, input := range inputs {
+		inputBytes += len(input)
+	}
+	metadata := map[string]any{
+		"operation": "embeddings", "input_count": len(inputs), "input_bytes": inputBytes,
+		"encoding_format": req.EncodingFormat, "input_type": req.InputType,
+		"usage_estimated": usageEstimated,
+	}
+	if req.Dimensions != nil {
+		metadata["dimensions"] = *req.Dimensions
+	}
+	return metadata
 }
 
 // encodeEmbeddingBase64 matches OpenAI's base64 representation: contiguous

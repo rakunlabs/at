@@ -130,6 +130,13 @@ func validateRateLimitConfig(rl *config.RateLimitConfig) string {
 	return ""
 }
 
+func validateEmbeddingConfig(cfg config.LLMConfig) string {
+	if cfg.EmbeddingMaxInputs < 0 {
+		return "config.embedding_max_inputs must be >= 0"
+	}
+	return ""
+}
+
 // validateModelLimits checks metadata that is published to gateway clients.
 // Both values are required together because discovery clients cannot safely
 // infer the missing half of a model's usable token budget.
@@ -295,6 +302,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
+	if msg := validateEmbeddingConfig(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
 	if msg := validateModelLimits(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
@@ -374,6 +385,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+	if msg := validateEmbeddingConfig(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}

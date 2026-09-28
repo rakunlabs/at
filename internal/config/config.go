@@ -287,6 +287,11 @@ type LLMConfig struct {
 	// are still forwarded to the provider.
 	EmbeddingModels []string `cfg:"embedding_models" json:"embedding_models"`
 
+	// EmbeddingMaxInputs optionally caps the number of texts accepted by one
+	// embedding call. Zero leaves the limit unset; provider adapters may still
+	// split a call to satisfy an upstream's mandatory batch size.
+	EmbeddingMaxInputs int `cfg:"embedding_max_inputs" json:"embedding_max_inputs,omitempty"`
+
 	// ExtraHeaders allows setting additional HTTP headers sent with each request.
 	// Useful for providers that require custom headers (e.g., GitHub Models).
 	ExtraHeaders map[string]string `cfg:"extra_headers" json:"extra_headers"`

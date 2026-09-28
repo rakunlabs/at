@@ -47,6 +47,8 @@ export interface LLMConfig {
   model_limits?: Record<string, ModelLimitConfig>;
   model_capabilities?: Record<string, ModelCapabilityConfig>;
   embedding_models?: string[];
+  // Optional operator cap for texts in one embedding request. Omitted = unlimited.
+  embedding_max_inputs?: number;
   extra_headers?: Record<string, string>;
   auth_type?: string;
   // OAuth refresh token managed by provider auth flows; redacted by the server.

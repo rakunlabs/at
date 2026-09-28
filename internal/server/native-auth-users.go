@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -167,6 +168,9 @@ func (a *nativeAuth) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.InfoContext(r.Context(), "account deleted", "user_id", id, "actor_id", identity.FromContext(r.Context()).Subject)
+	if a.onUserDeleted != nil {
+		a.onUserDeleted(context.WithoutCancel(r.Context()), id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

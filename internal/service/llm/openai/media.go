@@ -13,6 +13,8 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/common"
 )
 
+const mediaJSONResponseMaxBytes = 256 << 20
+
 func mediaAPIError(resp *http.Response, body []byte) error {
 	message := strings.TrimSpace(string(body))
 	var envelope struct {
@@ -113,9 +115,12 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, mediaJSONResponseMaxBytes+1))
 	if err != nil {
 		return fmt.Errorf("read response: %w", err)
+	}
+	if len(respBody) > mediaJSONResponseMaxBytes {
+		return fmt.Errorf("read response: body exceeds %d bytes", mediaJSONResponseMaxBytes)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -411,6 +416,7 @@ type embeddingRequest struct {
 type embeddingResponse struct {
 	Data []struct {
 		Embedding json.RawMessage `json:"embedding"`
+		Index     *int            `json:"index"`
 	} `json:"data"`
 	Model string `json:"model"`
 	Usage struct {
@@ -421,6 +427,15 @@ type embeddingResponse struct {
 
 // CreateEmbedding implements service.EmbeddingProvider.
 func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingRequest) (*service.EmbeddingResponse, error) {
+	if p.embeddingMaxInputs > 0 && len(req.Input) > p.embeddingMaxInputs {
+		return nil, fmt.Errorf("embedding input count %d exceeds configured maximum %d", len(req.Input), p.embeddingMaxInputs)
+	}
+	release, err := p.limiter.Acquire(ctx, common.EstimateEmbeddingInputTokens(req.Input))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	url := p.apiURL("/embeddings")
 
 	model := req.Model
@@ -441,27 +456,50 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		return nil, fmt.Errorf("create embedding: %w", err)
 	}
 
+	ordered := apiResp.Data
+	indexed := len(apiResp.Data) > 0
+	for _, datum := range apiResp.Data {
+		if datum.Index == nil {
+			indexed = false
+			break
+		}
+	}
+	if indexed {
+		ordered = make([]struct {
+			Embedding json.RawMessage `json:"embedding"`
+			Index     *int            `json:"index"`
+		}, len(apiResp.Data))
+		seen := make([]bool, len(apiResp.Data))
+		for _, datum := range apiResp.Data {
+			if *datum.Index < 0 || *datum.Index >= len(ordered) || seen[*datum.Index] {
+				return nil, fmt.Errorf("create embedding: invalid or duplicate response index %d", *datum.Index)
+			}
+			seen[*datum.Index] = true
+			ordered[*datum.Index] = datum
+		}
+	}
+
 	var (
 		embeddings       [][]float64
 		base64Embeddings []string
 	)
 	if req.EncodingFormat == "base64" {
-		base64Embeddings = make([]string, len(apiResp.Data))
-		for i, d := range apiResp.Data {
+		base64Embeddings = make([]string, len(ordered))
+		for i, d := range ordered {
 			if err := json.Unmarshal(d.Embedding, &base64Embeddings[i]); err != nil {
 				return nil, fmt.Errorf("decode base64 embedding at index %d: %w", i, err)
 			}
 		}
 	} else {
-		embeddings = make([][]float64, len(apiResp.Data))
-		for i, d := range apiResp.Data {
+		embeddings = make([][]float64, len(ordered))
+		for i, d := range ordered {
 			if err := json.Unmarshal(d.Embedding, &embeddings[i]); err != nil {
 				return nil, fmt.Errorf("decode float embedding at index %d: %w", i, err)
 			}
 		}
 	}
 
-	return &service.EmbeddingResponse{
+	result := &service.EmbeddingResponse{
 		Embeddings:       embeddings,
 		Base64Embeddings: base64Embeddings,
 		Model:            apiResp.Model,
@@ -469,7 +507,16 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 			PromptTokens: apiResp.Usage.PromptTokens,
 			TotalTokens:  apiResp.Usage.TotalTokens,
 		},
-	}, nil
+	}
+	if result.Usage.TotalTokenCount() == 0 {
+		result.Usage.PromptTokens = common.EstimateEmbeddingInputTokens(req.Input)
+		result.Usage.TotalTokens = result.Usage.PromptTokens
+		result.UsageEstimated = true
+	}
+	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
+		return nil, fmt.Errorf("create embedding: invalid upstream response: %w", err)
+	}
+	return result, nil
 }
 
 // ─── Moderations ───

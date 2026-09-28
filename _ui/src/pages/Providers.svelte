@@ -1022,6 +1022,7 @@
   let showModelCapabilitiesSection = $state(false);
   let formEmbeddingModels = $state<string[]>([]);
   let newEmbeddingModelInput = $state('');
+  let formEmbeddingMaxInputs = $state('');
   let formAuthType = $state('');
   let formProxy = $state('');
   let formInsecureSkipVerify = $state(false);
@@ -1139,6 +1140,7 @@
     showModelCapabilitiesSection = false;
     formEmbeddingModels = [];
     newEmbeddingModelInput = '';
+    formEmbeddingMaxInputs = '';
     formAuthType = '';
     formProxy = '';
     formInsecureSkipVerify = false;
@@ -1199,6 +1201,7 @@
     );
     showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(preset.config.embedding_models || [])];
+    formEmbeddingMaxInputs = preset.config.embedding_max_inputs ? String(preset.config.embedding_max_inputs) : '';
     formAuthType = preset.config.auth_type || '';
     formProxy = '';
     formExtraHeaders = preset.extraHeaders ? [...preset.extraHeaders] : [];
@@ -1239,6 +1242,7 @@
     );
     showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(rec.config.embedding_models || [])];
+    formEmbeddingMaxInputs = rec.config.embedding_max_inputs ? String(rec.config.embedding_max_inputs) : '';
     formAuthType = rec.config.auth_type || '';
     formProxy = rec.config.proxy || '';
     formInsecureSkipVerify = rec.config.insecure_skip_verify || false;
@@ -1299,6 +1303,10 @@
 
     const embeddingModels = formEmbeddingModels.filter(Boolean);
     if (embeddingModels.length > 0) cfg.embedding_models = embeddingModels;
+    const embeddingMaxInputs = Number(formEmbeddingMaxInputs.trim());
+    if (formEmbeddingMaxInputs.trim() !== '' && Number.isInteger(embeddingMaxInputs) && embeddingMaxInputs > 0) {
+      cfg.embedding_max_inputs = embeddingMaxInputs;
+    }
 
     const headers: Record<string, string> = {};
     for (const h of formExtraHeaders) {
@@ -1337,6 +1345,14 @@
     if (!formKey || !formType || !formModel) {
       addToast('Key, type and model are required', 'warn');
       return;
+    }
+
+    if (formEmbeddingMaxInputs.trim() !== '') {
+      const limit = Number(formEmbeddingMaxInputs);
+      if (!Number.isInteger(limit) || limit <= 0) {
+        addToast('Maximum embedding inputs must be a positive whole number', 'warn');
+        return;
+      }
     }
 
     if (credentialsError) {
@@ -2787,6 +2803,18 @@
               </button>
             </div>
             <p class="text-xs text-gray-400 dark:text-dark-text-muted">Served via <span class="font-mono">/gateway/v1/embeddings</span> and advertised by <span class="font-mono">/gateway/v1/models</span>.</p>
+            <label class="block max-w-xs">
+              <span class="block text-xs font-medium text-gray-600 dark:text-dark-text-secondary mb-1">Maximum inputs per request</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                bind:value={formEmbeddingMaxInputs}
+                placeholder="Unlimited"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+              />
+              <span class="mt-1 block text-xs text-gray-400 dark:text-dark-text-muted">Optional. Leave blank to apply no AT batch limit; upstream limits still apply.</span>
+            </label>
             {/if}
           </div>
         </div>

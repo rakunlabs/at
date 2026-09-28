@@ -12,6 +12,8 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/common"
 )
 
+const embeddingResponseMaxBytes = 256 << 20
+
 // ─── Embeddings ───
 //
 // Native Gemini embeddings endpoint:
@@ -26,6 +28,7 @@ type embedRequest struct {
 	Model                string  `json:"model"`
 	Content              content `json:"content"`
 	OutputDimensionality *int    `json:"outputDimensionality,omitempty"`
+	TaskType             string  `json:"taskType,omitempty"`
 }
 
 type batchEmbedResponse struct {
@@ -39,6 +42,15 @@ type batchEmbedResponse struct {
 // On the public Generative Language API this requires an API key
 // (x-goog-api-key); on Vertex-Gemini it uses the configured token source.
 func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingRequest) (*service.EmbeddingResponse, error) {
+	if p.embeddingMaxInputs > 0 && len(req.Input) > p.embeddingMaxInputs {
+		return nil, fmt.Errorf("embedding input count %d exceeds configured maximum %d", len(req.Input), p.embeddingMaxInputs)
+	}
+	release, err := p.limiter.Acquire(ctx, common.EstimateEmbeddingInputTokens(req.Input))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	model := req.Model
 	if model == "" {
 		model = "text-embedding-004"
@@ -47,6 +59,7 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 	body := batchEmbedRequest{
 		Requests: make([]embedRequest, len(req.Input)),
 	}
+	taskType := geminiEmbeddingTaskType(req.InputType)
 	for i, text := range req.Input {
 		body.Requests[i] = embedRequest{
 			// Per Gemini docs, the per-request model field must be of the
@@ -56,6 +69,7 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 				Parts: []part{{Text: text}},
 			},
 			OutputDimensionality: req.Dimensions,
+			TaskType:             taskType,
 		}
 	}
 
@@ -90,9 +104,12 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		return nil, fmt.Errorf("gemini embed http: %w", err)
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, embeddingResponseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read embed response: %w", err)
+	}
+	if len(respBody) > embeddingResponseMaxBytes {
+		return nil, fmt.Errorf("read embed response: body exceeds %d bytes", embeddingResponseMaxBytes)
 	}
 	if resp.StatusCode >= 400 {
 		message := string(respBody)
@@ -130,8 +147,30 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 	for i, e := range parsed.Embeddings {
 		out[i] = e.Values
 	}
-	return &service.EmbeddingResponse{
-		Embeddings: out,
-		Model:      model,
-	}, nil
+	usage := common.EstimateEmbeddingInputTokens(req.Input)
+	result := &service.EmbeddingResponse{
+		Embeddings:     out,
+		Model:          model,
+		Usage:          service.Usage{PromptTokens: usage, TotalTokens: usage},
+		UsageEstimated: true,
+	}
+	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
+		return nil, fmt.Errorf("gemini embed: invalid upstream response: %w", err)
+	}
+	return result, nil
+}
+
+func geminiEmbeddingTaskType(inputType string) string {
+	switch inputType {
+	case "search_document":
+		return "RETRIEVAL_DOCUMENT"
+	case "search_query":
+		return "RETRIEVAL_QUERY"
+	case "classification":
+		return "CLASSIFICATION"
+	case "clustering":
+		return "CLUSTERING"
+	default:
+		return ""
+	}
 }
