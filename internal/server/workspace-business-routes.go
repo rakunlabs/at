@@ -223,6 +223,11 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"PUT", "/chats/local-mcp-servers", "models.use", "", ""},
 		{"POST", "/chats/local-mcp-servers/{id}/reveal", "models.use", "", ""},
 		{"POST", "/chats/tool-observations", "models.use", "", ""},
+		// Agent-bound (context: fork) skills run their agent server-side for
+		// the browser loop. Entry rides Chats; the skill and agent are each
+		// re-checked by the execution policy (skills.use, agents.run).
+		{"POST", "/chats/skill-runs", "models.use", "", ""},
+		{"GET", "/chats/skill-runs/{id}", "models.use", "", ""},
 		// The Playground's tool plane. These endpoints dispatch server-side
 		// tools for a browser-driven loop, so they ride the same `models.use`
 		// entry capability as the Playground itself; what a caller may actually

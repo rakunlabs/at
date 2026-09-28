@@ -101,3 +101,29 @@ export async function callBuiltinTool(
   });
   return res.data;
 }
+
+export interface SkillRunStatus {
+  run_id: string;
+  status: 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
+  agent_name: string;
+  result?: string;
+  error?: string;
+}
+
+/**
+ * Run an agent-bound (context: fork) skill. Foreground answers with the
+ * subagent's result; background answers with a run ID for waitSkillRun.
+ */
+export async function runSkill(
+  body: { skill: string; task: string; context?: string; background?: boolean; trace_id?: string },
+  signal?: AbortSignal,
+): Promise<BuiltinCallToolResponse> {
+  const res = await api.post<BuiltinCallToolResponse>('/chats/skill-runs', body, { signal });
+  return res.data;
+}
+
+/** Long-polls one background skill run for up to `waitSeconds`. */
+export async function waitSkillRun(runId: string, waitSeconds = 20, signal?: AbortSignal): Promise<SkillRunStatus> {
+  const res = await api.get<SkillRunStatus>(`/chats/skill-runs/${encodeURIComponent(runId)}`, { params: { wait: waitSeconds }, signal });
+  return res.data;
+}

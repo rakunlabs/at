@@ -14,7 +14,7 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { listBuiltinTools, callBuiltinTool, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
@@ -94,7 +94,7 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2 } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -116,7 +116,7 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension';
+    type: 'mcp' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension' | 'skill';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** MCP Set name (when type === 'mcpset') */
@@ -261,6 +261,46 @@
   let systemPrompt = $state('');
   let userInput = $state('');
   let activeTool = $state<{ messageIndex: number; callID: string } | null>(null);
+  /** Live status line per running agent-skill tool call, keyed by tool call ID. */
+  let skillRunProgress = $state<Record<string, string>>({});
+  /** Background skill runs started in the current turn. */
+  let turnSkillRuns = $state<{ id: string; skill: string; reported: boolean }[]>([]);
+  const RUN_SKILL_TOOL = 'run_skill';
+  const WAIT_SKILL_RUNS_TOOL = 'wait_skill_runs';
+  /** Assistant messages shown as raw text instead of rendered markdown, by index. */
+  let rawMessages = $state<Record<number, boolean>>({});
+  /** Index of the message whose text was just copied, for the check-mark feedback. */
+  let copiedIndex = $state<number | null>(null);
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function messageText(content: ChatMessage['content']): string {
+    return typeof content === 'string' ? content : getTextContent(content);
+  }
+
+  async function copyMessage(index: number) {
+    const text = messageText(messages[index]?.content ?? '');
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Plain-HTTP LAN deployments have no Clipboard API.
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const ok = document.execCommand('copy');
+        area.remove();
+        if (!ok) throw new Error('copy failed');
+      }
+      copiedIndex = index;
+      if (copiedTimer) clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => { copiedIndex = null; }, 1500);
+    } catch {
+      addToast('Could not copy to the clipboard', 'alert');
+    }
+  }
   let messages = $state<ChatMessage[]>([]);
   let toolResults = $derived(toolResultsByMessage(messages));
   let loading = $state(true);
@@ -938,6 +978,7 @@
     if (abortController) { abortController.abort(); abortController = null; }
     streaming = false;
     messages = [];
+    rawMessages = {};
     meta = [];
     systemPrompt = '';
     pendingImages = [];
@@ -1003,6 +1044,7 @@
       historyTruncated = !!cursor;
 
       messages = loaded.map(toChatMessage);
+      rawMessages = {};
       meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void refreshTools();
@@ -1667,15 +1709,57 @@
         }
       }
 
-      // 3. Load documentation skill instructions. Skills never register tools.
+      // 3. Load documentation skill instructions. Skills never register tools,
+      // except agent-bound (context: fork) skills: those run their agent on the
+      // server through run_skill, so the model can start them and get results.
+      const agentSkills: Skill[] = [];
       for (const skillName of selections.skills) {
         const skill = skills.find(s => s.name === skillName);
         if (!skill) continue;
 
+        if (skill.context === 'fork' && skill.agent) {
+          agentSkills.push(skill);
+          continue;
+        }
         if (skill.system_prompt) {
           newSkillPrompts.push(skill.system_prompt);
         }
 
+      }
+      if (agentSkills.length > 0 && !newSourceMap[RUN_SKILL_TOOL]) {
+        const catalog = agentSkills.map(s => `- ${s.name}: ${s.description || '(no description)'}`).join('\n');
+        newSkillPrompts.push(`## Agent skills\nThese skills are executed by their own agent. Call \`${RUN_SKILL_TOOL}\` to use one; do not attempt the work yourself.\n${catalog}\nFor several independent jobs, start each with background=true, then call \`${WAIT_SKILL_RUNS_TOOL}\` once to wait for all of them, and answer using their results.`);
+        newTools.push({
+          type: 'function',
+          function: {
+            name: RUN_SKILL_TOOL,
+            description: 'Run an agent-bound skill. Foreground (default) waits and returns the agent\'s result. background=true returns a run_id immediately so several runs can work in parallel; collect them with ' + WAIT_SKILL_RUNS_TOOL + '.',
+            parameters: {
+              type: 'object',
+              properties: {
+                skill: { type: 'string', enum: agentSkills.map(s => s.name), description: 'Skill to run' },
+                task: { type: 'string', description: 'Self-contained task for the skill\'s agent. It cannot see this conversation.' },
+                context: { type: 'string', description: 'Optional constraints or background' },
+                background: { type: 'boolean', description: 'Start without waiting and return a run_id' },
+              },
+              required: ['skill', 'task'],
+            },
+          },
+        });
+        newSourceMap[RUN_SKILL_TOOL] = { type: 'skill' };
+        newTools.push({
+          type: 'function',
+          function: {
+            name: WAIT_SKILL_RUNS_TOOL,
+            description: 'Wait until the given background skill runs finish and return each result.',
+            parameters: {
+              type: 'object',
+              properties: { run_ids: { type: 'array', items: { type: 'string' }, description: 'run_id values returned by ' + RUN_SKILL_TOOL } },
+              required: ['run_ids'],
+            },
+          },
+        });
+        newSourceMap[WAIT_SKILL_RUNS_TOOL] = { type: 'skill' };
       }
 
       // 4. Add enabled built-in server tools
@@ -1790,6 +1874,9 @@
     }
 
     try {
+      if (source.type === 'skill') {
+        return await executeSkillTool(tc, args);
+      }
       if (source.type === 'mcpset' && source.mcpSetName) {
         const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args);
         const text = res.content?.map(c => c.text).join('\n') ?? '';
@@ -1809,6 +1896,50 @@
     } catch (e: any) {
       return `Error: ${e?.response?.data?.message || e?.response?.data?.error?.message || e.message || 'tool execution failed'}`;
     }
+  }
+
+  /**
+   * Agent-bound skills. Foreground runs block this tool call until the agent
+   * answers; background runs are tracked per turn so their results are always
+   * collected before the turn ends, even when the model forgets to wait.
+   */
+  async function executeSkillTool(tc: ToolCall, args: Record<string, any>): Promise<string> {
+    const signal = abortController?.signal;
+    if (tc.function.name === WAIT_SKILL_RUNS_TOOL) {
+      const ids: string[] = Array.isArray(args.run_ids) ? args.run_ids.map(String) : [];
+      if (!ids.length) return 'Error: run_ids is required';
+      return await collectSkillRuns(ids, tc.id, signal);
+    }
+    const skill = String(args.skill ?? '');
+    const background = args.background === true;
+    skillRunProgress = { ...skillRunProgress, [tc.id]: background ? `starting ${skill} in the background…` : `${skill} is working…` };
+    const res = await runSkill({ skill, task: String(args.task ?? ''), context: args.context ? String(args.context) : undefined, background, trace_id: turnTraceId }, signal);
+    if (res.error) return `Error: ${res.error}`;
+    if (background) {
+      try {
+        const started = JSON.parse(res.result) as SkillRunStatus;
+        if (started.run_id) turnSkillRuns = [...turnSkillRuns, { id: started.run_id, skill, reported: false }];
+      } catch { /* Result is still returned to the model below. */ }
+    }
+    return res.result;
+  }
+
+  async function collectSkillRuns(ids: string[], toolCallId: string, signal?: AbortSignal): Promise<string> {
+    const results: SkillRunStatus[] = [];
+    for (const id of ids) {
+      const name = turnSkillRuns.find(r => r.id === id)?.skill || id;
+      let status: SkillRunStatus;
+      while (true) {
+        signal?.throwIfAborted();
+        const done = results.length;
+        skillRunProgress = { ...skillRunProgress, [toolCallId]: `waiting for ${name} (${done}/${ids.length} finished)…` };
+        status = await waitSkillRun(id, 20, signal);
+        if (['completed', 'failed', 'cancelled'].includes(status.status)) break;
+      }
+      results.push(status);
+      turnSkillRuns = turnSkillRuns.map(r => r.id === id ? { ...r, reported: true } : r);
+    }
+    return results.map(r => `## ${r.agent_name} (${r.run_id}) — ${r.status}\n${r.error ? `Error: ${r.error}` : r.result || '(no result)'}`).join('\n\n');
   }
 
   /**
@@ -2198,6 +2329,7 @@
   /** Recursive completion loop that handles tool calls. */
   async function runCompletion(depth: number = 0) {
     if (depth === 0 && !setupReady()) return;
+    if (depth === 0) { turnSkillRuns = []; skillRunProgress = {}; }
     // Guard against infinite tool-call loops
     const turnPair = splitModel(selectedModel);
 
@@ -2329,6 +2461,23 @@
         await runCompletion(depth + 1);
         return;
       }
+
+      // The model answered while background skill runs are still unreported.
+      // Ending here would drop their results, so wait for them and let the
+      // model answer again with what they produced.
+      const unreported = turnSkillRuns.filter(r => !r.reported);
+      if (unreported.length > 0) {
+        streaming = true;
+        const waitKey = `wait-${turnTraceId}`;
+        const report = await collectSkillRuns(unreported.map(r => r.id), waitKey, controller.signal);
+        skillRunProgress = Object.fromEntries(Object.entries(skillRunProgress).filter(([k]) => k !== waitKey));
+        messages = [...messages, { role: 'user', content: `Background skill runs finished:\n\n${report}\n\nReply to me using these results.` }];
+        meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
+        streaming = false;
+        abortController = null;
+        await runCompletion(depth + 1);
+        return;
+      }
     } catch (e: any) {
       if (e.name === 'AbortError') {
         // User cancelled — don't show error
@@ -2432,6 +2581,34 @@
 <svelte:head>
   <title>AT | Chats</title>
 </svelte:head>
+
+{#snippet copyAction(index: number)}
+  {@const hasText = !!messageText(messages[index]?.content ?? '').trim()}
+  {#if hasText}
+    <button
+      onclick={() => copyMessage(index)}
+      aria-label={copiedIndex === index ? 'Copied' : 'Copy message'}
+      title="Copy message"
+      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      {#if copiedIndex === index}<Check size={11} class="text-green-600 dark:text-green-400" />Copied{:else}<Copy size={11} />Copy{/if}
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet rawToggle(index: number)}
+  {#if messageText(messages[index]?.content ?? '').trim()}
+    <button
+      onclick={() => { rawMessages = { ...rawMessages, [index]: !rawMessages[index] }; }}
+      aria-pressed={!!rawMessages[index]}
+      aria-label={rawMessages[index] ? 'Show rendered markdown' : 'Show raw text'}
+      title={rawMessages[index] ? 'Show rendered markdown' : 'Show raw markdown source'}
+      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      {#if rawMessages[index]}<FileText size={11} />Rendered{:else}<Code size={11} />Raw{/if}
+    </button>
+  {/if}
+{/snippet}
 
 {#snippet forkAction(index: number)}
   {@const sequence = meta[index]?.sequence ?? null}
@@ -3304,6 +3481,7 @@
                 {/if}
               </div>
               <div class="mt-1 flex justify-end items-center gap-3">
+                {@render copyAction(i)}
                 {@render forkAction(i)}
                 {#if !streaming}
                   <button
@@ -3328,6 +3506,8 @@
                 {#if typeof msg.content === 'string'}
                   {#if !msg.content && streaming && i === messages.length - 1}
                     <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
+                  {:else if rawMessages[i]}
+                    <pre class="whitespace-pre-wrap break-words font-mono text-xs">{msg.content}</pre>
                   {:else}
                     <Markdown source={msg.content} />
                   {/if}
@@ -3345,7 +3525,11 @@
                     {:else if part.type === 'image'}
                       {@render omittedImage(part, 'border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted')}
                     {:else if part.type === 'text' && part.text}
-                      <Markdown source={part.text} />
+                      {#if rawMessages[i]}
+                        <pre class="whitespace-pre-wrap break-words font-mono text-xs">{part.text}</pre>
+                      {:else}
+                        <Markdown source={part.text} />
+                      {/if}
                     {/if}
                   {/each}
                 {/if}
@@ -3362,8 +3546,14 @@
                           result={toolResults.get(i)?.get(tc.id)}
                           running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                           queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
+                          source={source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
                         />
+                        {#if skillRunProgress[tc.id] && activeTool?.messageIndex === i && activeTool?.callID === tc.id}
+                          <div role="status" class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                            <Loader2 size={11} class="animate-spin shrink-0" />
+                            <span class="truncate">{skillRunProgress[tc.id]}</span>
+                          </div>
+                        {/if}
                       {/if}
                     {/each}
                   </div>
@@ -3372,6 +3562,8 @@
               <div class="mt-1 flex items-center gap-3">
                 {@render messageTime(i)}
                 {@render modelBadge(i)}
+                {@render copyAction(i)}
+                {@render rawToggle(i)}
                 {@render forkAction(i)}
               </div>
             </div>
@@ -3379,6 +3571,12 @@
         {/if}
         <!-- Tool messages are rendered in the originating assistant's cards. -->
       {/each}
+      {#if skillRunProgress[`wait-${turnTraceId}`]}
+        <div role="status" class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted">
+          <Loader2 size={12} class="animate-spin shrink-0" />
+          <span>Background skills: {skillRunProgress[`wait-${turnTraceId}`]}</span>
+        </div>
+      {/if}
     {/if}
   </div>
 

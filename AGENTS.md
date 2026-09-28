@@ -1071,6 +1071,18 @@ for Sessions, bots and automation; Chats does not read or write `agent_id`.
 Tool discovery waits for catalogs and discards stale results. Regression:
 `_ui/tests/chat-workbench.test.mjs`.
 
+**Agent-bound skills in Chats.** A selected skill with `context: fork` is not
+pasted into the prompt: Chats exposes `run_skill` (foreground returns the
+agent's result; `background: true` returns a `run_id`) and `wait_skill_runs`.
+They call `POST /api/v1/chats/skill-runs` and long-poll
+`GET /api/v1/chats/skill-runs/{id}?wait=` (≤25s per request, so no proxy
+idle limit is hit), reusing the Sessions subagent runner and its
+`skills.use` / `agents.run` checks. The browser tracks each turn's background
+runs; if the model answers without collecting them, the loop waits, appends
+their results and asks again, so a started run always reports back. Without
+this, a skill bound to an agent could not execute from Chats at all.
+Regression: `internal/server/chat-skill-runs_test.go`.
+
 Direct MCP URLs were removed from the Playground: tools come from registered MCP
 sets, which carry credentials, stdio processes and execution admission with
 them. The `/mcp/list-tools` and `/mcp/call-tool` proxy endpoints are untouched

@@ -1344,6 +1344,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)
 	apiGroup.POST("/v1/chats/local-mcp-servers/{id}/reveal", s.LocalMCPServerRevealAPI)
 	apiGroup.POST("/v1/chats/tool-observations", s.ChatToolObservationAPI)
+	apiGroup.POST("/v1/chats/skill-runs", s.ChatSkillRunAPI)
+	apiGroup.GET("/v1/chats/skill-runs/{id}", s.ChatSkillRunStatusAPI)
 
 	// Configurable media storage: administrator settings plus per-user,
 	// owner-scoped image objects (Playground attachments).
