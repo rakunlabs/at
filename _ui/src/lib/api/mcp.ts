@@ -102,12 +102,21 @@ export async function callBuiltinTool(
   return res.data;
 }
 
+export interface SkillRunArtifact {
+  media_id: string;
+  name: string;
+  content_type: string;
+  size_bytes: number;
+}
+
 export interface SkillRunStatus {
   run_id: string;
   status: 'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
   agent_name: string;
   result?: string;
   error?: string;
+  artifacts?: SkillRunArtifact[];
+  artifacts_note?: string;
 }
 
 /**

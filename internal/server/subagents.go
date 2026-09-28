@@ -51,6 +51,10 @@ type backgroundSubagentRun struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Cancel      context.CancelFunc
+	// Artifacts are files the run produced, delivered to media storage when it
+	// was started from Chats.
+	Artifacts     []chatArtifact
+	ArtifactsNote string
 	done        chan struct{}
 }
 
@@ -396,6 +400,8 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 	// outlive it; the turn subscribes explicitly through turnBackgroundRuns.
 	parent := contextWithSubagentProgress(context.WithoutCancel(ctx), nil)
 	parent = contextWithTurnBackgroundRuns(parent, nil)
+	collectArtifacts := backgroundArtifactsFromContext(ctx)
+	parent = contextWithBackgroundArtifacts(parent, nil)
 	runCtx, cancel := context.WithCancel(parent)
 	run.Cancel = cancel
 	var stopOwner func() bool
@@ -453,7 +459,14 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		run.mu.Unlock()
 
 		payload, err := s.runSubagentForeground(runCtx, child, task, depth, run.TraceID)
+		var collected chatArtifactCollection
+		if collectArtifacts != nil {
+			// Cancelled runs may have written files too; storage must not be
+			// skipped because the run's own context is already done.
+			collected = collectArtifacts(context.WithoutCancel(runCtx))
+		}
 		run.mu.Lock()
+		run.Artifacts, run.ArtifactsNote = collected.Artifacts, collected.Note
 		switch {
 		case errors.Is(runCtx.Err(), context.Canceled):
 			run.Status = "cancelled"
@@ -547,6 +560,12 @@ func marshalBackgroundSubagent(run *backgroundSubagentRun) (string, error) {
 	}
 	if run.Error != "" {
 		payload["error"] = run.Error
+	}
+	if len(run.Artifacts) > 0 {
+		payload["artifacts"] = run.Artifacts
+	}
+	if run.ArtifactsNote != "" {
+		payload["artifacts_note"] = run.ArtifactsNote
 	}
 	if !run.StartedAt.IsZero() {
 		payload["started_at"] = run.StartedAt.Format(time.RFC3339)

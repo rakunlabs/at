@@ -1072,16 +1072,36 @@ Tool discovery waits for catalogs and discards stale results. Regression:
 `_ui/tests/chat-workbench.test.mjs`.
 
 **Agent-bound skills in Chats.** A selected skill with `context: fork` is not
-pasted into the prompt: Chats exposes `run_skill` (foreground returns the
-agent's result; `background: true` returns a `run_id`) and `wait_skill_runs`.
-They call `POST /api/v1/chats/skill-runs` and long-poll
+pasted into the prompt: Chats exposes the same `load_skill` (`skill_name`,
+`task`, `context`, `run_mode`) and `agent_run_status` tools as the Sessions
+loop, so a skill behaves identically wherever it is selected. They call
+`POST /api/v1/chats/skill-runs` and long-poll
 `GET /api/v1/chats/skill-runs/{id}?wait=` (≤25s per request, so no proxy
 idle limit is hit), reusing the Sessions subagent runner and its
 `skills.use` / `agents.run` checks. The browser tracks each turn's background
 runs; if the model answers without collecting them, the loop waits, appends
-their results and asks again, so a started run always reports back. Without
-this, a skill bound to an agent could not execute from Chats at all.
-Regression: `internal/server/chat-skill-runs_test.go`.
+their results and asks again, so a started run always reports back.
+
+**Run artifacts.** Each Chats skill run gets its own directory
+(`<execution root>/chat-runs/<ulid>`) exposed to its tools as `AT_WORK_DIR`,
+and the agent is told to save deliverables there. When the run ends
+(including failed/cancelled background runs) every regular, non-hidden file
+there is stored in the caller's media storage and reported as `artifacts:
+[{media_id, name, content_type, size_bytes}]`; the directory is removed once
+all files are delivered. Any file type is accepted (≤16 MiB each, 20 files,
+64 MiB per run). The type is sniffed from the bytes; the file name refines
+only generic sniffs and can never promote a file into an inline type.
+`GET /api/v1/media/{id}` serves images, PDF, audio and video `inline` and
+everything else as an `attachment`, so HTML/SVG never renders on the
+application origin (the existing `CSP: sandbox` and `nosniff` still apply).
+The browser attaches the turn's artifacts to the final answer as `image` or
+`file` parts, persisted with the transcript and carried into chat shares; a
+`file` part reaches the model only as a short text reference. If storage is
+disabled or a file is too large, `artifacts_note` names what was not
+delivered instead of dropping it silently. Without the run directory, skill
+tools wrote to the server's `/tmp` and nothing reached the user.
+Regression: `internal/server/chat-skill-runs_test.go`,
+`internal/server/chat-artifacts_test.go`.
 
 Direct MCP URLs were removed from the Playground: tools come from registered MCP
 sets, which carry credentials, stdio processes and execution admission with

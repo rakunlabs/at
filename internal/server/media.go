@@ -439,7 +439,13 @@ func (s *Server) mediaServe(w http.ResponseWriter, r *http.Request, store servic
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// An uploaded file must never run as an active document on the admin origin.
 	w.Header().Set("Content-Security-Policy", "sandbox")
-	w.Header().Set("Content-Disposition", "inline")
+	if mediaInlineContentType(object.ContentType) {
+		w.Header().Set("Content-Disposition", "inline")
+	} else {
+		// Anything that could be interpreted as a document (HTML, SVG, …) is
+		// only ever downloaded, never rendered on the application origin.
+		w.Header().Set("Content-Disposition", "attachment")
+	}
 	w.Header().Set("Cache-Control", fmt.Sprintf("private, max-age=%d", mediaServeCacheSeconds))
 	if _, err := io.Copy(w, reader); err != nil {
 		slog.Warn("media stream interrupted", "id", object.ID, "error", err.Error())

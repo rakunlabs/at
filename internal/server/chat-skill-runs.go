@@ -15,8 +15,9 @@ import (
 // bound to an agent (context: fork) had no way to execute there: the skill was
 // only pasted into the system prompt, and the model could neither start the
 // agent nor wait for it. These endpoints are that missing execution path. The
-// browser offers them as one `run_skill` tool; the server runs the skill's
-// agent through the same isolated runner Sessions uses.
+// browser offers them through the same `load_skill` / `agent_run_status` tools
+// the Sessions loop uses; the server runs the skill's agent through the same
+// isolated runner.
 
 type chatSkillRunRequest struct {
 	Skill      string `json:"skill"`
@@ -99,18 +100,64 @@ func (s *Server) ChatSkillRunAPI(w http.ResponseWriter, r *http.Request) {
 	if req.TraceID != "" {
 		ctx = contextWithChatTraceID(ctx, req.TraceID)
 	}
+	workDir, workRel, err := chatRunWorkDir(ctx)
+	if err != nil {
+		httpResponseJSON(w, builtinCallResponse{Error: fmt.Sprintf("prepare run directory: %v", err)}, http.StatusOK)
+		return
+	}
+	ctx, task = withChatRunWorkDir(ctx, task, workDir, workRel)
+	collect := func(ctx context.Context) chatArtifactCollection { return s.collectChatArtifacts(ctx, workDir) }
 
 	var result string
 	if req.Background {
+		ctx = contextWithBackgroundArtifacts(ctx, collect)
 		result, err = s.startBackgroundSubagent(ctx, child, task, 0)
 	} else {
 		result, err = s.runSubagentForeground(ctx, child, task, 0, "")
+		// A failed run may still have produced files; deliver them either way.
+		result = withArtifacts(result, collect(ctx))
 	}
 	resp := builtinCallResponse{Result: result}
 	if err != nil {
 		resp.Error = err.Error()
 	}
 	httpResponseJSON(w, resp, http.StatusOK)
+}
+
+// withArtifacts adds the collected files to a JSON object result. A result
+// that is not an object (or empty, after a failure) becomes one.
+func withArtifacts(result string, collected chatArtifactCollection) string {
+	if len(collected.Artifacts) == 0 && collected.Note == "" {
+		return result
+	}
+	payload := map[string]any{}
+	if strings.TrimSpace(result) != "" && json.Unmarshal([]byte(result), &payload) != nil {
+		payload = map[string]any{"result": result}
+	}
+	if len(collected.Artifacts) > 0 {
+		payload["artifacts"] = collected.Artifacts
+	}
+	if collected.Note != "" {
+		payload["artifacts_note"] = collected.Note
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return result
+	}
+	return string(data)
+}
+
+type backgroundArtifactsContextKey struct{}
+
+type backgroundArtifactCollector func(context.Context) chatArtifactCollection
+
+func contextWithBackgroundArtifacts(ctx context.Context, collect backgroundArtifactCollector) context.Context {
+	return context.WithValue(ctx, backgroundArtifactsContextKey{}, collect)
+}
+
+func backgroundArtifactsFromContext(ctx context.Context) backgroundArtifactCollector {
+	collect, _ := ctx.Value(backgroundArtifactsContextKey{}).(backgroundArtifactCollector)
+	return collect
 }
 
 // ChatSkillRunStatusAPI handles GET /api/v1/chats/skill-runs/{id}?wait=<seconds>.

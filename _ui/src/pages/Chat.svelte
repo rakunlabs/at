@@ -14,7 +14,7 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus } from '@/lib/api/mcp';
+  import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
@@ -265,8 +265,12 @@
   let skillRunProgress = $state<Record<string, string>>({});
   /** Background skill runs started in the current turn. */
   let turnSkillRuns = $state<{ id: string; skill: string; reported: boolean }[]>([]);
-  const RUN_SKILL_TOOL = 'run_skill';
-  const WAIT_SKILL_RUNS_TOOL = 'wait_skill_runs';
+  /** Files skill runs delivered during the current turn, attached to its final answer. */
+  let turnArtifacts = $state<SkillRunArtifact[]>([]);
+  /** Stored types rendered as <img>; every other delivered file is a card. */
+  const INLINE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+  const LOAD_SKILL_TOOL = 'load_skill';
+  const RUN_STATUS_TOOL = 'agent_run_status';
   /** Assistant messages shown as raw text instead of rendered markdown, by index. */
   let rawMessages = $state<Record<number, boolean>>({});
   /** Index of the message whose text was just copied, for the check-mark feedback. */
@@ -275,6 +279,12 @@
 
   function messageText(content: ChatMessage['content']): string {
     return typeof content === 'string' ? content : getTextContent(content);
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   async function copyMessage(index: number) {
@@ -1711,7 +1721,8 @@
 
       // 3. Load documentation skill instructions. Skills never register tools,
       // except agent-bound (context: fork) skills: those run their agent on the
-      // server through run_skill, so the model can start them and get results.
+      // server through load_skill — the same tool and arguments the Sessions
+      // loop uses, so a skill behaves the same wherever it is selected.
       const agentSkills: Skill[] = [];
       for (const skillName of selections.skills) {
         const skill = skills.find(s => s.name === skillName);
@@ -1726,40 +1737,40 @@
         }
 
       }
-      if (agentSkills.length > 0 && !newSourceMap[RUN_SKILL_TOOL]) {
-        const catalog = agentSkills.map(s => `- ${s.name}: ${s.description || '(no description)'}`).join('\n');
-        newSkillPrompts.push(`## Agent skills\nThese skills are executed by their own agent. Call \`${RUN_SKILL_TOOL}\` to use one; do not attempt the work yourself.\n${catalog}\nFor several independent jobs, start each with background=true, then call \`${WAIT_SKILL_RUNS_TOOL}\` once to wait for all of them, and answer using their results.`);
+      if (agentSkills.length > 0 && !newSourceMap[LOAD_SKILL_TOOL]) {
+        const catalog = agentSkills.map(s => `- \`${s.name}\` — ${s.description || '(no description)'}\n  Runs in an isolated context using its own agent; pass a self-contained \`task\` and choose \`run_mode\` (\`foreground\` when the result is needed now, \`background\` for independent concurrent work).`).join('\n');
+        newSkillPrompts.push(`## Available Skills\n\n${catalog}\n\nCall \`${LOAD_SKILL_TOOL}\` with the skill name to use one; do not attempt its work yourself. Background runs return a run_id; call \`${RUN_STATUS_TOOL}\` with it to wait for the result.`);
         newTools.push({
           type: 'function',
           function: {
-            name: RUN_SKILL_TOOL,
-            description: 'Run an agent-bound skill. Foreground (default) waits and returns the agent\'s result. background=true returns a run_id immediately so several runs can work in parallel; collect them with ' + WAIT_SKILL_RUNS_TOOL + '.',
+            name: LOAD_SKILL_TOOL,
+            description: 'Activate an attached skill. A catalog entry marked isolated runs through its configured subagent and requires a self-contained task.',
             parameters: {
               type: 'object',
               properties: {
-                skill: { type: 'string', enum: agentSkills.map(s => s.name), description: 'Skill to run' },
-                task: { type: 'string', description: 'Self-contained task for the skill\'s agent. It cannot see this conversation.' },
-                context: { type: 'string', description: 'Optional constraints or background' },
-                background: { type: 'boolean', description: 'Start without waiting and return a run_id' },
+                skill_name: { type: 'string', enum: agentSkills.map(s => s.name), description: 'The name of the skill to load. Must match one of the catalog entries listed in your system prompt.' },
+                task: { type: 'string', description: 'Task for an isolated skill. Required when the selected skill has context: fork.' },
+                context: { type: 'string', description: 'Optional background and constraints for the isolated skill run.' },
+                run_mode: { type: 'string', enum: ['foreground', 'background'], description: 'Execution mode for an isolated skill. Use background for independent concurrent work. Defaults to foreground.' },
               },
-              required: ['skill', 'task'],
+              required: ['skill_name'],
             },
           },
         });
-        newSourceMap[RUN_SKILL_TOOL] = { type: 'skill' };
+        newSourceMap[LOAD_SKILL_TOOL] = { type: 'skill' };
         newTools.push({
           type: 'function',
           function: {
-            name: WAIT_SKILL_RUNS_TOOL,
-            description: 'Wait until the given background skill runs finish and return each result.',
+            name: RUN_STATUS_TOOL,
+            description: 'Wait for a background skill run to finish and return its final result.',
             parameters: {
               type: 'object',
-              properties: { run_ids: { type: 'array', items: { type: 'string' }, description: 'run_id values returned by ' + RUN_SKILL_TOOL } },
-              required: ['run_ids'],
+              properties: { run_id: { type: 'string' } },
+              required: ['run_id'],
             },
           },
         });
-        newSourceMap[WAIT_SKILL_RUNS_TOOL] = { type: 'skill' };
+        newSourceMap[RUN_STATUS_TOOL] = { type: 'skill' };
       }
 
       // 4. Add enabled built-in server tools
@@ -1905,15 +1916,17 @@
    */
   async function executeSkillTool(tc: ToolCall, args: Record<string, any>): Promise<string> {
     const signal = abortController?.signal;
-    if (tc.function.name === WAIT_SKILL_RUNS_TOOL) {
-      const ids: string[] = Array.isArray(args.run_ids) ? args.run_ids.map(String) : [];
-      if (!ids.length) return 'Error: run_ids is required';
-      return await collectSkillRuns(ids, tc.id, signal);
+    if (tc.function.name === RUN_STATUS_TOOL) {
+      const id = String(args.run_id ?? '').trim();
+      if (!id) return 'Error: run_id is required';
+      return await collectSkillRuns([id], tc.id, signal);
     }
-    const skill = String(args.skill ?? '');
-    const background = args.background === true;
+    const skill = String(args.skill_name ?? '');
+    const background = args.run_mode === 'background';
+    if (!String(args.task ?? '').trim()) return `Error: load_skill: task is required for skill "${skill}"`;
     skillRunProgress = { ...skillRunProgress, [tc.id]: background ? `starting ${skill} in the background…` : `${skill} is working…` };
     const res = await runSkill({ skill, task: String(args.task ?? ''), context: args.context ? String(args.context) : undefined, background, trace_id: turnTraceId }, signal);
+    noteTurnArtifacts(res.result);
     if (res.error) return `Error: ${res.error}`;
     if (background) {
       try {
@@ -1938,8 +1951,21 @@
       }
       results.push(status);
       turnSkillRuns = turnSkillRuns.map(r => r.id === id ? { ...r, reported: true } : r);
+      if (status.artifacts?.length) turnArtifacts = [...turnArtifacts, ...status.artifacts];
     }
-    return results.map(r => `## ${r.agent_name} (${r.run_id}) — ${r.status}\n${r.error ? `Error: ${r.error}` : r.result || '(no result)'}`).join('\n\n');
+    return results.map(r => {
+      const files = r.artifacts?.length ? `\nDelivered files: ${r.artifacts.map(a => a.name).join(', ')}` : '';
+      const note = r.artifacts_note ? `\n${r.artifacts_note}` : '';
+      return `## ${r.agent_name} (${r.run_id}) — ${r.status}\n${r.error ? `Error: ${r.error}` : r.result || '(no result)'}${files}${note}`;
+    }).join('\n\n');
+  }
+
+  /** Records files a foreground skill run delivered, from its tool result. */
+  function noteTurnArtifacts(result: string) {
+    try {
+      const parsed = JSON.parse(result);
+      if (Array.isArray(parsed?.artifacts)) turnArtifacts = [...turnArtifacts, ...parsed.artifacts];
+    } catch { /* Plain-text results carry no artifacts. */ }
   }
 
   /**
@@ -2313,6 +2339,12 @@
     if (typeof content === 'string') return content;
     const parts: ContentPart[] = [];
     for (const part of content) {
+      if (part.type === 'file') {
+        // Delivered artifacts are for the reader; the model already saw them
+        // named in the tool result, so only a short reference goes upstream.
+        parts.push({ type: 'text', text: `[file "${part.name || 'file'}" (${part.mime_type || 'unknown type'}) delivered to the user]` });
+        continue;
+      }
       if (part.type !== 'image') {
         parts.push(part);
         continue;
@@ -2329,7 +2361,7 @@
   /** Recursive completion loop that handles tool calls. */
   async function runCompletion(depth: number = 0) {
     if (depth === 0 && !setupReady()) return;
-    if (depth === 0) { turnSkillRuns = []; skillRunProgress = {}; }
+    if (depth === 0) { turnSkillRuns = []; skillRunProgress = {}; turnArtifacts = []; }
     // Guard against infinite tool-call loops
     const turnPair = splitModel(selectedModel);
 
@@ -2477,6 +2509,23 @@
         abortController = null;
         await runCompletion(depth + 1);
         return;
+      }
+
+      // The turn is complete: attach the files its skill runs delivered to the
+      // final answer, so they are shown there and saved with the transcript.
+      if (turnArtifacts.length > 0) {
+        const lastIdx = messages.length - 1;
+        const last = messages[lastIdx];
+        if (last?.role === 'assistant') {
+          const existing: ContentPart[] = typeof last.content === 'string'
+            ? (last.content ? [{ type: 'text', text: last.content }] : [])
+            : [...last.content];
+          const files: ContentPart[] = turnArtifacts.map(a => INLINE_IMAGE_TYPES.includes(a.content_type)
+            ? { type: 'image', media_id: a.media_id, name: a.name, bytes: a.size_bytes }
+            : { type: 'file', media_id: a.media_id, name: a.name, bytes: a.size_bytes, mime_type: a.content_type });
+          messages[lastIdx] = { ...last, content: [...existing, ...files] };
+        }
+        turnArtifacts = [];
       }
     } catch (e: any) {
       if (e.name === 'AbortError') {
@@ -2650,6 +2699,29 @@
   <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] {tone}">
     <ImageOff size={11} class="shrink-0" />
     <span class="truncate">{part.name || 'image'} — image not saved to history</span>
+  </div>
+{/snippet}
+
+{#snippet fileArtifact(part: ContentPart)}
+  {@const url = mediaImageURL(part.media_id!, workspaceTransport.selected)}
+  {@const type = part.mime_type || ''}
+  <div class="my-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+    {#if type === 'application/pdf'}
+      <!-- The server sends CSP: sandbox and nosniff; an iframe sandbox would
+           also block Chrome's PDF viewer. -->
+      <iframe src={url} title={part.name || 'PDF'} class="w-full h-96 bg-white"></iframe>
+    {:else if type.startsWith('audio/')}
+      <audio controls src={url} class="w-full p-2"></audio>
+    {:else if type.startsWith('video/')}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video controls src={url} class="w-full max-h-96"></video>
+    {/if}
+    <div class="flex items-center gap-2 px-3 py-2 text-xs">
+      <FileText size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
+      <span class="truncate font-medium text-gray-700 dark:text-dark-text">{part.name || 'file'}</span>
+      <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-text-muted">{type || 'file'}{part.bytes ? ` · ${formatFileSize(part.bytes)}` : ''}</span>
+      <a href={url} download={part.name || 'file'} class="ml-auto shrink-0 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated">Download</a>
+    </div>
   </div>
 {/snippet}
 
@@ -3524,6 +3596,8 @@
                       />
                     {:else if part.type === 'image'}
                       {@render omittedImage(part, 'border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted')}
+                    {:else if part.type === 'file' && part.media_id}
+                      {@render fileArtifact(part)}
                     {:else if part.type === 'text' && part.text}
                       {#if rawMessages[i]}
                         <pre class="whitespace-pre-wrap break-words font-mono text-xs">{part.text}</pre>

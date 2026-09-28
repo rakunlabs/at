@@ -7,15 +7,17 @@ export interface ContentPart {
    *  With a `media_id` the bytes live in media storage and are re-inlined as a
    *  data URI before the request leaves the browser; without one the original
    *  data-URI was never persisted and the part is rewritten to text. */
-  type: 'text' | 'image_url' | 'image';
+  type: 'text' | 'image_url' | 'image' | 'file';
   text?: string;
   image_url?: { url: string };
-  /** Media-storage object id. Present only on a stored image. */
+  /** Media-storage object id. Present on a stored image or file. */
   media_id?: string;
-  /** Descriptor fields for a stored or omitted image. */
+  /** Descriptor fields for a stored or omitted image, or a stored file. */
   name?: string;
   bytes?: number;
   omitted?: boolean;
+  /** Content type of a stored `file` part (images use `image`). */
+  mime_type?: string;
 }
 
 export interface ChatMessage {

@@ -122,6 +122,12 @@
                     <Markdown source={part.text || ''} />
                   {:else if part.type === 'image'}
                     <div class="mb-2 flex items-center gap-1.5 border border-dashed border-gray-300 px-2 py-1 text-[11px] text-gray-500 dark:border-dark-border-subtle dark:text-dark-text-muted"><ImageOff size={12} /> Attachment unavailable</div>
+                  {:else if part.type === 'file' && part.media_id}
+                    <a href={chatShareMediaURL(share.id, part.media_id, workspaceTransport.selected)} download={part.name || 'file'} class="mb-2 flex items-center gap-2 border border-gray-200 px-3 py-2 text-xs hover:bg-gray-50 dark:border-dark-border dark:hover:bg-dark-elevated">
+                      <span class="truncate font-medium">{part.name || 'file'}</span>
+                      <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-text-muted">{part.mime_type || 'file'}</span>
+                      <span class="ml-auto shrink-0 underline underline-offset-4">Download</span>
+                    </a>
                   {/if}
                 {/each}
               {:else}

@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/oklog/ulid/v2"
 
@@ -245,6 +247,9 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 			return nil, nil, service.ErrChatShareTooLarge
 		}
 		ext := mediaAllowedContentTypes[object.ContentType]
+		if ext == "" {
+			ext = strings.ToLower(path.Ext(object.StorageKey))
+		}
 		key := mediaStorageKey(*settings, principal.WorkspaceID, targetOwner, ext)
 		if err := target.Put(ctx, key, object.ContentType, data); err != nil {
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
