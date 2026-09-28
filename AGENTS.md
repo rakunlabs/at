@@ -2145,6 +2145,10 @@ each account keeps its oldest space, the repository/worktree tables are dropped,
 and sessions store `project_path` instead. **Upgrade note**: the dropped rows
 and any extra spaces' sessions are gone; files already in the kept volume stay.
 
+Feature key `developer_spaces` is a child of `agents`. Disabling it hides the
+page and gates every `/api/v1/developer-space*` and `/api/v1/developer-sessions*`
+route without deleting spaces, sessions or volumes; re-enabling restores them.
+
 **Projects are folders**, not records. `/workspace` is a Docker-managed volume;
 each top-level folder is a project (created empty or by `POST .../clone`). The
 page is laid out like an editor: sessions and a lazily-loaded file tree on the

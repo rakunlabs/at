@@ -44,6 +44,7 @@ const (
 	FeatureBots               = "bots"
 	FeatureAudioTranscription = "audio_transcription"
 	FeatureAgentHeartbeats    = "agent_heartbeats"
+	FeatureDeveloperSpaces    = "developer_spaces"
 	FeatureSkills             = "skills"
 	FeatureMarketplaces       = "marketplaces"
 	FeatureGuides             = "guides"

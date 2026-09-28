@@ -26,6 +26,7 @@ export const FEATURE_CHAT_SESSIONS = 'chat_sessions';
 export const FEATURE_BOTS = 'bots';
 export const FEATURE_AUDIO_TRANSCRIPTION = 'audio_transcription';
 export const FEATURE_AGENT_HEARTBEATS = 'agent_heartbeats';
+export const FEATURE_DEVELOPER_SPACES = 'developer_spaces';
 export const FEATURE_SKILLS = 'skills';
 export const FEATURE_MARKETPLACES = 'marketplaces';
 export const FEATURE_GUIDES = 'guides';

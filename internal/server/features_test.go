@@ -86,6 +86,18 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 			want:   service.FeatureAgentHeartbeats,
 		},
 		{
+			name:   "developer spaces have their own feature",
+			path:   "/api/v1/developer-space/git/status",
+			method: http.MethodGet,
+			want:   service.FeatureDeveloperSpaces,
+		},
+		{
+			name:   "developer sessions use the developer spaces feature",
+			path:   "/api/v1/developer-sessions/session-id/run",
+			method: http.MethodPost,
+			want:   service.FeatureDeveloperSpaces,
+		},
+		{
 			name:   "heartbeat runs belong to heartbeats",
 			path:   "/api/v1/heartbeat-runs/run-id",
 			method: http.MethodPut,
@@ -340,6 +352,12 @@ func TestFeatureAncestorChain(t *testing.T) {
 			name:  "legacy parent keeps children off",
 			flags: map[string]bool{service.FeatureChatWorkbench: false},
 			key:   service.FeatureChatSessions,
+			want:  false,
+		},
+		{
+			name:  "agents parent keeps developer spaces off",
+			flags: map[string]bool{service.FeatureAgents: false},
+			key:   service.FeatureDeveloperSpaces,
 			want:  false,
 		},
 		{

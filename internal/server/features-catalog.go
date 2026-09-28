@@ -182,6 +182,13 @@ var featureDefinitions = []featureDefinition{
 		Parent:      service.FeatureAgents,
 	},
 	{
+		Key:         service.FeatureDeveloperSpaces,
+		Name:        "Developer Spaces",
+		Description: "Per-account coding environments, projects, developer sessions, terminals and source-control operations.",
+		Group:       "workspace",
+		Parent:      service.FeatureAgents,
+	},
+	{
 		Key:         service.FeatureSkills,
 		Name:        "Skills",
 		Description: "Documentation skills, templates, resources and import/export.",
@@ -474,6 +481,7 @@ var featurePresets = []featurePreset{
 			service.FeatureAudioTranscription,
 			service.FeatureAgents,
 			service.FeatureAgentHeartbeats,
+			service.FeatureDeveloperSpaces,
 			service.FeatureSkills,
 			service.FeatureMarketplaces,
 			service.FeatureGuides,
