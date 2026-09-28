@@ -29,16 +29,15 @@ const (
 	// "SignatureDoesNotMatch", "AccessDenied") is always at the front, and a
 	// hostile endpoint must not be able to flood the logs.
 	s3ErrorBodyMaxBytes = 4096
-	// s3RequestTimeout bounds one request including its body transfer. Media
-	// objects are capped at 16 MiB, so a minute is generous even on a slow
-	// link, while still failing a black-holed endpoint in bounded time.
-	s3RequestTimeout = 60 * time.Second
+	// s3ResponseHeaderTimeout bounds the wait after an upload finishes without
+	// putting a wall-clock ceiling on streaming a large artifact body.
+	s3ResponseHeaderTimeout = 60 * time.Second
 )
 
 // s3Store talks to any S3-compatible object store over net/http with
 // hand-rolled SigV4. Only PutObject, GetObject, DeleteObject and HeadBucket
 // are implemented: there is no multipart upload and no listing, because a
-// media object is a single in-memory image and the database is the index.
+// object is stored with one PutObject request and the database is the index.
 type s3Store struct {
 	scheme          string
 	host            string
@@ -64,6 +63,8 @@ func newS3(s service.MediaS3Settings) (*s3Store, error) {
 	if s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "" {
 		return nil, errors.New("s3 media storage requires bucket, access key id and secret access key")
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = s3ResponseHeaderTimeout
 	return &s3Store{
 		scheme:          u.Scheme,
 		host:            u.Host,
@@ -72,7 +73,7 @@ func newS3(s service.MediaS3Settings) (*s3Store, error) {
 		accessKeyID:     s.AccessKeyID,
 		secretAccessKey: s.SecretAccessKey,
 		pathStyle:       s.UsePathStyle,
-		client:          &http.Client{Timeout: s3RequestTimeout},
+		client:          &http.Client{Transport: transport},
 	}, nil
 }
 
@@ -115,13 +116,21 @@ func s3EscapePath(p string) string {
 }
 
 func (s *s3Store) Put(ctx context.Context, key, contentType string, data []byte) error {
+	sum := sha256.Sum256(data)
+	return s.PutReader(ctx, key, contentType, bytes.NewReader(data), int64(len(data)), hex.EncodeToString(sum[:]))
+}
+
+func (s *s3Store) PutReader(ctx context.Context, key, contentType string, reader io.Reader, size int64, sha256Hex string) error {
 	if err := ValidateKey(key); err != nil {
 		return err
 	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	resp, err := s.do(ctx, http.MethodPut, s.objectURL(key), data, contentType)
+	if size < 0 || len(sha256Hex) != sha256.Size*2 {
+		return errors.New("s3 streaming upload requires a non-negative size and SHA-256")
+	}
+	resp, err := s.doReader(ctx, http.MethodPut, s.objectURL(key), reader, size, contentType, sha256Hex)
 	if err != nil {
 		return err
 	}
@@ -192,19 +201,20 @@ func (s *s3Store) do(ctx context.Context, method string, u *url.URL, body []byte
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
+	sum := sha256.Sum256(body)
+	return s.doReader(ctx, method, u, reader, int64(len(body)), contentType, hex.EncodeToString(sum[:]))
+}
+
+func (s *s3Store) doReader(ctx context.Context, method string, u *url.URL, reader io.Reader, size int64, contentType, payloadHash string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
 	if err != nil {
 		return nil, fmt.Errorf("build s3 request: %w", err)
 	}
-	req.ContentLength = int64(len(body))
+	req.ContentLength = size
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	// The payload is already in memory, so the real hash is signed.
-	// UNSIGNED-PAYLOAD exists only for streams whose bytes are not known in
-	// advance, and it weakens the signature.
-	sum := sha256.Sum256(body)
-	s.sign(req, hex.EncodeToString(sum[:]), time.Now().UTC())
+	s.sign(req, payloadHash, time.Now().UTC())
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("s3 %s %s: %w", method, u.EscapedPath(), err)

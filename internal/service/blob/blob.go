@@ -29,6 +29,10 @@ const KeyMaxBytes = 1024
 // than trusting its caller.
 type Store interface {
 	Put(ctx context.Context, key, contentType string, data []byte) error
+	// PutReader streams a payload whose size and SHA-256 are already known.
+	// Large generated artifacts use this path so storing a video does not
+	// require holding the complete file in memory.
+	PutReader(ctx context.Context, key, contentType string, reader io.Reader, size int64, sha256Hex string) error
 	// Get returns the payload reader and the content type the backend
 	// reports. The filesystem backend has nowhere to keep a content type and
 	// returns an empty string; the database record is authoritative either

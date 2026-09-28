@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +60,8 @@ func (m *memoryMediaStore) DeleteMediaObject(_ context.Context, _, _, id string)
 // fileWritingProvider stands in for a skill agent whose tool writes files:
 // on its call it writes into the run's AT_WORK_DIR, then answers.
 type fileWritingProvider struct {
-	files map[string][]byte
+	files         map[string][]byte
+	largeFileSize int64
 }
 
 func (p *fileWritingProvider) Chat(ctx context.Context, _ string, _ []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
@@ -73,6 +76,21 @@ func (p *fileWritingProvider) Chat(ctx context.Context, _ string, _ []service.Me
 			return nil, err
 		}
 		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	if p.largeFileSize > 0 {
+		file, err := os.Create(filepath.Join(dir, "large-video.mp4"))
+		if err != nil {
+			return nil, err
+		}
+		if _, err = file.Write([]byte("\x00\x00\x00\x18ftypmp42")); err == nil {
+			err = file.Truncate(p.largeFileSize)
+		}
+		if closeErr := file.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -150,6 +168,62 @@ func TestChatSkillRunDeliversProducedFiles(t *testing.T) {
 	}
 	if mediaInlineContentType("text/html") {
 		t.Fatal("HTML would be rendered inline on the application origin")
+	}
+}
+
+func TestChatSkillRunDeliversInlineGeneratedImages(t *testing.T) {
+	provider := &fileWritingProvider{}
+	s, media := artifactServer(t, provider, true)
+	provider.files = nil
+	s.providers["prov1"] = ProviderInfo{provider: &fakeObsProvider{responses: []*service.LLMResponse{{
+		InlineImages: []service.InlineImage{{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(pngBytes)}},
+		Finished:     true,
+	}}}, providerType: "openai", defaultModel: "m1"}
+
+	resp := postSkillRun(t, s, `{"skill":"draw","task":"draw a tree"}`)
+	if resp.Error != "" {
+		t.Fatalf("run failed: %s", resp.Error)
+	}
+	payload, artifacts := decodeArtifactResult(t, resp)
+	if len(artifacts) != 1 || artifacts[0].Name != "generated-image-01.png" || artifacts[0].ContentType != "image/png" {
+		t.Fatalf("inline image was not delivered: payload=%+v artifacts=%+v", payload, artifacts)
+	}
+	if _, ok := media.objects[artifacts[0].MediaID]; !ok {
+		t.Fatalf("inline image %s was not stored", artifacts[0].Name)
+	}
+	if result, _ := payload["result"].(string); !strings.Contains(result, artifacts[0].Name) {
+		t.Fatalf("agent result does not identify the generated image: %+v", payload)
+	}
+}
+
+func TestChatSkillRunArtifactsHaveNoCountOrSizeCeiling(t *testing.T) {
+	files := make(map[string][]byte, 25)
+	for i := range 25 {
+		files[fmt.Sprintf("frames/frame-%03d.txt", i)] = []byte("frame")
+	}
+	provider := &fileWritingProvider{files: files, largeFileSize: int64(mediaUploadMaxBytes) + 1}
+	s, media := artifactServer(t, provider, true)
+
+	resp := postSkillRun(t, s, `{"skill":"draw","task":"render and assemble a video"}`)
+	if resp.Error != "" {
+		t.Fatalf("run failed: %s", resp.Error)
+	}
+	_, artifacts := decodeArtifactResult(t, resp)
+	if len(artifacts) != 26 {
+		t.Fatalf("delivered %d artifacts, want 26", len(artifacts))
+	}
+	var large chatArtifact
+	for _, artifact := range artifacts {
+		if artifact.Name == "large-video.mp4" {
+			large = artifact
+			break
+		}
+	}
+	if large.SizeBytes != provider.largeFileSize {
+		t.Fatalf("large artifact size = %d, want %d", large.SizeBytes, provider.largeFileSize)
+	}
+	if _, ok := media.objects[large.MediaID]; !ok {
+		t.Fatal("large artifact was not stored")
 	}
 }
 

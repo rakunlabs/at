@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/oklog/ulid/v2"
 
@@ -31,9 +33,7 @@ import (
 // stayed in the server's temporary directory, where nobody could reach them.
 
 const (
-	chatArtifactMaxFiles      = 20
-	chatArtifactMaxTotalBytes = 64 << 20
-	chatArtifactDirName       = "chat-runs"
+	chatArtifactDirName = "chat-runs"
 )
 
 // chatArtifact is what the browser receives for one produced file.
@@ -106,8 +106,81 @@ func chatRunWorkDir(ctx context.Context) (string, string, error) {
 // its deliverables belong.
 func withChatRunWorkDir(ctx context.Context, task, dir, rel string) (context.Context, string) {
 	ctx = workflow.ContextWithWorkDir(ctx, dir)
+	ctx = contextWithChatInlineImageSink(ctx, newChatInlineImageSink(dir))
 	task += fmt.Sprintf("\n\nSave every file you produce for the user (images, PDFs, documents, audio, …) in this directory: %s (relative to the workspace root: %s). Files saved there are delivered to the user automatically; mention them by file name in your answer.", dir, rel)
 	return ctx, task
+}
+
+type chatInlineImageSink func([]service.InlineImage) ([]string, error)
+type chatInlineImageSinkContextKey struct{}
+
+func contextWithChatInlineImageSink(ctx context.Context, sink chatInlineImageSink) context.Context {
+	return context.WithValue(ctx, chatInlineImageSinkContextKey{}, sink)
+}
+
+func saveChatInlineImages(ctx context.Context, images []service.InlineImage) ([]string, error) {
+	sink, _ := ctx.Value(chatInlineImageSinkContextKey{}).(chatInlineImageSink)
+	if sink == nil || len(images) == 0 {
+		return nil, nil
+	}
+	return sink(images)
+}
+
+// newChatInlineImageSink turns images returned directly by a multimodal chat
+// model into ordinary run files. They then travel through the same storage,
+// ownership and transcript path as files written by tools in AT_WORK_DIR.
+func newChatInlineImageSink(dir string) chatInlineImageSink {
+	var mu sync.Mutex
+	sequence := 0
+	return func(images []service.InlineImage) ([]string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			return nil, fmt.Errorf("open run directory: %w", err)
+		}
+		defer root.Close()
+
+		var names []string
+		var failures []string
+		for _, image := range images {
+			mimeType := strings.ToLower(strings.TrimSpace(strings.Split(image.MimeType, ";")[0]))
+			ext, ok := mediaAllowedContentTypes[mimeType]
+			if !ok {
+				failures = append(failures, fmt.Sprintf("unsupported image type %q", image.MimeType))
+				continue
+			}
+			sequence++
+			name := fmt.Sprintf("generated-image-%02d%s", sequence, ext)
+			file, openErr := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			if openErr != nil {
+				failures = append(failures, fmt.Sprintf("save %s: %v", name, openErr))
+				continue
+			}
+			_, decodeErr := io.Copy(file, base64.NewDecoder(base64.StdEncoding, strings.NewReader(image.Data)))
+			closeErr := file.Close()
+			if decodeErr != nil || closeErr != nil {
+				_ = root.Remove(name)
+				if decodeErr != nil {
+					failures = append(failures, "generated image contains invalid base64 data")
+				} else {
+					failures = append(failures, fmt.Sprintf("save %s: %v", name, closeErr))
+				}
+				continue
+			}
+			if info, statErr := root.Stat(name); statErr != nil || info.Size() == 0 {
+				_ = root.Remove(name)
+				failures = append(failures, fmt.Sprintf("save %s: generated image is empty", name))
+				continue
+			}
+			names = append(names, name)
+		}
+		if len(failures) > 0 {
+			return names, fmt.Errorf("%s", strings.Join(failures, "; "))
+		}
+		return names, nil
+	}
 }
 
 // collectChatArtifacts stores every regular file under dir as a media object
@@ -123,8 +196,6 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 
 	type found = pendingArtifact
 	var files []found
-	var skipped []string
-	var total int64
 	walkErr := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -140,10 +211,6 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 		if entry.IsDir() || !entry.Type().IsRegular() {
 			return nil
 		}
-		if len(files) >= chatArtifactMaxFiles {
-			skipped = append(skipped, name+" (file limit)")
-			return nil
-		}
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			return nil
@@ -151,40 +218,19 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 		if info.Size() == 0 {
 			return nil
 		}
-		if info.Size() > mediaUploadMaxBytes || total+info.Size() > chatArtifactMaxTotalBytes {
-			skipped = append(skipped, name+" (too large)")
-			return nil
-		}
-		f, openErr := root.Open(name)
-		if openErr != nil {
-			return nil
-		}
-		data, readErr := io.ReadAll(io.LimitReader(f, mediaUploadMaxBytes+1))
-		f.Close()
-		if readErr != nil || int64(len(data)) > mediaUploadMaxBytes {
-			skipped = append(skipped, name+" (unreadable)")
-			return nil
-		}
-		total += int64(len(data))
-		files = append(files, found{name: name, data: data})
+		files = append(files, found{name: name})
 		return nil
 	})
 	if walkErr != nil {
 		slog.Warn("chat artifacts: scan failed", "dir", dir, "error", walkErr)
 	}
 	if len(files) == 0 {
-		if len(skipped) > 0 {
-			out.Note = "Some produced files were not delivered: " + strings.Join(skipped, ", ")
-		}
 		_ = os.RemoveAll(dir)
 		return out
 	}
 
-	delivered, note := s.storeChatArtifacts(ctx, files)
+	delivered, note := s.storeChatArtifacts(ctx, root, files)
 	out.Artifacts = delivered
-	if len(skipped) > 0 {
-		note = strings.TrimSpace(note + " Not delivered: " + strings.Join(skipped, ", ") + ".")
-	}
 	out.Note = note
 	if len(delivered) == len(files) {
 		_ = os.RemoveAll(dir)
@@ -196,10 +242,9 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 
 type pendingArtifact struct {
 	name string
-	data []byte
 }
 
-func (s *Server) storeChatArtifacts(ctx context.Context, files []pendingArtifact) ([]chatArtifact, string) {
+func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []pendingArtifact) ([]chatArtifact, string) {
 	names := make([]string, 0, len(files))
 	for _, f := range files {
 		names = append(names, f.name)
@@ -222,26 +267,58 @@ func (s *Server) storeChatArtifacts(ctx context.Context, files []pendingArtifact
 	var delivered []chatArtifact
 	var failed []string
 	for _, f := range files {
-		contentType := artifactContentType(f.name, f.data)
+		file, openErr := root.Open(f.name)
+		if openErr != nil {
+			failed = append(failed, f.name)
+			continue
+		}
+		head := make([]byte, 512)
+		headN, readErr := io.ReadFull(file, head)
+		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+			file.Close()
+			failed = append(failed, f.name)
+			continue
+		}
+		hash := sha256.New()
+		_, _ = hash.Write(head[:headN])
+		if _, readErr = io.Copy(hash, file); readErr != nil {
+			file.Close()
+			failed = append(failed, f.name)
+			continue
+		}
+		info, statErr := file.Stat()
+		if statErr != nil || info.Size() == 0 {
+			file.Close()
+			failed = append(failed, f.name)
+			continue
+		}
+		if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+			file.Close()
+			failed = append(failed, f.name)
+			continue
+		}
+		contentType := artifactContentType(f.name, head[:headN])
 		ext := strings.ToLower(filepath.Ext(f.name))
 		if !artifactExtensionPattern.MatchString(ext) {
 			ext = mediaAllowedContentTypes[contentType]
 		}
 		key := mediaStorageKey(*settings, provenance.WorkspaceID, provenance.UserID, ext)
-		if err := target.Put(ctx, key, contentType, f.data); err != nil {
+		checksum := hex.EncodeToString(hash.Sum(nil))
+		if err := target.PutReader(ctx, key, contentType, file, info.Size(), checksum); err != nil {
+			file.Close()
 			slog.Error("chat artifacts: upload failed", "key", key, "error", err)
 			failed = append(failed, f.name)
 			continue
 		}
-		sum := sha256.Sum256(f.data)
+		file.Close()
 		created, err := store.CreateMediaObject(ctx, service.MediaObject{
 			WorkspaceID: provenance.WorkspaceID,
 			OwnerUserID: provenance.UserID,
 			Backend:     settings.Backend,
 			StorageKey:  key,
 			ContentType: contentType,
-			SizeBytes:   int64(len(f.data)),
-			Checksum:    hex.EncodeToString(sum[:]),
+			SizeBytes:   info.Size(),
+			Checksum:    checksum,
 		})
 		if err != nil {
 			if deleteErr := target.Delete(ctx, key); deleteErr != nil && !errors.Is(deleteErr, os.ErrNotExist) {

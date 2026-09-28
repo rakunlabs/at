@@ -50,7 +50,11 @@ func (f *filesystemStore) open() (*os.Root, error) {
 	return root, nil
 }
 
-func (f *filesystemStore) Put(_ context.Context, key, _ string, data []byte) error {
+func (f *filesystemStore) Put(ctx context.Context, key, _ string, data []byte) error {
+	return f.PutReader(ctx, key, "", bytes.NewReader(data), int64(len(data)), "")
+}
+
+func (f *filesystemStore) PutReader(ctx context.Context, key, _ string, reader io.Reader, _ int64, _ string) error {
 	if err := ValidateKey(key); err != nil {
 		return err
 	}
@@ -59,13 +63,17 @@ func (f *filesystemStore) Put(_ context.Context, key, _ string, data []byte) err
 		return err
 	}
 	defer root.Close()
-	return filesystemWrite(root, key, data)
+	return filesystemWriteReader(ctx, root, key, reader)
 }
 
 // filesystemWrite is atomic: the payload lands in a unique temporary file in
 // the destination directory and is renamed over the target, so a reader never
 // observes a partially written image and a failed write leaves no stub.
 func filesystemWrite(root *os.Root, key string, data []byte) error {
+	return filesystemWriteReader(context.Background(), root, key, bytes.NewReader(data))
+}
+
+func filesystemWriteReader(ctx context.Context, root *os.Root, key string, reader io.Reader) error {
 	dir := path.Dir(key)
 	if dir != "." {
 		if err := root.MkdirAll(filepath.FromSlash(dir), 0o700); err != nil {
@@ -77,7 +85,7 @@ func filesystemWrite(root *os.Root, key string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("create media temporary file: %w", err)
 	}
-	_, writeErr := file.Write(data)
+	_, writeErr := io.Copy(file, contextReader{ctx: ctx, reader: reader})
 	closeErr := file.Close()
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		root.Remove(filepath.FromSlash(temp)) //nolint:errcheck // best effort
@@ -88,6 +96,18 @@ func filesystemWrite(root *os.Root, key string, data []byte) error {
 		return fmt.Errorf("commit media object: %w", err)
 	}
 	return nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 func (f *filesystemStore) Get(_ context.Context, key string) (io.ReadCloser, string, error) {

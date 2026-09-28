@@ -1215,6 +1215,32 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			}))
 		}
 
+		// A model used by a Chats fork skill may generate image bytes directly
+		// instead of writing a file through a tool. Save those bytes into that
+		// run's output directory so the normal artifact collector can deliver
+		// them to the parent chat. Other agent-loop callers have no sink and keep
+		// their existing behaviour.
+		if len(resp.InlineImages) > 0 {
+			names, imageErr := saveChatInlineImages(ctx, resp.InlineImages)
+			if len(names) > 0 {
+				notice := "Generated image files: " + strings.Join(names, ", ")
+				if strings.TrimSpace(resp.Content) == "" {
+					resp.Content = notice
+				} else {
+					resp.Content += "\n\n" + notice
+				}
+			}
+			if imageErr != nil {
+				slog.Warn("agentic loop: failed to save generated image", "error", imageErr)
+				notice := "Some generated images could not be delivered: " + imageErr.Error()
+				if strings.TrimSpace(resp.Content) == "" {
+					resp.Content = notice
+				} else {
+					resp.Content += "\n\n" + notice
+				}
+			}
+		}
+
 		// Emit text content. Bot adapters use Final to avoid concatenating
 		// pre-tool narration with the actual answer, while SSE clients can
 		// continue displaying every iteration live.
