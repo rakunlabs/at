@@ -599,7 +599,7 @@
   <LoadIssues issues={pageLoad.issues} retry={loadTokens} {loading} />
   <!-- Optional restriction catalogs: an intentionally disabled feature is not
        a token-page failure. Keep actual API/network errors actionable. -->
-  <LoadIssues issues={references.issues.filter(issue => !issue.disabled)} retry={() => { references.reset(); void Promise.all([loadProviders(), loadWebhooks(), loadMcpServers()]); }} />
+  <LoadIssues issues={references.issues.filter(issue => !issue.disabled && !issue.forbidden)} retry={() => { references.reset(); void Promise.all([loadProviders(), loadWebhooks(), loadMcpServers()]); }} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">

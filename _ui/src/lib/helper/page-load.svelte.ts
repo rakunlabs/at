@@ -1,7 +1,7 @@
 import { isFeatureEnabled, loadFeatures } from '../store/features.svelte';
 import { authErrorMessage } from '../api/auth';
 
-export interface LoadIssue { label: string; message: string; disabled: boolean }
+export interface LoadIssue { label: string; message: string; disabled: boolean; forbidden?: boolean }
 
 /** Each resource commits independently. A failed read is never an empty success. */
 export function createPageLoader() {
@@ -38,7 +38,7 @@ export function createPageLoader() {
           : response?.status === 403 ? `You do not have access to ${label.toLowerCase()}.`
           : response?.status === 404 ? `${label} could not be loaded: the endpoint is unavailable. This is not an empty list.`
           : `${label}: ${authErrorMessage(error, 'Could not load data. Please retry.')}`;
-        issue = { label, message, disabled };
+        issue = { label, message, disabled, forbidden: !disabled && response?.status === 403 };
       } finally {
         if (run === generation) state.pending = state.pending.filter(item => item !== label);
       }

@@ -452,7 +452,7 @@
           <div
             class={[
               'mx-auto w-full px-5 py-6 sm:px-8',
-              activeSection.wide ? 'max-w-4xl' : 'max-w-3xl',
+              activeSection.wide ? 'max-w-6xl' : 'max-w-5xl',
             ]}
           >
             <DocsPaneHeader title={activeSection.title} description={activeSection.description}>
@@ -479,7 +479,7 @@
           </div>
         {/if}
       {:else if activeGuide}
-        <div class="mx-auto w-full max-w-3xl px-5 py-6 sm:px-8">
+        <div class="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
           <GuideViewer
             guide={activeGuide}
             onedit={startEditGuide}
@@ -488,11 +488,11 @@
           />
         </div>
       {:else if guidesLoading}
-        <div class="mx-auto w-full max-w-3xl px-5 py-10">
+        <div class="mx-auto w-full max-w-5xl px-5 py-10">
           <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading guide…</p>
         </div>
       {:else}
-        <div class="mx-auto w-full max-w-3xl px-5 py-10 text-center">
+        <div class="mx-auto w-full max-w-5xl px-5 py-10 text-center">
           <BookOpen
             size={22}
             class="mx-auto text-gray-600 dark:text-dark-text-secondary"
