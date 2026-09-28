@@ -201,7 +201,7 @@ func TestChatSkillRunArtifactsHaveNoCountOrSizeCeiling(t *testing.T) {
 	for i := range 25 {
 		files[fmt.Sprintf("frames/frame-%03d.txt", i)] = []byte("frame")
 	}
-	provider := &fileWritingProvider{files: files, largeFileSize: int64(mediaUploadMaxBytes) + 1}
+	provider := &fileWritingProvider{files: files, largeFileSize: (16 << 20) + 1}
 	s, media := artifactServer(t, provider, true)
 
 	resp := postSkillRun(t, s, `{"skill":"draw","task":"render and assemble a video"}`)

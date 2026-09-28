@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"path"
@@ -240,21 +239,17 @@ func (s *Server) copyChatMedia(ctx context.Context, sourceOwner, targetOwner str
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
 			return nil, nil, err
 		}
-		data, readErr := io.ReadAll(io.LimitReader(reader, mediaUploadMaxBytes+1))
-		reader.Close()
-		if readErr != nil || len(data) > mediaUploadMaxBytes {
-			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
-			return nil, nil, service.ErrChatShareTooLarge
-		}
 		ext := mediaAllowedContentTypes[object.ContentType]
 		if ext == "" {
 			ext = strings.ToLower(path.Ext(object.StorageKey))
 		}
 		key := mediaStorageKey(*settings, principal.WorkspaceID, targetOwner, ext)
-		if err := target.Put(ctx, key, object.ContentType, data); err != nil {
+		if err := target.PutReader(ctx, key, object.ContentType, reader, object.SizeBytes, object.Checksum); err != nil {
+			reader.Close()
 			s.cleanupChatMedia(ctx, target, store, targetOwner, created)
 			return nil, nil, err
 		}
+		reader.Close()
 		copy, err := store.CreateMediaObject(ctx, service.MediaObject{WorkspaceID: principal.WorkspaceID, OwnerUserID: targetOwner, Backend: object.Backend, StorageKey: key, ContentType: object.ContentType, SizeBytes: object.SizeBytes, Checksum: object.Checksum})
 		if err != nil {
 			target.Delete(ctx, key) //nolint:errcheck // best effort rollback

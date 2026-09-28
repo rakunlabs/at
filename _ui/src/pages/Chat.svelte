@@ -84,7 +84,6 @@
   import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
   import {
     MEDIA_ALLOWED_LABEL,
-    MEDIA_MAX_UPLOAD_BYTES,
     dataUrlToBlob,
     getMediaDataURL,
     isMediaStorageDisabled,
@@ -110,8 +109,6 @@
   interface PendingImage {
     name: string;
     dataUrl: string;
-    /** Over the 16 MB media-storage cap: sent to the model, not saved to history. */
-    oversize?: boolean;
   }
 
   /** Maps a tool name to its source for dispatch. */
@@ -1520,17 +1517,9 @@
   async function addImageFiles(files: FileList | File[]) {
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
-      if (file.size > 20 * 1024 * 1024) {
-        addToast(`Image "${file.name}" is too large (max 20MB)`, 'alert');
-        continue;
-      }
-      // The model still accepts it; media storage does not. Say so up front
-      // rather than reporting a 413 after the turn has already been sent.
-      const oversize = file.size > MEDIA_MAX_UPLOAD_BYTES;
-      if (oversize) addToast(`"${file.name}" is over the 16 MB storage limit — it is sent to the model but not saved to history`, 'warn');
       try {
         const dataUrl = await readFileAsDataURL(file);
-        pendingImages = [...pendingImages, { name: file.name, dataUrl, oversize }];
+        pendingImages = [...pendingImages, { name: file.name, dataUrl }];
       } catch {
         addToast(`Failed to read "${file.name}"`, 'alert');
       }
@@ -2751,7 +2740,7 @@
   <!-- Drag overlay -->
   {#if dragging}
     <div class="absolute inset-0 z-50 bg-gray-900/10 dark:bg-dark-base/30 border-2 border-dashed border-gray-400 dark:border-dark-border-subtle flex items-center justify-center pointer-events-none">
-      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here — saved to history up to 16 MB</div>
+      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here — saved to history when media storage is configured</div>
     </div>
   {/if}
 
@@ -3718,14 +3707,6 @@
             >
               <X size={12} />
             </button>
-            {#if img.oversize}
-              <span
-                class="absolute top-0 left-0 bg-amber-500 text-white text-[9px] px-1"
-                title="Over the 16 MB storage limit — sent to the model but not saved to history"
-              >
-                &gt;16MB
-              </span>
-            {/if}
             <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
               {img.name}
             </div>
@@ -3751,7 +3732,7 @@
         disabled={models.length === 0}
         aria-label="Attach image"
         class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent "
-        title={`Attach image — paste or drop works too. Saved to history up to 16 MB (${MEDIA_ALLOWED_LABEL}).`}
+        title={`Attach image — paste or drop works too. Saved to history when media storage is configured (${MEDIA_ALLOWED_LABEL}).`}
       >
         <ImagePlus size={18} />
       </button>

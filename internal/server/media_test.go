@@ -340,9 +340,13 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 	if w = mediaUpload(t, s, tokens[0], "empty.png", nil, "image/png"); w.Code != 400 {
 		t.Fatalf("empty upload: %d %s", w.Code, w.Body)
 	}
-	oversize := append(append([]byte{}, payload...), bytes.Repeat([]byte("a"), mediaUploadMaxBytes+1)...)
-	if w = mediaUpload(t, s, tokens[0], "huge.png", oversize, "image/png"); w.Code != 413 {
-		t.Fatalf("oversize upload: %d %s", w.Code, w.Body)
+	large := append(append([]byte{}, payload...), bytes.Repeat([]byte("a"), (16<<20)+1)...)
+	if w = mediaUpload(t, s, tokens[0], "huge.png", large, "image/png"); w.Code != 201 {
+		t.Fatalf("large streaming upload: %d %s", w.Code, w.Body)
+	}
+	var largeObject service.MediaObject
+	if err := json.Unmarshal(w.Body.Bytes(), &largeObject); err != nil || largeObject.SizeBytes != int64(len(large)) {
+		t.Fatalf("large object: %+v, error: %v", largeObject, err)
 	}
 	if w = mediaUpload(t, s, tokens[0], "shot.png", payload, "application/octet-stream"); w.Code != 201 {
 		t.Fatalf("upload: %d %s", w.Code, w.Body)

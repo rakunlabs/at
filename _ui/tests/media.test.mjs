@@ -137,12 +137,12 @@ test('errors name the limit that was hit instead of failing generically', () => 
   assert.equal(api.mediaErrorStatus(error(415)), 415);
   for (const value of [new Error('network'), undefined, null, {}, { response: {} }]) assert.equal(api.mediaErrorStatus(value), 0);
 
-  assert.match(api.mediaUploadErrorMessage(error(413), 'shot.png'), /larger than 16 MB/);
+  assert.match(api.mediaUploadErrorMessage(error(413), 'shot.png'), /rejected as too large/);
   assert.match(api.mediaUploadErrorMessage(error(415), 'shot.png'), /not a supported image type/);
   assert.match(api.mediaUploadErrorMessage(error(415), 'shot.png'), /PNG, JPEG, GIF or WebP/);
   assert.match(api.mediaUploadErrorMessage(error(503), 'shot.png'), /not configured/);
   // The named limit wins over a vague upstream message; other codes defer to it.
-  assert.match(api.mediaUploadErrorMessage(error(413, 'request entity too large'), 'a.png'), /larger than 16 MB/);
+  assert.match(api.mediaUploadErrorMessage(error(413, 'request entity too large'), 'a.png'), /rejected as too large/);
   assert.match(api.mediaUploadErrorMessage(error(415, 'unsupported media type'), 'a.png'), /not a supported image type/);
   assert.equal(api.mediaUploadErrorMessage(error(400, 'file field missing'), 'a.png'), 'file field missing');
   assert.equal(api.mediaUploadErrorMessage(new Error('network'), 'a.png'), 'Could not save "a.png" to history');
@@ -161,8 +161,7 @@ test('errors name the limit that was hit instead of failing generically', () => 
   assert.equal(api.storageSettingsErrorMessage(error(500)), 'Could not save storage settings.');
 });
 
-test('limits mirror the server contract', () => {
-  assert.equal(api.MEDIA_MAX_UPLOAD_BYTES, 16 * 1024 * 1024);
+test('media types mirror the server contract', () => {
   assert.deepEqual([...api.MEDIA_ALLOWED_TYPES], ['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
   assert.equal(api.MEDIA_ALLOWED_LABEL, 'PNG, JPEG, GIF or WebP');
 });

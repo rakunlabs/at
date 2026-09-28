@@ -128,11 +128,6 @@
               <p class="truncate text-sm font-semibold text-gray-900 dark:text-dark-text">
                 {storeInfo.name}
               </p>
-              {#if storeInfo.version}
-                <p class="mt-0.5 break-words text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">
-                  {storeInfo.version}
-                </p>
-              {/if}
             {/if}
             {#if storeAuth.identity}
               <p

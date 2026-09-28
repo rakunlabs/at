@@ -69,11 +69,6 @@ export interface StorageTestResult {
   message?: string;
 }
 
-// ─── Limits ───
-
-/** Server-side upload ceiling. Anything larger is a 413. */
-export const MEDIA_MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
-
 /** The content types the server sniffs for. A mismatch is a 415. */
 export const MEDIA_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
 
@@ -220,14 +215,14 @@ export const isMediaStorageDisabled = (error: unknown) => mediaErrorStatus(error
 export const isStorageSettingsConflict = (error: unknown) => mediaErrorStatus(error) === 409;
 
 /**
- * Per-image upload failure text. 413 and 415 are precise, actionable limits and
+ * Per-image upload failure text. 413 and 415 are precise, actionable errors and
  * deserve to say so instead of collapsing into "upload failed".
  */
 export function mediaUploadErrorMessage(error: unknown, name: string): string {
   const label = name || 'image';
   switch (mediaErrorStatus(error)) {
     case 413:
-      return `"${label}" is larger than 16 MB and was not saved to history`;
+      return `"${label}" was rejected as too large and was not saved to history`;
     case 415:
       return `"${label}" is not a supported image type (${MEDIA_ALLOWED_LABEL}) and was not saved to history`;
     case 503:

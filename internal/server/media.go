@@ -20,15 +20,6 @@ import (
 )
 
 const (
-	// mediaUploadMaxBytes caps one stored image. Playground attachments are
-	// screenshots and photographs, not video; 16 MiB covers a 6000x4000 PNG
-	// while keeping a single request's in-memory payload bounded (the whole
-	// body is buffered to hash it and to sign it for S3).
-	mediaUploadMaxBytes = 16 << 20
-	// mediaMultipartSlackBytes allows for the MIME envelope around the 16 MiB
-	// payload (boundaries, part headers, the optional extra form fields) so a
-	// legitimately sized image is never rejected for its wrapper.
-	mediaMultipartSlackBytes = 64 << 10
 	// mediaMultipartMemoryBytes is the in-memory share of the multipart
 	// parser; the remainder spills to a temporary file that is removed with
 	// the form.
@@ -312,13 +303,7 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, mediaUploadMaxBytes+mediaMultipartSlackBytes)
 	if err := r.ParseMultipartForm(mediaMultipartMemoryBytes); err != nil {
-		var large *http.MaxBytesError
-		if errors.As(err, &large) {
-			nativeError(w, http.StatusRequestEntityTooLarge, "image exceeds the 16 MiB limit")
-			return
-		}
 		nativeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -331,46 +316,54 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	// One extra byte distinguishes "exactly at the limit" from "over it".
-	data, err := io.ReadAll(io.LimitReader(file, mediaUploadMaxBytes+1))
+	head := make([]byte, 512)
+	headN, err := io.ReadFull(file, head)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		nativeError(w, http.StatusBadRequest, "failed to read the uploaded file")
+		return
+	}
+	if headN == 0 {
+		nativeError(w, http.StatusBadRequest, "uploaded file is empty")
+		return
+	}
+	hash := sha256.New()
+	_, _ = hash.Write(head[:headN])
+	rest, err := io.Copy(hash, file)
 	if err != nil {
 		nativeError(w, http.StatusBadRequest, "failed to read the uploaded file")
 		return
 	}
-	if len(data) > mediaUploadMaxBytes {
-		nativeError(w, http.StatusRequestEntityTooLarge, "image exceeds the 16 MiB limit")
-		return
-	}
-	if len(data) == 0 {
-		nativeError(w, http.StatusBadRequest, "uploaded file is empty")
+	size := int64(headN) + rest
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		nativeError(w, http.StatusBadRequest, "failed to rewind the uploaded file")
 		return
 	}
 	// The client's Content-Type is advisory at best and hostile at worst; the
 	// bytes decide. Anything that is not a supported image is refused, so a
 	// stored object can always be served back with a safe type.
-	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
+	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(head[:headN]), ";")[0])
 	ext, allowed := mediaAllowedContentTypes[contentType]
 	if !allowed {
 		nativeError(w, http.StatusUnsupportedMediaType, "only png, jpeg, gif and webp images can be stored")
 		return
 	}
 	key := mediaStorageKey(settings, principal.WorkspaceID, owner, ext)
-	if err := target.Put(r.Context(), key, contentType, data); err != nil {
+	checksum := hex.EncodeToString(hash.Sum(nil))
+	if err := target.PutReader(r.Context(), key, contentType, file, size, checksum); err != nil {
 		// The raw error can name buckets and hosts, so it is logged rather
 		// than returned to a user who may not administer the installation.
 		slog.Error("media upload failed", "backend", settings.Backend, "key", key, "error", err.Error())
 		nativeError(w, http.StatusBadGateway, "media storage rejected the upload")
 		return
 	}
-	sum := sha256.Sum256(data)
 	created, err := store.CreateMediaObject(r.Context(), service.MediaObject{
 		WorkspaceID: principal.WorkspaceID,
 		OwnerUserID: owner,
 		Backend:     settings.Backend,
 		StorageKey:  key,
 		ContentType: contentType,
-		SizeBytes:   int64(len(data)),
-		Checksum:    hex.EncodeToString(sum[:]),
+		SizeBytes:   size,
+		Checksum:    checksum,
 	})
 	if err != nil {
 		// Without a row the blob is unreachable, so remove it instead of

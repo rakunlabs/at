@@ -93,7 +93,7 @@ export const configurationLinks = [
   { path: '/settings/tokens', label: 'API tokens', description: 'Workspace gateway credentials' },
   { path: '/settings/features', label: 'Features', description: 'Installation feature availability' },
   { path: '/pricing', label: 'Pricing', description: 'Model pricing configuration' },
-  { path: '/settings/system', label: 'System', description: 'Encryption and build information' },
+  { path: '/settings/system', label: 'System', description: 'Encryption and runtime paths' },
 ];
 // The settings layout covers `/settings/*` plus the configuration pages it
 // links to, which live at top-level routes. The shell uses this to swap in the
