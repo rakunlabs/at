@@ -120,6 +120,9 @@ func (s *Server) CreateMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.mcpSetStore.CreateMCPSet(r.Context(), req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("create mcp set failed", "name", req.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create mcp set: %v", err), http.StatusInternalServerError)
 		return

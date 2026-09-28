@@ -110,6 +110,7 @@
 
   // Form fields
   let formName = $state('');
+  let formScope = $state<'personal' | 'workspace'>('personal');
   let formDescription = $state('');
   let formCategory = $state('');
   let formTags = $state<string[]>([]);
@@ -227,6 +228,7 @@
     showAIBuilder = false;
     builderBusy = false;
     formName = '';
+    formScope = 'personal';
     formDescription = '';
     formCategory = '';
     formTags = [];
@@ -246,6 +248,7 @@
 
   function openCreate() {
     resetForm();
+    formScope = mayWrite && (activeTab === 'workspace-mcps' || !mayPersonalWrite) ? 'workspace' : 'personal';
     showForm = true;
   }
 
@@ -309,8 +312,8 @@
         await updateMCPSet(editingId, payload);
         addToast(`MCP "${formName}" updated`);
       } else {
-        await createMCPSet(payload);
-        addToast(`MCP "${formName}" created`);
+        await createMCPSet({ ...payload, scope: formScope });
+        addToast(`MCP "${formName}" created${formScope === 'workspace' ? ' in the workspace' : ''}`);
       }
       resetForm();
       await loadData();
@@ -748,6 +751,8 @@
               onchange={handleImportMCPFile}
               class="hidden"
             />
+          {/if}
+          {#if (activeTab === 'my-mcps' && mayPersonalWrite) || (activeTab === 'workspace-mcps' && mayWrite)}
             <button
               onclick={openCreate}
               class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
@@ -790,6 +795,19 @@
           </div>
 
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+            {#if !editingId && mayWrite}
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-scope" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Availability</label>
+                <select
+                  id="form-scope"
+                  bind:value={formScope}
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                >
+                  {#if mayPersonalWrite}<option value="personal">Personal — only visible to you</option>{/if}
+                  <option value="workspace">Workspace — shared with this workspace</option>
+                </select>
+              </div>
+            {/if}
             <!-- Name -->
             <div class="grid grid-cols-4 gap-3 items-center">
               <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
@@ -1796,7 +1814,6 @@
   {#key formVersion}<FormBuilderPanel
     id="mcp-set-ai-builder"
     title="MCP Set Builder AI"
-    intro="Describe the tools and servers you need. Changes appear in the form; use Create or Update to save."
     placeholder="Describe an MCP Set or ask for a change…"
     suggestions={['Create an MCP Set for a GitHub API with tools to read repository issues and create a new issue.', 'Improve the current tool descriptions and input schemas without changing its servers.']}
     systemPrompt={`You edit the open AT MCP Set form. Reply in the user's language.

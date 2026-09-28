@@ -5,11 +5,11 @@
   import { authErrorMessage } from '../api/auth';
   import { getTextContent, type ChatMessage, type ToolDefinition } from '../helper/chat';
   import { runFormBuilderTurn, type FormBuilderToolNames } from '../helper/form-builder';
+  import Markdown from './Markdown.svelte';
 
   interface Props {
     id: string;
     title: string;
-    intro: string;
     placeholder: string;
     suggestions: string[];
     systemPrompt: string;
@@ -23,7 +23,43 @@
     contextLoading?: boolean;
   }
 
-  let { id, title, intro, placeholder, suggestions, systemPrompt, tools, names, getDraft, getCatalog, applyPatch, onclose, busy = $bindable(false), contextLoading = false }: Props = $props();
+  let { id, title, placeholder, suggestions, systemPrompt, tools, names, getDraft, getCatalog, applyPatch, onclose, busy = $bindable(false), contextLoading = false }: Props = $props();
+  const widthKey = 'at.form-builder.width';
+  const minWidth = 280;
+  const maxWidth = () => Math.max(minWidth, Math.floor(window.innerWidth * 0.8));
+  const clampWidth = (value: number) => Math.min(maxWidth(), Math.max(minWidth, Math.round(value)));
+  let width = $state(clampWidth(Number(localStorage.getItem(widthKey)) || 320));
+  let resizing = $state(false);
+
+  function startResize(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const startWidth = width;
+    resizing = true;
+    const move = (e: PointerEvent) => { width = clampWidth(startWidth + startX - e.clientX); };
+    const end = () => {
+      resizing = false;
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      localStorage.setItem(widthKey, String(width));
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  function resizeByKey(event: KeyboardEvent) {
+    const step = event.shiftKey ? 64 : 16;
+    if (event.key === 'ArrowLeft') width = clampWidth(width + step);
+    else if (event.key === 'ArrowRight') width = clampWidth(width - step);
+    else return;
+    event.preventDefault();
+    localStorage.setItem(widthKey, String(width));
+  }
   let providers = $state<InfoProvider[]>([]);
   let model = $state('');
   let loading = $state(true);
@@ -77,14 +113,26 @@
   }
 </script>
 
-<aside {id} class="settings-form w-80 max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" aria-label={title}>
+<aside {id} class="settings-form relative max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" style:width={`${width}px`} aria-label={title}>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    role="separator"
+    aria-orientation="vertical"
+    aria-label={`Resize ${title}`}
+    aria-valuenow={width}
+    aria-valuemin={minWidth}
+    tabindex="0"
+    class={["absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-gray-300/60 dark:hover:bg-dark-border focus:outline-none focus-visible:bg-gray-300/60", resizing ? "bg-gray-300/60 dark:bg-dark-border" : ""]}
+    onpointerdown={startResize}
+    onkeydown={resizeByKey}
+    ondblclick={() => { width = clampWidth(320); localStorage.setItem(widthKey, String(width)); }}
+  ></div>
   <header class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
     <h3 class="flex items-center gap-2 text-sm font-medium"><Bot size={16} />{title}</h3>
     <button type="button" class="settings-button min-h-11 sm:min-h-0" aria-label={`Close ${title}`} onclick={onclose}><X size={14} /></button>
   </header>
   <div class="px-4 py-3 space-y-2 border-b border-gray-200 dark:border-dark-border">
     <label>Assistant model<select bind:value={model} disabled={loading || busy || !models.length}>{#if !models.length}<option value="">{loading ? 'Loading models…' : 'No models available'}</option>{/if}{#each models as name}<option value={name}>{name}</option>{/each}</select></label>
-    <p class="settings-note">{intro}</p>
     {#if contextLoading}<p role="status" class="settings-note">Loading available form resources…</p>{/if}
     {#if !loading && (!models.length || error)}<button type="button" class="settings-button" disabled={busy} onclick={loadModels}>Reload models</button>{/if}
   </div>
@@ -98,7 +146,8 @@
       {#if message.role === 'user' || message.role === 'assistant'}
         <div class="space-y-1">
           <p class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">{message.role === 'user' ? 'You' : 'Assistant'}</p>
-          <p class="text-sm whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>
+          {#if message.role === 'assistant'}<Markdown source={getTextContent(message.content)} class="text-sm break-words" safe />
+          {:else}<p class="text-sm whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>{/if}
           {#if message.tool_calls?.length}<p class="settings-note">{message.tool_calls.some(call => call.function.name === names.update) ? 'Processing form changes' : 'Reading form context'}</p>{/if}
         </div>
       {/if}

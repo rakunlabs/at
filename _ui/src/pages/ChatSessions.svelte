@@ -656,10 +656,17 @@
         if (!active()) return;
         if (event.type === 'content') {
           lastResponse = event.content || '';
+          if (toolEvents.some(e => e.type === 'wait')) toolEvents = toolEvents.filter(e => e.type !== 'wait');
           if (event.content) streamContent += (streamContent ? '\n\n' : '') + event.content;
           scrollToBottom();
         } else if (event.type === 'tool_call') {
           toolEvents = [...toolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
+          scrollToBottom();
+        } else if (event.type === 'tool_progress') {
+          const progress = `${event.tool_name}: ${event.content}`;
+          toolEvents = toolEvents.some(e => e.type === 'call' && e.id === event.tool_id)
+            ? toolEvents.map(e => e.type === 'call' && e.id === event.tool_id ? { ...e, progress } : e)
+            : [...toolEvents.filter(e => e.type !== 'wait'), { type: 'wait', name: event.tool_name, id: 'wait', progress: event.content }];
           scrollToBottom();
         } else if (event.type === 'tool_result') {
           toolEvents = [...toolEvents.filter(e => e.id !== event.tool_id), { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
@@ -1391,7 +1398,7 @@
           {#if toolEvents.length > 0 && !showToolActivity}
             <div role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary">
               {#if sending}<Loader2 size={14} class="animate-spin motion-reduce:animate-none" />{:else}<Wrench size={14} />{/if}
-              <span>{sending ? 'Working with tools…' : 'Tool activity saved.'}</span>
+              <span class="truncate">{sending ? (toolEvents.findLast(e => e.progress)?.progress || 'Working with tools…') : 'Tool activity saved.'}</span>
               <button class="underline underline-offset-4" onclick={() => { showToolActivity = true; }}>Show activity</button>
             </div>
           {/if}
@@ -1402,11 +1409,11 @@
               </div>
               <div class="flex-1 min-w-0 space-y-1">
                 {#each toolEvents as evt}
-                  {#if evt.type === 'call'}
-                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300">
-                      <Loader2 size={11} class="animate-spin" />
-                      <span class="font-mono font-semibold">{evt.name}</span>
-                      <span class="text-[10px] opacity-60">running…</span>
+                  {#if evt.type === 'call' || evt.type === 'wait'}
+                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300 min-w-0">
+                      <Loader2 size={11} class="animate-spin shrink-0" />
+                      <span class="font-mono font-semibold shrink-0">{evt.type === 'wait' ? 'background subagents' : evt.name}</span>
+                      <span class="text-[10px] opacity-60 truncate">{evt.progress || 'running…'}</span>
                     </div>
                   {:else}
                     {@const evtResult = evt.result || ''}

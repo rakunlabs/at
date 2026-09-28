@@ -1590,6 +1590,19 @@ and persists final/interruption text before sending `done`. A persistence failur
 emits an error so the UI retains the received answer. Task-chat imports expose the
 task result as an assistant message, including task_complete-only delegation runs.
 
+Subagents launched from a Sessions turn (`agent_run`, or `load_skill` on a
+`context: fork` skill) report back within that turn. Foreground `agent_run` is a
+whole agentic loop, so it is exempt from the per-tool deadline (default 60s),
+which used to cancel the child mid-run; the turn and the child's own iteration
+budget still bound it. Background runs are recorded on the turn
+(`turnBackgroundRuns`); when the model tries to finish while any has not been
+reported, the loop waits for them and feeds their results back before the final
+answer, since a result arriving after `done` had nowhere to go. A run already
+read via `agent_run_status` is not reported twice. Progress streams as
+`tool_progress` SSE events and the stream sends a `: ping` comment every 15s so
+proxies do not drop a quiet connection. Regression:
+`internal/server/chat-subagent-wait_test.go`.
+
 The Sessions composer has aligned 40px controls, agent grouping by `config.group`,
 and file picker / drag-and-drop / paste attachments. All file types are accepted
 within 4 files, 5 MiB each and 8 MiB total; the message JSON is capped at 12 MiB.

@@ -737,7 +737,7 @@
                     {/if}
                   </select>
                   {#if !editingId}
-                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Create it privately first, then copy it to the workspace when ready. Global requires an installation administrator in the Default workspace.</p>
+                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Cannot be changed after creation. Workspace requires agents.write; Global requires an installation administrator in the Default workspace.</p>
                   {/if}
                 </div>
 

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -378,7 +379,7 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 
 // AgenticEvent represents an event emitted by the agentic loop.
 type AgenticEvent struct {
-	Type      string `json:"type"`                // "content", "tool_call", "tool_result", "tool_confirm", "done", "error"
+	Type      string `json:"type"`                // "content", "tool_call", "tool_progress", "tool_result", "tool_confirm", "done", "error"
 	Content   string `json:"content,omitempty"`   // for "content" events
 	Final     bool   `json:"final,omitempty"`     // for terminal "content" events
 	ToolName  string `json:"tool_name,omitempty"` // for "tool_call", "tool_result", and "tool_confirm"
@@ -1067,6 +1068,17 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	recordObservation := s.recordObservationFunc()
 	generationMetadata := subagentObservationMetadata(ctx)
 
+	// Background subagents started during this turn are awaited before the
+	// final answer: once the turn ends, a late result has nowhere to go and the
+	// user is left looking at a run that never reports back.
+	turnRuns := &turnBackgroundRuns{}
+	ctx = contextWithTurnBackgroundRuns(ctx, turnRuns)
+	subagentProgress := func(toolID string) subagentProgressFunc {
+		return func(agentName, summary string) {
+			onEvent(AgenticEvent{Type: "tool_progress", ToolName: agentName, ToolID: toolID, Content: summary})
+		}
+	}
+
 	// 10. Agentic loop.
 	// Set when the agent finalizes the linked task via the task_complete /
 	// task_block builtin during this turn. The tool executor already wrote
@@ -1207,6 +1219,23 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		// pre-tool narration with the actual answer, while SSE clients can
 		// continue displaying every iteration live.
 		finalResponse := len(resp.ToolCalls) == 0
+		if finalResponse && len(turnRuns.unreported()) > 0 {
+			// Hold the answer until background subagents report, then let the
+			// model answer with their results instead of ending the turn early.
+			if resp.Content != "" {
+				onEvent(AgenticEvent{Type: "content", Content: resp.Content})
+				s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
+				llmMessages = append(llmMessages, agentloop.AssistantMessage(resp))
+			}
+			onEvent(AgenticEvent{Type: "tool_progress", ToolName: "agent_run", Content: "waiting for background subagents to finish"})
+			report, waitErr := turnRuns.waitAndReport(ctx)
+			if waitErr != nil {
+				onEvent(AgenticEvent{Type: "error", Error: "request cancelled"})
+				return nil
+			}
+			llmMessages = append(llmMessages, service.Message{Role: "user", Content: report + "\nNow reply to me using these results."})
+			continue
+		}
 		usableFinalReply := finalResponse && strings.TrimSpace(resp.Content) != ""
 		if finalResponse && strings.TrimSpace(resp.Content) == "" {
 			if !emptyReplyRetried && iteration+1 < maxIterations {
@@ -1324,7 +1353,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				if forkErr != nil {
 					callErr = forkErr
 				} else if forked {
-					forkCtx := contextWithSubagentSkill(ctx, forkRequest.Skill.ID)
+					forkCtx := contextWithSubagentProgress(contextWithSubagentSkill(ctx, forkRequest.Skill.ID), subagentProgress(tc.ID))
 					result, callErr = s.dispatchBuiltinTool(forkCtx, "agent_run", map[string]any{
 						"agent":      forkRequest.Agent,
 						"task":       forkRequest.Task,
@@ -1355,7 +1384,16 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				if hi.handlerType == "bash" {
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
-					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+					var toolCtx context.Context
+					var cancel context.CancelFunc
+					if tc.Name == "agent_run" {
+						// A subagent is a whole agentic loop, not one tool call;
+						// the per-tool deadline would cut it off mid-run. It is
+						// still bounded by the turn and its own iteration budget.
+						toolCtx, cancel = context.WithCancel(contextWithSubagentProgress(ctx, subagentProgress(tc.ID)))
+					} else {
+						toolCtx, cancel = context.WithTimeout(ctx, toolTimeout)
+					}
 					result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
 					cancel()
 					if callErr == nil && (tc.Name == "task_complete" || tc.Name == "task_block") {
@@ -1507,14 +1545,39 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var writeMu sync.Mutex
 	writeSSE := func(event string, data any) {
 		jsonData, _ := json.Marshal(data)
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		if event != "" {
 			fmt.Fprintf(w, "event: %s\n", event)
 		}
 		fmt.Fprintf(w, "data: %s\n\n", jsonData)
 		flusher.Flush()
 	}
+
+	// A subagent can keep the stream silent for minutes; reverse proxies and
+	// browsers drop idle connections, which looked like a turn that never ends.
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatDone:
+				return
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				writeMu.Lock()
+				fmt.Fprint(w, ": ping\n\n")
+				flusher.Flush()
+				writeMu.Unlock()
+			}
+		}
+	}()
 
 	onEvent := func(ev AgenticEvent) {
 		switch ev.Type {
@@ -1524,6 +1587,8 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 			writeSSE("", map[string]any{"type": "content", "content": ev.Content})
 		case "tool_call":
 			writeSSE("", map[string]any{"type": "tool_call", "tool_name": ev.ToolName, "tool_id": ev.ToolID})
+		case "tool_progress":
+			writeSSE("", map[string]any{"type": "tool_progress", "tool_name": ev.ToolName, "tool_id": ev.ToolID, "content": ev.Content})
 		case "tool_result":
 			writeSSE("", map[string]any{"type": "tool_result", "tool_name": ev.ToolName, "tool_id": ev.ToolID, "result": ev.Result})
 		case "tool_confirm":

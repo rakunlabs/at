@@ -108,6 +108,7 @@
   let formSystemPrompt = $state('');
   let formContext = $state<'' | 'fork'>('');
   let formAgent = $state('');
+  let formScope = $state<'personal' | 'workspace'>('personal');
   let saving = $state(false);
 
   function getSkillDraft(): SkillBuilderDraft {
@@ -233,6 +234,7 @@
     formSystemPrompt = '';
     formContext = '';
     formAgent = '';
+    formScope = 'personal';
     createFolderFiles = [];
     editingId = null;
     editingSkill = null;
@@ -242,6 +244,7 @@
 
   function openCreate() {
     resetForm();
+    formScope = activeTab === 'workspace-skills' && mayPublish ? 'workspace' : 'personal';
     showForm = true;
   }
 
@@ -295,8 +298,8 @@
           return true;
         }
       } else {
-        const created = await createSkill(payload);
-        addToast(`Skill "${formName}" created`);
+        const created = await createSkill({ ...payload, scope: formScope });
+        addToast(`Skill "${formName}" created${formScope === 'workspace' ? ' in the workspace' : ''}`);
         openFolder(created);
       }
       resetForm();
@@ -840,7 +843,7 @@
           >
             <RefreshCw size={14} />
           </button>
-          {#if activeTab === 'my-skills'}
+          {#if activeTab === 'my-skills' || mayPublish}
           <button
             onclick={openCreate}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
@@ -1018,7 +1021,21 @@
               </div>
             {/if}
 
-            {#if !editingId}
+            {#if !editingId && mayPublish}
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-scope" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Availability</label>
+                <select
+                  id="form-scope"
+                  bind:value={formScope}
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                >
+                  <option value="personal">Personal — only visible to you</option>
+                  <option value="workspace">Workspace — shared with this workspace</option>
+                </select>
+              </div>
+            {/if}
+
+            {#if !editingId && formScope === 'personal'}
               <div class="border border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-base/50">
                 <div class="mb-2 flex items-start justify-between gap-3">
                   <div>
@@ -1720,7 +1737,6 @@
     {#key formVersion}<FormBuilderPanel
       id="skill-ai-builder"
       title="Skill Builder AI"
-      intro="Describe the reusable guidance you need. Changes appear in the form; use Create or Update to save."
       placeholder="Describe a skill or ask for a change…"
       suggestions={['Create a skill that reviews pull requests and returns focused, actionable feedback.', 'Improve the current instructions while keeping its metadata and execution mode.']}
       systemPrompt={`You edit the open AT Skill form. Reply in the user's language.

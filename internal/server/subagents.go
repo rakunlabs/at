@@ -51,6 +51,127 @@ type backgroundSubagentRun struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Cancel      context.CancelFunc
+	done        chan struct{}
+}
+
+// subagentProgressFunc receives a one-line summary of what a running subagent
+// is doing, so the owning chat stream can show progress instead of a silent
+// tool call that may run for minutes.
+type subagentProgressFunc func(agentName, summary string)
+
+type subagentProgressContextKey struct{}
+
+func contextWithSubagentProgress(ctx context.Context, fn subagentProgressFunc) context.Context {
+	return context.WithValue(ctx, subagentProgressContextKey{}, fn)
+}
+
+func subagentProgressFromContext(ctx context.Context) subagentProgressFunc {
+	fn, _ := ctx.Value(subagentProgressContextKey{}).(subagentProgressFunc)
+	return fn
+}
+
+// turnBackgroundRuns records the background subagents one agentic-loop turn
+// started. The turn waits for them before its final answer, because a result
+// that arrives after the turn ended has nowhere to go.
+type turnBackgroundRuns struct {
+	mu       sync.Mutex
+	runs     []*backgroundSubagentRun
+	reported map[string]bool
+}
+
+type turnBackgroundRunsContextKey struct{}
+
+func contextWithTurnBackgroundRuns(ctx context.Context, runs *turnBackgroundRuns) context.Context {
+	return context.WithValue(ctx, turnBackgroundRunsContextKey{}, runs)
+}
+
+func turnBackgroundRunsFromContext(ctx context.Context) *turnBackgroundRuns {
+	runs, _ := ctx.Value(turnBackgroundRunsContextKey{}).(*turnBackgroundRuns)
+	return runs
+}
+
+func (t *turnBackgroundRuns) add(run *backgroundSubagentRun) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.runs = append(t.runs, run)
+}
+
+// markReported excludes a run whose terminal result the model already read
+// through agent_run_status.
+func (t *turnBackgroundRuns) markReported(id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.reported == nil {
+		t.reported = map[string]bool{}
+	}
+	t.reported[id] = true
+}
+
+// unreported returns runs whose results have not reached the model yet.
+func (t *turnBackgroundRuns) unreported() []*backgroundSubagentRun {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var pending []*backgroundSubagentRun
+	for _, run := range t.runs {
+		if !t.reported[run.ID] {
+			pending = append(pending, run)
+		}
+	}
+	return pending
+}
+
+// waitAndReport blocks until every unreported run is terminal (or ctx ends),
+// marks them reported and renders their results for the model.
+func (t *turnBackgroundRuns) waitAndReport(ctx context.Context) (string, error) {
+	pending := t.unreported()
+	for _, run := range pending {
+		select {
+		case <-run.done:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	var b strings.Builder
+	b.WriteString("Background subagent runs you started have finished. Their results:\n")
+	for _, run := range pending {
+		t.markReported(run.ID)
+		run.mu.Lock()
+		fmt.Fprintf(&b, "\n## %s (run %s) — %s\n", run.AgentName, run.ID, run.Status)
+		switch {
+		case run.Error != "":
+			b.WriteString("Error: " + run.Error + "\n")
+		case run.Result != "":
+			b.WriteString(run.Result + "\n")
+		default:
+			b.WriteString("(no result)\n")
+		}
+		run.mu.Unlock()
+	}
+	return b.String(), nil
+}
+
+func summarizeSubagentEvent(event AgenticEvent) string {
+	switch event.Type {
+	case "tool_call":
+		return "running " + event.ToolName
+	case "tool_result":
+		return event.ToolName + " finished"
+	case "content":
+		if event.Final {
+			return "finished"
+		}
+		text := strings.Join(strings.Fields(event.Content), " ")
+		if len(text) > 200 {
+			text = text[:200] + "…"
+		}
+		return text
+	case "error":
+		return "error: " + event.Error
+	}
+	return ""
 }
 
 func contextWithBackgroundSubagentOwner(ctx context.Context, runID string, owner context.Context) context.Context {
@@ -216,12 +337,18 @@ func (s *Server) runSubagentForeground(ctx context.Context, child *service.Agent
 	childCtx = contextWithChatTraceID(childCtx, childTraceID)
 
 	var final, runError string
+	progress := subagentProgressFromContext(ctx)
 	err := s.RunAgenticLoop(childCtx, runtime.Session.ID, task, func(event AgenticEvent) {
 		if event.Type == "content" && event.Final {
 			final = event.Content
 		}
 		if event.Type == "error" {
 			runError = event.Error
+		}
+		if progress != nil {
+			if summary := summarizeSubagentEvent(event); summary != "" {
+				progress(child.Name, summary)
+			}
 		}
 	})
 	if err != nil {
@@ -263,9 +390,12 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		ID: "subrun_" + ulid.Make().String(), Status: "queued",
 		AgentID: child.ID, AgentName: child.Name, TraceID: ulid.Make().String(),
 		ParentTrace: chatTraceIDFromContext(ctx), WorkspaceID: provenance.WorkspaceID,
-		UserID: provenance.UserID,
+		UserID: provenance.UserID, done: make(chan struct{}),
 	}
-	parent := context.WithoutCancel(ctx)
+	// The owning turn's stream and wait list must not leak into a run that can
+	// outlive it; the turn subscribes explicitly through turnBackgroundRuns.
+	parent := contextWithSubagentProgress(context.WithoutCancel(ctx), nil)
+	parent = contextWithTurnBackgroundRuns(parent, nil)
 	runCtx, cancel := context.WithCancel(parent)
 	run.Cancel = cancel
 	var stopOwner func() bool
@@ -343,9 +473,13 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 		}
 		run.CompletedAt = time.Now().UTC()
 		run.mu.Unlock()
+		close(run.done)
 		time.AfterFunc(time.Hour, func() { s.activeSubagents.Delete(run.ID) })
 	}()
 
+	if turn := turnBackgroundRunsFromContext(ctx); turn != nil {
+		turn.add(run)
+	}
 	return marshalBackgroundSubagent(run)
 }
 
@@ -372,6 +506,13 @@ func (s *Server) execAgentRunStatus(ctx context.Context, args map[string]any) (s
 	run, err := s.backgroundSubagentForContext(ctx, stringArg(args, "run_id"))
 	if err != nil {
 		return "", err
+	}
+	if turn := turnBackgroundRunsFromContext(ctx); turn != nil {
+		select {
+		case <-run.done:
+			turn.markReported(run.ID)
+		default:
+		}
 	}
 	return marshalBackgroundSubagent(run)
 }
