@@ -547,6 +547,30 @@ func TestSanitizeSchemaForGemini_FormatWhitelist(t *testing.T) {
 	}
 }
 
+func TestSanitizeSchemaForGemini_DropsEmptyEnumValues(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"context": map[string]any{"type": "string", "enum": []any{"", "fork"}},
+			"unset":   map[string]any{"type": "string", "format": "enum", "enum": []any{""}},
+		},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	props := got["properties"].(map[string]any)
+	context := props["context"].(map[string]any)
+	if values, ok := context["enum"].([]any); !ok || len(values) != 1 || values[0] != "fork" {
+		t.Fatalf("expected only the non-empty enum value, got %v", context["enum"])
+	}
+	unset := props["unset"].(map[string]any)
+	if _, ok := unset["enum"]; ok {
+		t.Fatalf("expected an empty enum to be omitted, got %v", unset["enum"])
+	}
+	if _, ok := unset["format"]; ok {
+		t.Fatalf("expected enum format without values to be omitted, got %v", unset["format"])
+	}
+}
+
 func TestSanitizeSchemaForGemini_TypeArrayToNullable(t *testing.T) {
 	input := map[string]any{
 		"type": "object",

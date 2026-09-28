@@ -34,6 +34,15 @@ export interface MCPSetBuilderCatalog extends Record<string, unknown> {
 const textFields = ['name', 'description', 'category'] as const;
 const textSchema = Object.fromEntries(textFields.map(field => [field, { type: 'string' }]));
 const tagsSchema = { type: 'array', items: { type: 'string' }, maxItems: 32 };
+const keyValueListSchema = {
+  type: 'array',
+  description: 'Key/value entries. Use an empty array when none are needed.',
+  items: {
+    type: 'object',
+    required: ['key', 'value'],
+    properties: { key: { type: 'string' }, value: { type: 'string' } },
+  },
+};
 
 export const skillBuilder = formBuilderTools('skill', {
   type: 'object',
@@ -42,7 +51,7 @@ export const skillBuilder = formBuilderTools('skill', {
     ...textSchema,
     tags: tagsSchema,
     system_prompt: { type: 'string' },
-    context: { type: 'string', enum: ['', 'fork'] },
+    context: { type: 'string', description: 'Execution context. Use "fork" for a selected subagent or "current" for the calling agent.' },
     agent: { type: 'string', description: 'Exact agent ID from list_skill_resources; required only for fork context.' },
   },
 });
@@ -58,12 +67,13 @@ export const mcpSetBuilder = formBuilderTools('mcp_set', {
     http_tools: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['name', 'description', 'method', 'url', 'input_schema'],
+        type: 'object', additionalProperties: false, required: ['name', 'description', 'method', 'url', 'input_schema_json'],
         properties: {
           name: { type: 'string' }, description: { type: 'string' },
           method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'] },
-          url: { type: 'string' }, headers: { type: 'object', additionalProperties: { type: 'string' } },
-          body_template: { type: 'string' }, input_schema: { type: 'object' },
+          url: { type: 'string' }, headers: keyValueListSchema,
+          body_template: { type: 'string' },
+          input_schema_json: { type: 'string', description: 'The complete tool input JSON Schema encoded as valid JSON text.' },
         },
       },
     },
@@ -72,8 +82,8 @@ export const mcpSetBuilder = formBuilderTools('mcp_set', {
       items: {
         type: 'object', additionalProperties: false,
         properties: {
-          url: { type: 'string' }, headers: { type: 'object', additionalProperties: { type: 'string' } },
-          command: { type: 'string' }, args: { type: 'array', items: { type: 'string' } }, env: { type: 'object', additionalProperties: { type: 'string' } },
+          url: { type: 'string' }, headers: keyValueListSchema,
+          command: { type: 'string' }, args: { type: 'array', items: { type: 'string' } }, env: keyValueListSchema,
         },
       },
     },
@@ -92,6 +102,15 @@ function strings(value: unknown, label: string): string[] {
 
 function recordStrings(value: unknown, label: string): Record<string, string> | undefined {
   if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    const result: Record<string, string> = {};
+    for (const [index, item] of value.entries()) {
+      const entry = object(item, `${label}[${index}]`);
+      if (typeof entry.key !== 'string' || !entry.key.trim() || typeof entry.value !== 'string') throw new Error(`${label}[${index}] needs text key and value fields.`);
+      result[entry.key.trim()] = entry.value;
+    }
+    return result;
+  }
   const entry = object(value, label);
   if (!Object.values(entry).every(item => typeof item === 'string')) throw new Error(`${label} values must be text.`);
   return entry as Record<string, string>;
@@ -114,8 +133,8 @@ export function applySkillBuilderPatch(current: SkillBuilderDraft, input: unknow
   if ('name' in patch && !next.name.trim()) throw new Error('Skill name cannot be empty.');
   if ('tags' in patch) next.tags = strings(patch.tags, 'tags').slice(0, 32);
   if ('context' in patch) {
-    if (patch.context !== '' && patch.context !== 'fork') throw new Error('context must be current or fork.');
-    next.context = patch.context;
+    if (patch.context !== '' && patch.context !== 'current' && patch.context !== 'fork') throw new Error('context must be current or fork.');
+    next.context = patch.context === 'current' ? '' : patch.context;
     if (!next.context && !('agent' in patch)) next.agent = '';
   }
   if ('agent' in patch) {
@@ -163,7 +182,12 @@ export function applyMCPSetBuilderPatch(current: MCPSetBuilderDraft, input: unkn
       const method = typeof tool.method === 'string' ? tool.method.toUpperCase() : 'GET';
       if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'].includes(method)) throw new Error(`Invalid HTTP method for ${name}.`);
       if (typeof tool.url !== 'string' || !tool.url.trim()) throw new Error(`${name} needs a URL.`);
-      const schema = object(tool.input_schema, `${name} input_schema`);
+      let schemaValue = tool.input_schema;
+      if (typeof tool.input_schema_json === 'string') {
+        try { schemaValue = JSON.parse(tool.input_schema_json); }
+        catch { throw new Error(`${name} input_schema_json must contain valid JSON.`); }
+      }
+      const schema = object(schemaValue, `${name} input schema`);
       return {
         name,
         description: typeof tool.description === 'string' ? tool.description : '',

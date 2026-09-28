@@ -317,6 +317,23 @@ func sanitizeGeminiMap(m map[string]any) map[string]any {
 					out["anyOf"] = san
 				}
 			}
+		case "enum":
+			// Gemini rejects an empty string as an enum value with INVALID_ARGUMENT.
+			// Empty-string sentinels are common in UI schemas for an unset option;
+			// omit those values while preserving the other choices. Validation at
+			// the tool boundary remains authoritative.
+			if values, ok := v.([]any); ok {
+				filtered := make([]any, 0, len(values))
+				for _, value := range values {
+					if text, ok := value.(string); ok && text == "" {
+						continue
+					}
+					filtered = append(filtered, deepCopyValue(value))
+				}
+				if len(filtered) > 0 {
+					out["enum"] = filtered
+				}
+			}
 		default:
 			// Keep only explicitly-allowed leaf keys; drop everything else
 			// (allOf, not, $ref, $defs, additionalProperties, exclusiveMinimum,
@@ -324,6 +341,11 @@ func sanitizeGeminiMap(m map[string]any) map[string]any {
 			if _, ok := geminiAllowedKeys[k]; ok {
 				out[k] = deepCopyValue(v)
 			}
+		}
+	}
+	if out["format"] == "enum" {
+		if _, ok := out["enum"]; !ok {
+			delete(out, "format")
 		}
 	}
 
