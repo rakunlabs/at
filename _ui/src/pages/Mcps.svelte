@@ -5,7 +5,7 @@
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, publishMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, inspectMCPSetUpstreams, type MCPSet, type MCPStdioUpstreamStatus, type MCPUpstreamInspection } from '@/lib/api/mcp-sets';
-  import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
+  import { type MCPHTTPTool, type MCPInlineTool, type MCPServerConfig, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listMCPBinaries, uploadMCPBinary, deleteMCPBinary, listStdioProcesses, type MCPBinary, type StdioProcess } from '@/lib/api/mcp-binaries';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
@@ -113,9 +113,11 @@
 
   // Config form fields
   let formHTTPTools = $state<MCPHTTPTool[]>([]);
+  let formInlineTools = $state<MCPInlineTool[]>([]);
   let formMCPUpstreams = $state<MCPUpstream[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formWorkflowIds = $state<string[]>([]);
+  let preservedConfig = $state<MCPServerConfig>({});
 
   // Section visibility
   let showHTTPSection = $state(false);
@@ -184,9 +186,11 @@
     formCategory = '';
     formTags = [];
     formHTTPTools = [];
+    formInlineTools = [];
     formMCPUpstreams = [];
     formBuiltinTools = [];
     formWorkflowIds = [];
+    preservedConfig = {};
     editingId = null;
     showForm = false;
     showHTTPSection = false;
@@ -209,7 +213,9 @@
     formTags = set.tags ? [...set.tags] : [];
     // Config fields
     const cfg = set.config || {} as any;
+    preservedConfig = JSON.parse(JSON.stringify(cfg));
     formHTTPTools = (cfg.http_tools ?? []).map((t: MCPHTTPTool) => ({ ...t, headers: t.headers ? { ...t.headers } : {}, input_schema: t.input_schema ? JSON.parse(JSON.stringify(t.input_schema)) : { type: 'object', properties: {} } }));
+    formInlineTools = (cfg.inline_tools ?? []).map((t: MCPInlineTool) => ({ ...t, inputSchema: t.inputSchema ? JSON.parse(JSON.stringify(t.inputSchema)) : { type: 'object', properties: {} } }));
     formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formBuiltinTools = cfg.enabled_builtin_tools ?? [];
     formWorkflowIds = cfg.workflow_ids ?? [];
@@ -234,6 +240,7 @@
         category: formCategory.trim() || undefined,
         tags: formTags.length > 0 ? formTags : undefined,
         config: {
+          ...preservedConfig,
           description: formDescription.trim(),
           http_tools: formHTTPTools.map(t => ({
             ...t,
@@ -249,6 +256,7 @@
               : { url: u.url!.trim(), headers: u.headers }),
           enabled_builtin_tools: formBuiltinTools,
           workflow_ids: formWorkflowIds,
+          inline_tools: formInlineTools,
         },
       };
 
@@ -745,6 +753,35 @@
                 class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
+
+            {#if formInlineTools.length > 0}
+              <div class="border border-blue-200 dark:border-blue-900/70 bg-blue-50/60 dark:bg-blue-950/20">
+                <div class="flex items-start gap-2 px-3 py-2 border-b border-blue-200 dark:border-blue-900/70">
+                  <Wrench size={14} class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium text-blue-900 dark:text-blue-200">Migrated skill tools</div>
+                    <p class="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
+                      These executable tools were migrated from a documentation-only skill. They are shown read-only and remain protected when this MCP is saved.
+                    </p>
+                  </div>
+                </div>
+                <div class="divide-y divide-blue-100 dark:divide-blue-900/60">
+                  {#each formInlineTools as tool}
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2">
+                      <div class="min-w-0">
+                        <div class="font-mono text-xs font-medium text-gray-800 dark:text-dark-text break-words">{tool.name}</div>
+                        {#if tool.description}
+                          <div class="mt-0.5 text-xs text-gray-600 dark:text-dark-text-secondary break-words">{tool.description}</div>
+                        {/if}
+                      </div>
+                      <span class="self-start px-1.5 py-0.5 border border-blue-200 dark:border-blue-800 text-[10px] font-mono text-blue-700 dark:text-blue-300">
+                        {tool.handler_type || 'javascript'}
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
 
             <!-- Description -->
             <div class="grid grid-cols-4 gap-3 items-center">
@@ -1335,6 +1372,12 @@
                   {#if (set.config?.http_tools ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800 font-mono">{(set.config.http_tools ?? []).length} HTTP</span>
                   {/if}
+                  {#if (set.config?.inline_tools ?? []).length > 0}
+                    <span
+                      class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-mono"
+                      title={(set.config.inline_tools ?? []).map((tool) => tool.name).join(', ')}
+                    >{(set.config.inline_tools ?? []).length} skill tools</span>
+                  {/if}
                   {#if (set.config?.mcp_upstreams ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-mono">{(set.config.mcp_upstreams ?? []).length} external</span>
                     {@const checked = inspectionSummary(set.id)}
@@ -1363,7 +1406,10 @@
                   {#if (set.config?.enabled_builtin_tools ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">{(set.config.enabled_builtin_tools ?? []).length} builtin</span>
                   {/if}
-                  {#if !(set.config?.http_tools?.length) && !(set.config?.mcp_upstreams?.length) && !(set.config?.enabled_builtin_tools?.length)}
+                  {#if (set.config?.workflow_ids ?? []).length > 0}
+                    <span class="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 font-mono">{(set.config.workflow_ids ?? []).length} workflows</span>
+                  {/if}
+                  {#if !(set.config?.http_tools?.length) && !(set.config?.inline_tools?.length) && !(set.config?.mcp_upstreams?.length) && !(set.config?.enabled_builtin_tools?.length) && !(set.config?.workflow_ids?.length)}
                     <span class="text-gray-400 dark:text-dark-text-muted">-</span>
                   {/if}
                 </div>

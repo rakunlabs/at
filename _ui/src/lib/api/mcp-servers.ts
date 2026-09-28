@@ -17,10 +17,22 @@ export interface MCPHTTPTool {
   input_schema: Record<string, any>;
 }
 
+export interface MCPInlineTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, any>;
+  handler: string;
+  handler_type?: string;
+  source_skill_id?: string;
+}
+
 export interface MCPServerConfig {
   description?: string;
   // HTTP tools
   http_tools?: MCPHTTPTool[];
+  // Legacy executable handlers migrated from documentation-only skills.
+  // The MCP editor displays these as read-only and must preserve them on save.
+  inline_tools?: MCPInlineTool[];
   // Upstream MCP servers
   mcp_upstreams?: MCPUpstream[];
   // Builtin tools
