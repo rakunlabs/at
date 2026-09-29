@@ -668,6 +668,13 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	models := s.gatewayModels(r.Context(), auth)
+	httpResponseJSON(w, ModelsResponse{Object: "list", Data: models}, http.StatusOK)
+}
+
+// gatewayModels returns the token-visible catalog shared by the OpenAI models
+// endpoint and richer metadata projections. It always returns a non-nil slice.
+func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelData {
 	// Never nil: a nil slice marshals to `null`, and OpenAI clients iterate
 	// `data` without a nil check, so an empty registry or a fully restrictive
 	// token allowlist crashed them instead of listing nothing.
@@ -680,7 +687,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen := make(map[string]bool)
-		add := func(m string) {
+		add := func(m, mode string) {
 			if m == "" || seen[m] {
 				return
 			}
@@ -691,6 +698,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 					ID:      fullID,
 					Object:  "model",
 					OwnedBy: key,
+					Mode:    mode,
 				}
 				applyGatewayModelCapabilities(&model, info, m)
 				if limit, ok := info.modelLimits[m]; ok {
@@ -703,20 +711,20 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 
 		if len(info.models) > 0 {
 			for _, m := range info.models {
-				add(m)
+				add(m, "chat")
 			}
 		} else {
-			add(info.defaultModel)
+			add(info.defaultModel, "chat")
 		}
 
 		// Embedding models are advertised alongside chat models.
 		for _, m := range info.embeddingModels {
-			add(m)
+			add(m, "embedding")
 		}
 	}
 	s.providerMu.RUnlock()
 	if routes, ok := s.store.(service.ProviderRouteStorer); ok && auth != nil && auth.token != nil {
-		catalog, err := routes.ListGatewayVirtualProviderCatalog(r.Context(), auth.token.WorkspaceID, auth.token.OwnerUserID)
+		catalog, err := routes.ListGatewayVirtualProviderCatalog(ctx, auth.token.WorkspaceID, auth.token.OwnerUserID)
 		if err != nil {
 			slog.Error("list gateway virtual providers failed", "error", err)
 		} else {
@@ -724,7 +732,7 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 				for _, model := range entry.Models {
 					fullID := entry.Key + "/" + model
 					if auth.isModelAllowed(entry.Key, fullID) {
-						models = append(models, ModelData{ID: fullID, Object: "model", OwnedBy: entry.Key})
+						models = append(models, ModelData{ID: fullID, Object: "model", OwnedBy: entry.Key, Mode: "chat"})
 					}
 				}
 			}
@@ -738,12 +746,8 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	// Routing profiles are advertised after the concrete models, already sorted
 	// by name, so a client that renders the list in order sees provider models
 	// first and the installation's own chains grouped at the end.
-	models = append(models, s.routingProfileModels(r.Context(), auth)...)
-
-	httpResponseJSON(w, ModelsResponse{
-		Object: "list",
-		Data:   models,
-	}, http.StatusOK)
+	models = append(models, s.routingProfileModels(ctx, auth)...)
+	return models
 }
 
 // applyGatewayModelCapabilities adds only capabilities AT can determine from

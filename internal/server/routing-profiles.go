@@ -55,6 +55,7 @@ func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []M
 			Object:         "model",
 			OwnedBy:        "at-routing-profile",
 			RoutingProfile: true,
+			Mode:           "chat",
 		})
 	}
 

@@ -741,6 +741,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Kilo reach routing, fallback, budgets and tracing unmodified.
 	gatewayGroup.POST("/v1/messages", s.AnthropicMessages)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+	gatewayGroup.GET("/v1/model/info", s.ListLiteLLMModelInfo)
 	gatewayGroup.POST("/v1/embeddings", s.Embeddings)
 	gatewayGroup.POST("/v1/responses", s.Responses)
 	gatewayGroup.POST("/v1/images/generations", s.Images)

@@ -192,6 +192,9 @@ type ModelData struct {
 	// OpenAI object; the object stays "model" so that clients with a fixed model
 	// picker — which is the reason profiles exist — actually render it.
 	RoutingProfile bool `json:"at_routing_profile,omitempty"`
+	// Mode is internal metadata used by richer catalog projections. Keep it off
+	// the established OpenAI models response wire shape.
+	Mode string `json:"-"`
 }
 
 // GatewayModelCapabilities carries optional model metadata understood by dynamic

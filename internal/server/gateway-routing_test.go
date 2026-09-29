@@ -62,6 +62,18 @@ func TestGatewayRouting(t *testing.T) {
 		AllowedProvidersMode: service.AccessModeNone,
 		AllowedModelsMode:    service.AccessModeNone,
 	})
+	if err := p.SetModelPricing(ctx, service.ModelPricing{
+		ProviderKey: "zeta", Model: "beta",
+		PromptPricePer1M: 1.25, CompletionPricePer1M: 10,
+		CacheReadPricePer1M: 0.25, CacheWritePricePer1M: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A present all-zero row means deliberately free; it must remain distinct
+	// from zeta/delta, which has no pricing row at all.
+	if err := p.SetModelPricing(ctx, service.ModelPricing{ProviderKey: "alpha", Model: "only"}); err != nil {
+		t.Fatal(err)
+	}
 
 	do := func(method, path, bearer string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -114,6 +126,46 @@ func TestGatewayRouting(t *testing.T) {
 		// `[]` from `null`, and the client-visible difference is the point.
 		if body := strings.ReplaceAll(w.Body.String(), " ", ""); !strings.Contains(body, `"data":[]`) {
 			t.Fatalf("empty list must serialize as []: %s", w.Body)
+		}
+	})
+
+	t.Run("LiteLLM model info includes prices and preserves unknown pricing", func(t *testing.T) {
+		w := do(http.MethodGet, "/at/gateway/v1/model/info", full)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", w.Code, w.Body)
+		}
+		var got liteLLMModelInfoResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		byID := make(map[string]liteLLMModelMetadata, len(got.Data))
+		for _, entry := range got.Data {
+			byID[entry.ModelName] = entry.ModelInfo
+		}
+
+		beta := byID["zeta/beta"]
+		if beta.InputCostPerToken == nil || *beta.InputCostPerToken != 0.00000125 || beta.OutputCostPerToken == nil || *beta.OutputCostPerToken != 0.00001 {
+			t.Fatalf("beta base prices = input %v output %v", beta.InputCostPerToken, beta.OutputCostPerToken)
+		}
+		if beta.CacheReadInputTokenCost == nil || *beta.CacheReadInputTokenCost != 0.00000025 || beta.CacheCreationInputTokenCost == nil || *beta.CacheCreationInputTokenCost != 0.000002 {
+			t.Fatalf("beta cache prices = read %v write %v", beta.CacheReadInputTokenCost, beta.CacheCreationInputTokenCost)
+		}
+		if beta.MaxTokens != 1_000_000 || beta.MaxOutputTokens != 128_000 || beta.Mode != "chat" {
+			t.Fatalf("beta metadata = %+v", beta)
+		}
+
+		free := byID["alpha/only"]
+		if free.InputCostPerToken == nil || *free.InputCostPerToken != 0 || free.OutputCostPerToken == nil || *free.OutputCostPerToken != 0 {
+			t.Fatalf("free model prices = input %v output %v", free.InputCostPerToken, free.OutputCostPerToken)
+		}
+		unknown := byID["zeta/delta"]
+		if unknown.InputCostPerToken != nil || unknown.OutputCostPerToken != nil || unknown.CacheReadInputTokenCost != nil || unknown.CacheCreationInputTokenCost != nil {
+			t.Fatalf("unknown model unexpectedly has prices: %+v", unknown)
+		}
+
+		w = do(http.MethodGet, "/at/gateway/v1/model/info", denied)
+		if w.Code != http.StatusOK || !strings.Contains(strings.ReplaceAll(w.Body.String(), " ", ""), `"data":[]`) {
+			t.Fatalf("restricted catalog: %d %s", w.Code, w.Body)
 		}
 	})
 
