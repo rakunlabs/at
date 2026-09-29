@@ -143,7 +143,7 @@ function gatewayModelsPath(baseUrl: string): string {
  */
 export type OpencodeVersion = 'v1' | 'v2';
 
-const opencodeV2ProviderPackage = '@opencode-ai/ai/providers/openai-compatible';
+const opencodeV2ProviderPackage = '@opencode/ai/providers/openai-compatible';
 const opencodeV2DiscoveryPlugin = 'opencode-models-discovery@1.6.1';
 
 function opencodeConfig(opts: {

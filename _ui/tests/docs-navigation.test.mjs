@@ -205,7 +205,7 @@ test('opencodeDiscoveryConfig emits the V2 providers/package/settings schema', (
   assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@1.6.1', options: {} }]);
   assert.deepEqual(cfg.providers.at, {
     name: 'AT',
-    package: '@opencode-ai/ai/providers/openai-compatible',
+    package: '@opencode/ai/providers/openai-compatible',
     settings: {
       baseURL: 'https://host/at/gateway/v1',
       modelsDiscovery: { enabled: true, endpoint: '/at/gateway/v1/models', modelInfoFormat: 'omniroute' },
