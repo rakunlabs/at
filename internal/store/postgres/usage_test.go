@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -96,7 +97,9 @@ func TestUsage_GetUsageSummary(t *testing.T) {
 	if diff := got.CostCents - 1.7; diff > 0.01 || diff < -0.01 {
 		t.Errorf("CostCents: got %f, want ~1.7", got.CostCents)
 	}
-	if got.P50LatencyMs != 750 || got.P95LatencyMs != 1850 {
+	// percentile_cont interpolates in double precision, so the result can
+	// differ from the exact value in the last bits.
+	if math.Abs(got.P50LatencyMs-750) > 1e-6 || math.Abs(got.P95LatencyMs-1850) > 1e-6 {
 		t.Errorf("latency percentiles: p50=%f p95=%f, want 750/1850", got.P50LatencyMs, got.P95LatencyMs)
 	}
 }

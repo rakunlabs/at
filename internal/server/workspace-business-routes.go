@@ -140,6 +140,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"PUT", "/personal-providers/{id}", "personal_providers.manage", "", ""},
 		{"PUT", "/personal-providers/{id}/scope", "personal_providers.manage", "", ""},
 		{"PUT", "/personal-providers/{id}/disable", "personal_providers.manage", "", ""},
+		{"POST", "/personal-providers/{id}/move-to-workspace", "personal_providers.manage", "", ""},
 		{"DELETE", "/personal-providers/{id}", "personal_providers.manage", "", ""},
 		{"POST", "/personal-providers/discover-models", "personal_providers.manage", "", ""},
 		{"POST", "/personal-providers/discover-embedding-models", "personal_providers.manage", "", ""},

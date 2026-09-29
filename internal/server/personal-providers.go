@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -222,6 +223,31 @@ func (s *Server) SetPersonalProviderScopeAPI(w http.ResponseWriter, r *http.Requ
 		}
 		httpResponse(w, fmt.Sprintf("failed to update personal provider scope: %v", err), http.StatusInternalServerError)
 		return
+	}
+	redactProviderRecord(record)
+	httpResponseJSON(w, record, http.StatusOK)
+}
+
+func (s *Server) MovePersonalProviderToWorkspaceAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.personalProviderStore(w)
+	if !ok {
+		return
+	}
+	record, err := store.MovePersonalProviderToWorkspace(r.Context(), r.PathValue("id"), s.getUserEmail(r))
+	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to move personal provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, "moved provider could not be read back", http.StatusInternalServerError)
+		return
+	}
+	// Default-workspace providers also live in the gateway registry by key.
+	if err := s.reloadWorkspaceProvider(r.Context(), record.Key, record.Config); err != nil {
+		slog.Warn("moved provider could not be registered", "key", record.Key, "error", err)
 	}
 	redactProviderRecord(record)
 	httpResponseJSON(w, record, http.StatusOK)

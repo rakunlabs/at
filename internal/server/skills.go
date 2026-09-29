@@ -189,6 +189,9 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.skillStore.UpdateSkill(r.Context(), id, req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("update skill failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update skill: %v", err), http.StatusInternalServerError)
 		return
@@ -795,6 +798,9 @@ func (s *Server) ApplySkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.skillStore.UpdateSkill(r.Context(), id, updated)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("apply update: update skill failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update skill: %v", err), http.StatusInternalServerError)
 		return

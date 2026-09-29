@@ -47,9 +47,9 @@ func TestDeveloperSpacesAreUserAndWorkspaceScoped(t *testing.T) {
 		t.Fatalf("other user's space: %+v %v", otherSpace, err)
 	}
 
-	created.MemoryLimit = "2Gi"
+	created.MemoryLimit = "2g"
 	updated, err := p.UpdateDeveloperSpace(ownerCtx, *created)
-	if err != nil || updated.MemoryLimit != "2Gi" || updated.Status != service.DeveloperSpacePending {
+	if err != nil || updated.MemoryLimit != "2g" || updated.Status != service.DeveloperSpacePending {
 		t.Fatalf("updated: %+v %v", updated, err)
 	}
 	if err := p.DeleteDeveloperSpace(ownerCtx, created.ID); err != nil {

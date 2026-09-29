@@ -143,6 +143,12 @@ export async function setPersonalProviderDisabled(id: string, disabled: boolean)
   return res.data;
 }
 
+/** Converts a personal provider into a provider owned by the selected workspace. */
+export async function movePersonalProviderToWorkspace(id: string): Promise<ProviderRecord> {
+  const res = await api.post<ProviderRecord>(`/personal-providers/${encodeURIComponent(id)}/move-to-workspace`);
+  return res.data;
+}
+
 export async function deletePersonalProvider(id: string): Promise<void> {
   await api.delete(`/personal-providers/${encodeURIComponent(id)}`);
 }

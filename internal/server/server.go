@@ -858,6 +858,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/personal-providers/{id}", s.UpdatePersonalProviderAPI)
 	apiGroup.PUT("/v1/personal-providers/{id}/scope", s.SetPersonalProviderScopeAPI)
 	apiGroup.PUT("/v1/personal-providers/{id}/disable", s.SetPersonalProviderDisabledAPI)
+	apiGroup.POST("/v1/personal-providers/{id}/move-to-workspace", s.MovePersonalProviderToWorkspaceAPI)
 	apiGroup.DELETE("/v1/personal-providers/{id}", s.DeletePersonalProviderAPI)
 	apiGroup.POST("/v1/personal-providers/discover-models", s.DiscoverPersonalProviderModelsAPI)
 	apiGroup.POST("/v1/personal-providers/discover-embedding-models", s.DiscoverPersonalProviderEmbeddingModelsAPI)

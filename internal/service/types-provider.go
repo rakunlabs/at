@@ -71,6 +71,10 @@ type PersonalProviderStorer interface {
 	DeletePersonalProvider(ctx context.Context, id string) error
 	SetPersonalProviderScope(ctx context.Context, id, scope, createdBy string) (*ProviderRecord, error)
 	SetPersonalProviderDisabled(ctx context.Context, id string, disabled bool, updatedBy string) error
+	// MovePersonalProviderToWorkspace converts the caller's personal provider
+	// into a provider owned by the selected workspace and rewrites that
+	// workspace's references to it.
+	MovePersonalProviderToWorkspace(ctx context.Context, id, updatedBy string) (*ProviderRecord, error)
 }
 
 // ErrProviderDisabled is returned when a provider would otherwise be admitted

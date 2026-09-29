@@ -21,7 +21,7 @@ func TestPersonalSkillsAndMCPSetsVisibilityAndPublish(t *testing.T) {
 	if got, err := p.GetSkill(bobCtx, personalSkill.ID); err != nil || got != nil {
 		t.Fatalf("foreign personal skill visible: %+v %v", got, err)
 	}
-	if got, err := p.UpdateSkill(bobCtx, personalSkill.ID, service.Skill{Name: "stolen"}); err != nil || got != nil {
+	if got, err := p.UpdateSkill(bobCtx, personalSkill.ID, service.Skill{Name: "stolen"}); !errors.Is(err, service.ErrAccessResourceNotFound) || got != nil {
 		t.Fatalf("foreign personal skill update: %+v %v", got, err)
 	}
 	if _, err := p.CreateAgent(aliceCtx, service.Agent{Name: "personal-skill-agent", OwnerUserID: alice.ID, Config: service.AgentConfig{Skills: []service.SkillRef{{ID: personalSkill.Name}}}}); err != nil {

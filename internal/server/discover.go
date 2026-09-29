@@ -103,6 +103,8 @@ func (s *Server) discoverModelsAPI(w http.ResponseWriter, r *http.Request, perso
 		models, err = discoverAnthropicModels(ctx, req.Config)
 	case "gemini":
 		models, err = discoverGeminiModels(ctx, req.Config)
+	case "vertex", "vertex-gemini":
+		models, err = discoverVertexModels(ctx, req.Config)
 	case "minimax":
 		// MiniMax does not have a /v1/models endpoint. Return known models.
 		models = []string{
@@ -184,6 +186,8 @@ func (s *Server) discoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 		}
 	case "gemini":
 		models, err = discoverGeminiEmbeddingModels(ctx, req.Config, false)
+	case "vertex-gemini":
+		models, err = discoverVertexEmbeddingModels(ctx, req.Config)
 	case "cohere":
 		models, err = discoverCohereEmbeddingModels(ctx, req.Config)
 	default:

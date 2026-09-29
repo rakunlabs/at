@@ -1286,6 +1286,17 @@ the factory rejected exactly that; an explicit `base_url` still wins.
 resolving it unconditionally failed provider construction on a host that has no
 ADC, even for a provider carrying its own key.
 
+Model discovery for both types (`internal/server/discover-vertex.go`) pages
+Model Garden (`GET <regional host>/v1beta1/publishers/google/models`) with the
+provider's own key or ADC, through its proxy, and keeps `gemini*` chat models.
+Embedding discovery is `vertex-gemini` only and keeps `*embedding*` models;
+the OpenAI-compatible `vertex` endpoint has no embeddings. Vertex does not
+serve `batchEmbedContents`, so the gemini adapter's Vertex path (non-empty
+path prefix) calls `:predict` with one instance per input, as
+`gemini-embedding-001` requires. Regression:
+`internal/server/discover-vertex_test.go`,
+`TestCreateEmbeddingVertexUsesPredict`.
+
 Writes: the field is redacted to `***` on read like `api_key`, and an omitted or
 sentinel value preserves the stored key, because every writer (UI, the
 `provider_update` MCP tool, scripts) submits the whole config and would
@@ -1544,6 +1555,24 @@ retryable outage) via the typed `providerDisabledError`. Health reports
 because it spends the same credentials a request would. Credentials, model lists
 and OAuth state survive disabling. Regression:
 `internal/server/provider-disable_test.go`.
+
+A personal provider's **Workspace scope** only grants model use; the credential
+stays account-owned and the row stays in the owner's Personal list. Choosing
+Workspace while editing a personal provider instead calls POST
+`/api/v1/personal-providers/{id}/move-to-workspace`
+(`MovePersonalProviderToWorkspace`), which converts the row in place (same ID,
+config and OAuth state; `owner_user_id` cleared, `workspace_id` set), drops its
+personal grants, and rewrites that workspace's `provider:<id>` references in
+agents, workflow graphs/versions and developer sessions to the bare key in one
+transaction. It needs `personal_providers.manage`, `providers.write` and
+`credentials.manage`; only the owner can move it, and an existing workspace
+provider with the same key is a 409 with nothing moved. References in other
+workspaces or in Chats conversations are not rewritten. Chats for an
+installation administrator used to consult only the Default-workspace gateway
+registry, so a `provider:<id>` reference or a non-default workspace's provider
+answered "provider not found"; `chatProviderInfo` now falls back to the
+workspace catalog. Regression: `TestMovePersonalProviderToWorkspace`,
+`TestChatProviderInfoResolvesScopedProvidersForAdministrators`.
 
 Workflow CRUD, versions, activation, nested triggers, run/run-stream, and active
 run listing/cancellation use selected-workspace admission. Active runs capture

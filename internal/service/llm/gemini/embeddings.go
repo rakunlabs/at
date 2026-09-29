@@ -56,6 +56,10 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		model = "text-embedding-004"
 	}
 
+	if p.pathPrefix != "" {
+		return p.createVertexEmbedding(ctx, req, model)
+	}
+
 	body := batchEmbedRequest{
 		Requests: make([]embedRequest, len(req.Input)),
 	}
@@ -78,12 +82,54 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		return nil, fmt.Errorf("marshal gemini embed: %w", err)
 	}
 
-	// URL path depends on whether we're using Vertex prefix or public API.
+	// Public Generative Language API path; Vertex returned above.
 	path := fmt.Sprintf("/v1beta/models/%s:batchEmbedContents", model)
-	if p.pathPrefix != "" {
-		path = p.pathPrefix + fmt.Sprintf("/models/%s:batchEmbedContents", model)
+
+	respBody, err := p.postEmbedding(ctx, path, jsonData)
+	if err != nil {
+		return nil, err
 	}
 
+	var parsed batchEmbedResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("decode embed response: %w (body: %s)", err, string(respBody))
+	}
+
+	out := make([][]float64, len(parsed.Embeddings))
+	for i, e := range parsed.Embeddings {
+		out[i] = e.Values
+	}
+	usage := common.EstimateEmbeddingInputTokens(req.Input)
+	result := &service.EmbeddingResponse{
+		Embeddings:     out,
+		Model:          model,
+		Usage:          service.Usage{PromptTokens: usage, TotalTokens: usage},
+		UsageEstimated: true,
+	}
+	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
+		return nil, fmt.Errorf("gemini embed: invalid upstream response: %w", err)
+	}
+	return result, nil
+}
+
+func geminiEmbeddingTaskType(inputType string) string {
+	switch inputType {
+	case "search_document":
+		return "RETRIEVAL_DOCUMENT"
+	case "search_query":
+		return "RETRIEVAL_QUERY"
+	case "classification":
+		return "CLASSIFICATION"
+	case "clustering":
+		return "CLUSTERING"
+	default:
+		return ""
+	}
+}
+
+// postEmbedding sends one embedding request and maps upstream failures to the
+// shared rate-limit / upstream error types.
+func (p *Provider) postEmbedding(ctx context.Context, path string, jsonData []byte) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+path, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
@@ -138,39 +184,88 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		}
 	}
 
-	var parsed batchEmbedResponse
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, fmt.Errorf("decode embed response: %w (body: %s)", err, string(respBody))
-	}
-
-	out := make([][]float64, len(parsed.Embeddings))
-	for i, e := range parsed.Embeddings {
-		out[i] = e.Values
-	}
-	usage := common.EstimateEmbeddingInputTokens(req.Input)
-	result := &service.EmbeddingResponse{
-		Embeddings:     out,
-		Model:          model,
-		Usage:          service.Usage{PromptTokens: usage, TotalTokens: usage},
-		UsageEstimated: true,
-	}
-	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
-		return nil, fmt.Errorf("gemini embed: invalid upstream response: %w", err)
-	}
-	return result, nil
+	return respBody, nil
 }
 
-func geminiEmbeddingTaskType(inputType string) string {
-	switch inputType {
-	case "search_document":
-		return "RETRIEVAL_DOCUMENT"
-	case "search_query":
-		return "RETRIEVAL_QUERY"
-	case "classification":
-		return "CLASSIFICATION"
-	case "clustering":
-		return "CLUSTERING"
-	default:
-		return ""
+// Vertex AI does not serve batchEmbedContents. Its text embedding models are
+// called through the prediction endpoint:
+//
+//	POST {prefix}/models/{model}:predict
+//	{"instances":[{"content":"...","task_type":"..."}],"parameters":{"outputDimensionality":N}}
+//
+// gemini-embedding-001 accepts a single instance per request, so every input
+// is sent separately; other models accept small batches, but one-per-call is
+// correct for all of them.
+type vertexPredictEmbedRequest struct {
+	Instances  []vertexEmbedInstance    `json:"instances"`
+	Parameters *vertexEmbedPredictParam `json:"parameters,omitempty"`
+}
+
+type vertexEmbedInstance struct {
+	Content  string `json:"content"`
+	TaskType string `json:"task_type,omitempty"`
+}
+
+type vertexEmbedPredictParam struct {
+	OutputDimensionality *int `json:"outputDimensionality,omitempty"`
+}
+
+type vertexPredictEmbedResponse struct {
+	Predictions []struct {
+		Embeddings struct {
+			Values     []float64 `json:"values"`
+			Statistics struct {
+				TokenCount float64 `json:"token_count"`
+			} `json:"statistics"`
+		} `json:"embeddings"`
+	} `json:"predictions"`
+}
+
+func (p *Provider) createVertexEmbedding(ctx context.Context, req service.EmbeddingRequest, model string) (*service.EmbeddingResponse, error) {
+	taskType := geminiEmbeddingTaskType(req.InputType)
+	var params *vertexEmbedPredictParam
+	if req.Dimensions != nil {
+		params = &vertexEmbedPredictParam{OutputDimensionality: req.Dimensions}
 	}
+	path := p.pathPrefix + fmt.Sprintf("/models/%s:predict", model)
+
+	out := make([][]float64, 0, len(req.Input))
+	tokens := 0
+	for _, text := range req.Input {
+		jsonData, err := json.Marshal(vertexPredictEmbedRequest{
+			Instances:  []vertexEmbedInstance{{Content: text, TaskType: taskType}},
+			Parameters: params,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal vertex embed: %w", err)
+		}
+		respBody, err := p.postEmbedding(ctx, path, jsonData)
+		if err != nil {
+			return nil, err
+		}
+		var parsed vertexPredictEmbedResponse
+		if err := json.Unmarshal(respBody, &parsed); err != nil {
+			return nil, fmt.Errorf("decode vertex embed response: %w", err)
+		}
+		if len(parsed.Predictions) != 1 {
+			return nil, fmt.Errorf("vertex embed: expected 1 prediction, got %d", len(parsed.Predictions))
+		}
+		out = append(out, parsed.Predictions[0].Embeddings.Values)
+		tokens += int(parsed.Predictions[0].Embeddings.Statistics.TokenCount)
+	}
+
+	result := &service.EmbeddingResponse{
+		Embeddings: out,
+		Model:      model,
+		Usage:      service.Usage{PromptTokens: tokens, TotalTokens: tokens},
+	}
+	if tokens == 0 {
+		estimate := common.EstimateEmbeddingInputTokens(req.Input)
+		result.Usage = service.Usage{PromptTokens: estimate, TotalTokens: estimate}
+		result.UsageEstimated = true
+	}
+	if err := service.ValidateEmbeddingResponse(req, result); err != nil {
+		return nil, fmt.Errorf("vertex embed: invalid upstream response: %w", err)
+	}
+	return result, nil
 }

@@ -164,6 +164,15 @@ func (s *Server) chatProviderInfo(r *http.Request, key, model string) (ProviderI
 	}
 	info, ok := s.getProviderInfo(key)
 	if !ok {
+		// The registry holds only Default-workspace providers by bare key, so a
+		// personal reference (provider:<id>) or a provider of the selected
+		// non-default workspace is never in it. Those resolve through the
+		// workspace catalog exactly as they do for a member.
+		if _, scoped := service.AccessPrincipalFromContext(r.Context()); scoped && !s.providerDisabled(key) {
+			if scopedInfo, err := s.workspaceProviderInfo(r.Context(), key, model); err == nil {
+				return scopedInfo, nil
+			}
+		}
 		available := s.availableProviderKeys()
 		return ProviderInfo{}, &chatProviderUnavailableError{message: s.providerUnavailableMessage(key, fmt.Sprintf("provider %q not found; available: %v", key, available))}
 	}

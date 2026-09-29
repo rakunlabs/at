@@ -544,7 +544,7 @@ var builtinTools = []builtinToolDef{
 		"required": []string{"key", "model"},
 	}},
 	{Name: "provider_delete", Description: "Delete an LLM provider by key. The provider is also removed from the in-memory registry; agents referencing it will fail until they're updated.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "description": "Provider key to delete"}}, "required": []string{"key"}}},
-	{Name: "provider_discover_models", Description: "Discover available model IDs for a provider config by calling its model-listing API. Supported types: openai, anthropic, gemini, minimax. Pass an existing `key` to fall back to the stored API key if `config.api_key` is empty (useful when editing a provider whose key is redacted). Returns {models: [...]}.", InputSchema: map[string]any{
+	{Name: "provider_discover_models", Description: "Discover available model IDs for a provider config by calling its model-listing API. Supported types: openai, anthropic, gemini, vertex, vertex-gemini, minimax. Pass an existing `key` to fall back to the stored API key if `config.api_key` is empty (useful when editing a provider whose key is redacted). Returns {models: [...]}.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"config": map[string]any{

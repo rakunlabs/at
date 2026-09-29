@@ -140,3 +140,63 @@ func TestPersonalProviderClaudeAuthorizationIsOwnerScoped(t *testing.T) {
 		t.Fatalf("owner OAuth persistence: %+v %v", stored, err)
 	}
 }
+
+// An installation administrator's Chats used the gateway registry only, which
+// holds Default-workspace providers by bare key. A personal provider
+// (provider:<id>) or one owned by a non-default workspace was therefore
+// "not found" for exactly the account most likely to create one.
+func TestChatProviderInfoResolvesScopedProvidersForAdministrators(t *testing.T) {
+	f := newMachineFixture(t)
+	f.s.providerFactory = func(config.LLMConfig) (service.LLMProvider, error) { return userUsageProvider{}, nil }
+
+	create := httptest.NewRequest(http.MethodPost, "/api/v1/personal-providers", strings.NewReader(`{
+		"key":"admin-own","config":{"type":"openai","model":"m1","api_key":"secret"}
+	}`)).WithContext(f.ctx)
+	w := httptest.NewRecorder()
+	f.s.CreatePersonalProviderAPI(w, create)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status %d: %s", w.Code, w.Body.String())
+	}
+	var created service.ProviderRecord
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	chat := func(model string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"model":` + strconvQuote(model) + `,"messages":[{"role":"user","content":"hi"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/chats/completions", strings.NewReader(body)).WithContext(f.ctx)
+		w := httptest.NewRecorder()
+		f.s.AdminChatCompletions(w, r)
+		return w
+	}
+	if w := chat(created.Reference + "/m1"); w.Code != http.StatusOK {
+		t.Fatalf("personal provider chat status %d: %s", w.Code, w.Body.String())
+	}
+
+	move := httptest.NewRequest(http.MethodPost, "/api/v1/personal-providers/"+created.ID+"/move-to-workspace", nil).WithContext(f.ctx)
+	move.SetPathValue("id", created.ID)
+	w = httptest.NewRecorder()
+	f.s.MovePersonalProviderToWorkspaceAPI(w, move)
+	if w.Code != http.StatusOK {
+		t.Fatalf("move status %d: %s", w.Code, w.Body.String())
+	}
+	var moved service.ProviderRecord
+	if err := json.Unmarshal(w.Body.Bytes(), &moved); err != nil {
+		t.Fatal(err)
+	}
+	if moved.WorkspaceID != f.workspace || moved.OwnerUserID != "" || moved.Config.APIKey != "***" {
+		t.Fatalf("moved record: %+v", moved)
+	}
+	if w := chat("admin-own/m1"); w.Code != http.StatusOK {
+		t.Fatalf("moved provider chat status %d: %s", w.Code, w.Body.String())
+	}
+	if w := chat("missing/m1"); w.Code != http.StatusNotFound {
+		t.Fatalf("unknown provider status %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}

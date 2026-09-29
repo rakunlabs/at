@@ -14,6 +14,7 @@
     updatePersonalProvider,
     deletePersonalProvider,
     setPersonalProviderScope,
+    movePersonalProviderToWorkspace,
     setPersonalProviderDisabled,
     discoverModels,
     discoverEmbeddingModels,
@@ -1370,6 +1371,13 @@
       const cfg = buildConfig();
       if (editingPersonalId) {
         await updatePersonalProvider(editingPersonalId, formKey, cfg, clearStoredCredentials);
+        if (formScope === 'workspace') {
+          const moved = await movePersonalProviderToWorkspace(editingPersonalId);
+          addToast(`Provider "${moved.key}" moved to this workspace`);
+          resetForm();
+          switchProviderView('workspace');
+          return;
+        }
         await setPersonalProviderScope(editingPersonalId, formScope);
         addToast(`Personal provider "${formKey}" updated`);
       } else if (editingKey) {
@@ -1773,15 +1781,11 @@
       return;
     }
 
-    if (formType === 'vertex') {
-      addToast('Model discovery is not supported for this provider type', 'warn');
-      return;
-    }
-
     discoveringModels = true;
     try {
       const cfg: Record<string, any> = { type: formType, auth_type: formAuthType };
       if (formApiKey) cfg.api_key = formApiKey;
+      if (isVertexType && formCredentialsJSON.trim()) cfg.credentials_json = formCredentialsJSON.trim();
       if (formBaseUrl) cfg.base_url = formBaseUrl;
     if (formProxy) cfg.proxy = formProxy;
     if (formInsecureSkipVerify) cfg.insecure_skip_verify = true;
@@ -1818,7 +1822,12 @@
       return;
     }
 
-    if (!['openai', 'azure', 'gemini', 'cohere'].includes(formType)) {
+    if (formType === 'vertex') {
+      addToast('The OpenAI-compatible Vertex endpoint has no embeddings. Use a "Vertex AI (native Gemini)" provider with the same service-account key for embedding models.', 'warn');
+      return;
+    }
+
+    if (!['openai', 'azure', 'gemini', 'vertex-gemini', 'cohere'].includes(formType)) {
       addToast('Embedding model discovery is not supported for this provider type', 'warn');
       return;
     }
@@ -1827,6 +1836,7 @@
     try {
       const cfg: Record<string, any> = { type: formType, auth_type: formAuthType };
       if (formApiKey) cfg.api_key = formApiKey;
+      if (isVertexType && formCredentialsJSON.trim()) cfg.credentials_json = formCredentialsJSON.trim();
       if (formBaseUrl) cfg.base_url = formBaseUrl;
       if (formProxy) cfg.proxy = formProxy;
       if (formInsecureSkipVerify) cfg.insecure_skip_verify = true;
@@ -2071,6 +2081,7 @@
             </div>
             <p class="mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
               {#if formScope === 'personal'}Stored for your account and available to you in workspaces you can access.
+              {:else if editingPersonalId && formScope === 'workspace'}Saving moves this provider into the selected workspace: it leaves your personal list, workspace provider managers can edit it, and this workspace's agents and workflows that used it are updated. A workspace provider with the same key must not already exist.
               {:else if editingPersonalId}Your credential stays account-owned; this publishes model use without exposing the secret.
               {:else if formScope === 'workspace'}Owned and managed by the selected workspace.
               {:else}Owned in Default and available to all workspaces. Platform administrator only.{/if}

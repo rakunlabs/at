@@ -24,7 +24,11 @@ func TestWorkspacePostgresLegacyOwnershipMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prefix := strings.ToLower("t" + ulid.Make().String() + "_")
+	// Keep the prefix short: Postgres truncates identifiers at 63 bytes, and
+	// migrations name constraints after the default <table>_<column>_fkey form.
+	// A 28-byte prefix pushed chat_share_media's foreign key past the limit.
+	id := ulid.Make().String()
+	prefix := strings.ToLower("t" + id[len(id)-10:] + "_")
 	p := &Postgres{db: db, goqu: goqu.New("postgres", db), tableAuthUsers: goqu.T(prefix + "auth_users"), tableAuthSessions: goqu.T(prefix + "auth_sessions")}
 	t.Cleanup(func() { dropTestTables(t, p, prefix); db.Close() })
 	legacy := fstest.MapFS{}

@@ -446,6 +446,7 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 				cfg.AuthType = existing.Config.AuthType
 			}
 			preserveProviderManagedAuth(&cfg, existing.Config)
+			preserveProviderCredentialsJSON(&cfg, existing.Config, false)
 		}
 	}
 
@@ -465,6 +466,8 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 		}
 	case "gemini":
 		models, err = discoverGeminiModels(ctx, cfg)
+	case "vertex", "vertex-gemini":
+		models, err = discoverVertexModels(ctx, cfg)
 	case "minimax":
 		models = []string{
 			"MiniMax-M2.7",
@@ -476,7 +479,7 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 			"MiniMax-M2",
 		}
 	default:
-		return "", fmt.Errorf("model discovery is not supported for provider type %q (supported: openai, anthropic, gemini, minimax)", cfg.Type)
+		return "", fmt.Errorf("model discovery is not supported for provider type %q (supported: openai, anthropic, gemini, vertex, vertex-gemini, minimax)", cfg.Type)
 	}
 	if err != nil {
 		return "", fmt.Errorf("discover models: %w", err)
