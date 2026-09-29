@@ -136,6 +136,10 @@ function gatewayModelsPath(baseUrl: string): string {
   return `${path.replace(/\/+$/, '')}/gateway/v1/models`;
 }
 
+function gatewayModelInfoPath(baseUrl: string): string {
+  return gatewayModelsPath(baseUrl).replace(/\/models$/, '/model/info');
+}
+
 /**
  * opencode config schema generation. V1 uses `provider` / `npm` / `options`
  * and a string `plugin` list; V2 renamed them to `providers` / `package` /
@@ -144,7 +148,7 @@ function gatewayModelsPath(baseUrl: string): string {
 export type OpencodeVersion = 'v1' | 'v2';
 
 const opencodeV2ProviderPackage = '@opencode/ai/providers/openai-compatible';
-const opencodeV2DiscoveryPlugin = 'opencode-models-discovery@1.6.1';
+const opencodeV2DiscoveryPlugin = 'opencode-models-discovery@1.6.2';
 
 function opencodeConfig(opts: {
   version: OpencodeVersion;
@@ -204,10 +208,10 @@ export function opencodeDiscoveryConfig(opts: {
       modelsDiscovery: {
         enabled: true,
         endpoint: gatewayModelsPath(opts.baseUrl),
-        // AT publishes context_length and max_output_tokens inline. This
-        // enrichment format makes the discovery plugin carry those values
-        // into opencode instead of applying its unknown-model defaults.
-        modelInfoFormat: 'omniroute',
+        // Keep discovery on /models. The separate LiteLLM projection enriches
+        // those models with AT's limits, capabilities and configured prices.
+        modelInfoFormat: 'litellm',
+        modelInfoEndpoint: gatewayModelInfoPath(opts.baseUrl),
       },
     },
     models: {},
