@@ -217,6 +217,12 @@ func TestStreamingDoesNotFallBackAfterCommitment(t *testing.T) {
 	if !strings.Contains(body, "stream error") {
 		t.Fatalf("the failure should be reported on the open stream: %s", body)
 	}
+	if !strings.Contains(body, `"error":`) {
+		t.Fatalf("the failure should use an SSE error envelope: %s", body)
+	}
+	if strings.Contains(body, `"content":"stream error`) {
+		t.Fatalf("the failure must not be emitted as assistant content: %s", body)
+	}
 }
 
 // Headers staged by a failed attempt must not appear on the response the next

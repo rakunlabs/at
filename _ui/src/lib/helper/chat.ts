@@ -248,9 +248,13 @@ export async function streamChatCompletion(
     }
   }
 
+  if (signal.aborted) throw new DOMException('Request aborted', 'AbortError');
+  // Provider and transport failures are never a successful chat response. This
+  // applies to ordinary Chats too, not only strict form-builder calls; otherwise
+  // the diagnostic can be persisted as if the model authored it.
+  if (streamError) throw new Error(streamError);
+
   if (callbacks.requireComplete) {
-    if (signal.aborted) throw new DOMException('Request aborted', 'AbortError');
-    if (streamError) throw new Error(streamError);
     if (!['stop', 'tool_calls', 'function_call'].includes(finishReason)) {
       throw new Error(finishReason === 'length' ? 'The model response was truncated. Ask for a smaller change.' : 'The model did not complete its response. Try again.');
     }

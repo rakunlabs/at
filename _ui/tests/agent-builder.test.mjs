@@ -119,6 +119,17 @@ test('existing chat callers retain their non-strict streaming contract', async (
   delete globalThis.agentBuilderFetch;
 });
 
+test('non-strict chat callers reject SSE errors instead of accepting them as assistant output', async () => {
+  let delivered = false;
+  globalThis.agentBuilderFetch = async () => new Response(`data: ${JSON.stringify({ error: { message: 'OpenAI stream closed early' } })}\n\ndata: [DONE]\n\n`);
+  await assert.rejects(
+    streamChatCompletion('api/v1/chats/completions', { model: 'p/m', messages: [], stream: true }, { onDelta() {}, onError() {}, onToolCalls() { delivered = true; } }, new AbortController().signal),
+    /OpenAI stream closed early/,
+  );
+  assert.equal(delivered, false);
+  delete globalThis.agentBuilderFetch;
+});
+
 globalThis.builderRunTest = { agentBuilderTools, streamChatCompletion, getTextContent, mergeDeltaContent };
 const runSource = (await readFile(new URL('../src/lib/helper/agent-builder-run.ts', import.meta.url), 'utf8'))
   .replace(/^import[^\n]+\n/gm, '');

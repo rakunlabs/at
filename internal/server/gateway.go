@@ -1546,17 +1546,21 @@ func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk ChatComple
 // writeSSEError writes an error as an SSE chunk with a finish reason,
 // then terminates the stream.
 func writeSSEError(w http.ResponseWriter, flusher http.Flusher, chatID, model, errMsg string) {
-	finishReason := "stop"
-	writeSSEChunk(w, flusher, ChatCompletionChunk{
-		ID:     chatID,
-		Object: "chat.completion.chunk",
-		Model:  model,
-		Choices: []ChunkChoice{{
-			Index:        0,
-			Delta:        ChunkDelta{Content: errMsg},
-			FinishReason: &finishReason,
-		}},
+	// A transport/provider failure is not assistant content. Sending it as a
+	// normal delta makes browser chat persist the diagnostic in the transcript
+	// and include it in the next request's messages. Use the OpenAI error
+	// envelope so clients reject the turn instead.
+	data, _ := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": errMsg,
+			"type":    "server_error",
+		},
+		"id":     chatID,
+		"model":  model,
+		"object": "error",
 	})
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	flusher.Flush()
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
