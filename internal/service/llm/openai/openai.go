@@ -486,6 +486,21 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 	}
 
+	if !isEventStream(resp.Header) {
+		defer resp.Body.Close()
+		defer releaseOnce()
+		chunks, err := nonStreamChunks(resp, p.BaseURL)
+		if err != nil {
+			return nil, nil, err
+		}
+		ch := make(chan service.StreamChunk, len(chunks))
+		for _, c := range chunks {
+			ch <- c
+		}
+		close(ch)
+		return ch, resp.Header, nil
+	}
+
 	ch := make(chan service.StreamChunk, 64)
 
 	go func() {
@@ -684,6 +699,92 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 // no-argument tools, while null, arrays and partial JSON are rejected.
 func parseToolArguments(raw string) (map[string]any, error) {
 	return common.ParseToolArguments(raw)
+}
+
+// isEventStream reports whether a 200 response should be parsed as SSE. A
+// missing Content-Type keeps the historical behaviour; JSON and HTML answers
+// are handled by nonStreamChunks instead of being scanned for "data:" lines,
+// which found nothing and misreported them as a truncated stream.
+func isEventStream(h http.Header) bool {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(h.Get("Content-Type"), ";")[0]))
+	switch {
+	case mediaType == "application/json", strings.HasSuffix(mediaType, "+json"):
+		return false
+	case mediaType == "text/html", mediaType == "application/xhtml+xml":
+		return false
+	}
+	return true
+}
+
+// nonStreamChunks converts a 200 response that is not an event stream. Some
+// OpenAI-compatible servers ignore stream=true and answer with a complete
+// chat.completion, or report an error as a JSON envelope with status 200. An
+// HTML page means the base URL points at a web UI rather than the chat
+// completions endpoint.
+func nonStreamChunks(resp *http.Response, baseURL string) ([]service.StreamChunk, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("streaming response read failed: %w", err)
+	}
+	contentType := resp.Header.Get("Content-Type")
+
+	var result OpenAIResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		preview := strings.TrimSpace(string(body))
+		if len(preview) > 200 {
+			preview = preview[:200] + "…"
+		}
+		return nil, &service.UpstreamError{
+			Provider:   "openai",
+			StatusCode: http.StatusBadGateway,
+			Message: fmt.Sprintf("provider answered %s instead of an event stream; check that the base URL %q is the full chat completions endpoint (for example https://host/v1/chat/completions): %s",
+				contentType, baseURL, preview),
+			Underlying: fmt.Errorf("unexpected streaming response content type %q", contentType),
+		}
+	}
+	if result.Error != nil {
+		return nil, &service.UpstreamError{
+			Provider:   "openai",
+			StatusCode: http.StatusBadGateway,
+			Code:       result.Error.Code,
+			Param:      result.Error.Param,
+			Message:    result.Error.Message,
+			Underlying: fmt.Errorf("provider error: %s", result.Error.Message),
+		}
+	}
+	if len(result.Choices) == 0 {
+		return nil, fmt.Errorf("no response choices from provider")
+	}
+
+	choice := result.Choices[0]
+	finish := choice.FinishReason
+	var toolCalls []service.ToolCall
+	if finish != "length" && finish != "content_filter" {
+		for _, tc := range choice.Message.ToolCalls {
+			args, err := parseToolArguments(tc.Function.Arguments)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse tool call %q arguments: %w", tc.Function.Name, err)
+			}
+			toolCalls = append(toolCalls, service.ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: args})
+		}
+	}
+	if finish == "" {
+		finish = "stop"
+	}
+	if len(toolCalls) > 0 && finish == "stop" {
+		finish = "tool_calls"
+	}
+
+	chunks := []service.StreamChunk{{
+		Content:          choice.Message.Content,
+		ReasoningContent: choice.Message.ReasoningContent,
+		ToolCalls:        toolCalls,
+		FinishReason:     finish,
+	}}
+	if result.Usage != nil {
+		chunks = append(chunks, service.StreamChunk{Usage: usagePtr(openAIServiceUsage(result.Usage))})
+	}
+	return chunks, nil
 }
 
 func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {

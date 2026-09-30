@@ -316,3 +316,96 @@ func TestChatStreamSynthesizesStopForDoneWithoutFinishReason(t *testing.T) {
 		t.Errorf("finish_reason: got %q want %q", finish, "stop")
 	}
 }
+
+// Some OpenAI-compatible servers ignore stream=true and answer with a whole
+// chat.completion, while a base URL that points at a web UI answers HTML.
+// Neither contains SSE "data:" lines; both used to be reported as a stream
+// closed before finish_reason.
+func TestChatStreamNonEventStreamResponses(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		wantText    string
+		wantFinish  string
+		wantTools   int
+		wantErr     string
+	}{
+		{
+			name:        "json completion",
+			contentType: "application/json",
+			body:        `{"choices":[{"message":{"content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`,
+			wantText:    "Hello",
+			wantFinish:  "stop",
+		},
+		{
+			name:        "json tool call",
+			contentType: "application/json; charset=utf-8",
+			body:        `{"choices":[{"message":{"tool_calls":[{"id":"c1","function":{"name":"f","arguments":"{\"a\":1}"}}]},"finish_reason":"stop"}]}`,
+			wantFinish:  "tool_calls",
+			wantTools:   1,
+		},
+		{
+			name:        "json error envelope",
+			contentType: "application/json",
+			body:        `{"error":{"message":"invalid model","type":"invalid_request_error"}}`,
+			wantErr:     "invalid model",
+		},
+		{
+			name:        "html page",
+			contentType: "text/html; charset=utf-8",
+			body:        `<!doctype html><html><body>LiteLLM UI</body></html>`,
+			wantErr:     "full chat completions endpoint",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tt.contentType)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			p, err := New("k", "m", srv.URL, "", false, nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			ch, _, err := p.ChatStream(context.Background(), "m",
+				[]service.Message{{Role: "user", Content: "x"}}, nil, nil)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error: got %v want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ChatStream: %v", err)
+			}
+
+			var text strings.Builder
+			var finish string
+			var tools int
+			for _, c := range collectStream(t, ch) {
+				if c.Error != nil {
+					t.Fatalf("stream error: %v", c.Error)
+				}
+				text.WriteString(c.Content)
+				tools += len(c.ToolCalls)
+				if c.FinishReason != "" {
+					finish = c.FinishReason
+				}
+			}
+			if text.String() != tt.wantText {
+				t.Errorf("content: got %q want %q", text.String(), tt.wantText)
+			}
+			if finish != tt.wantFinish {
+				t.Errorf("finish_reason: got %q want %q", finish, tt.wantFinish)
+			}
+			if tools != tt.wantTools {
+				t.Errorf("tool calls: got %d want %d", tools, tt.wantTools)
+			}
+		})
+	}
+}
