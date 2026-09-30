@@ -97,6 +97,17 @@
     placeholder="reply@example.com"
   /></label>
 </div>
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Attachments (Go template)</span>
+  <textarea
+    bind:value={data.attachments}
+    rows={2}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+    placeholder={'reports/\x7B\x7B.id\x7D\x7D.pdf'}
+  ></textarea></label>
+  <div class="mt-0.5 text-[10px] text-gray-400">One path per line, relative to this run's workspace. Files saved by HTTP Request or written by Exec to $AT_WORK_DIR can be attached. Up to 20 files, 25 MB total.</div>
+</div>
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>
@@ -111,6 +122,11 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">values</span>
         <span class="text-[10px] text-gray-400 ml-1">— Extra template vars (override data keys)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">map</div>
+      </div>
+      <div title="Files to attach: an HTTP Request result saved as a file, a path, a list of them, or name + content_base64 items from a Script.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">attachments</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Files to attach (added to the field above)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"file ref | path | [..] | { name, content_base64 }"}</div>
       </div>
     </div>
   </div>

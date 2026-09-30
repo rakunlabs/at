@@ -236,6 +236,9 @@ type Server struct {
 	// map key: run ID (string), value: *activeRun
 	activeRuns sync.Map
 
+	// workflowRunsLive holds history rows this process heartbeats.
+	workflowRunsLive workflowRunLive
+
 	// activeDelegations tracks currently-running task delegation goroutines.
 	// map key: task ID (string), value: *activeDelegation
 	activeDelegations sync.Map
@@ -637,6 +640,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// request/response bodies older than LLMCallRetention (default 7d).
 	s.startLLMAuditJanitor(ctx)
 	s.startDurableWorkflows(ctx)
+	s.startWorkflowRunHistory(ctx)
 
 	// Initialize cron trigger scheduler if trigger store is available.
 	{
@@ -684,6 +688,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, s.builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetMCPSetTools(s.listExecutionMCPSetTools, s.callExecutionMCPSetTool)
 		s.scheduler.SetRunRegistrar(s.registerRun)
+		s.scheduler.SetRunRecorder(func(ctx context.Context, runID, workflowID, source, triggerID string) func(*workflow.RunResult, error) {
+			return s.startRunHistory(ctx, runID, workflowID, source, triggerID).finish
+		})
 		// Cron runs execute under the trigger's persisted workspace principal,
 		// never an ambient installation-wide context.
 		s.scheduler.SetExecutionContext(s.runtimeSchedulerContext)
@@ -894,6 +901,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/workflows/run/{id}", s.RunWorkflowAPI)
 	apiGroup.POST("/v1/workflows/run-stream/{id}", s.RunWorkflowStreamAPI)
 	apiGroup.GET("/v1/workflows/{id}/executions", s.ListWorkflowExecutionsAPI)
+	apiGroup.GET("/v1/workflows/{id}/runs", s.ListWorkflowRunsAPI)
 	apiGroup.GET("/v1/workflows/{id}/executions/{execution}", s.GetWorkflowExecutionAPI)
 	apiGroup.POST("/v1/workflows/{id}/executions/{execution}/{action}", s.DecideWorkflowExecutionAPI)
 	apiGroup.GET("/v1/workflows/{id}", s.GetWorkflowAPI)

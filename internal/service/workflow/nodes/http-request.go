@@ -36,6 +36,8 @@ import (
 //	"proxy":                string — HTTP proxy URL (optional)
 //	"insecure_skip_verify": bool   — skip TLS verification (default false)
 //	"retry":                bool   — enable automatic retry (default false)
+//	"save_response":        bool   — stream a successful body into the run workspace
+//	"save_path":            string — workspace-relative target (Go template; default: response file name)
 //
 // Input ports:
 //
@@ -48,7 +50,10 @@ import (
 //	index 1 = "success" — activated when status 2xx
 //	index 2 = "always"  — always activated
 //
-// Output data includes "response", "status_code", and "headers".
+// Output data includes "response", "status_code", and "headers". With
+// save_response, a 2xx body is written to the run workspace instead of being
+// buffered, and "file" carries its reference (path, name, content_type,
+// size_bytes) for downstream nodes such as Email attachments.
 func (*httpRequestNode) Meta() workflow.NodeMeta {
 	return workflow.NodeMeta{
 		Type:        "http_request",
@@ -74,6 +79,8 @@ func (*httpRequestNode) Meta() workflow.NodeMeta {
 			{Name: "proxy", Type: "string", Description: "Proxy URL"},
 			{Name: "insecure_skip_verify", Type: "boolean", Description: "Skip TLS verification"},
 			{Name: "retry", Type: "boolean", Description: "Enable retry on failure"},
+			{Name: "save_response", Type: "boolean", Description: "Save a successful response body as a file in the run workspace (for binaries such as PDFs)"},
+			{Name: "save_path", Type: "string", Description: "Workspace-relative file path (Go template; default: server file name)"},
 		},
 		Color: "cyan",
 	}
@@ -89,6 +96,8 @@ type httpRequestNode struct {
 	insecureSkipVerify bool
 	retry              bool
 	commonRetry        bool
+	saveResponse       bool
+	savePathTmpl       string
 }
 
 func init() {
@@ -128,6 +137,8 @@ func newHTTPRequestNode(node service.WorkflowNode) (workflow.Noder, error) {
 	if commonRetry {
 		retry = false
 	} // one retry owner, never multiply attempts
+	saveResponse, _ := node.Data["save_response"].(bool)
+	savePath, _ := node.Data["save_path"].(string)
 
 	return &httpRequestNode{
 		urlTmpl:            urlStr,
@@ -139,6 +150,8 @@ func newHTTPRequestNode(node service.WorkflowNode) (workflow.Noder, error) {
 		insecureSkipVerify: insecure,
 		retry:              retry,
 		commonRetry:        commonRetry,
+		saveResponse:       saveResponse,
+		savePathTmpl:       strings.TrimSpace(savePath),
 	}, nil
 }
 
@@ -225,21 +238,11 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("http_request: read response: %w", err)
-	}
 	if n.commonRetry && workflow.RetryableHTTPStatus(resp.StatusCode) {
 		return nil, &httpExecutionError{
 			cause: &service.UpstreamError{Provider: "http_request", StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)},
 			delay: httpNodeRetryAfter(resp.Header.Get("Retry-After")),
 		}
-	}
-
-	// Try to parse as JSON; fall back to string.
-	var parsed any
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		parsed = string(respBody)
 	}
 
 	// Collect response headers.
@@ -249,14 +252,45 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	}
 
 	outData := map[string]any{
-		"response":    parsed,
 		"status_code": resp.StatusCode,
 		"headers":     respHeaders,
 	}
 
+	success := resp.StatusCode >= 200 && resp.StatusCode < 300
+	if n.saveResponse && success {
+		// Binary bodies (PDF, images, archives) are streamed to the run
+		// workspace; only the reference travels through the workflow.
+		target := downloadFileName(resp.Header.Get("Content-Disposition"), req.URL.Path)
+		if n.savePathTmpl != "" {
+			rendered, err := renderTemplate("save_path", n.savePathTmpl, tmplCtx, extraFuncs)
+			if err != nil {
+				return nil, fmt.Errorf("http_request: %w", err)
+			}
+			target = strings.TrimSpace(rendered)
+		}
+		file, err := writeRunFile(ctx, target, resp.Body, maxDownloadBytes, resp.Header.Get("Content-Type"))
+		if err != nil {
+			return nil, fmt.Errorf("http_request: save response: %w", err)
+		}
+		outData["file"] = file.toMap()
+		outData["response"] = file.toMap()
+	} else {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("http_request: read response: %w", err)
+		}
+
+		// Try to parse as JSON; fall back to string.
+		var parsed any
+		if err := json.Unmarshal(respBody, &parsed); err != nil {
+			parsed = string(respBody)
+		}
+		outData["response"] = parsed
+	}
+
 	// Selection-based routing by port name.
 	selection := []string{"always"}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if success {
 		selection = append(selection, "success")
 	}
 	if resp.StatusCode >= 400 {

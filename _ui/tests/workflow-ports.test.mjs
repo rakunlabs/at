@@ -8,7 +8,7 @@ const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTa
 const { canvasInputHandle, storedInputHandle } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
 test('bidirectional data nodes use distinct canvas handles without changing saved graphs', () => {
-  for (const kind of ['edit_fields', 'filter', 'aggregate', 'wait']) {
+  for (const kind of ['edit_fields', 'filter', 'aggregate', 'wait', 'gate']) {
     const canvas = canvasInputHandle(kind, 'data');
     assert.notEqual(canvas, 'data', `${kind} input must not overwrite its output handle`);
     assert.equal(storedInputHandle(kind, canvas), 'data');

@@ -398,6 +398,10 @@ type Registry struct {
 
 	// outputs collects final output data from Output nodes.
 	outputs map[string]any
+
+	// handled collects failures the run survived through on_error.
+	handled      []service.WorkflowRunHandledError
+	handledCount int
 }
 
 // ProviderLookup returns a provider, its default model, and an error.

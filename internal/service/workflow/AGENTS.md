@@ -171,6 +171,28 @@ Registration: `workflow.RegisterNodeType(typeName, factory)` called from `init()
 
 ## Key Patterns
 
+- **Panics are node errors**: `runNode` (`node-panic.go`) is the only call site of
+  `Noder.Run` and converts a panic into `ErrNodePanic` (logged with stack). Runs are
+  launched on goroutines outside the HTTP recover middleware (webhook, cron, async,
+  fan-out), where a panic used to terminate the whole process. `ErrNodePanic` is never
+  retried but honours `on_error`. Fan-out branch goroutines carry their own recover.
+- **JS stops on cancel**: script/conditional/loop call `InterruptOnDone(ctx, vm)`, so
+  Stop, deadlines and shutdown interrupt a busy script (`while(true){}` previously kept
+  a CPU forever). Cancellation returns `ctx.Err()`; it is never routed to Script's
+  `false` port. Regression: `node-panic_test.go`.
+- **Run history** (migration 87, `workflow_runs`): non-durable cron, webhook, API
+  and async `workflow_run` tool runs used to leave only a log line. Each now gets a
+  row opened at start and closed with `completed`/`failed`/`cancelled`, the failing
+  node (`NodeError` → `FailedNode`) and up to 20 failures survived via `on_error`
+  (`RunResult.HandledErrors`). The editor stream and test runs are not recorded.
+  Rows are written under the run's execution identity; the workflow must belong to
+  that workspace. The owning process heartbeats live rows every 30s; a row silent for
+  3 min is marked `interrupted` (restart/crash), and a late finish never reopens it.
+  Retention: completed 7 days, failed/cancelled/interrupted 30 days. History writes
+  never fail a run. `GET /api/v1/workflows/{id}/runs?status=&limit=` (`failed` also
+  returns interrupted) uses saved-run visibility: own runs, admins see all. UI:
+  editor → Runs → History. Regressions: server `workflow-run-history_test.go`,
+  postgres `workflow-runs_test.go`.
 - `ErrStopBranch` — sentinel error to gracefully terminate a branch without propagating
 - Fan-out: `runFanOutBranch` spawns goroutines per item with WaitGroup
 - Early output: first Output node fires sends result to `earlyOutput` channel for sync API

@@ -13,6 +13,7 @@
     proxy?: string;
     insecure_skip_verify?: boolean;
     retry?: boolean;
+    save_response?: boolean;
     node_number?: number;
   }
 
@@ -30,6 +31,7 @@
     if (data.proxy) f.push('proxy');
     if (data.insecure_skip_verify) f.push('insecure');
     if (data.retry) f.push('retry');
+    if (data.save_response) f.push('file');
     return f;
   });
 </script>

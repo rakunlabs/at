@@ -14,7 +14,7 @@ var _ service.WorkspaceLifecycleStorer = (*Postgres)(nil)
 // Child-first order includes composite-key and execution tables that are not
 // represented by workspaceResourceTable. Deletion is one scoped transaction.
 var workspaceDeletionTables = []string{
-	"workflow_executions",
+	"workflow_executions", "workflow_runs",
 	"developer_pending_tools", "developer_session_snapshots", "developer_session_messages", "developer_sessions", "developer_spaces",
 	"chat_shares",
 	"storage_objects",

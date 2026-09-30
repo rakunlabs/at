@@ -30,6 +30,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 		Inputs: []workflow.PortMeta{
 			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
 			{Name: "values", Type: workflow.PortTypeData, Label: "Values", Position: "left"},
+			{Name: "attachments", Type: workflow.PortTypeData, Label: "Attachments", Position: "left"},
 		},
 		Outputs: []workflow.PortMeta{
 			{Name: "success", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
@@ -47,6 +48,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 			{Name: "content_type", Type: "string", Default: "text/plain", Enum: []string{"text/plain", "text/html"}, Description: "Content type"},
 			{Name: "from", Type: "string", Description: "Sender override (Go template)"},
 			{Name: "reply_to", Type: "string", Description: "Reply-to address (Go template)"},
+			{Name: "attachments", Type: "string", Description: "Run-workspace file paths to attach, one per line (Go template)"},
 		},
 		Color: "amber",
 	}
@@ -67,6 +69,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 //	"content_type":  string — "text/plain" or "text/html" (default "text/plain")
 //	"from":          string — sender address override template (optional; defaults to config value)
 //	"reply_to":      string — Reply-To header template (optional)
+//	"attachments":   string — run-workspace file paths, one per line or comma-separated (template, optional)
 //
 // NodeConfig Data (type "email"):
 //
@@ -84,6 +87,11 @@ func (*emailNode) Meta() workflow.NodeMeta {
 //
 //	"data"   — upstream data; also available as template context
 //	"values" — additional template variables (merged on top of data)
+//	"attachments" — file references, paths or inline {name, content_base64}
+//	                items (see parseAttachmentInput); combined with the field
+//
+// Attachment files are read from the run workspace (runs/<run_id>), the
+// directory HTTP Request's save_response and exec's AT_WORK_DIR write to.
 //
 // Output ports (selection-based):
 //
@@ -100,6 +108,7 @@ type emailNode struct {
 	contentType string
 	fromTmpl    string
 	replyToTmpl string
+	attachTmpl  string
 }
 
 func init() {
@@ -119,6 +128,7 @@ func newEmailNode(node service.WorkflowNode) (workflow.Noder, error) {
 	}
 	from, _ := node.Data["from"].(string)
 	replyTo, _ := node.Data["reply_to"].(string)
+	attachments, _ := node.Data["attachments"].(string)
 
 	return &emailNode{
 		configID:    configID,
@@ -130,6 +140,7 @@ func newEmailNode(node service.WorkflowNode) (workflow.Noder, error) {
 		contentType: contentType,
 		fromTmpl:    from,
 		replyToTmpl: replyTo,
+		attachTmpl:  strings.TrimSpace(attachments),
 	}, nil
 }
 
@@ -238,6 +249,11 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		return nil, err
 	}
 
+	attachments, err := n.resolveAttachments(ctx, inputs, tmplCtx, extraFuncs)
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the message
 	m := mail.NewMsg()
 	if err := m.From(from); err != nil {
@@ -263,6 +279,9 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		if err := m.ReplyTo(replyTo); err != nil {
 			return nil, fmt.Errorf("email: set reply-to: %w", err)
 		}
+	}
+	if err := attachToMessage(m, attachments); err != nil {
+		return nil, fmt.Errorf("email: %w", err)
 	}
 
 	// Configure the client
@@ -318,6 +337,13 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	outData := map[string]any{
 		"status": "sent",
 	}
+	if len(attachments) > 0 {
+		names := make([]string, len(attachments))
+		for i, a := range attachments {
+			names[i] = a.name
+		}
+		outData["attachments"] = names
+	}
 
 	// Selection-based routing by port name.
 	selection := []string{"always"}
@@ -330,6 +356,40 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil
+}
+
+// resolveAttachments combines the templated field with the attachments input
+// port and loads every file. No run workspace is needed when nothing is attached.
+func (n *emailNode) resolveAttachments(ctx context.Context, inputs map[string]any, tmplCtx map[string]any, funcs map[string]any) ([]emailAttachment, error) {
+	rendered, err := renderEmailTemplate("attachments", n.attachTmpl, tmplCtx, funcs)
+	if err != nil {
+		return nil, err
+	}
+	portValue, hasPort := inputs["attachments"]
+	if strings.TrimSpace(rendered) == "" && (!hasPort || portValue == nil) {
+		return nil, nil
+	}
+
+	runDir, err := runWorkspaceDir(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("email: attachments need a workflow run workspace: %w", err)
+	}
+	specs, err := parseAttachmentField(runDir, rendered)
+	if err != nil {
+		return nil, fmt.Errorf("email: attachments: %w", err)
+	}
+	if hasPort {
+		fromPort, err := parseAttachmentInput(runDir, portValue)
+		if err != nil {
+			return nil, fmt.Errorf("email: attachments input: %w", err)
+		}
+		specs = append(specs, fromPort...)
+	}
+	attachments, err := loadAttachments(ctx, specs)
+	if err != nil {
+		return nil, fmt.Errorf("email: %w", err)
+	}
+	return attachments, nil
 }
 
 // renderEmailTemplate renders a Go text/template string, returning empty string for empty templates.

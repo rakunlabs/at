@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"regexp"
 	"strings"
@@ -476,12 +477,20 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 		return string(data), nil
 	}
 
-	// Async execution.
+	// Async execution: tracked like API runs, so it appears in active runs
+	// (and can be stopped) and in run history.
+	runID, runCtx, cleanup := s.registerRun(context.WithoutCancel(ctx), id, "tool")
 	go func() {
-		_, _ = engine.Run(context.WithoutCancel(ctx), graphToRun, inputs, entryNodeIDs, nil)
+		defer cleanup()
+		history := s.startRunHistory(runCtx, runID, id, "tool", "")
+		result, err := engine.Run(runCtx, graphToRun, inputs, entryNodeIDs, nil)
+		history.finish(result, err)
+		if err != nil {
+			slog.Error("workflow_run: workflow execution failed", "workflow_id", id, "run_id", runID, "error", err)
+		}
 	}()
 
-	return fmt.Sprintf("Workflow %q started asynchronously.", id), nil
+	return fmt.Sprintf("Workflow %q started asynchronously (run_id %s).", id, runID), nil
 }
 
 // execTriggerList lists triggers, optionally filtered by workflow ID and/or scope.

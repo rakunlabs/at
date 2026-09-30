@@ -14,6 +14,7 @@
     content_type?: string;
     from?: string;
     reply_to?: string;
+    attachments?: string;
     node_number?: number;
   }
 
@@ -36,6 +37,7 @@
   <HandleGroup position="left" class="!gap-1">
     <Handle id="values" type="input" port="data" accept={['data']} label="values" />
     <Handle id="data" type="input" port="data" accept={['data', 'text']} label="data" />
+    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
   </HandleGroup>
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-amber-50">
     <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-amber-600 text-white tracking-wide">SMTP</span>
@@ -56,6 +58,9 @@
       </div>
     {:else}
       <div class="text-gray-400 text-[11px]">Configure email</div>
+    {/if}
+    {#if data.attachments}
+      <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">attachments</span>
     {/if}
     {#if data.content_type === 'text/html'}
       <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">HTML</span>

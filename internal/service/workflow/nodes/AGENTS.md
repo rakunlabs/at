@@ -37,7 +37,31 @@ Built-in node types. Each file defines one node type and registers it via `init(
 | `merge.go` | `merge` | Append, zip or scalar-key join over two inputs in one invocation |
 | `aggregate.go` | `aggregate` | Collect/count/sum/average/min/max over an array |
 | `wait.go` | `wait` | Durable timer/approval boundary; returns NodeResultWait, never sleeps |
+| `gate.go` | `gate` | In-run barrier: passes `data` only when the `signal` branch delivered; otherwise stops its branch |
 | `decision.go` | `decision` | System 1 typed decision via a `systemone` provider; routes `decided` / `escalate` on confidence |
+
+## Files between nodes (`run-files.go`)
+
+Binary content travels by **reference**, never as bytes in the JSON payload. A
+file lives in the run workspace `runs/<run_id>` (exec's `AT_WORK_DIR`) and is
+read/written through `service.OpenExecutionRoot`, so containment and
+`files.read`/`files.write` admission match the file tools. Paths are refused,
+not normalised, when absolute or containing `..`.
+
+- `http_request` with `save_response` streams a 2xx body (≤100 MB) to
+  `save_path` (template; default: `Content-Disposition` / URL file name) and
+  outputs `file: {path, workspace_path, name, content_type, size_bytes}`.
+  Non-2xx bodies are still read inline, so error responses stay inspectable.
+- `email` attaches files from its `attachments` field (template, one path per
+  line) plus its `attachments` input port, which accepts a file ref, a path, a
+  list, `{name, content_base64}` items from Script, or an object wrapping them
+  under `file`/`attachments`. ≤20 files / 25 MB total. Attachments are resolved
+  **before** dialling SMTP, so a missing file fails the node and sends nothing.
+
+`gate` differs from `wait`: it never persists or sleeps, so it needs no durable
+launch and works inside Loop. Topological execution means both inputs have
+settled when it runs; an inactive or skipped signal branch stops the gate's
+branch (reported as `skipped`). Regression: `email-attachments_test.go`.
 
 The five data-operation nodes are registered as non-host execution capabilities in
 their own `init()` functions. They use no JS VM, network, secrets or shell. Explicit

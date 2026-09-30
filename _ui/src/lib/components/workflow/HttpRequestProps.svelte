@@ -81,6 +81,23 @@
 {#if (data.execution?.max_attempts ?? 1) > 1}
   <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Common retry is active in Settings; legacy HTTP retry is bypassed.</p>
 {/if}
+<div>
+  <label class="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
+    <input type="checkbox" bind:checked={data.save_response} class="rounded border-gray-300" />
+    Save response as file
+  </label>
+  <div class="mt-0.5 text-[10px] text-gray-400">For PDFs, images and other binaries. A successful body is written to this run's workspace; the output carries <span class="font-mono">file</span> ({'{'} path, name, content_type, size_bytes {'}'}) — connect it to Email's attachments input. Up to 100 MB.</div>
+  {#if data.save_response}
+    <label class="block mt-1">
+      <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">File path (Go template)</span>
+    <input
+      type="text"
+      bind:value={data.save_path}
+      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+      placeholder="(server file name)"
+    /></label>
+  {/if}
+</div>
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>

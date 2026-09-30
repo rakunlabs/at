@@ -105,6 +105,15 @@ func (b *BodyWrapper) Length() (int, error) {
 
 // ─── Goja VM Setup ───
 
+// InterruptOnDone stops vm when ctx ends: Stop, a run deadline or server
+// shutdown. Without it a busy script (`while(true){}`) keeps a CPU and its
+// goroutine forever, because goja never observes a context by itself. The
+// interrupted RunString returns a *goja.InterruptedError that unwraps to
+// ctx.Err(). Call the returned function once the script has finished.
+func InterruptOnDone(ctx context.Context, vm *goja.Runtime) (stop func() bool) {
+	return context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
+}
+
 // SetupGojaVM configures a goja runtime with global helper functions and
 // sets all input values on the VM. Any io.ReadCloser values found in the
 // input tree (including nested maps) are automatically wrapped in BodyWrapper.

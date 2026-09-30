@@ -546,7 +546,9 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 			defer cleanup()
 
 			logi.Ctx(ctx).Info("workflow started", "id", id, "run_id", runID)
+			history := s.startRunHistory(ctx, runID, id, "api", "")
 			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, outputCh)
+			history.finish(result, err)
 			if err != nil {
 				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)
 				return
@@ -576,7 +578,9 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 			defer cleanup()
 
 			logi.Ctx(ctx).Info("workflow started", "id", id, "run_id", runID)
+			history := s.startRunHistory(ctx, runID, id, "api", "")
 			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
+			history.finish(result, err)
 			if err != nil {
 				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)
 				return

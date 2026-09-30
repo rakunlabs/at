@@ -320,7 +320,7 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 	// With no backend configured the upload endpoint must say so instead of
 	// dropping the image.
 	w := mediaUpload(t, s, tokens[0], "shot.png", payload, "image/png")
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "media storage is disabled") {
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "storage is disabled") {
 		t.Fatalf("disabled upload: %d %s", w.Code, w.Body)
 	}
 

@@ -168,7 +168,8 @@ test('public status strictly opts into passkeys and rejects invalid native mode'
   for (const enabled of [false, true]) {
     for (const passkeys of [undefined, null, false, true, 'true', 1]) {
       response = { enabled, passkeys, remember_me: true, passkey_login: 'discoverable' };
-      assert.deepEqual(await api.getAuthStatus(), { ...response, passkeys: enabled && passkeys === true });
+      const usable = enabled && passkeys === true;
+      assert.deepEqual(await api.getAuthStatus(), { ...response, passkeys: usable, passkey_login_enabled: usable });
     }
   }
   for (response of [undefined, null, {}, { enabled: 'true' }, { enabled: 1 }]) await assert.rejects(api.getAuthStatus());
@@ -203,6 +204,8 @@ test('password and passkey login send explicit remember choices only at begin', 
 
 test('durable setup status is preserved and MFA is never coerced to an identity', async () => {
   response = { enabled: true, passkeys: true, setup_required: true, local_login: false, display_title: 'Team AT' };
+  assert.deepEqual(await api.getAuthStatus(), { ...response, passkey_login_enabled: true });
+  response = { ...response, passkey_login_enabled: false };
   assert.deepEqual(await api.getAuthStatus(), response);
   response = { mfa_required: true, challenge: 'opaque', expires_in: 300, methods: ['totp', 'backup_code'] };
   assert.deepEqual(await api.loginWithPassword('user', 'a long password'), response);
@@ -242,26 +245,39 @@ test('passkey failures propagate without retries or automatic completion', async
   }
 });
 
-test('native admin gating fails closed and self-mutations clear identity before reload', async () => {
-  const source = await readFile(new URL('../src/lib/store/auth.svelte.ts', import.meta.url), 'utf8');
-  const code = ts.transpileModule(`const $state = value => value;\n${source}`, {
+test('native admin gating fails closed and returning to sign-in preserves the notice across reload', async () => {
+  const source = (await readFile(new URL('../src/lib/store/auth.svelte.ts', import.meta.url), 'utf8'))
+    .replace(/^import[^\n]+\n/gm, '');
+  const code = ts.transpileModule(`const $state = value => value;\nconst identityAPI = {};\n${source}`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
   }).outputText;
-  const state = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
-  assert.equal(state.isNativeAdmin(), false, 'Legacy or unauthenticated state must not grant access');
-  state.storeAuth.identity = { subject: 'u1', name: 'user', provider: 'native' };
-  assert.equal(state.isNativeAdmin(), false);
-  state.storeAuth.identity.roles = ['user'];
-  assert.equal(state.isNativeAdmin(), false);
-  state.storeAuth.identity.roles = ['admin'];
-  assert.equal(state.isNativeAdmin(), true);
-  const previousWindow = globalThis.window;
-  let reloaded = false;
-  globalThis.window = { location: { reload() {
-    assert.equal(state.storeAuth.identity, null);
+  const previous = { window: globalThis.window, document: globalThis.document, sessionStorage: globalThis.sessionStorage };
+  const stored = new Map();
+  globalThis.document = { baseURI: 'https://at.example/at/' };
+  globalThis.sessionStorage = {
+    getItem: key => stored.get(key) ?? null,
+    setItem: (key, value) => stored.set(key, String(value)),
+    removeItem: key => stored.delete(key),
+  };
+  try {
+    const state = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+    assert.equal(state.isNativeAdmin(), false, 'Legacy or unauthenticated state must not grant access');
+    state.storeAuth.identity = { subject: 'u1', name: 'user', provider: 'native' };
     assert.equal(state.isNativeAdmin(), false);
-    reloaded = true;
-  } } };
-  try { state.returnToLogin(); assert.equal(reloaded, true); }
-  finally { globalThis.window = previousWindow; }
+    state.storeAuth.identity.roles = ['user'];
+    assert.equal(state.isNativeAdmin(), false);
+    state.storeAuth.identity.roles = ['admin'];
+    assert.equal(state.isNativeAdmin(), true);
+    let reloaded = false;
+    globalThis.window = { location: { reload() { reloaded = true; } } };
+    state.returnToLogin('Session expired', true);
+    assert.equal(reloaded, true);
+    // The reload discards the heap; only the notice and signed-out hint survive it.
+    assert.equal(state.takeLoginNotice(), 'Session expired');
+    assert.equal(state.takeLoginNotice(), '');
+    assert.equal(state.takeSignedOut(), true);
+    assert.equal(state.takeSignedOut(), false);
+  } finally {
+    Object.assign(globalThis, previous);
+  }
 });

@@ -8,7 +8,7 @@ import ts from 'typescript';
 const calls = [];
 let enabled, responses;
 const api = {};
-for (const name of ['listAgents', 'listProviders', 'listSkills', 'listMCPSets',
+for (const name of ['listAgents', 'getInfo', 'listSkills', 'listMCPSets',
   'listWorkflows', 'listBuiltinTools', 'listConnections', 'loadFeatures']) {
   api[name] = async (...args) => {
     calls.push(name);
@@ -47,7 +47,7 @@ beforeEach(() => {
   enabled = new Set();
   responses = {
     listAgents: { data: records, meta: { total: 2, limit: 1000 } },
-    listProviders: { data: [] }, listSkills: { data: [] }, listMCPSets: { data: [] },
+    getInfo: { providers: [] }, listSkills: { data: [] }, listMCPSets: { data: [] },
     listWorkflows: { data: [] }, listBuiltinTools: { tools: [] }, listConnections: [],
   };
 });
@@ -66,7 +66,7 @@ test('opening the editor skips disabled catalogs without presenting them as erro
   const page = createAgentPage();
   await page.loadList();
   await page.loadEditor();
-  assert.deepEqual(calls, ['listAgents', 'loadFeatures', 'listProviders']);
+  assert.deepEqual(calls, ['listAgents', 'loadFeatures', 'getInfo']);
   assert.deepEqual(page.editor.issues, []);
   assert.deepEqual(page.data.agents, records);
 });

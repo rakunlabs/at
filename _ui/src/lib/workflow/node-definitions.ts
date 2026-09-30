@@ -255,6 +255,10 @@ export const workflowNodeDefinitions = [
     createDefaultData: () => ({ label: 'Wait / Approval', mode: 'duration', seconds: 60, expires_seconds: 604800, prompt: '' }),
   },
   {
+    type: 'gate', label: 'Gate', description: 'Continue after another branch finishes', paletteGroup: 'Flow Control',
+    createDefaultData: () => ({ label: 'Gate', pass_signal: false }),
+  },
+  {
     type: 'skill_config',
     label: 'Skill Config',
     description: 'Skills for agent nodes',

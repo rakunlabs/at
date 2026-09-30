@@ -33,6 +33,10 @@ type cronRunner interface {
 // and a cleanup function that must be deferred.
 type RunRegistrar func(parent context.Context, workflowID, source string) (runID string, ctx context.Context, cleanup func())
 
+// RunRecorder opens a run-history record and returns the function that
+// closes it with the run's outcome.
+type RunRecorder func(ctx context.Context, runID, workflowID, source, triggerID string) (finish func(*RunResult, error))
+
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
 	triggerStore          service.TriggerStorer
@@ -62,6 +66,7 @@ type Scheduler struct {
 	workflowExecutor      WorkflowExecutorFunc
 	loopGov               LoopGovernor
 	runRegistrar          RunRegistrar
+	runRecorder           RunRecorder
 	enabledCheck          func(context.Context) bool
 	executionContext      func(context.Context, string) (context.Context, error)
 	durableLaunch         func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error
@@ -115,6 +120,11 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+// SetRunRecorder sets the callback that records cron runs in run history.
+func (s *Scheduler) SetRunRecorder(r RunRecorder) {
+	s.runRecorder = r
 }
 
 func (s *Scheduler) SetDurableLauncher(launch func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error) {
@@ -557,7 +567,12 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID)
+		finish := func(*RunResult, error) {}
+		if s.runRecorder != nil && runID != "" {
+			finish = s.runRecorder(runCtx, runID, trigger.WorkflowID, "cron", trigger.ID)
+		}
 		result, err := engine.Run(runCtx, graphToRun, inputs, entryNodeIDs, nil)
+		finish(result, err)
 		if err != nil {
 			logi.Ctx(runCtx).Error("scheduler: workflow execution failed",
 				"trigger_id", trigger.ID,

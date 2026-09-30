@@ -55,8 +55,7 @@ func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHan
 		return "", err
 	}
 	vm := goja.New()
-	stop := context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
-	defer stop()
+	defer InterruptOnDone(ctx, vm)()
 
 	// Register all shared helpers (toString, jsonParse, btoa, atob,
 	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getVar, getUserPref).

@@ -37,14 +37,16 @@ func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 	s := &Server{store: store, nativeAuth: a, config: config.Server{BasePath: "/at"}, providers: map[string]ProviderInfo{"claude": {defaultModel: "unchanged-global"}}, providerFactory: func(config.LLMConfig) (service.LLMProvider, error) { return codexAuthTestProvider{}, nil }}
 	exchanges := 0
 	verifiers := map[string]string{}
+	states := map[string]string{}
 	s.providerAuthClientFactory = func(string, bool) (*http.Client, error) {
 		return &http.Client{Transport: providerAuthTestTransport(func(r *http.Request) (*http.Response, error) {
-			if err := r.ParseForm(); err != nil {
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				return nil, err
 			}
-			code := r.PostForm.Get("code")
-			if verifiers[code] == "" || r.PostForm.Get("code_verifier") != verifiers[code] {
-				return nil, fmt.Errorf("wrong PKCE verifier for %s", code)
+			code := payload["code"]
+			if verifiers[code] == "" || payload["code_verifier"] != verifiers[code] || payload["state"] != states[code] {
+				return nil, fmt.Errorf("wrong PKCE verifier or state for %s", code)
 			}
 			exchanges++
 			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"access_token":%q,"refresh_token":%q,"expires_in":3600}`, "access-"+code, "refresh-"+code)))}, nil
@@ -108,12 +110,14 @@ func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 		for key, flow := range claudeAuthFlows.flows {
 			if key.WorkspaceID == workspace && flow.State == authURL.Query().Get("state") {
 				verifiers[fmt.Sprintf("code-%d", i)] = flow.Verifier
+				states[fmt.Sprintf("code-%d", i)] = flow.State
 			}
 		}
 		claudeAuthFlows.mu.Unlock()
 	}
 	for i, workspace := range workspaces {
-		w := call("/claude-auth/callback", workspace, fmt.Sprintf(`{"key":"claude","code":"code-%d"}`, i))
+		code := fmt.Sprintf("code-%d", i)
+		w := call("/claude-auth/callback", workspace, fmt.Sprintf(`{"key":"claude","code":%q}`, code+"#"+states[code]))
 		if w.Code != http.StatusOK {
 			t.Fatalf("callback: %d %s", w.Code, w.Body.String())
 		}

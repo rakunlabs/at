@@ -192,6 +192,36 @@ export async function decideWorkflowExecution(workflowId: string, id: string, re
   await api.post(`/workflows/${workflowId}/executions/${id}/${action}`, { revision });
 }
 
+// ─── Run History API (non-durable runs: cron, webhook, API, workflow_run tool) ───
+
+export type WorkflowRunStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+
+export interface WorkflowRunHandledError {
+  node_id: string;
+  node_type: string;
+  error: string;
+}
+
+export interface WorkflowRunRecord {
+  id: string;
+  workflow_id: string;
+  owner_user_id: string;
+  source: 'api' | 'cron' | 'webhook' | 'tool';
+  trigger_id: string;
+  status: WorkflowRunStatus;
+  error: string;
+  failed_node_id: string;
+  failed_node_type: string;
+  handled_errors: WorkflowRunHandledError[];
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** `status: 'failed'` also returns interrupted runs. */
+export async function listWorkflowRuns(workflowId: string, params: { status?: 'failed' | WorkflowRunStatus; limit?: number } = {}): Promise<WorkflowRunRecord[]> {
+  return (await api.get<{ data: WorkflowRunRecord[] }>(`/workflows/${workflowId}/runs`, { params })).data.data;
+}
+
 // ─── Node Type Metadata API ───
 
 /** Fetch the complete catalog of registered node types with port schemas. */

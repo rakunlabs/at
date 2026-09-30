@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ import (
 // RunResult is the output of a workflow execution.
 type RunResult struct {
 	Outputs map[string]any `json:"outputs"`
+	// HandledErrors are node failures the run survived via on_error
+	// (at most maxHandledErrors); HandledErrorCount is the full count.
+	HandledErrors     []service.WorkflowRunHandledError `json:"-"`
+	HandledErrorCount int                               `json:"-"`
 }
 
 // EarlyOutput is sent on the output channel when the first output node
@@ -538,7 +543,8 @@ func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	// Signal with final outputs if no output node fired earlier.
 	signalOutput(outputs, nil)
 
-	return &RunResult{Outputs: outputs}, nil
+	handled, handledCount := reg.HandledErrors()
+	return &RunResult{Outputs: outputs, HandledErrors: handled, HandledErrorCount: handledCount}, nil
 }
 
 type fanOutExecution struct {
@@ -552,7 +558,7 @@ type outputSignal func(map[string]any, error)
 func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, inputs map[string]any, signalOutput outputSignal) (NodeResult, bool, error) {
 	policy, err := ParseNodeExecutionPolicy(st.node.Data)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), err)
+		return nil, false, newNodeError(st, err)
 	}
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: st.noder.Type()}); err != nil {
 		return nil, false, err
@@ -587,7 +593,7 @@ func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, 
 	e.emitEvent(startedEvent)
 	if mappingErr != nil {
 		e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "error", Error: mappingErr.Error()})
-		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), mappingErr)
+		return nil, false, newNodeError(st, mappingErr)
 	}
 	logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
 
@@ -606,6 +612,7 @@ func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, 
 			return nil, true, nil
 		}
 		if policy.OnError != "stop" && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, service.ErrAccessDenied) && !errors.Is(err, service.ErrExecutionDenied) {
+			reg.recordHandledError(st, err)
 			data := nodeFailureData(st, mappedInputs, attempts, err)
 			preview, omitted := snapshotNodeData(data)
 			e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "error_handled", Error: err.Error(), ErrorPolicy: policy.OnError, Attempt: attempts, MaxAttempts: policy.MaxAttempts, DurationMs: durationMs, Data: preview, DataOmitted: omitted})
@@ -627,7 +634,7 @@ func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, 
 			Error:       err.Error(),
 			DurationMs:  durationMs,
 		})
-		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), err)
+		return nil, false, newNodeError(st, err)
 	}
 	logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
 
@@ -765,12 +772,21 @@ func (e *Engine) runFanOut(ctx context.Context, fanOut fanOutExecution, states m
 		wg.Add(1)
 		go func(index int, data map[string]any) {
 			defer wg.Done()
+			// Node panics are already errors (runNode); this guards the branch's
+			// own bookkeeping, which runs on a goroutine no caller can recover.
+			defer func() {
+				if r := recover(); r != nil {
+					logi.Ctx(ctx).Error("fan-out branch panicked", "item_index", index, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+					errs[index] = fmt.Errorf("%w: fan-out branch %d: %v", ErrNodePanic, index, r)
+				}
+			}()
 			errs[index] = e.runFanOutBranch(ctx, fanOut.sourceNodeID, data, states, order, branchRegs[index], baseOutputs, signalOutput)
 		}(i, item)
 	}
 	wg.Wait()
 
 	for i, branchReg := range branchRegs {
+		reg.mergeHandled(branchReg)
 		if errs[i] == nil {
 			reg.SetOutputs(branchReg.Outputs())
 		}

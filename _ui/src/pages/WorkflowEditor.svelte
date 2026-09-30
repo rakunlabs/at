@@ -21,6 +21,8 @@
   import DataOperationProps from '@/lib/components/workflow/DataOperationProps.svelte';
   import WaitNode from '@/lib/components/workflow/WaitNode.svelte';
   import WaitProps from '@/lib/components/workflow/WaitProps.svelte';
+  import GateNode from '@/lib/components/workflow/GateNode.svelte';
+  import GateProps from '@/lib/components/workflow/GateProps.svelte';
   import SavedWorkflowRuns from '@/lib/components/workflow/SavedWorkflowRuns.svelte';
   import { switchOutputPorts } from '@/lib/workflow/data-operations';
   import { canvasInputHandle, storedInputHandle } from '@/lib/workflow/ports';
@@ -85,6 +87,7 @@
   // ─── Props Component Map ───
   const propsComponents: Record<string, any> = {
     wait: WaitProps,
+    gate: GateProps,
     edit_fields: DataOperationProps,
     filter: DataOperationProps,
     switch: DataOperationProps,
@@ -126,6 +129,7 @@
   // ─── Node Types ───
   const nodeTypes: NodeTypes = {
     wait: WaitNode,
+    gate: GateNode,
     edit_fields: DataOperationNode,
     filter: DataOperationNode,
     switch: DataOperationNode,
@@ -185,6 +189,7 @@
   let showRunPanel = $state(false);
   let showSavedRuns = $state(false);
   let savedRunsRefresh = $state(0);
+  let runsTab = $state<'history' | 'saved'>('history');
   let showChatPanel = $state(false);
   let runInputsJson = $state('');
   let runInputMode = $state<'text' | 'json'>('text');
@@ -533,10 +538,11 @@
         (event) => {
           if (generation !== runGeneration) return;
           if (event.event_type === 'durable_started') {
+            runsTab = 'saved';
             showSavedRuns = true;
             showRunPanel = false;
             savedRunsRefresh++;
-            addToast('Workflow queued. Follow its progress in Saved runs.', 'info');
+            addToast('Workflow queued. Follow its progress under Runs → Saved.', 'info');
             return;
           }
           handleStreamEvent(event);
@@ -941,11 +947,11 @@
           Add step
         </button>
         <button
-          onclick={() => { showSavedRuns = !showSavedRuns; if (showSavedRuns) { showRunPanel = false; showVersionPanel = false; showChatPanel = false; } }}
+          onclick={() => { showSavedRuns = !showSavedRuns; if (showSavedRuns) { runsTab = 'history'; showRunPanel = false; showVersionPanel = false; showChatPanel = false; } }}
           class={showSavedRuns ? toolbarBtnActive : toolbarBtnDefault}
         >
           <Clock size={14} />
-          Saved runs
+          Runs
         </button>
         <button
           onclick={() => { showSavedRuns = false; showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
@@ -1216,7 +1222,7 @@
       {/if}
 
       <!-- Run Panel -->
-      {#if showSavedRuns}<SavedWorkflowRuns workflowId={workflow.id} refreshKey={savedRunsRefresh} onclose={() => showSavedRuns = false} />{/if}
+      {#if showSavedRuns}<SavedWorkflowRuns workflowId={workflow.id} refreshKey={savedRunsRefresh} initialTab={runsTab} onclose={() => showSavedRuns = false} onselectnode={(nodeId) => { const flow = canvasRef?.getFlow(); if (flow?.getNode(nodeId)) { flow.selectNode(nodeId); selectNodeForEditor(nodeId); } else addToast(`Step ${nodeId} is not in this version of the workflow.`, 'info'); }} />{/if}
       {#if showRunPanel}
         <div class="absolute inset-y-0 right-0 z-30 w-80 max-w-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto xl:static">
           <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border">

@@ -693,7 +693,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"run_id", runID)
+			history := s.startRunHistory(ctx, runID, trigger.WorkflowID, "webhook", trigger.ID)
 			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, outputCh)
+			history.finish(result, err)
 			if err != nil {
 				logi.Ctx(ctx).Error("webhook: workflow execution failed",
 					"trigger_id", trigger.ID,
@@ -737,7 +739,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"run_id", runID)
+			history := s.startRunHistory(ctx, runID, trigger.WorkflowID, "webhook", trigger.ID)
 			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
+			history.finish(result, err)
 			if err != nil {
 				logi.Ctx(ctx).Error("webhook: workflow execution failed",
 					"trigger_id", trigger.ID,

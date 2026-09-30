@@ -63,7 +63,7 @@ func RetryableHTTPStatus(status int) bool {
 }
 
 func retryableNodeError(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, ErrStopBranch) || errors.Is(err, service.ErrAccessDenied) || errors.Is(err, service.ErrExecutionDenied) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, ErrStopBranch) || errors.Is(err, ErrNodePanic) || errors.Is(err, service.ErrAccessDenied) || errors.Is(err, service.ErrExecutionDenied) {
 		return false
 	}
 	var rateLimit *service.RateLimitError
@@ -122,7 +122,7 @@ func (e *Engine) executeAttempts(ctx context.Context, st *nodeState, reg *Regist
 			e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "attempt_started", Attempt: attempt, MaxAttempts: policy.MaxAttempts})
 		}
 		started := time.Now()
-		result, err := st.noder.Run(ctx, reg, inputs)
+		result, err := runNode(ctx, st, reg, inputs)
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}

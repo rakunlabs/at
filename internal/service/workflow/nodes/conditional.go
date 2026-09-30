@@ -65,8 +65,9 @@ func (n *conditionalNode) Validate(_ context.Context, _ *workflow.Registry) erro
 	return nil
 }
 
-func (n *conditionalNode) Run(_ context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *conditionalNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	vm := goja.New()
+	defer workflow.InterruptOnDone(ctx, vm)()
 
 	// Set up global helpers and wrap io.ReadCloser values (e.g. HTTP body).
 	if err := workflow.SetupGojaVM(vm, inputs, reg.VarLookup); err != nil {
@@ -75,6 +76,9 @@ func (n *conditionalNode) Run(_ context.Context, reg *workflow.Registry, inputs 
 
 	val, err := vm.RunString(n.expression)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("conditional: expression error: %w", err)
 	}
 

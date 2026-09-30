@@ -94,6 +94,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/workflows/run/{id}", "workflows.execute", "workflows", "id"},
 		{"POST", "/workflows/run-stream/{id}", "workflows.execute", "workflows", "id"},
 		{"GET", "/workflows/{id}/executions", "workflows.read", "workflows", "id"},
+		{"GET", "/workflows/{id}/runs", "workflows.read", "workflows", "id"},
 		{"GET", "/workflows/{id}/executions/{execution}", "workflows.read", "workflows", "id"},
 		{"POST", "/workflows/{id}/executions/{execution}/{action}", "workflows.execute", "workflows", "id"},
 		{"GET", "/workflows/{id}/versions", "workflows.read", "workflows", "id"},

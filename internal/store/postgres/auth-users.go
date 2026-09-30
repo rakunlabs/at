@@ -25,6 +25,7 @@ var authUserDeletionTables = []struct {
 	column string
 }{
 	{"workflow_executions", "owner_user_id"},
+	{"workflow_runs", "owner_user_id"},
 	{"workspace_user_permissions", "user_id"},
 	{"workspace_user_denied", "user_id"},
 	{"workspace_memberships", "user_id"},

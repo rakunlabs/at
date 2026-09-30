@@ -6,7 +6,8 @@ import ts from 'typescript';
 const source = await readFile(new URL('../src/lib/api/chat-sessions.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source
   .replace("import axios from 'axios';", 'const axios = { create: () => ({}) };')
-  .replace("import { authFetch as fetch } from './transport';", ''), {
+  .replace("import { authFetch as fetch } from './transport';", '')
+  .replace("import { deploymentUrl } from '../helper/deployment-url';", 'const deploymentUrl = path => path;'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
 }).outputText;
 const { consumeChatEvents } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);

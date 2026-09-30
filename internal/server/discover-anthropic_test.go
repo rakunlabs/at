@@ -68,10 +68,11 @@ func TestAnthropicDiscoveryRefreshesAndPersistsWorkspaceOAuth(t *testing.T) {
 	}
 	f.s.providerAuthClientFactory = func(string, bool) (*http.Client, error) {
 		return &http.Client{Transport: providerAuthTestTransport(func(r *http.Request) (*http.Response, error) {
-			if err := r.ParseForm(); err != nil {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				t.Fatal(err)
 			}
-			if r.Form.Get("refresh_token") != "old-refresh" {
+			if payload["refresh_token"] != "old-refresh" {
 				t.Fatal("wrong refresh credential")
 			}
 			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"access_token":"fresh-access","refresh_token":"fresh-refresh","expires_in":3600}`))}, nil
