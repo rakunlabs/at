@@ -9,6 +9,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/systemone"
 )
 
 // ─── Provider Management Tool Executors ───
@@ -468,6 +469,10 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 		models, err = discoverGeminiModels(ctx, cfg)
 	case "vertex", "vertex-gemini":
 		models, err = discoverVertexModels(ctx, cfg)
+	case "systemone":
+		// The /v1/systemone protocol has no model listing; these are the
+		// checkpoint names laya-serve accepts ("auto" lets it route).
+		models = append([]string(nil), systemone.KnownModels...)
 	case "minimax":
 		models = []string{
 			"MiniMax-M2.7",
@@ -479,7 +484,7 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 			"MiniMax-M2",
 		}
 	default:
-		return "", fmt.Errorf("model discovery is not supported for provider type %q (supported: openai, anthropic, gemini, vertex, vertex-gemini, minimax)", cfg.Type)
+		return "", fmt.Errorf("model discovery is not supported for provider type %q (supported: openai, anthropic, gemini, vertex, vertex-gemini, minimax, systemone)", cfg.Type)
 	}
 	if err != nil {
 		return "", fmt.Errorf("discover models: %w", err)

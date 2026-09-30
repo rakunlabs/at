@@ -52,6 +52,7 @@
   import AudioGenerateNode from '@/lib/components/workflow/AudioGenerateNode.svelte';
   import AudioTranscribeNode from '@/lib/components/workflow/AudioTranscribeNode.svelte';
   import EmbeddingNode from '@/lib/components/workflow/EmbeddingNode.svelte';
+  import DecisionNode from '@/lib/components/workflow/DecisionNode.svelte';
 
   // ─── Property Panel Components ───
   import InputProps from '@/lib/components/workflow/InputProps.svelte';
@@ -79,6 +80,7 @@
   import AudioGenerateProps from '@/lib/components/workflow/AudioGenerateProps.svelte';
   import AudioTranscribeProps from '@/lib/components/workflow/AudioTranscribeProps.svelte';
   import EmbeddingProps from '@/lib/components/workflow/EmbeddingProps.svelte';
+  import DecisionProps from '@/lib/components/workflow/DecisionProps.svelte';
 
   // ─── Props Component Map ───
   const propsComponents: Record<string, any> = {
@@ -113,6 +115,7 @@
     audio_generate: AudioGenerateProps,
     audio_transcribe: AudioTranscribeProps,
     embedding: EmbeddingProps,
+    decision: DecisionProps,
   } satisfies Record<WorkflowNodeType, any>;
 
   // ─── Props ───
@@ -153,6 +156,7 @@
     audio_generate: AudioGenerateNode,
     audio_transcribe: AudioTranscribeNode,
     embedding: EmbeddingNode,
+    decision: DecisionNode,
   } satisfies Record<WorkflowNodeType, NodeTypes[string]>;
 
   const definitionErrors = validateWorkflowNodeDefinitions(Object.keys(nodeTypes), Object.keys(propsComponents));

@@ -198,6 +198,25 @@ export const workflowNodeDefinitions = [
     createDefaultData: () => ({ label: 'Embedding', provider: '', model: '', dimensions: 0, input_type: '' }),
   },
   {
+    type: 'decision',
+    label: 'Decision',
+    description: 'System 1 typed decision with confidence routing',
+    paletteGroup: 'Flow Control',
+    createDefaultData: () => ({
+      label: 'Decision',
+      provider: '',
+      model: '',
+      min_confidence: 0,
+      questions: {
+        department: {
+          type: 'choice',
+          instructions: 'Which team should handle this?',
+          criteria: { billing: 'invoices, payments, refunds', technical: 'bugs, outages', other: 'everything else' },
+        },
+      },
+    }),
+  },
+  {
     type: 'conditional',
     label: 'Conditional',
     description: 'If/else branching',

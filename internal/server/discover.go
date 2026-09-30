@@ -18,6 +18,7 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
+	"github.com/rakunlabs/at/internal/service/llm/systemone"
 )
 
 // discoverRequest is the JSON body for POST /api/v1/providers/discover-models.
@@ -105,6 +106,10 @@ func (s *Server) discoverModelsAPI(w http.ResponseWriter, r *http.Request, perso
 		models, err = discoverGeminiModels(ctx, req.Config)
 	case "vertex", "vertex-gemini":
 		models, err = discoverVertexModels(ctx, req.Config)
+	case "systemone":
+		// The /v1/systemone protocol has no model listing; these are the
+		// checkpoint names laya-serve accepts ("auto" lets it route).
+		models = append([]string(nil), systemone.KnownModels...)
 	case "minimax":
 		// MiniMax does not have a /v1/models endpoint. Return known models.
 		models = []string{

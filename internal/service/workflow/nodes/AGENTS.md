@@ -37,6 +37,7 @@ Built-in node types. Each file defines one node type and registers it via `init(
 | `merge.go` | `merge` | Append, zip or scalar-key join over two inputs in one invocation |
 | `aggregate.go` | `aggregate` | Collect/count/sum/average/min/max over an array |
 | `wait.go` | `wait` | Durable timer/approval boundary; returns NodeResultWait, never sleeps |
+| `decision.go` | `decision` | System 1 typed decision via a `systemone` provider; routes `decided` / `escalate` on confidence |
 
 The five data-operation nodes are registered as non-host execution capabilities in
 their own `init()` functions. They use no JS VM, network, secrets or shell. Explicit

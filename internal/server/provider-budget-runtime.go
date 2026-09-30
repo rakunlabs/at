@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -313,6 +314,32 @@ func (p *budgetedProvider) Rerank(ctx context.Context, req service.RerankRequest
 		return nil, err
 	}
 	resp, err := inner.Rerank(ctx, req)
+	if err != nil {
+		p.settle(ctx, reservation, req.Model, service.Usage{})
+		return nil, err
+	}
+	p.settle(ctx, reservation, req.Model, resp.Usage)
+	return resp, nil
+}
+
+func (p *budgetedProvider) Decide(ctx context.Context, req service.DecisionRequest) (*service.DecisionResponse, error) {
+	inner, ok := p.inner.(service.DecisionProvider)
+	if !ok {
+		return nil, service.ErrUnsupportedOperation
+	}
+	req.Model = p.resolvedModel(req.Model)
+	input := 0
+	if state, err := json.Marshal(req.State); err == nil {
+		input += len(state)
+	}
+	if questions, err := json.Marshal(req.Questions); err == nil {
+		input += len(questions)
+	}
+	reservation, err := p.reserve(ctx, req.Model, service.Usage{PromptTokens: max(1, input/4)})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := inner.Decide(ctx, req)
 	if err != nil {
 		p.settle(ctx, reservation, req.Model, service.Usage{})
 		return nil, err

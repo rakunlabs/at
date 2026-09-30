@@ -105,6 +105,17 @@ func (p *executionProvider) Rerank(ctx context.Context, req RerankRequest) (*Rer
 	}
 	return provider.Rerank(ctx, req)
 }
+func (p *executionProvider) Decide(ctx context.Context, req DecisionRequest) (*DecisionResponse, error) {
+	current, err := p.current(ctx, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	provider, ok := current.(DecisionProvider)
+	if !ok {
+		return nil, ErrUnsupportedOperation
+	}
+	return provider.Decide(ctx, req)
+}
 
 // StreamChat opens a streaming completion through the same per-call admission
 // as Chat. It deliberately is not ChatStream: satisfying LLMStreamProvider

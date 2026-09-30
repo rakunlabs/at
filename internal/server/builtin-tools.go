@@ -27,7 +27,9 @@ func init() {
 	for _, tool := range builtinTools {
 		host := true
 		switch tool.Name {
-		case "agent_run", "agent_run_status", "agent_run_cancel":
+		case "agent_run", "agent_run_status", "agent_run_cancel", "decide":
+			// decide is one provider call through the scoped execution
+			// provider, like a model call; it touches no host primitive.
 			// The child loop revalidates every provider/resource/tool action;
 			// launching or observing it grants no daemon-host primitive itself.
 			host = false
@@ -170,6 +172,15 @@ var builtinTools = []builtinToolDef{
 	{Name: "agent_run", Description: "Run one of this agent's configured subagents in a fresh isolated context. Foreground returns the final result; background returns a run ID for agent_run_status. Use durable organization tools for accountable task delegation.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"agent": map[string]any{"type": "string", "description": "Allowed subagent ID or name"}, "task": map[string]any{"type": "string", "description": "Self-contained task for the subagent"}, "context": map[string]any{"type": "string", "description": "Optional constraints or background needed to complete the task"}, "background": map[string]any{"type": "boolean", "description": "Run asynchronously and return a run ID"}}, "required": []string{"agent", "task"}}},
 	{Name: "agent_run_status", Description: "Read the status and final result of an ephemeral background agent_run owned by this execution identity.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"run_id": map[string]any{"type": "string"}}, "required": []string{"run_id"}}},
 	{Name: "agent_run_cancel", Description: "Cancel an ephemeral background agent_run owned by this execution identity. Cancellation automatically cascades to its background descendants.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"run_id": map[string]any{"type": "string"}}, "required": []string{"run_id"}}},
+
+	// ─── Decision Tools ───
+	{Name: "decide", Description: "Classify or score something with a System 1 decision model (provider type systemone, e.g. Laya or TypeSafe Jev) instead of reasoning it out yourself. One fast call returns typed answers with calibrated probabilities. Question types: choice (pick one criteria key), score (ordinal level from a criteria list), noul (probability the statement is true). Prefer a two-option choice over noul for yes/no questions. Answers listed in low_confidence should be verified or escalated.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"provider":       map[string]any{"type": "string", "description": "Key of a systemone provider, optionally provider/model"},
+		"model":          map[string]any{"type": "string", "description": "Checkpoint (auto, english, multilingual, typed-decisions). Omit to let the service route"},
+		"state":          map[string]any{"description": "The text, or a JSON object, the questions are about"},
+		"questions":      map[string]any{"type": "object", "description": "Map of question ID to {type: choice|score|noul, instructions: string, criteria: object (choice: key → description) | array (score: level descriptions)}", "additionalProperties": map[string]any{"type": "object"}},
+		"min_confidence": map[string]any{"type": "number", "description": "Optional 0–1 threshold; answers below it are listed in low_confidence"},
+	}, "required": []string{"provider", "state", "questions"}}},
 
 	// ─── User Preference Tools ───
 	{Name: "whoami", Description: "Identify the signed-in user this conversation runs as: account ID, username, full name, verified email, current workspace and role, plus linked sign-in identities. Takes no arguments; the answer comes from the authenticated session and cannot be changed by the conversation.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},

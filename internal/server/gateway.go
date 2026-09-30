@@ -686,6 +686,12 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 		if info.disabled {
 			continue
 		}
+		// Decision services answer /gateway/v1/decisions only. Listing them
+		// here would put them in every chat client's model picker, where
+		// selecting one can only fail.
+		if info.providerType == "systemone" {
+			continue
+		}
 		seen := make(map[string]bool)
 		add := func(m, mode string) {
 			if m == "" || seen[m] {

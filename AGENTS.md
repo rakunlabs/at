@@ -217,6 +217,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `POST /gateway/v1/audio/transcriptions` | Whisper-style multipart upload (`file`, `model`, `language?`, `prompt?`, `response_format?`). |
 | `POST /gateway/v1/moderations` | OpenAI omni-moderation shape. Backed by `service.ModerationProvider`. |
 | `POST /gateway/v1/rerank` | Cohere-shape rerank: `query`, `documents`, `top_n?`, `return_documents?`. Backed by `service.RerankProvider` (Cohere today). |
+| `POST /gateway/v1/decisions` | System 1 typed decisions: `{model, state, questions}` plus any `/v1/systemone` control (`max_len`, `lang`, `min_confidence`, …), forwarded unchanged. Backed by `service.DecisionProvider` (`systemone` providers). The upstream body is returned verbatim (`answers`, `usage`, `routing`). See *System 1 decision services* below. |
 | `GET /gateway/v1/health` | Liveness — returns `{status, providers{}, version}`. No auth required. |
 | `GET /gateway/v1/health/{provider}` | Per-provider readiness check (without dialing upstream). |
 | `GET /gateway/v1/models` | OpenAI-shape model list (chat + embedding models). |
@@ -237,6 +238,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `gemini` | Native Google Generative Language API (aistudio key). Default `safetySettings: BLOCK_NONE` on every category. Synthetic tool name `__google_search` / `web_search` activates Gemini grounding. |
 | `cohere` | Native Cohere chat (v2/chat) + rerank (v2/rerank) + embeddings (v2/embed). |
 | `minimax` | MiniMax via the Anthropic-compatible chat API + native MiniMax image/TTS endpoints. |
+| `systemone` | External System 1 decision service speaking `POST /v1/systemone` — self-hosted Laya (`laya-serve`) or TypeSafe Jev. Decisions only; chat answers 501. `api_key` optional (Bearer). |
 
 Provider-specific compatibility notes:
 
@@ -261,7 +263,7 @@ Provider-specific compatibility notes:
 - **Finish reason vs tool calls**: adapters call `common.ReconcileToolCallFinish` after collecting tool calls, so a response carrying pending calls is always `Finished: false` / `finish_reason: "tool_calls"`. OpenAI itself reports `tool_calls`, but many OpenAI-compatible servers (Ollama, LM Studio, vLLM, several hosted gateways) return `"stop"` with a populated `tool_calls` array; the agent loops gate execution on `resp.Finished || len(resp.ToolCalls) == 0`, so taking that at face value silently dropped the calls and ended the run on whatever text came with them. Truncated/filtered responses (`length` / `content_filter`) drop their partial calls *before* reconciliation, so those stop reasons are preserved. `normalizeFinishReason` / `mapStreamFinishReason` apply the same rule at the gateway edge. Regression: `internal/service/llm/openai/compat-regression_test.go`.
 - **`refusal`** is a first-class field (`service.LLMResponse.Refusal`). OpenAI returns it *instead of* content, with `finish_reason: "stop"`, on structured-output and safety refusals — so dropping it made a refusal indistinguishable from an empty response. It is forwarded in the gateway's `message.refusal` (the wire field already existed but was never populated) and reported by org delegation as a `REFUSED` result instead of an unexplained `EMPTY_RESPONSE`.
 - Upstream provider errors surface as real gateway errors (429/5xx envelopes), never as HTTP-200 responses with error text in `content`.
-- Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax).
+- Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax, systemone).
 
 Provider contract regressions are covered by `internal/service/llm/contracts_test.go`, per-adapter `contracts_test.go` files, and the gateway translation tests. Native JSON Schema providers use `service.CopyJSONSchema`; do not apply Gemini's restrictive filter to their tools (it removes referenced arguments and constraints). Gemini inlines acyclic local references before applying its schema subset. OpenAI/Vertex/Codex preserve explicit tool `strict` settings; Responses tools use their native flat shape and are normalized before adapter dispatch.
 
@@ -361,9 +363,13 @@ Migration 77. Settings page `/virtual-providers` ("Provider governance"),
 feature key `provider_setup`, admission `providers.read` / `.write`.
 
 **Budgets** (`provider_budget_policies`, one per real provider or virtual
-provider) carry a period total, a default per-user allowance and
-`enforce_unpriced` (default true: a model without pricing is refused with
-`provider_pricing_required` rather than spending an unmeasurable amount).
+provider) carry a period total, a default per-user allowance and the optional
+`enforce_unpriced` switch ("Require model pricing"). When on, a model without
+pricing is refused with `provider_pricing_required`; when off it is admitted
+and settles at zero cost. Migration 86 made it opt-in (column default and UI
+default `false`) because unpriced models — System 1 decision services report no
+price at all — were blocked by default; policies saved earlier keep their
+stored value.
 Overrides per user are `custom`, `unlimited` or `blocked`; absence inherits the
 default, and `unlimited` exempts only the user allowance, never the total. The
 user is the authenticated principal (Chats, Sessions, execution) or the owner of
@@ -400,6 +406,55 @@ only**, capped by `max_user_limit_cents` (a positive ceiling also forbids
 is enforced in the store but has no UI yet. Regression:
 `internal/store/postgres/provider-governance_test.go`,
 `internal/server/provider-governance_test.go`.
+
+### System 1 decision services
+
+A decision model (Laya, TypeSafe Jev) answers typed questions about a state —
+`choice` (a criteria key), `score` (an ordinal level), `noul` (probability the
+statement holds) — in one forward pass with calibrated probabilities, and never
+generates text. AT does not run one: it attaches a service that runs elsewhere
+(a GPU box, a sidecar, the hosted Jev API) as a provider of type `systemone`
+with a base URL and optional bearer key. Both implementations share the
+`POST /v1/systemone` protocol, so one adapter (`internal/service/llm/systemone`)
+covers them and any future compatible service.
+
+The capability is `service.DecisionProvider` (`types-decision.go`), wrapped by
+`budgetedProvider` and the scoped `executionProvider` like every other media
+interface, so provider budgets, workspace admission and execution policy apply
+unchanged. Request/answer payloads stay `map[string]any` on purpose: the
+question vocabulary and per-answer fields belong to the upstream protocol, and
+forwarding them means a new upstream field reaches callers without a code
+change. AT validates only what every consumer relies on (non-empty state, 1–64
+questions, known type, criteria on `choice`). Model `auto` (the default) omits
+`model` upstream so the service routes; hook arguments are never forwarded.
+Error mapping: 422/413 → 400 (`invalid_question` / `request_too_large`), 429/503
+→ `RateLimitError` with Retry-After (laya-serve's busy signal), upstream 401/403
+→ 502 `upstream_auth_failed` (the caller authenticated to AT fine), unreachable →
+502 so fallback and cooldown treat it as an outage.
+
+Three consumers:
+
+- `POST /gateway/v1/decisions` — gateway auth, token model access, usage and a
+  `decisions` trace observation. Decision models are **not** advertised by
+  `/gateway/v1/models`, which would put them in chat pickers where they can only
+  fail.
+- Workflow node `decision` (`nodes/decision.go`, non-host capability): `state`
+  in, `decided` / `escalate` out. Any answer the upstream flags
+  `low_confidence` or whose `answer_confidence` (falling back to `confidence`)
+  is below `min_confidence` selects `escalate`; an answer reporting no
+  confidence is never escalated by the threshold. Both ports carry
+  `{answers, model, low_confidence, state, usage, routing}`, read downstream
+  with pointers such as `/answers/department/choice`.
+- Built-in tool `decide` (non-host, "Other" family): lets an agent classify with
+  one cheap call instead of a reasoning turn.
+
+Shipped Laya checkpoints are weak zero-shot on domain decisions and
+over-confident until temperature-fitted; the UI says so, and thresholds must be
+fit on the operator's own labelled data. Regressions:
+`internal/service/llm/systemone/systemone_test.go`,
+`internal/server/gateway-decisions_test.go`,
+`internal/server/builtin-tools-decide_test.go`,
+`internal/service/workflow/nodes/decision_test.go`.
 
 ### Passthrough metering
 

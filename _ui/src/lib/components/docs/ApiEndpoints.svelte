@@ -13,6 +13,12 @@
       tone: 'text-green-800 bg-green-50 border-green-300 dark:text-green-300 dark:bg-green-900/20 dark:border-green-800',
     },
     {
+      method: 'POST',
+      path: '/gateway/v1/decisions',
+      description: 'System 1 typed decisions (choice / score / yes-no) from a systemone provider such as Laya or TypeSafe Jev. Body: { model, state, questions }.',
+      tone: 'text-green-800 bg-green-50 border-green-300 dark:text-green-300 dark:bg-green-900/20 dark:border-green-800',
+    },
+    {
       method: 'GET',
       path: '/gateway/v1/models',
       description: 'List all available models.',

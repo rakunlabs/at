@@ -24,6 +24,7 @@ var SupportedProviderTypes = []string{
 	"gemini",
 	"cohere",
 	"minimax",
+	"systemone",
 }
 
 // IsSupportedProviderType reports whether t is a known provider type.

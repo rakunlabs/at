@@ -24,6 +24,7 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/gemini"
 	"github.com/rakunlabs/at/internal/service/llm/minimax"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
+	"github.com/rakunlabs/at/internal/service/llm/systemone"
 	"github.com/rakunlabs/at/internal/service/llm/vertex"
 	"github.com/rakunlabs/at/internal/service/ratelimit"
 	"github.com/rakunlabs/at/internal/store"
@@ -384,6 +385,16 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			copts = append(copts, cohere.WithRateLimiter(limiter))
 		}
 		return cohere.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, copts...)
+	case "systemone":
+		// External System 1 decision service (laya-serve, TypeSafe Jev). The
+		// API key is optional: a private laya-serve may run without one.
+		headers := make(map[string]string, len(cfg.ExtraHeaders))
+		maps.Copy(headers, cfg.ExtraHeaders)
+		var sopts []systemone.Option
+		if limiter != nil {
+			sopts = append(sopts, systemone.WithRateLimiter(limiter))
+		}
+		return systemone.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, sopts...)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %q (supported: %s)", cfg.Type, strings.Join(service.SupportedProviderTypes, ", "))
 	}

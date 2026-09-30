@@ -2587,7 +2587,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!e.repeat) void sendMessage();
     }
@@ -3764,7 +3764,7 @@
           onclick={sendMessage}
           disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools}
           class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
-          title="Send (Ctrl+Enter / ⌘+Enter)"
+          title="Send (Enter) — Shift+Enter for a new line"
           aria-label="Send message"
         >
           <Send size={18} />

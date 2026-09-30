@@ -31,4 +31,5 @@
 //   - aggregate      — collect/count/sum/average/min/max over an array
 //   - wait           — durable duration/approval boundary (no sleeping goroutine)
 //   - chat_reply     — sends a message to a chat session from a workflow
+//   - decision       — System 1 typed decision with confidence routing
 package nodes

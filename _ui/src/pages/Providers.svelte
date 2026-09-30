@@ -50,6 +50,7 @@
     'gemini',
     'cohere',
     'minimax',
+    'systemone',
   ] as const;
 
   // ─── Presets ───
@@ -467,6 +468,35 @@
         'The only provider with first-party rerank support (/gateway/v1/rerank)',
         'Also serves embeddings (embed-v4.0 family) via /gateway/v1/embeddings',
         'Streaming is simulated (the chat response is fake-streamed)',
+      ],
+    },
+    {
+      id: 'laya',
+      name: 'Laya / System 1 decisions',
+      description: 'Self-hosted Laya (laya-serve) or TypeSafe Jev: typed decisions, not chat',
+      key: 'laya',
+      config: {
+        type: 'systemone',
+        base_url: 'http://localhost:8000',
+        model: 'auto',
+        models: ['auto', 'english', 'multilingual', 'typed-decisions'],
+      },
+      setupSteps: [
+        'Run the decision service where it has CPU/GPU: pip install "laya[serve]" then LAYA_API_KEY=<secret> laya-serve',
+        'Set the Base URL to the service root (e.g. http://laya:8000); AT calls POST /v1/systemone',
+        'Paste the LAYA_API_KEY value in the API Key field (leave empty only for a service on a private network)',
+        'For the hosted TypeSafe Jev API, use its base URL and key instead',
+      ],
+      setupLinks: [
+        { label: 'Laya model card', url: 'https://huggingface.co/convaiinnovations/laya' },
+        { label: 'laya-serve', url: 'https://github.com/NandhaKishorM/laya#self-hosting-http-server-jev-compatible' },
+      ],
+      notes: [
+        'Decision models do not chat: they answer choice / score / yes-no questions via /gateway/v1/decisions, the workflow Decision node and the decide tool',
+        'They are not listed in chat model pickers',
+        '"auto" lets the service pick the English or multilingual checkpoint per request',
+        'Fine-tune and calibrate on your own data before trusting probabilities; base checkpoints are weak zero-shot on domain decisions',
+        'laya-serve binds 0.0.0.0 without authentication unless LAYA_API_KEY is set',
       ],
     },
     {

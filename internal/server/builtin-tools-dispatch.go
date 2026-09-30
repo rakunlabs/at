@@ -98,6 +98,10 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	case "trigger_delete":
 		return s.execTriggerDelete(ctx, args)
 
+	// Decision tools.
+	case "decide":
+		return s.execDecide(ctx, args)
+
 	// User preference tools.
 	case "whoami":
 		return s.execWhoami(ctx, args)

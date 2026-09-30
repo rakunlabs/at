@@ -609,7 +609,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendMessage();
     }
