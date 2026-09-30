@@ -510,6 +510,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		var toolOrder []int
 		toolsByIndex := map[int]*toolAccum{}
 		finished := false
+		sawText := false
 
 		flushToolCalls := func() ([]service.ToolCall, error) {
 			if len(toolOrder) == 0 {
@@ -566,6 +567,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 						chunk.FinishReason = "tool_calls"
 					}
 					ch <- chunk
+				} else if !finished {
+					// [DONE] is itself an explicit completion signal. Some
+					// OpenAI-compatible gateways (including LiteLLM backends)
+					// omit the preceding finish_reason chunk.
+					ch <- service.StreamChunk{FinishReason: "stop"}
 				}
 				return
 			}
@@ -623,6 +629,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				Content:          choice.Delta.Content,
 				ReasoningContent: choice.Delta.ReasoningContent,
 			}
+			if chunk.Content != "" || chunk.ReasoningContent != "" {
+				sawText = true
+			}
 
 			if choice.FinishReason != nil {
 				chunk.FinishReason = *choice.FinishReason
@@ -657,7 +666,13 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			return
 		}
 
-		if !finished {
+		if !finished && sawText && len(toolOrder) == 0 {
+			// A clean HTTP EOF is distinguishable from a truncated chunked
+			// response (reported by scanner.Err). A few compatible gateways
+			// end a complete text stream this way without [DONE] or a final
+			// finish_reason, so preserve their historical compatibility.
+			ch <- service.StreamChunk{FinishReason: "stop"}
+		} else if !finished {
 			ch <- service.StreamChunk{Error: fmt.Errorf("OpenAI stream closed before finish_reason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()

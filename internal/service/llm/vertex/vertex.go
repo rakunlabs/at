@@ -495,6 +495,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		var toolOrder []int
 		toolsByIndex := map[int]*toolAccum{}
 		finished := false
+		sawText := false
 
 		flushToolCalls := func() ([]service.ToolCall, error) {
 			if len(toolOrder) == 0 {
@@ -538,7 +539,13 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				if tcs, err := flushToolCalls(); err != nil {
 					ch <- service.StreamChunk{Error: err}
 				} else if len(tcs) > 0 {
-					ch <- service.StreamChunk{ToolCalls: tcs}
+					chunk := service.StreamChunk{ToolCalls: tcs}
+					if !finished {
+						chunk.FinishReason = "tool_calls"
+					}
+					ch <- chunk
+				} else if !finished {
+					ch <- service.StreamChunk{FinishReason: "stop"}
 				}
 				return
 			}
@@ -592,6 +599,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				Content:          sChoice.Delta.Content,
 				ReasoningContent: sChoice.Delta.ReasoningContent,
 			}
+			if chunk.Content != "" || chunk.ReasoningContent != "" {
+				sawText = true
+			}
 
 			if sChoice.FinishReason != nil {
 				chunk.FinishReason = *sChoice.FinishReason
@@ -622,7 +632,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			return
 		}
 
-		if !finished {
+		if !finished && sawText && len(toolOrder) == 0 {
+			ch <- service.StreamChunk{FinishReason: "stop"}
+		} else if !finished {
 			ch <- service.StreamChunk{Error: fmt.Errorf("Vertex stream closed before finish_reason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()

@@ -596,6 +596,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		// in multiple chunks; the last one seen has the final totals.
 		var lastUsage *service.Usage
 		finished := false
+		sawOutput := false
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
@@ -667,6 +668,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					}
 				}
 			}
+			if chunk.Content != "" || chunk.ReasoningContent != "" || len(chunk.InlineImages) > 0 {
+				sawOutput = true
+			}
 
 			if len(chunk.ToolCalls) > 0 {
 				hasToolCalls = true
@@ -690,6 +694,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		if err := scanner.Err(); err != nil {
 			ch <- service.StreamChunk{Error: fmt.Errorf("stream read error: %w", err)}
+		} else if !finished && sawOutput && len(pendingToolCalls) == 0 {
+			ch <- service.StreamChunk{FinishReason: "stop", Usage: lastUsage}
 		} else if !finished {
 			ch <- service.StreamChunk{Error: fmt.Errorf("Gemini stream closed before finishReason: %w", io.ErrUnexpectedEOF)}
 		}

@@ -149,3 +149,32 @@ func TestStreamingUsageAfterFinish(t *testing.T) {
 		t.Fatalf("final usage lost: %+v", usage)
 	}
 }
+
+func TestStreamingAcceptsCleanEOFAfterText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n")
+	}))
+	defer srv.Close()
+
+	p, err := New("key", "model", srv.URL, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, _, err := p.ChatStream(context.Background(), "", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish string
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatal(c.Error)
+		}
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+	if finish != "stop" {
+		t.Fatalf("finish_reason = %q, want stop", finish)
+	}
+}

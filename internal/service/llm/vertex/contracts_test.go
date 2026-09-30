@@ -63,3 +63,33 @@ func TestVertexStreamContracts(t *testing.T) {
 		})
 	}
 }
+
+func TestVertexStreamAcceptsCleanEOFAfterText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
+	}))
+	defer srv.Close()
+
+	client, err := ok.New(ok.WithEnableBaseURLCheck(false), ok.WithDisableRetry(true), ok.WithEnableEnvValues(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Provider{Model: "model", EndpointURL: srv.URL, tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"}), client: client}
+	ch, _, err := p.ChatStream(context.Background(), "", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish string
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatal(c.Error)
+		}
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+	if finish != "stop" {
+		t.Fatalf("finish_reason = %q, want stop", finish)
+	}
+}

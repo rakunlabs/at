@@ -454,6 +454,7 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 	emittedText := make(map[partKey]bool)
 	emittedReasoning := make(map[partKey]bool)
 	var sawToolCall bool
+	var sawOutput bool
 	var pendingReasoningState string
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -463,8 +464,16 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "" {
 			continue
+		}
+		if data == "[DONE]" {
+			finishReason := "stop"
+			if sawToolCall {
+				finishReason = "tool_calls"
+			}
+			ch <- service.StreamChunk{FinishReason: finishReason}
+			return
 		}
 		var event codexSSEEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
@@ -477,21 +486,25 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 		switch event.Type {
 		case "response.output_text.delta":
 			if event.Delta != "" {
+				sawOutput = true
 				emittedText[textKey] = true
 				ch <- service.StreamChunk{Content: event.Delta}
 			}
 		case "response.output_text.done":
 			if !emittedText[textKey] && event.Text != "" {
+				sawOutput = true
 				emittedText[textKey] = true
 				ch <- service.StreamChunk{Content: event.Text}
 			}
 		case "response.reasoning_summary_text.delta":
 			if event.Delta != "" {
+				sawOutput = true
 				emittedReasoning[reasoningKey] = true
 				ch <- service.StreamChunk{ReasoningContent: event.Delta}
 			}
 		case "response.reasoning_summary_text.done":
 			if !emittedReasoning[reasoningKey] && event.Text != "" {
+				sawOutput = true
 				emittedReasoning[reasoningKey] = true
 				ch <- service.StreamChunk{ReasoningContent: event.Text}
 			}
@@ -524,6 +537,7 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 				for i, content := range item.Content {
 					key := partKey{event.OutputIndex, i}
 					if content.Type == "output_text" && content.Text != "" && !emittedText[key] {
+						sawOutput = true
 						emittedText[key] = true
 						ch <- service.StreamChunk{Content: content.Text}
 					}
@@ -571,7 +585,9 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 		ch <- service.StreamChunk{Error: fmt.Errorf("read Codex SSE stream: %w", err)}
 		return
 	}
-	if !completed {
+	if !completed && sawOutput && !sawToolCall {
+		ch <- service.StreamChunk{FinishReason: "stop"}
+	} else if !completed {
 		ch <- service.StreamChunk{Error: fmt.Errorf("Codex stream closed before response.completed")}
 	}
 }

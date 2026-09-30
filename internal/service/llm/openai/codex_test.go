@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,28 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+func TestCodexStreamAcceptsCleanEOFAfterText(t *testing.T) {
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n",
+	))}
+	ch := make(chan service.StreamChunk, 4)
+	p := &CodexProvider{}
+	go p.readCodexStream(resp, ch, func() {})
+
+	var finish string
+	for chunk := range ch {
+		if chunk.Error != nil {
+			t.Fatal(chunk.Error)
+		}
+		if chunk.FinishReason != "" {
+			finish = chunk.FinishReason
+		}
+	}
+	if finish != "stop" {
+		t.Fatalf("finish_reason = %q, want stop", finish)
+	}
+}
 
 func codexTestJWT(t *testing.T, accountID string, expiresAt time.Time) string {
 	t.Helper()

@@ -237,3 +237,82 @@ func TestChatStreamRejectsScannerEndWithoutCompletion(t *testing.T) {
 		t.Fatal("expected incomplete stream error")
 	}
 }
+
+// Some OpenAI-compatible gateways, including LiteLLM backends, close a
+// complete text stream cleanly without a final finish_reason or [DONE]. A clean
+// HTTP EOF after text is safe to normalize; scanner read failures and buffered
+// tool calls remain errors.
+func TestChatStreamAcceptsCleanEOFAfterText(t *testing.T) {
+	events := []string{
+		`{"choices":[{"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}`,
+		`{"choices":[{"delta":{"content":" world"},"finish_reason":null}]}`,
+		// No finish_reason chunk and no [DONE].
+	}
+
+	srv := newSSEServer(t, events)
+	defer srv.Close()
+
+	p, err := New("k", "m", srv.URL, "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, _, err := p.ChatStream(context.Background(), "m",
+		[]service.Message{{Role: "user", Content: "x"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+
+	var text strings.Builder
+	var finish string
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatalf("stream error: %v", c.Error)
+		}
+		text.WriteString(c.Content)
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+
+	if text.String() != "Hello world" {
+		t.Errorf("content: got %q want %q", text.String(), "Hello world")
+	}
+	if finish != "stop" {
+		t.Errorf("finish_reason: got %q want %q", finish, "stop")
+	}
+}
+
+func TestChatStreamSynthesizesStopForDoneWithoutFinishReason(t *testing.T) {
+	events := []string{
+		`{"choices":[{"delta":{"content":"done"},"finish_reason":null}]}`,
+		`[DONE]`,
+	}
+
+	srv := newSSEServer(t, events)
+	defer srv.Close()
+
+	p, err := New("k", "m", srv.URL, "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, _, err := p.ChatStream(context.Background(), "m",
+		[]service.Message{{Role: "user", Content: "x"}}, nil, nil)
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+
+	var finish string
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatalf("stream error: %v", c.Error)
+		}
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+	if finish != "stop" {
+		t.Errorf("finish_reason: got %q want %q", finish, "stop")
+	}
+}

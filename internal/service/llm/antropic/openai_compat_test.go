@@ -88,6 +88,35 @@ func TestChatStreamToolArguments(t *testing.T) {
 	}
 }
 
+func TestChatStreamAcceptsCleanEOFAfterText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}`)
+	}))
+	defer srv.Close()
+
+	p, err := New("test-key", "claude-test", srv.URL, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, _, err := p.ChatStream(context.Background(), "", []service.Message{{Role: "user", Content: "Hi"}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var finish string
+	for chunk := range chunks {
+		if chunk.Error != nil {
+			t.Fatal(chunk.Error)
+		}
+		if chunk.FinishReason != "" {
+			finish = chunk.FinishReason
+		}
+	}
+	if finish != "stop" {
+		t.Fatalf("finish_reason = %q, want stop", finish)
+	}
+}
+
 func TestTranslateAnthropicToolChoice(t *testing.T) {
 	tests := []struct {
 		name string

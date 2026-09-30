@@ -624,6 +624,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		// Accumulate token usage from message_start and message_delta events.
 		var usage Usage
+		finished := false
+		sawOutput := false
+		sawToolCall := false
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
@@ -690,6 +693,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				if inThinkingBlock {
 					var tkd thinkingDelta
 					if err := json.Unmarshal(event.Delta, &tkd); err == nil && tkd.Type == "thinking_delta" {
+						sawOutput = sawOutput || tkd.Thinking != ""
 						ch <- service.StreamChunk{ReasoningContent: tkd.Thinking}
 						continue
 					}
@@ -698,6 +702,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				// Try text delta first
 				var td textDelta
 				if err := json.Unmarshal(event.Delta, &td); err == nil && td.Type == "text_delta" {
+					sawOutput = sawOutput || td.Text != ""
 					ch <- service.StreamChunk{Content: td.Text}
 					continue
 				}
@@ -729,6 +734,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 							Arguments: args,
 						}},
 					}
+					sawToolCall = true
 					currentToolID = ""
 					currentToolName = ""
 					toolInputBuf.Reset()
@@ -745,6 +751,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				var md messageDelta
 				if err := json.Unmarshal(event.Delta, &md); err == nil {
 					if md.StopReason != "" {
+						finished = true
 						// Pass the raw Anthropic stop_reason through; the gateway
 						// will map it onto OpenAI's vocabulary (end_turn → stop,
 						// max_tokens → length, tool_use → tool_calls,
@@ -755,9 +762,14 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			case "message_stop":
 				// Emit accumulated usage on the final event.
-				ch <- service.StreamChunk{
-					Usage: usagePtr(anthropicServiceUsage(usage)),
+				chunk := service.StreamChunk{Usage: usagePtr(anthropicServiceUsage(usage))}
+				if !finished {
+					chunk.FinishReason = "stop"
+					if sawToolCall {
+						chunk.FinishReason = "tool_use"
+					}
 				}
+				ch <- chunk
 				return
 
 			case "error":
@@ -779,6 +791,15 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		if err := scanner.Err(); err != nil {
 			ch <- service.StreamChunk{Error: fmt.Errorf("stream read error: %w", err)}
+		} else if finished {
+			// message_delta already supplied the protocol-level stop reason;
+			// tolerate compatible proxies that omit the trailing message_stop.
+			ch <- service.StreamChunk{Usage: usagePtr(anthropicServiceUsage(usage))}
+		} else if sawOutput && !sawToolCall && currentToolID == "" {
+			ch <- service.StreamChunk{
+				FinishReason: "stop",
+				Usage:        usagePtr(anthropicServiceUsage(usage)),
+			}
 		} else {
 			ch <- service.StreamChunk{Error: fmt.Errorf("Anthropic stream closed before message_stop: %w", io.ErrUnexpectedEOF)}
 		}
