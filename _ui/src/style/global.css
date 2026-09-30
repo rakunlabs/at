@@ -204,6 +204,16 @@ select {
   scrollbar-color: #3a3836 transparent;
 }
 
+/* The app sidebar uses its own overlay indicator so scrolling never changes
+   the navigation's available width. */
+.sidebar-scroller {
+  scrollbar-width: none;
+}
+
+.sidebar-scroller::-webkit-scrollbar {
+  display: none;
+}
+
 /* ─── Highlight.js dark mode override (class-based) ─── */
 .dark .hljs {
   color: #adbac7;

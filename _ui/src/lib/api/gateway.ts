@@ -16,6 +16,15 @@ export interface InfoProvider {
   models: string[];
   /** Per-model reasoning efforts; only models with a known answer are present. */
   reasoning_efforts?: Record<string, string[]>;
+  /** Resolved per-model capabilities (detection plus provider overrides). */
+  model_capabilities?: Record<string, ModelCapabilities>;
+}
+
+export interface ModelCapabilities {
+  input_modalities?: string[];
+  output_modalities?: string[];
+  reasoning_efforts?: string[];
+  features?: Record<string, boolean>;
 }
 
 export interface InfoResponse {

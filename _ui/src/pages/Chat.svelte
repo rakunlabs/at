@@ -15,6 +15,7 @@
     streamChatCompletion,
   } from '@/lib/helper/chat';
   import { modelReasoningEfforts } from '@/lib/helper/reasoning';
+  import { acceptAttribute, attachmentModality, attachmentPart, attachmentRefusal, contentModalities, type InputModality, type PendingAttachment } from '@/lib/helper/attachments';
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
@@ -84,7 +85,6 @@
   } from '@/lib/api/playground';
   import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
   import {
-    MEDIA_ALLOWED_LABEL,
     dataUrlToBlob,
     getMediaDataURL,
     isMediaStorageDisabled,
@@ -94,7 +94,7 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText, Paperclip, FileAudio, FileVideo } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -106,11 +106,6 @@
   let { params = {} }: { params?: { id?: string | null } } = $props();
 
   // ─── Types ───
-
-  interface PendingImage {
-    name: string;
-    dataUrl: string;
-  }
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
@@ -173,7 +168,7 @@
      * `''` while a response is still streaming: it has no completion time yet.
      */
     created_at: string;
-    /** Original file names of attached images, consumed when stripping. */
+    /** Original file names of attachments, consumed when persisting. */
     imageNames: string[];
   }
 
@@ -259,7 +254,7 @@
   /** '' leaves the provider's default reasoning behaviour untouched. */
   let reasoningEffort = $state('');
   /** Adapter type and per-model efforts per provider reference. */
-  let providerReasoning = $state<Record<string, { type: string; efforts?: Record<string, string[]> }>>({});
+  let providerReasoning = $state<Record<string, { type: string; efforts?: Record<string, string[]>; capabilities?: Record<string, { input_modalities?: string[] }> }>>({});
   let systemPrompt = $state('');
   let userInput = $state('');
   let activeTool = $state<{ messageIndex: number; callID: string } | null>(null);
@@ -324,7 +319,7 @@
   let voiceContext = $state(0);
   let abortController = $state<AbortController | null>(null);
   let chatContainer: HTMLDivElement | undefined = $state();
-  let pendingImages = $state<PendingImage[]>([]);
+  let pendingImages = $state<PendingAttachment[]>([]);
   let fileInput: HTMLInputElement | undefined = $state();
   let dragging = $state(false);
 
@@ -848,6 +843,14 @@
     const p = providerReasoning[provider_key];
     return p ? modelReasoningEfforts(p.type, model, p.efforts).efforts : [];
   });
+  /** Input modalities the selected model is known to accept; undefined = unknown. */
+  let acceptedInputs = $derived.by(() => {
+    const { provider_key, model } = splitModel(selectedModel);
+    return providerReasoning[provider_key]?.capabilities?.[model]?.input_modalities as InputModality[] | undefined;
+  });
+  /** Pending attachments the selected model cannot read. */
+  let pendingRefusals = $derived(pendingImages.map(a => attachmentRefusal(a, acceptedInputs)).filter(Boolean));
+
   /** Sent only when the current adapter accepts it; the choice itself is kept across model switches. */
   let effectiveReasoningEffort = $derived(reasoningEffortOptions.includes(reasoningEffort) ? reasoningEffort : '');
 
@@ -1231,10 +1234,10 @@
       // Build full model list: provider_key/model
       const allModels: string[] = [];
       const groups: Array<{ label: string; models: string[] }> = [];
-      const reasoning: Record<string, { type: string; efforts?: Record<string, string[]> }> = {};
+      const reasoning: Record<string, { type: string; efforts?: Record<string, string[]>; capabilities?: Record<string, { input_modalities?: string[] }> }> = {};
       for (const p of info.providers ?? []) {
         const reference = p.reference || p.key;
-        reasoning[reference] = { type: p.type, efforts: p.reasoning_efforts };
+        reasoning[reference] = { type: p.type, efforts: p.reasoning_efforts, capabilities: p.model_capabilities };
         const providerModels: string[] = [];
         if (p.models && p.models.length > 0) {
           for (const m of p.models) {
@@ -1542,12 +1545,27 @@
     });
   }
 
+  /** Per-file cap. The request goes through the gateway body limit too. */
+  const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+  const TEXT_ATTACHMENT_MAX_BYTES = 512 * 1024;
+
   async function addImageFiles(files: FileList | File[]) {
     for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
+      const modality = attachmentModality(file.name, file.type);
+      const refusal = attachmentRefusal({ name: file.name, modality }, acceptedInputs);
+      if (modality === null) {
+        addToast(refusal, 'alert');
+        continue;
+      }
+      if (file.size > (modality === 'text' ? TEXT_ATTACHMENT_MAX_BYTES : ATTACHMENT_MAX_BYTES)) {
+        addToast(`"${file.name}" is too large to attach (${formatFileSize(file.size)}).`, 'alert');
+        continue;
+      }
+      if (refusal) addToast(refusal, 'warn');
       try {
         const dataUrl = await readFileAsDataURL(file);
-        pendingImages = [...pendingImages, { name: file.name, dataUrl }];
+        const text = modality === 'text' ? await file.text() : undefined;
+        pendingImages = [...pendingImages, { name: file.name, mime: file.type || 'application/octet-stream', modality, dataUrl, text, size: file.size }];
       } catch {
         addToast(`Failed to read "${file.name}"`, 'alert');
       }
@@ -1564,7 +1582,7 @@
 
     const imageFiles: File[] = [];
     for (const item of items) {
-      if (item.type.startsWith('image/')) {
+      if (item.kind === 'file') {
         const file = item.getAsFile();
         if (file) imageFiles.push(file);
       }
@@ -2298,6 +2316,10 @@
     if ((!text && pendingImages.length === 0) || !selectedModel) return;
     if (streaming) return;
     if (!setupReady()) return;
+    if (pendingRefusals.length > 0) {
+      addToast(pendingRefusals[0], 'alert');
+      return;
+    }
 
     // Build user message content
     const images = pendingImages;
@@ -2305,7 +2327,7 @@
     if (images.length > 0) {
       const parts: ContentPart[] = [];
       for (const img of images) {
-        parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+        parts.push(attachmentPart(img) as ContentPart);
       }
       if (text) {
         parts.push({ type: 'text', text });
@@ -2318,7 +2340,7 @@
     // Add user message to chat
     const pair = splitModel(selectedModel);
     messages = [...messages, { role: 'user', content: userContent }];
-    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.map(i => i.name) }];
+    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.filter(i => i.modality !== 'text').map(i => i.name) }];
     userInput = '';
     pendingImages = [];
     confirmClear = false;
@@ -2356,6 +2378,18 @@
     if (typeof content === 'string') return content;
     const parts: ContentPart[] = [];
     for (const part of content) {
+      if (part.type === 'file' && part.attachment) {
+        // A user attachment (PDF, audio, video): re-inline from media storage.
+        const label = part.name || 'attachment';
+        const url = part.media_id ? await mediaDataUrl(part.media_id) : '';
+        const modality = attachmentModality(label, part.mime_type || '');
+        if (url && modality && modality !== 'text') {
+          parts.push(attachmentPart({ name: label, mime: part.mime_type || '', modality, dataUrl: url, size: part.bytes || 0 }) as ContentPart);
+        } else {
+          parts.push({ type: 'text', text: `[attachment "${label}" ${part.media_id ? 'could not be loaded from history' : 'was not saved to history'}]` });
+        }
+        continue;
+      }
       if (part.type === 'file') {
         // Delivered artifacts are for the reader; the model already saw them
         // named in the tool result, so only a short reference goes upstream.
@@ -2716,7 +2750,23 @@
 {#snippet omittedImage(part: ContentPart, tone: string)}
   <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] {tone}">
     <ImageOff size={11} class="shrink-0" />
-    <span class="truncate">{part.name || 'image'} — image not saved to history</span>
+    <span class="truncate">{part.name || (part.type === 'file' ? 'attachment' : 'image')} — {part.type === 'file' ? 'attachment' : 'image'} not saved to history</span>
+  </div>
+{/snippet}
+
+{#snippet pendingUpload(part: ContentPart)}
+  {@const url = part.type === 'video_url' ? part.video_url?.url : part.type === 'file' ? part.file?.file_data : part.input_audio ? `data:audio/${part.input_audio.format === 'mp3' ? 'mpeg' : part.input_audio.format};base64,${part.input_audio.data}` : ''}
+  <div class="mb-2 border border-white/40 bg-white/5">
+    {#if part.type === 'input_audio' && url}
+      <audio controls src={url} class="w-full p-1"></audio>
+    {:else if part.type === 'video_url' && url}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video controls src={url} class="w-full max-h-64"></video>
+    {/if}
+    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-white/80">
+      <FileText size={11} class="shrink-0" />
+      <span class="truncate">{part.file?.filename || (part.type === 'input_audio' ? 'audio' : part.type === 'video_url' ? 'video' : 'attachment')}</span>
+    </div>
   </div>
 {/snippet}
 
@@ -3583,6 +3633,18 @@
                       />
                     {:else if part.type === 'image'}
                       {@render omittedImage(part, 'border-white/40 text-white/80')}
+                    {:else if part.type === 'file' && part.media_id}
+                      <div class="text-gray-800 dark:text-dark-text">{@render fileArtifact(part)}</div>
+                    {:else if (part.type === 'file' && part.file) || part.type === 'input_audio' || part.type === 'video_url'}
+                      {@render pendingUpload(part)}
+                    {:else if part.type === 'file'}
+                      {@render omittedImage(part, 'border-white/40 text-white/80')}
+                    {:else if part.type === 'text' && part.text?.startsWith('<file name="')}
+                      {@const fileName = /^<file name="([^"]*)"/.exec(part.text)?.[1] || 'file'}
+                      <div class="mb-2 flex items-center gap-1.5 border border-white/40 px-2 py-1 text-[11px] text-white/80">
+                        <FileText size={11} class="shrink-0" />
+                        <span class="truncate">{fileName}</span>
+                      </div>
                     {:else if part.type === 'text' && part.text}
                       <span class="whitespace-pre-wrap">{part.text}</span>
                     {/if}
@@ -3737,30 +3799,52 @@
       </div>
     {/if}
 
-    <!-- Pending image previews -->
+    <!-- Pending attachments -->
     {#if pendingImages.length > 0}
       <div class="flex gap-2 mb-2 flex-wrap">
-        {#each pendingImages as img, i}
+        {#each pendingImages as att, i}
+          {@const refused = attachmentRefusal(att, acceptedInputs)}
           <div class="relative group">
-            <img
-              src={img.dataUrl}
-              alt={img.name}
-              class="w-16 h-16 object-cover border border-gray-300 dark:border-dark-border-subtle"
-            />
+            {#if att.modality === 'image'}
+              <img
+                src={att.dataUrl}
+                alt={att.name}
+                class={['w-16 h-16 object-cover border', refused ? 'border-red-400 dark:border-red-500 opacity-60' : 'border-gray-300 dark:border-dark-border-subtle']}
+              />
+            {:else}
+              <div class={['w-40 h-16 flex items-center gap-2 border px-2 text-xs', refused ? 'border-red-400 text-red-700 dark:border-red-500 dark:text-red-300' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-base']} title={refused || att.name}>
+                {#if att.modality === 'audio'}
+                  <FileAudio size={18} class="shrink-0" />
+                {:else if att.modality === 'video'}
+                  <FileVideo size={18} class="shrink-0" />
+                {:else}
+                  <FileText size={18} class="shrink-0" />
+                {/if}
+                <span class="min-w-0">
+                  <span class="block truncate font-medium">{att.name}</span>
+                  <span class="block text-[10px] text-gray-400 dark:text-dark-text-muted">{att.modality === 'text' ? 'text' : att.modality} · {formatFileSize(att.size)}</span>
+                </span>
+              </div>
+            {/if}
             <button
               onclick={() => removeImage(i)}
-              aria-label={`Remove ${img.name}`}
+              aria-label={`Remove ${att.name}`}
               class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent "
               title="Remove"
             >
               <X size={12} />
             </button>
-            <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
-              {img.name}
-            </div>
+            {#if att.modality === 'image'}
+              <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
+                {att.name}
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
+      {#if pendingRefusals.length > 0}
+        <p role="alert" class="mb-2 text-xs text-red-700 dark:text-red-400">{pendingRefusals[0]} Remove it or choose another model.</p>
+      {/if}
     {/if}
 
     <div class="flex flex-wrap sm:flex-nowrap items-end gap-2">
@@ -3768,21 +3852,21 @@
       <input
         bind:this={fileInput}
         type="file"
-        accept="image/*"
+        accept={acceptAttribute(acceptedInputs)}
         multiple
         class="hidden"
         onchange={handleFilePick}
       />
 
-      <!-- Image attach button -->
+      <!-- Attach button -->
       <button
         onclick={() => fileInput?.click()}
         disabled={models.length === 0}
-        aria-label="Attach image"
+        aria-label="Attach files"
         class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent "
-        title={`Attach image — paste or drop works too. Saved to history when media storage is configured (${MEDIA_ALLOWED_LABEL}).`}
+        title={`Attach files — paste or drop works too. This model reads: ${acceptedInputs ? acceptedInputs.join(', ') : 'unknown (the provider decides)'}. Text files are sent as text to any model.`}
       >
-        <ImagePlus size={18} />
+        <Paperclip size={18} />
       </button>
 
       <textarea

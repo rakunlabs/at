@@ -110,7 +110,7 @@ func TestGatewayRouting(t *testing.T) {
 			t.Fatalf("beta limits = context %d output %d", got.Data[2].ContextLength, got.Data[2].MaxOutputTokens)
 		}
 		claude := got.Data[1]
-		if strings.Join(claude.InputModalities, ",") != "text,image" || strings.Join(claude.OutputModalities, ",") != "text" {
+		if strings.Join(claude.InputModalities, ",") != "text,image,pdf" || strings.Join(claude.OutputModalities, ",") != "text" {
 			t.Fatalf("claude modalities = input %v output %v", claude.InputModalities, claude.OutputModalities)
 		}
 		if claude.Capabilities == nil || claude.Capabilities.Vision == nil || !*claude.Capabilities.Vision || claude.Capabilities.Attachment == nil || !*claude.Capabilities.Attachment || claude.Capabilities.ToolCalling == nil || !*claude.Capabilities.ToolCalling {
@@ -259,15 +259,19 @@ func TestApplyGatewayModelCapabilities(t *testing.T) {
 		name         string
 		providerType string
 		model        string
-		capability   *bool
-		wantImage    bool
-		wantMetadata bool
+		capability   *config.ModelCapability
+		wantInputs   string // "" = no modality metadata advertised
 	}{
-		{name: "anthropic opus", providerType: "anthropic", model: "claude-opus-5-5", wantImage: true, wantMetadata: true},
-		{name: "anthropic dated sonnet", providerType: "anthropic", model: "claude-sonnet-4-5-20250929", wantImage: true, wantMetadata: true},
-		{name: "explicit enable", providerType: "openai", model: "custom-vision", capability: &enabled, wantImage: true, wantMetadata: true},
-		{name: "override automatic detection", providerType: "anthropic", model: "claude-opus-5-5", capability: &disabled, wantMetadata: true},
-		{name: "legacy claude", providerType: "anthropic", model: "claude-2.1"},
+		{name: "anthropic opus", providerType: "anthropic", model: "claude-opus-5-5", wantInputs: "text,image,pdf"},
+		{name: "anthropic dated sonnet", providerType: "anthropic", model: "claude-sonnet-4-5-20250929", wantInputs: "text,image,pdf"},
+		{name: "gemini all media", providerType: "gemini", model: "gemini-3-flash-preview", wantInputs: "text,image,pdf,audio,video"},
+		{name: "gemini 2.0 has no pdf", providerType: "gemini", model: "gemini-2.0-flash", wantInputs: "text,image,audio,video"},
+		{name: "openai gpt-5", providerType: "openai", model: "gpt-5", wantInputs: "text,image,pdf"},
+		{name: "openai audio model", providerType: "openai", model: "gpt-audio", wantInputs: "text,audio"},
+		{name: "legacy image enable on unknown", providerType: "openai", model: "custom-vision", capability: &config.ModelCapability{ImageInput: &enabled}, wantInputs: "text,image"},
+		{name: "legacy image disable keeps pdf", providerType: "anthropic", model: "claude-opus-5-5", capability: &config.ModelCapability{ImageInput: &disabled}, wantInputs: "text,pdf"},
+		{name: "explicit modalities", providerType: "openai", model: "llama-omni", capability: &config.ModelCapability{InputModalities: []string{"text", "audio", "video"}}, wantInputs: "text,audio,video"},
+		{name: "legacy claude", providerType: "anthropic", model: "claude-2.1", wantInputs: "text"},
 		{name: "unknown compatible model", providerType: "anthropic", model: "custom-text-model"},
 		{name: "same model on unknown protocol", providerType: "openai", model: "claude-opus-5-5"},
 	}
@@ -277,20 +281,31 @@ func TestApplyGatewayModelCapabilities(t *testing.T) {
 			model := ModelData{}
 			info := ProviderInfo{providerType: tt.providerType}
 			if tt.capability != nil {
-				info.modelCapabilities = map[string]config.ModelCapability{tt.model: {ImageInput: tt.capability}}
+				info.modelCapabilities = map[string]config.ModelCapability{tt.model: *tt.capability}
 			}
 			applyGatewayModelCapabilities(&model, info, tt.model)
 
-			gotImage := len(model.InputModalities) == 2 && model.InputModalities[1] == "image"
-			if gotImage != tt.wantImage {
-				t.Fatalf("image capability = %v, want %v: %+v", gotImage, tt.wantImage, model)
+			if got := strings.Join(model.InputModalities, ","); got != tt.wantInputs {
+				t.Fatalf("inputs = %q, want %q", got, tt.wantInputs)
 			}
-			hasImageMetadata := model.Capabilities != nil && model.Capabilities.Vision != nil
-			if hasImageMetadata != tt.wantMetadata {
-				t.Fatalf("image metadata presence = %v, want %v: %+v", hasImageMetadata, tt.wantMetadata, model)
+			if tt.wantInputs == "" {
+				if model.Capabilities != nil && model.Capabilities.Vision != nil {
+					t.Fatalf("unknown model advertised vision: %+v", model.Capabilities)
+				}
+				return
 			}
-			if tt.wantMetadata && (model.Capabilities.Vision == nil || *model.Capabilities.Vision != tt.wantImage) {
-				t.Fatalf("vision metadata = %+v, want %v", model.Capabilities, tt.wantImage)
+			c := model.Capabilities
+			for name, pair := range map[string]struct {
+				flag     *bool
+				modality string
+			}{"vision": {c.Vision, "image"}, "pdf": {c.PDFInput, "pdf"}, "audio": {c.AudioInput, "audio"}, "video": {c.VideoInput, "video"}} {
+				want := strings.Contains(","+tt.wantInputs+",", ","+pair.modality+",")
+				if pair.flag == nil || *pair.flag != want {
+					t.Fatalf("%s flag = %v, want %v", name, pair.flag, want)
+				}
+			}
+			if c.Attachment == nil || *c.Attachment != (tt.wantInputs != "text") {
+				t.Fatalf("attachment = %v", c.Attachment)
 			}
 		})
 	}
@@ -337,11 +352,12 @@ func TestApplyGatewayReasoningCapabilities(t *testing.T) {
 			// not default unlisted low/medium/high to supported.
 			var meta liteLLMModelMetadata
 			applyLiteLLMReasoning(&meta, model)
+			applyLiteLLMParams(&meta, model)
 			if meta.SupportsReasoning == nil || *meta.SupportsReasoning != (len(tt.wantEfforts) > 0) {
 				t.Fatalf("supports_reasoning = %v", meta.SupportsReasoning)
 			}
 			if len(tt.wantEfforts) == 0 {
-				if meta.SupportedOpenAIParams != nil || meta.SupportsLowEffort != nil {
+				if slices.Contains(meta.SupportedOpenAIParams, "reasoning_effort") || meta.SupportsLowEffort != nil {
 					t.Fatalf("non-reasoning model advertised effort flags: %+v", meta)
 				}
 				return
@@ -354,6 +370,9 @@ func TestApplyGatewayReasoningCapabilities(t *testing.T) {
 			}
 			if !slices.Contains(meta.SupportedOpenAIParams, "reasoning_effort") {
 				t.Fatalf("supported_openai_params = %v", meta.SupportedOpenAIParams)
+			}
+			if temp := model.Capabilities.Temperature; temp != nil && !*temp && slices.Contains(meta.SupportedOpenAIParams, "temperature") {
+				t.Fatalf("temperature advertised for a model that rejects it: %v", meta.SupportedOpenAIParams)
 			}
 		})
 	}

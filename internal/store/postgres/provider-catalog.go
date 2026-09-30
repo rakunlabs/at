@@ -100,7 +100,7 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 				shared = true
 			}
 		}
-		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Reference: reference, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: shared, ReasoningEfforts: catalogReasoningEfforts(cfg, models)})
+		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Reference: reference, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: shared, ReasoningEfforts: catalogReasoningEfforts(cfg, models), ModelCapabilities: service.CatalogModelCapabilities(cfg, models)})
 	}
 
 	seen := map[string]bool{}
@@ -144,7 +144,7 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		if isShared {
 			scope = service.ProviderScopeGlobal
 		}
-		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: isShared, ReasoningEfforts: catalogReasoningEfforts(cfg, models)})
+		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: isShared, ReasoningEfforts: catalogReasoningEfforts(cfg, models), ModelCapabilities: service.CatalogModelCapabilities(cfg, models)})
 	}
 	virtual, err := p.ListGatewayVirtualProviderCatalog(ctx, a.WorkspaceID, a.UserID)
 	if err != nil {

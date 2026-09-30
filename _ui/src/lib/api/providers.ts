@@ -24,10 +24,20 @@ export interface ModelLimitConfig {
   output: number;
 }
 
+/**
+ * Per-model override. Every field is optional: an absent field keeps AT's
+ * automatic detection, a present one replaces it.
+ */
 export interface ModelCapabilityConfig {
+  /** Legacy switch; new edits write input_modalities instead. */
   image_input?: boolean;
+  /** text, image, pdf, audio, video. Text files need no modality. */
+  input_modalities?: string[];
+  output_modalities?: string[];
   /** Overrides detection: [] declares the model non-reasoning. */
   reasoning_efforts?: string[];
+  /** tool_calling, parallel_tool_calls, structured_output, temperature, web_search, prompt_caching. */
+  features?: Record<string, boolean>;
 }
 
 export interface LLMConfig {
@@ -74,6 +84,8 @@ export interface ProviderRecord {
   config: LLMConfig;
   /** Read-only, derived per model; absent models fall back to the adapter. */
   reasoning_efforts?: Record<string, string[]>;
+  /** Read-only, derived per model: detection plus overrides. */
+  model_capabilities?: Record<string, import('./gateway').ModelCapabilities>;
   created_at: string;
   updated_at: string;
 }

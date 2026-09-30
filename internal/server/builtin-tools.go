@@ -545,14 +545,17 @@ var builtinTools = []builtinToolDef{
 		},
 		"required": []string{"key", "model"},
 	}},
-	{Name: "provider_set_model_capability", Description: "Set or clear client-facing capabilities for one existing provider model without rewriting the rest of the provider config. image_input controls whether OpenCode and other catalog clients may send images; reasoning_efforts lists the reasoning levels the model accepts ([] declares it non-reasoning); clear restores AT's automatic detection.", InputSchema: map[string]any{
+	{Name: "provider_set_model_capability", Description: "Set or clear client-facing capabilities for one existing provider model without rewriting the rest of the provider config. Supplied fields replace detection; omitted ones keep it. input_modalities decides which attachments (image, pdf, audio, video) Chats, OpenCode and other gateway clients may send, and the gateway refuses input outside it; reasoning_efforts lists accepted reasoning levels ([] = non-reasoning); features toggles tool_calling, parallel_tool_calls, structured_output, temperature, web_search and prompt_caching (null restores detection). clear restores automatic detection for the whole model.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"key":               map[string]any{"type": "string", "description": "Existing provider key"},
 			"model":             map[string]any{"type": "string", "description": "Provider-local model ID"},
-			"image_input":       map[string]any{"type": "boolean", "description": "Whether the model accepts image input"},
+			"input_modalities":  map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": service.InputModalities}, "description": "Accepted inputs; must include text"},
+			"output_modalities": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": service.OutputModalities}, "description": "Produced outputs"},
 			"reasoning_efforts": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": service.ReasoningEffortLevels}, "description": "Reasoning efforts the model accepts; [] means the model does not reason"},
-			"clear":             map[string]any{"type": "boolean", "description": "Remove the override and restore automatic capability detection"},
+			"features":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": []string{"boolean", "null"}}, "description": "Feature overrides keyed by " + strings.Join(service.ModelFeatures, ", ")},
+			"image_input":       map[string]any{"type": "boolean", "description": "Legacy: add or remove image from the detected inputs. Prefer input_modalities."},
+			"clear":             map[string]any{"type": "boolean", "description": "Remove every override for this model and restore automatic detection"},
 		},
 		"required": []string{"key", "model"},
 	}},

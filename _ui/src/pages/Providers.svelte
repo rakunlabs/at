@@ -29,8 +29,20 @@
     type ProviderRecord,
     type ProviderScope,
     type LLMConfig,
+    type ModelCapabilityConfig,
   } from '@/lib/api/providers';
   import { providerReasoningEfforts } from '@/lib/helper/reasoning';
+  import type { ModelCapabilities } from '@/lib/api/gateway';
+  import { INPUT_MODALITIES } from '@/lib/helper/attachments';
+  const OUTPUT_MODALITIES = ['text', 'image', 'audio', 'video'];
+  const MODEL_FEATURES: { key: string; label: string }[] = [
+    { key: 'tool_calling', label: 'Tool calling' },
+    { key: 'parallel_tool_calls', label: 'Parallel tool calls' },
+    { key: 'structured_output', label: 'Structured output' },
+    { key: 'temperature', label: 'Temperature' },
+    { key: 'web_search', label: 'Web search' },
+    { key: 'prompt_caching', label: 'Prompt caching' },
+  ];
   import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff, Boxes } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -1050,12 +1062,13 @@
   let newModelInput = $state('');
   let formModelLimits = $state<Record<string, { context: string; output: string }>>({});
   let showModelLimitsSection = $state(false);
-  let formModelCapabilities = $state<Record<string, 'auto' | 'enabled' | 'disabled'>>({});
+  /** Per-model override being edited; a model absent here is fully automatic. */
+  let formModelCapabilities = $state<Record<string, ModelCapabilityConfig>>({});
+  /** Detected (automatic) capabilities of the record being edited, for display. */
+  let detectedCapabilities = $state<Record<string, ModelCapabilities>>({});
+  /** Which model rows are expanded. */
+  let openCapabilityModel = $state<string | null>(null);
   let showModelCapabilitiesSection = $state(false);
-  /** Per-model reasoning override: absent = automatic, [] = not reasoning. */
-  let formModelReasoning = $state<Record<string, string[]>>({});
-  /** Detected per-model efforts of the record being edited (read-only hint). */
-  let detectedReasoning = $state<Record<string, string[]>>({});
   let reasoningLevelsForType = $derived(providerReasoningEfforts(formType));
   let formEmbeddingModels = $state<string[]>([]);
   let newEmbeddingModelInput = $state('');
@@ -1174,8 +1187,8 @@
     formModelLimits = {};
     showModelLimitsSection = false;
     formModelCapabilities = {};
-    formModelReasoning = {};
-    detectedReasoning = {};
+    detectedCapabilities = {};
+    openCapabilityModel = null;
     showModelCapabilitiesSection = false;
     formEmbeddingModels = [];
     newEmbeddingModelInput = '';
@@ -1232,18 +1245,8 @@
       ]),
     );
     showModelLimitsSection = Object.keys(formModelLimits).length > 0;
-    formModelCapabilities = Object.fromEntries(
-      Object.entries(preset.config.model_capabilities || {}).map(([model, capability]) => [
-        model,
-        capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
-      ]),
-    );
-    formModelReasoning = Object.fromEntries(
-      Object.entries(preset.config.model_capabilities || {})
-        .filter(([, capability]) => Array.isArray(capability.reasoning_efforts))
-        .map(([model, capability]) => [model, [...(capability.reasoning_efforts || [])]]),
-    );
-    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0 || Object.keys(formModelReasoning).length > 0;
+    formModelCapabilities = structuredClone($state.snapshot(preset.config.model_capabilities || {}));
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(preset.config.embedding_models || [])];
     formEmbeddingMaxInputs = preset.config.embedding_max_inputs ? String(preset.config.embedding_max_inputs) : '';
     formAuthType = preset.config.auth_type || '';
@@ -1278,19 +1281,9 @@
       ]),
     );
     showModelLimitsSection = Object.keys(formModelLimits).length > 0;
-    formModelCapabilities = Object.fromEntries(
-      Object.entries(rec.config.model_capabilities || {}).map(([model, capability]) => [
-        model,
-        capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
-      ]),
-    );
-    formModelReasoning = Object.fromEntries(
-      Object.entries(rec.config.model_capabilities || {})
-        .filter(([, capability]) => Array.isArray(capability.reasoning_efforts))
-        .map(([model, capability]) => [model, [...(capability.reasoning_efforts || [])]]),
-    );
-    detectedReasoning = { ...(rec.reasoning_efforts || {}) };
-    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0 || Object.keys(formModelReasoning).length > 0;
+    formModelCapabilities = structuredClone($state.snapshot(rec.config.model_capabilities || {}));
+    detectedCapabilities = { ...(rec.model_capabilities || {}) };
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
     formEmbeddingModels = [...(rec.config.embedding_models || [])];
     formEmbeddingMaxInputs = rec.config.embedding_max_inputs ? String(rec.config.embedding_max_inputs) : '';
     formAuthType = rec.config.auth_type || '';
@@ -1346,14 +1339,8 @@
 
     const modelCapabilities: NonNullable<LLMConfig['model_capabilities']> = {};
     for (const model of modelLimitModels) {
-      const mode = formModelCapabilities[model] || 'auto';
-      if (mode !== 'auto') modelCapabilities[model] = { image_input: mode === 'enabled' };
-      const reasoning = formModelReasoning[model];
-      if (reasoning) {
-        // Only levels this adapter can express survive a type change.
-        const efforts = reasoningLevelsForType.filter(e => reasoning.includes(e));
-        modelCapabilities[model] = { ...modelCapabilities[model], reasoning_efforts: efforts };
-      }
+      const override = cleanCapabilityOverride(formModelCapabilities[model]);
+      if (override) modelCapabilities[model] = override;
     }
     if (Object.keys(modelCapabilities).length > 0) cfg.model_capabilities = modelCapabilities;
 
@@ -1397,9 +1384,15 @@
     return cfg;
   }
 
+  function fillDefaultModelFromList(): boolean {
+    formModel = formModel.trim() || formModels.find((model) => model.trim())?.trim() || '';
+    return formModel !== '';
+  }
+
   async function handleSubmit() {
-    if (!formKey || !formType || !formModel) {
-      addToast('Key, type and model are required', 'warn');
+    const hasDefaultModel = fillDefaultModelFromList();
+    if (!formKey || !formType || !hasDefaultModel) {
+      addToast('Key, type and at least one model are required', 'warn');
       return;
     }
 
@@ -1604,8 +1597,6 @@
       formModelLimits = rest;
       const { [model]: _capability, ...remainingCapabilities } = formModelCapabilities;
       formModelCapabilities = remainingCapabilities;
-      const { [model]: _reasoning, ...remainingReasoning } = formModelReasoning;
-      formModelReasoning = remainingReasoning;
     }
   }
 
@@ -1617,32 +1608,119 @@
     };
   }
 
-  function setModelImageMode(model: string, mode: 'auto' | 'enabled' | 'disabled') {
-    formModelCapabilities = { ...formModelCapabilities, [model]: mode };
+  // ─── Model capability overrides ───
+  // A field left undefined keeps automatic detection; setting it replaces it.
+  // The legacy image_input switch is folded into input_modalities on edit.
+
+  /** Drop empty fields; undefined when nothing is overridden. */
+  function cleanCapabilityOverride(c: ModelCapabilityConfig | undefined): ModelCapabilityConfig | undefined {
+    if (!c) return undefined;
+    const out: ModelCapabilityConfig = {};
+    if (c.input_modalities) out.input_modalities = INPUT_MODALITIES.filter(m => c.input_modalities!.includes(m));
+    else if (typeof c.image_input === 'boolean') out.image_input = c.image_input;
+    if (c.output_modalities) out.output_modalities = OUTPUT_MODALITIES.filter(m => c.output_modalities!.includes(m));
+    if (c.reasoning_efforts) out.reasoning_efforts = reasoningLevelsForType.filter(e => c.reasoning_efforts!.includes(e));
+    if (c.features && Object.keys(c.features).length > 0) out.features = { ...c.features };
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  function capabilityOverride(model: string): ModelCapabilityConfig {
+    return formModelCapabilities[model] || {};
+  }
+
+  function updateCapability(model: string, patch: (c: ModelCapabilityConfig) => void) {
+    const next: ModelCapabilityConfig = structuredClone($state.snapshot(capabilityOverride(model)));
+    patch(next);
+    const cleaned = cleanCapabilityOverride(next);
+    const { [model]: _, ...rest } = formModelCapabilities;
+    formModelCapabilities = cleaned ? { ...rest, [model]: cleaned } : rest;
+  }
+
+  /** Effective inputs: override, legacy image switch, detection, or unknown. */
+  function effectiveInputs(model: string): string[] | undefined {
+    const o = capabilityOverride(model);
+    if (o.input_modalities) return o.input_modalities;
+    const detected = detectedCapabilities[model]?.input_modalities;
+    if (typeof o.image_input === 'boolean') {
+      const base = (detected ?? ['text']).filter(m => m !== 'image');
+      return INPUT_MODALITIES.filter(m => base.includes(m) || (m === 'image' && o.image_input));
+    }
+    return detected;
+  }
+
+  function setModalitiesMode(model: string, field: 'input_modalities' | 'output_modalities', manual: boolean) {
+    updateCapability(model, c => {
+      if (field === 'input_modalities') delete c.image_input;
+      if (!manual) {
+        delete c[field];
+        return;
+      }
+      const current = field === 'input_modalities' ? effectiveInputs(model) : detectedCapabilities[model]?.output_modalities;
+      c[field] = [...(current ?? ['text'])];
+    });
+  }
+
+  function toggleModality(model: string, field: 'input_modalities' | 'output_modalities', modality: string) {
+    if (field === 'input_modalities' && modality === 'text') return; // every chat model reads text
+    updateCapability(model, c => {
+      const list = c[field] ?? [];
+      c[field] = list.includes(modality) ? list.filter(m => m !== modality) : [...list, modality];
+    });
   }
 
   function reasoningMode(model: string): 'auto' | 'none' | 'manual' {
-    const efforts = formModelReasoning[model];
+    const efforts = capabilityOverride(model).reasoning_efforts;
     if (!efforts) return 'auto';
     return efforts.length === 0 ? 'none' : 'manual';
   }
 
   function setModelReasoningMode(model: string, mode: 'auto' | 'none' | 'manual') {
-    if (mode === 'auto') {
-      const { [model]: _, ...rest } = formModelReasoning;
-      formModelReasoning = rest;
-      return;
-    }
-    const seed = mode === 'manual'
-      ? (detectedReasoning[model]?.length ? detectedReasoning[model] : reasoningLevelsForType.filter(e => ['low', 'medium', 'high'].includes(e)))
-      : [];
-    formModelReasoning = { ...formModelReasoning, [model]: [...seed] };
+    updateCapability(model, c => {
+      if (mode === 'auto') {
+        delete c.reasoning_efforts;
+        return;
+      }
+      const detected = detectedCapabilities[model]?.reasoning_efforts;
+      c.reasoning_efforts = mode === 'manual'
+        ? [...(detected?.length ? detected : reasoningLevelsForType.filter(e => ['low', 'medium', 'high'].includes(e)))]
+        : [];
+    });
   }
 
   function toggleModelReasoningLevel(model: string, effort: string) {
-    const current = formModelReasoning[model] || [];
-    const next = current.includes(effort) ? current.filter(e => e !== effort) : [...current, effort];
-    formModelReasoning = { ...formModelReasoning, [model]: next };
+    updateCapability(model, c => {
+      const current = c.reasoning_efforts || [];
+      c.reasoning_efforts = current.includes(effort) ? current.filter(e => e !== effort) : [...current, effort];
+    });
+  }
+
+  function featureState(model: string, feature: string): 'auto' | 'yes' | 'no' {
+    const v = capabilityOverride(model).features?.[feature];
+    return v === undefined ? 'auto' : v ? 'yes' : 'no';
+  }
+
+  function setFeature(model: string, feature: string, state: 'auto' | 'yes' | 'no') {
+    updateCapability(model, c => {
+      const features = { ...(c.features || {}) };
+      if (state === 'auto') delete features[feature];
+      else features[feature] = state === 'yes';
+      c.features = features;
+    });
+  }
+
+  function resetCapabilities(model: string) {
+    const { [model]: _, ...rest } = formModelCapabilities;
+    formModelCapabilities = rest;
+  }
+
+  /** One-line summary of what a model can do, for the collapsed row. */
+  function capabilitySummary(model: string): string {
+    const inputs = effectiveInputs(model);
+    const o = capabilityOverride(model);
+    const efforts = o.reasoning_efforts ?? detectedCapabilities[model]?.reasoning_efforts;
+    const parts = [inputs ? `in: ${inputs.join(', ')}` : 'inputs unknown'];
+    if (efforts) parts.push(efforts.length ? `reasoning: ${efforts.join(', ')}` : 'no reasoning');
+    return parts.join(' · ');
   }
 
   function validateModelLimitsForm(): string {
@@ -1718,8 +1796,8 @@
 
       // The auth type and any edited connection settings must be persisted
       // before the backend selects the device-flow implementation.
-      if (!formType || !formModel) {
-        throw new Error('Type and model are required');
+      if (!formType || !fillDefaultModelFromList()) {
+        throw new Error('Type and at least one model are required');
       }
       if (editingPersonalId) {
         await updatePersonalProvider(editingPersonalId, formKey, buildConfig());
@@ -2696,7 +2774,7 @@
             id="form-model"
             type="text"
             bind:value={formModel}
-            placeholder="e.g., gpt-4o, claude-haiku-4-5"
+            placeholder="Uses the first listed model when empty"
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
@@ -2811,7 +2889,7 @@
           >
             <span>
               <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model capabilities</span>
-              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Image input and reasoning levels advertised to Chats, Agents, OpenCode and other gateway clients</span>
+              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Accepted input, output, reasoning levels and features, per model — used by Chats, Agents, OpenCode and other gateway clients</span>
             </span>
             <ChevronDown size={15} class={showModelCapabilitiesSection ? 'rotate-180' : ''} />
           </button>
@@ -2823,63 +2901,170 @@
               {#if modelLimitModels.length === 0}
                 <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
               {:else}
-                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_10rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
-                  <span>Model</span>
-                  <span>Image input</span>
-                  <span>Reasoning</span>
-                </div>
                 {#each modelLimitModels as model}
+                  {@const open = openCapabilityModel === model}
+                  {@const override = capabilityOverride(model)}
+                  {@const detected = detectedCapabilities[model]}
+                  {@const inputs = effectiveInputs(model)}
+                  {@const inputsManual = !!override.input_modalities}
+                  {@const outputsManual = !!override.output_modalities}
+                  {@const outputs = override.output_modalities ?? detected?.output_modalities}
                   {@const mode = reasoningMode(model)}
-                  {@const detected = detectedReasoning[model]}
-                  <div class="space-y-1.5">
-                    <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_10rem_10rem] gap-2 items-center">
-                      <span class="truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
-                      <select
-                        value={formModelCapabilities[model] || 'auto'}
-                        onchange={(e) => setModelImageMode(model, e.currentTarget.value as 'auto' | 'enabled' | 'disabled')}
-                        aria-label={`${model} image input capability`}
-                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
-                      >
-                        <option value="auto">Automatic</option>
-                        <option value="enabled">Supported</option>
-                        <option value="disabled">Text only</option>
-                      </select>
-                      <select
-                        value={mode}
-                        onchange={(e) => setModelReasoningMode(model, e.currentTarget.value as 'auto' | 'none' | 'manual')}
-                        disabled={reasoningLevelsForType.length === 0}
-                        aria-label={`${model} reasoning mode`}
-                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400"
-                      >
-                        <option value="auto">Automatic</option>
-                        <option value="none">Not reasoning</option>
-                        <option value="manual">Choose levels</option>
-                      </select>
-                    </div>
-                    {#if mode === 'manual'}
-                      <div class="flex flex-wrap justify-end gap-1.5" role="group" aria-label={`${model} reasoning levels`}>
-                        {#each reasoningLevelsForType as effort}
-                          {@const on = !!formModelReasoning[model]?.includes(effort)}
-                          <button
-                            type="button"
-                            aria-pressed={on}
-                            onclick={() => toggleModelReasoningLevel(model, effort)}
-                            class={['px-2 py-1 text-xs border', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-                          >{effort}</button>
-                        {/each}
-                      </div>
-                    {:else if mode === 'auto'}
-                      <p class="text-xs text-gray-400 dark:text-dark-text-muted sm:text-right">
-                        {#if reasoningLevelsForType.length === 0}
-                          This provider type has no reasoning control.
-                        {:else if detected && detected.length > 0}
-                          Detected: {detected.join(', ')}
-                        {:else if detected}
-                          Detected: not a reasoning model
-                        {:else}
-                          Not recognised: pickers offer every level this provider type supports, and gateway clients get no reasoning metadata.
+                  <div class="border border-gray-200 dark:border-dark-border">
+                    <button
+                      type="button"
+                      onclick={() => openCapabilityModel = open ? null : model}
+                      aria-expanded={open}
+                      class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                    >
+                      <span class="min-w-0 flex-1">
+                        <span class="block truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary">{model}</span>
+                        <span class="block truncate text-[11px] text-gray-400 dark:text-dark-text-muted">{capabilitySummary(model)}</span>
+                      </span>
+                      {#if formModelCapabilities[model]}
+                        <span class="shrink-0 border border-amber-300 dark:border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400">Overridden</span>
+                      {:else if !detected}
+                        <span class="shrink-0 border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">Not recognised</span>
+                      {/if}
+                      <ChevronDown size={14} class={`shrink-0 text-gray-400 ${open ? 'rotate-180' : ''}`} />
+                    </button>
+                    {#if open}
+                      <div class="border-t border-gray-200 dark:border-dark-border p-3 space-y-4 text-xs">
+                        <!-- Inputs -->
+                        <div class="space-y-1.5">
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Accepted input</span>
+                            <select
+                              value={inputsManual ? 'manual' : 'auto'}
+                              onchange={(e) => setModalitiesMode(model, 'input_modalities', e.currentTarget.value === 'manual')}
+                              aria-label={`${model} input mode`}
+                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                            >
+                              <option value="auto">Automatic</option>
+                              <option value="manual">Choose</option>
+                            </select>
+                          </div>
+                          <div class="flex flex-wrap gap-1.5" role="group" aria-label={`${model} input modalities`}>
+                            {#each INPUT_MODALITIES as modality}
+                              {@const on = !!inputs?.includes(modality)}
+                              <button
+                                type="button"
+                                aria-pressed={on}
+                                disabled={!inputsManual || modality === 'text'}
+                                onclick={() => toggleModality(model, 'input_modalities', modality)}
+                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-500 dark:border-dark-border-subtle dark:text-dark-text-muted', inputsManual && modality !== 'text' ? 'hover:opacity-80' : 'opacity-80']}
+                              >{modality}</button>
+                            {/each}
+                          </div>
+                          <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                            {#if !inputsManual && !inputs}
+                              Not recognised: every attachment is allowed and the provider decides. Choose to declare what this model reads.
+                            {:else}
+                              Attachments outside this list are refused before the request is sent. Text files (txt, md, csv, sql, code…) are text and need no entry.
+                            {/if}
+                          </p>
+                        </div>
+
+                        <!-- Outputs -->
+                        <div class="space-y-1.5">
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Output</span>
+                            <select
+                              value={outputsManual ? 'manual' : 'auto'}
+                              onchange={(e) => setModalitiesMode(model, 'output_modalities', e.currentTarget.value === 'manual')}
+                              aria-label={`${model} output mode`}
+                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                            >
+                              <option value="auto">Automatic</option>
+                              <option value="manual">Choose</option>
+                            </select>
+                          </div>
+                          <div class="flex flex-wrap gap-1.5" role="group" aria-label={`${model} output modalities`}>
+                            {#each OUTPUT_MODALITIES as modality}
+                              {@const on = !!outputs?.includes(modality)}
+                              <button
+                                type="button"
+                                aria-pressed={on}
+                                disabled={!outputsManual}
+                                onclick={() => toggleModality(model, 'output_modalities', modality)}
+                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-500 dark:border-dark-border-subtle dark:text-dark-text-muted', outputsManual ? 'hover:opacity-80' : 'opacity-80']}
+                              >{modality}</button>
+                            {/each}
+                          </div>
+                        </div>
+
+                        <!-- Reasoning -->
+                        <div class="space-y-1.5">
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Reasoning</span>
+                            <select
+                              value={mode}
+                              onchange={(e) => setModelReasoningMode(model, e.currentTarget.value as 'auto' | 'none' | 'manual')}
+                              disabled={reasoningLevelsForType.length === 0}
+                              aria-label={`${model} reasoning mode`}
+                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400"
+                            >
+                              <option value="auto">Automatic</option>
+                              <option value="none">Not reasoning</option>
+                              <option value="manual">Choose levels</option>
+                            </select>
+                          </div>
+                          {#if mode === 'manual'}
+                            <div class="flex flex-wrap gap-1.5" role="group" aria-label={`${model} reasoning levels`}>
+                              {#each reasoningLevelsForType as effort}
+                                {@const on = !!override.reasoning_efforts?.includes(effort)}
+                                <button
+                                  type="button"
+                                  aria-pressed={on}
+                                  onclick={() => toggleModelReasoningLevel(model, effort)}
+                                  class={['px-2 py-1 border', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
+                                >{effort}</button>
+                              {/each}
+                            </div>
+                          {:else if mode === 'auto'}
+                            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                              {#if reasoningLevelsForType.length === 0}
+                                This provider type has no reasoning control.
+                              {:else if detected?.reasoning_efforts && detected.reasoning_efforts.length > 0}
+                                Detected: {detected.reasoning_efforts.join(', ')}
+                              {:else if detected?.reasoning_efforts}
+                                Detected: not a reasoning model
+                              {:else}
+                                Not recognised: pickers offer every level this provider type supports, and gateway clients get no reasoning metadata.
+                              {/if}
+                            </p>
+                          {/if}
+                        </div>
+
+                        <!-- Features -->
+                        <div class="space-y-1.5">
+                          <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Features</span>
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {#each MODEL_FEATURES as feature}
+                              {@const state = featureState(model, feature.key)}
+                              {@const auto = detected?.features?.[feature.key]}
+                              <label class="flex items-center justify-between gap-2 border border-gray-200 dark:border-dark-border px-2 py-1">
+                                <span class="text-gray-600 dark:text-dark-text-secondary">{feature.label}</span>
+                                <select
+                                  value={state}
+                                  onchange={(e) => setFeature(model, feature.key, e.currentTarget.value as 'auto' | 'yes' | 'no')}
+                                  class="border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                                >
+                                  <option value="auto">Auto ({auto === undefined ? 'unknown' : auto ? 'yes' : 'no'})</option>
+                                  <option value="yes">Yes</option>
+                                  <option value="no">No</option>
+                                </select>
+                              </label>
+                            {/each}
+                          </div>
+                        </div>
+
+                        {#if formModelCapabilities[model]}
+                          <div class="flex justify-end">
+                            <button type="button" onclick={() => resetCapabilities(model)} class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 hover:bg-gray-50 dark:hover:bg-dark-elevated">Reset to automatic</button>
+                          </div>
                         {/if}
-                      </p>
+                      </div>
                     {/if}
                   </div>
                 {/each}

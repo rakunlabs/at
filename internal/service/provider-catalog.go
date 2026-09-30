@@ -1,6 +1,11 @@
 package service
 
-import "context"
+import (
+	"context"
+	"slices"
+
+	"github.com/rakunlabs/at/internal/config"
+)
 
 type ProviderCatalogEntry struct {
 	Key          string   `json:"key"`
@@ -14,6 +19,9 @@ type ProviderCatalogEntry struct {
 	// a known answer are present; an empty list means non-reasoning. Pickers
 	// fall back to ProviderReasoningEfforts for absent models.
 	ReasoningEfforts map[string][]string `json:"reasoning_efforts,omitempty"`
+	// ModelCapabilities is the resolved per-model view (detection plus
+	// overrides). Models with nothing known are absent.
+	ModelCapabilities map[string]ModelCapabilities `json:"model_capabilities,omitempty"`
 }
 
 // CatalogReasoningEfforts resolves ReasoningEfforts for a provider's models.
@@ -29,6 +37,33 @@ func CatalogReasoningEfforts(providerType string, models []string, overrides fun
 	}
 
 	return out
+}
+
+// CatalogModelCapabilities resolves every advertised chat model of a stored
+// provider configuration.
+func CatalogModelCapabilities(cfg config.LLMConfig, models []string) map[string]ModelCapabilities {
+	out := map[string]ModelCapabilities{}
+	for _, model := range models {
+		if caps := ProviderModelCapabilities(cfg, model); caps.Known() {
+			out[model] = caps
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+// ProviderChatModels is the advertised chat model list: models plus the
+// default model when it is not already listed.
+func ProviderChatModels(cfg config.LLMConfig) []string {
+	models := slices.Clone(cfg.Models)
+	if cfg.Model != "" && !slices.Contains(models, cfg.Model) {
+		models = append(models, cfg.Model)
+	}
+
+	return models
 }
 
 type WorkspaceProviderCatalogStorer interface {

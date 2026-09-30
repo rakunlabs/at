@@ -1469,6 +1469,17 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 	}
 }
 
+// capabilityConfig is the slice of the provider configuration capability
+// resolution reads.
+func (p ProviderInfo) capabilityConfig() config.LLMConfig {
+	return config.LLMConfig{Type: p.providerType, Model: p.defaultModel, Models: p.models, ModelCapabilities: p.modelCapabilities}
+}
+
+// resolvedCapabilities resolves detection plus overrides for one model.
+func (p ProviderInfo) resolvedCapabilities(model string) service.ModelCapabilities {
+	return service.ProviderModelCapabilities(p.capabilityConfig(), model)
+}
+
 // WithProviderID attaches the immutable database identity used by provider
 // budget policies. It intentionally leaves the public provider key unchanged.
 func (p ProviderInfo) WithProviderID(id string) ProviderInfo {

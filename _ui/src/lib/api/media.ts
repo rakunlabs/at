@@ -69,10 +69,12 @@ export interface StorageTestResult {
   message?: string;
 }
 
-/** The content types the server sniffs for. A mismatch is a 415. */
-export const MEDIA_ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-
-export const MEDIA_ALLOWED_LABEL = 'PNG, JPEG, GIF or WebP';
+/**
+ * Any file can be stored. The server records the type sniffed from the bytes;
+ * images, PDF, audio and video are shown inline and everything else is only
+ * ever offered as a download.
+ */
+export const MEDIA_ALLOWED_LABEL = 'any file type; images, PDF, audio and video open in the browser, other files download';
 
 // ─── Contract guards ───
 
@@ -219,14 +221,14 @@ export const isStorageSettingsConflict = (error: unknown) => mediaErrorStatus(er
  * deserve to say so instead of collapsing into "upload failed".
  */
 export function mediaUploadErrorMessage(error: unknown, name: string): string {
-  const label = name || 'image';
+  const label = name || 'attachment';
   switch (mediaErrorStatus(error)) {
     case 413:
       return `"${label}" was rejected as too large and was not saved to history`;
     case 415:
-      return `"${label}" is not a supported image type (${MEDIA_ALLOWED_LABEL}) and was not saved to history`;
+      return `"${label}" was refused by media storage and was not saved to history`;
     case 503:
-      return 'Media storage is not configured, so images are not saved to history';
+      return 'Media storage is not configured, so attachments are not saved to history';
     case 401:
     case 403:
       return `You are not allowed to store "${label}"`;

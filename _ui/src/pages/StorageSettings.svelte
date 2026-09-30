@@ -269,7 +269,7 @@
           {/if}
 
           <p class="settings-note">
-            Chat image uploads use this backend and stream without an application-level storage size limit. They must be
+            Chat attachments use this backend and stream without an application-level storage size limit. It stores
             {MEDIA_ALLOWED_LABEL}; the type is detected from the file contents, not its name. Configuration version
             {settings.version}.
           </p>

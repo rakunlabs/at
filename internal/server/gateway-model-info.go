@@ -34,6 +34,14 @@ type liteLLMModelMetadata struct {
 	Modalities                  *liteLLMModelModalities `json:"modalities,omitempty"`
 	SupportsVision              *bool                   `json:"supports_vision,omitempty"`
 	SupportsFunctionCalling     *bool                   `json:"supports_function_calling,omitempty"`
+	SupportsPDFInput            *bool                   `json:"supports_pdf_input,omitempty"`
+	SupportsAudioInput          *bool                   `json:"supports_audio_input,omitempty"`
+	SupportsVideoInput          *bool                   `json:"supports_video_input,omitempty"`
+	SupportsAudioOutput         *bool                   `json:"supports_audio_output,omitempty"`
+	SupportsParallelFunctions   *bool                   `json:"supports_parallel_function_calling,omitempty"`
+	SupportsResponseSchema      *bool                   `json:"supports_response_schema,omitempty"`
+	SupportsWebSearch           *bool                   `json:"supports_web_search,omitempty"`
+	SupportsPromptCaching       *bool                   `json:"supports_prompt_caching,omitempty"`
 	SupportsReasoning           *bool                   `json:"supports_reasoning,omitempty"`
 	SupportsNoneEffort          *bool                   `json:"supports_none_reasoning_effort,omitempty"`
 	SupportsMinimalEffort       *bool                   `json:"supports_minimal_reasoning_effort,omitempty"`
@@ -103,10 +111,21 @@ func (s *Server) ListLiteLLMModelInfo(w http.ResponseWriter, r *http.Request) {
 				Output: model.OutputModalities,
 			}
 		}
-		if model.Capabilities != nil {
-			metadata.SupportsVision = model.Capabilities.Vision
-			metadata.SupportsFunctionCalling = model.Capabilities.ToolCalling
+		if c := model.Capabilities; c != nil {
+			metadata.SupportsVision = c.Vision
+			metadata.SupportsPDFInput = c.PDFInput
+			metadata.SupportsAudioInput = c.AudioInput
+			metadata.SupportsVideoInput = c.VideoInput
+			metadata.SupportsFunctionCalling = c.ToolCalling
+			metadata.SupportsParallelFunctions = c.ParallelToolCalls
+			metadata.SupportsResponseSchema = c.StructuredOutput
+			metadata.SupportsWebSearch = c.WebSearch
+			metadata.SupportsPromptCaching = c.PromptCaching
+			if model.OutputModalities != nil {
+				metadata.SupportsAudioOutput = boolPtr(slices.Contains(model.OutputModalities, service.ModalityAudio))
+			}
 			applyLiteLLMReasoning(&metadata, model)
+			applyLiteLLMParams(&metadata, model)
 		}
 
 		providerKey := model.OwnedBy
@@ -161,8 +180,29 @@ func applyLiteLLMReasoning(metadata *liteLLMModelMetadata, model ModelData) {
 	metadata.SupportsHighEffort = flag("high")
 	metadata.SupportsXHighEffort = flag("xhigh")
 	metadata.SupportsMaxEffort = flag("max")
-	// A non-empty list is read as the complete parameter set. temperature is
-	// deliberately absent: OpenAI reasoning models reject it and Claude
-	// requires the default while thinking, so clients should not send it.
-	metadata.SupportedOpenAIParams = []string{"reasoning_effort", "top_p", "max_tokens", "stop", "tools", "tool_choice", "response_format", "stream"}
+}
+
+// applyLiteLLMParams lists supported_openai_params only when AT knows the
+// model well enough to say something true. Clients read a non-empty list as
+// the complete set: temperature missing means "never send it", which is how
+// reasoning models (which reject it) are protected.
+func applyLiteLLMParams(metadata *liteLLMModelMetadata, model ModelData) {
+	c := model.Capabilities
+	if c.Temperature == nil && c.Reasoning == nil {
+		return
+	}
+	params := []string{"max_tokens", "stop", "stream", "stream_options", "response_format", "seed", "user"}
+	if c.Temperature == nil || *c.Temperature {
+		params = append(params, "temperature", "top_p")
+	}
+	if c.ToolCalling == nil || *c.ToolCalling {
+		params = append(params, "tools", "tool_choice")
+	}
+	if c.ParallelToolCalls != nil && *c.ParallelToolCalls {
+		params = append(params, "parallel_tool_calls")
+	}
+	if c.Reasoning != nil && *c.Reasoning {
+		params = append(params, "reasoning_effort")
+	}
+	metadata.SupportedOpenAIParams = params
 }

@@ -138,15 +138,14 @@ test('errors name the limit that was hit instead of failing generically', () => 
   for (const value of [new Error('network'), undefined, null, {}, { response: {} }]) assert.equal(api.mediaErrorStatus(value), 0);
 
   assert.match(api.mediaUploadErrorMessage(error(413), 'shot.png'), /rejected as too large/);
-  assert.match(api.mediaUploadErrorMessage(error(415), 'shot.png'), /not a supported image type/);
-  assert.match(api.mediaUploadErrorMessage(error(415), 'shot.png'), /PNG, JPEG, GIF or WebP/);
+  assert.match(api.mediaUploadErrorMessage(error(415), 'shot.png'), /refused by media storage/);
   assert.match(api.mediaUploadErrorMessage(error(503), 'shot.png'), /not configured/);
   // The named limit wins over a vague upstream message; other codes defer to it.
   assert.match(api.mediaUploadErrorMessage(error(413, 'request entity too large'), 'a.png'), /rejected as too large/);
-  assert.match(api.mediaUploadErrorMessage(error(415, 'unsupported media type'), 'a.png'), /not a supported image type/);
+  assert.match(api.mediaUploadErrorMessage(error(415, 'unsupported media type'), 'a.png'), /refused by media storage/);
   assert.equal(api.mediaUploadErrorMessage(error(400, 'file field missing'), 'a.png'), 'file field missing');
   assert.equal(api.mediaUploadErrorMessage(new Error('network'), 'a.png'), 'Could not save "a.png" to history');
-  assert.equal(api.mediaUploadErrorMessage(error(500), ''), 'Could not save "image" to history');
+  assert.equal(api.mediaUploadErrorMessage(error(500), ''), 'Could not save "attachment" to history');
   assert.equal(api.isMediaStorageDisabled(error(503)), true);
   for (const status of [400, 401, 403, 409, 413, 415, 502]) assert.equal(api.isMediaStorageDisabled(error(status)), false);
 
@@ -162,8 +161,7 @@ test('errors name the limit that was hit instead of failing generically', () => 
 });
 
 test('media types mirror the server contract', () => {
-  assert.deepEqual([...api.MEDIA_ALLOWED_TYPES], ['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
-  assert.equal(api.MEDIA_ALLOWED_LABEL, 'PNG, JPEG, GIF or WebP');
+  assert.match(api.MEDIA_ALLOWED_LABEL, /any file type/);
 });
 
 test('every endpoint propagates failures once, without retrying', async () => {

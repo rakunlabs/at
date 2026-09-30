@@ -369,10 +369,21 @@ type ModelLimit struct {
 // Pointer fields preserve the distinction between automatic detection and an
 // explicit false value.
 type ModelCapability struct {
+	// ImageInput is the legacy single-modality switch. It is still read (true
+	// adds image to the detected inputs, false removes it) but new writes use
+	// InputModalities.
 	ImageInput *bool `cfg:"image_input" json:"image_input,omitempty"`
+	// InputModalities / OutputModalities replace detection when set:
+	// text, image, pdf, audio, video.
+	InputModalities  []string `cfg:"input_modalities" json:"input_modalities,omitzero"`
+	OutputModalities []string `cfg:"output_modalities" json:"output_modalities,omitzero"`
 	// ReasoningEfforts overrides the detected reasoning levels: nil keeps
 	// detection, an empty list declares the model non-reasoning.
 	ReasoningEfforts []string `cfg:"reasoning_efforts" json:"reasoning_efforts,omitzero"`
+	// Features overrides individual boolean capabilities (tool_calling,
+	// parallel_tool_calls, structured_output, temperature, web_search,
+	// prompt_caching). Absent keys keep detection.
+	Features map[string]bool `cfg:"features" json:"features,omitempty"`
 }
 
 // RateLimitConfig describes the per-provider rate-limit policy. All fields

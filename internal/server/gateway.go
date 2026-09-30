@@ -209,6 +209,16 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refuse input the model is known not to read (a PDF to an audio-only
+	// model, audio to Claude) before it costs anything upstream. Targets that
+	// cannot read it are skipped, so a fallback that can still serves.
+	var inputErr error
+	if chain, inputErr = admitChainInputs(chain, requestInputModalities(req.Messages)); inputErr != nil {
+		httpResponseJSON(respW, unsupportedInputBody(inputErr), http.StatusBadRequest)
+		s.maybeStoreIdempotent(idempKey, cap, w)
+		return
+	}
+
 	// Token budget checks once (DB tokens only).
 	if limitMessage, resetErr := s.checkTokenLimits(r.Context(), auth); resetErr != nil {
 		slog.Error("token limit check failed", "error", resetErr)
@@ -756,82 +766,53 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 	return models
 }
 
-// applyGatewayModelCapabilities adds only capabilities AT can determine from
-// the provider protocol and model family. Advertising image input matters to
-// clients such as OpenCode: without it they reject an image locally before AT
-// or the upstream model gets a chance to process it.
+// applyGatewayModelCapabilities advertises what AT knows about a model:
+// detection from the providers' published per-model tables plus operator
+// overrides. Only known values are advertised. Clients such as OpenCode refuse
+// an attachment locally unless its modality is declared, so an input modality
+// that is absent here is one the client will never send.
 func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID string) {
-	applyGatewayReasoningCapabilities(model, info, modelID)
-
-	imageInput, configured := false, false
-	if capability, ok := info.modelCapabilities[modelID]; ok && capability.ImageInput != nil {
-		imageInput = *capability.ImageInput
-		configured = true
-	} else if info.providerType == "anthropic" && isVisionClaudeModel(modelID) {
-		imageInput = true
-		configured = true
-	}
-	if !configured {
+	caps := info.resolvedCapabilities(modelID)
+	if !caps.Known() {
 		return
 	}
-
-	model.InputModalities = []string{"text"}
-	if imageInput {
-		model.InputModalities = append(model.InputModalities, "image")
+	if caps.InputModalities != nil {
+		model.InputModalities = caps.InputModalities
 	}
-	model.OutputModalities = []string{"text"}
-	if model.Capabilities == nil {
-		model.Capabilities = &GatewayModelCapabilities{}
+	if caps.OutputModalities != nil {
+		model.OutputModalities = caps.OutputModalities
 	}
-	model.Capabilities.Vision = &imageInput
-	model.Capabilities.Attachment = &imageInput
-	if info.providerType == "anthropic" && isVisionClaudeModel(modelID) {
-		toolCalling := true
-		model.Capabilities.ToolCalling = &toolCalling
+	c := &GatewayModelCapabilities{}
+	if caps.InputModalities != nil {
+		c.Vision = boolPtr(caps.Accepts(service.ModalityImage))
+		c.PDFInput = boolPtr(caps.Accepts(service.ModalityPDF))
+		c.AudioInput = boolPtr(caps.Accepts(service.ModalityAudio))
+		c.VideoInput = boolPtr(caps.Accepts(service.ModalityVideo))
+		// OpenCode's "attachment" means "may attach files": any non-text input.
+		c.Attachment = boolPtr(len(caps.InputModalities) > 1)
 	}
-}
-
-// applyGatewayReasoningCapabilities advertises reasoning only for models whose
-// efforts are known — an operator override or a recognised model family.
-// Unknown models advertise nothing, so a client never offers a level the
-// upstream would reject.
-func applyGatewayReasoningCapabilities(model *ModelData, info ProviderInfo, modelID string) {
-	var override []string
-	if capability, ok := info.modelCapabilities[modelID]; ok {
-		override = capability.ReasoningEfforts
-	}
-	efforts, known := service.ModelReasoningEfforts(info.providerType, modelID, override)
-	if !known {
-		return
-	}
-	reasoning := len(efforts) > 0
-	if model.Capabilities == nil {
-		model.Capabilities = &GatewayModelCapabilities{}
-	}
-	model.Capabilities.Reasoning = &reasoning
-	if reasoning {
-		model.Capabilities.ReasoningEfforts = efforts
-	}
-}
-
-// isVisionClaudeModel deliberately recognizes named Claude families rather
-// than every model exposed by an Anthropic-compatible endpoint. The latter may
-// serve unrelated text-only models, for which claiming image support would be
-// worse than omitting unknown metadata.
-func isVisionClaudeModel(modelID string) bool {
-	modelID = strings.ToLower(modelID)
-	if !strings.HasPrefix(modelID, "claude-") {
-		return false
-	}
-
-	for _, family := range []string{"opus", "sonnet", "haiku", "fable"} {
-		if strings.Contains(modelID, family) {
-			return true
+	if caps.ReasoningEfforts != nil {
+		c.Reasoning = boolPtr(len(caps.ReasoningEfforts) > 0)
+		if len(caps.ReasoningEfforts) > 0 {
+			c.ReasoningEfforts = caps.ReasoningEfforts
 		}
 	}
-
-	return false
+	feature := func(name string) *bool {
+		if v, ok := caps.Feature(name); ok {
+			return boolPtr(v)
+		}
+		return nil
+	}
+	c.ToolCalling = feature(service.FeatureToolCalling)
+	c.ParallelToolCalls = feature(service.FeatureParallelTools)
+	c.StructuredOutput = feature(service.FeatureStructuredOutput)
+	c.Temperature = feature(service.FeatureTemperature)
+	c.WebSearch = feature(service.FeatureWebSearch)
+	c.PromptCaching = feature(service.FeaturePromptCaching)
+	model.Capabilities = c
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 // GatewayNotFound answers any path under /gateway that no route matched.
 //

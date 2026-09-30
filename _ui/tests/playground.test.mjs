@@ -425,3 +425,30 @@ test('routes and derived titles stay bounded and URL safe', () => {
   assert.ok(long.endsWith('…'));
   assert.equal(api.playgroundTitleFrom('x'.repeat(60)).length, 60);
 });
+
+test('PDF, audio and video attachments persist as stored file parts', async () => {
+  const pdf = 'data:application/pdf;base64,JVBE';
+  const data = () => ({ content: [
+    { type: 'file', file: { filename: 'report.pdf', file_data: pdf } },
+    { type: 'input_audio', input_audio: { data: 'AUDIO', format: 'mp3' } },
+    { type: 'video_url', video_url: { url: 'data:video/mp4;base64,VID' } },
+    { type: 'text', text: '<file name="q.sql">\nselect 1\n</file>' },
+  ] });
+  const uploaded = [];
+  const stored = await api.persistPlaygroundImages(data(), ['report.pdf', 'talk.mp3', 'clip.mp4'], async (url, name) => {
+    uploaded.push([url, name]);
+    return `01F${uploaded.length}`;
+  });
+  assert.deepEqual(uploaded.map(u => u[1]), ['report.pdf', 'talk.mp3', 'clip.mp4']);
+  assert.equal(uploaded[1][0], 'data:audio/mpeg;base64,AUDIO');
+  assert.deepEqual(stored.content[0], { type: 'file', media_id: '01F1', name: 'report.pdf', bytes: pdf.length, mime_type: 'application/pdf', attachment: true });
+  assert.equal(stored.content[1].mime_type, 'audio/mpeg');
+  assert.equal(stored.content[2].mime_type, 'video/mp4');
+  // Text files are already text: nothing to upload, stored verbatim.
+  assert.deepEqual(stored.content[3], data().content[3]);
+
+  // Without storage they degrade to visible descriptors, never inline bytes.
+  const stripped = api.stripPlaygroundImages(data(), ['report.pdf']);
+  assert.deepEqual(stripped.content[0], { type: 'file', name: 'report.pdf', bytes: pdf.length, mime_type: 'application/pdf', attachment: true, omitted: true });
+  assert.ok(!JSON.stringify(stripped).includes('AUDIO'));
+});

@@ -329,14 +329,34 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 		t.Fatalf("configure: %d %s", w.Code, w.Body)
 	}
 
-	// The sniffed type decides, never the client's claim.
-	if w = mediaUpload(t, s, tokens[0], "payload.png", []byte("#!/bin/sh\necho not an image\n"), "image/png"); w.Code != 415 {
-		t.Fatalf("non-image upload: %d %s", w.Code, w.Body)
+	// Any file is stored, but the bytes decide the recorded type, and nothing
+	// that is not really an image, PDF, audio or video is ever served inline.
+	storedAs := func(name string, data []byte, declared, wantType, wantDisposition string) {
+		t.Helper()
+		w := mediaUpload(t, s, tokens[0], name, data, declared)
+		if w.Code != 201 {
+			t.Fatalf("%s upload: %d %s", name, w.Code, w.Body)
+		}
+		var obj service.MediaObject
+		if err := json.Unmarshal(w.Body.Bytes(), &obj); err != nil {
+			t.Fatal(err)
+		}
+		if obj.ContentType != wantType {
+			t.Fatalf("%s stored as %q, want %q", name, obj.ContentType, wantType)
+		}
+		got := mediaRequest(t, s, tokens[0], "GET", "/"+obj.ID, "")
+		if got.Code != 200 || got.Header().Get("Content-Disposition") != wantDisposition ||
+			got.Header().Get("X-Content-Type-Options") != "nosniff" || got.Header().Get("Content-Security-Policy") != "sandbox" {
+			t.Fatalf("%s served: %d %v", name, got.Code, got.Header())
+		}
 	}
-	// An SVG is an active document, so it is not in the allowlist either.
-	if w = mediaUpload(t, s, tokens[0], "x.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), "image/svg+xml"); w.Code != 415 {
-		t.Fatalf("svg upload: %d %s", w.Code, w.Body)
-	}
+	// A script claiming to be a PNG is stored as text and only downloaded.
+	storedAs("payload.png", []byte("#!/bin/sh\necho not an image\n"), "image/png", "text/plain", "attachment")
+	// SVG is an active document: stored, never rendered.
+	storedAs("x.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), "image/svg+xml", "image/svg+xml", "attachment")
+	storedAs("page.html", []byte("<html><script>alert(1)</script></html>"), "text/html", "text/html", "attachment")
+	storedAs("query.sql", []byte("select 1;\n"), "application/sql", "application/sql", "attachment")
+	storedAs("doc.pdf", []byte("%PDF-1.7\n1 0 obj\n"), "application/pdf", "application/pdf", "inline")
 	if w = mediaUpload(t, s, tokens[0], "empty.png", nil, "image/png"); w.Code != 400 {
 		t.Fatalf("empty upload: %d %s", w.Code, w.Body)
 	}

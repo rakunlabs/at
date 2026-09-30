@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -39,8 +38,9 @@ type infoProvider struct {
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
 	Shared       bool     `json:"shared,omitempty"`
-	// ReasoningEfforts: see service.ProviderCatalogEntry.
-	ReasoningEfforts map[string][]string `json:"reasoning_efforts,omitempty"`
+	// ReasoningEfforts / ModelCapabilities: see service.ProviderCatalogEntry.
+	ReasoningEfforts  map[string][]string                  `json:"reasoning_efforts,omitempty"`
+	ModelCapabilities map[string]service.ModelCapabilities `json:"model_capabilities,omitempty"`
 }
 
 // InfoAPI handles GET /api/v1/info.
@@ -61,6 +61,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 			ReasoningEfforts: service.CatalogReasoningEfforts(info.providerType, models, func(model string) []string {
 				return info.modelCapabilities[model].ReasoningEfforts
 			}),
+			ModelCapabilities: service.CatalogModelCapabilities(info.capabilityConfig(), models),
 		})
 	}
 	s.providerMu.RUnlock()
@@ -75,7 +76,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		providerList = make([]infoProvider, 0, len(catalog))
 		for _, entry := range catalog {
-			providerList = append(providerList, infoProvider{Key: entry.Key, Reference: entry.Reference, Scope: entry.Scope, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared, ReasoningEfforts: entry.ReasoningEfforts})
+			providerList = append(providerList, infoProvider{Key: entry.Key, Reference: entry.Reference, Scope: entry.Scope, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared, ReasoningEfforts: entry.ReasoningEfforts, ModelCapabilities: entry.ModelCapabilities})
 		}
 	}
 
@@ -194,11 +195,19 @@ func validateModelCapabilities(cfg config.LLMConfig) string {
 		if !advertised[model] {
 			return fmt.Sprintf("model_capabilities.%s does not match an advertised chat model", model)
 		}
-		if capability.ImageInput == nil && capability.ReasoningEfforts == nil {
-			return fmt.Sprintf("model_capabilities.%s must set image_input or reasoning_efforts", model)
+		if capability.ImageInput == nil && capability.InputModalities == nil && capability.OutputModalities == nil && capability.ReasoningEfforts == nil && len(capability.Features) == 0 {
+			return fmt.Sprintf("model_capabilities.%s must set image_input, input_modalities, output_modalities, reasoning_efforts or features", model)
 		}
-		if err := service.ValidateModelReasoningEffortOverride(cfg.Type, capability.ReasoningEfforts); err != nil {
-			return fmt.Sprintf("model_capabilities.%s.reasoning_efforts: %v", model, err)
+		if capability.ImageInput != nil && capability.InputModalities != nil {
+			return fmt.Sprintf("model_capabilities.%s: set input_modalities or the legacy image_input, not both", model)
+		}
+		override := service.CapabilityOverrideFromConfig(cfg.Type, model, capability)
+		if capability.ImageInput != nil && override.OutputModalities == nil && override.ReasoningEfforts == nil && len(override.Features) == 0 {
+			// Legacy image-only entries are always valid.
+			continue
+		}
+		if err := service.ValidateModelCapabilityOverride(cfg.Type, override); err != nil {
+			return fmt.Sprintf("model_capabilities.%s: %v", model, err)
 		}
 	}
 	return ""
@@ -547,13 +556,11 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 	if rec.Config.CredentialsJSON != "" {
 		rec.Config.CredentialsJSON = redactedSecret
 	}
-	models := slices.Clone(rec.Config.Models)
-	if rec.Config.Model != "" && !slices.Contains(models, rec.Config.Model) {
-		models = append(models, rec.Config.Model)
-	}
+	models := service.ProviderChatModels(rec.Config)
 	rec.ReasoningEfforts = service.CatalogReasoningEfforts(rec.Config.Type, models, func(model string) []string {
 		return rec.Config.ModelCapabilities[model].ReasoningEfforts
 	})
+	rec.ModelCapabilities = service.CatalogModelCapabilities(rec.Config, models)
 }
 
 // preserveProviderAvailability keeps the disabled flag out of ordinary config

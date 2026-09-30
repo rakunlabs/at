@@ -63,6 +63,13 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var inputErr error
+	if chain, inputErr = admitChainInputs(chain, anthropicInputModalities(req.Messages)); inputErr != nil {
+		writeAnthropicError(w, http.StatusBadRequest, anthropicErrInvalidRequest, inputErr.Error())
+
+		return
+	}
+
 	if limitMessage, resetErr := s.checkTokenLimits(r.Context(), auth); resetErr != nil {
 		slog.Error("token limit check failed", "error", resetErr)
 	} else if limitMessage != "" {

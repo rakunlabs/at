@@ -429,11 +429,71 @@ function nameFromDataUrl(url: string, index: number): string {
   return `image-${index + 1}.${ext}`;
 }
 
+/** A non-image attachment (PDF, audio, video) whose bytes are in media storage. */
+export interface PlaygroundStoredFile {
+  type: 'file';
+  media_id: string;
+  name: string;
+  bytes: number;
+  mime_type: string;
+  /** Marks a user attachment (re-sent to the model) as opposed to a delivered artifact. */
+  attachment: true;
+}
+
+/** A non-image attachment that could not be stored. */
+export interface PlaygroundOmittedFile {
+  type: 'file';
+  name: string;
+  bytes: number;
+  mime_type: string;
+  attachment: true;
+  omitted: true;
+}
+
 /**
- * Return a copy of an OpenAI-shaped message body with every image data-URI
- * replaced by a descriptor. `names` supplies the original file names
- * positionally; anything missing falls back to a mime-derived name. The input
- * is never mutated, so the in-memory transcript keeps its images.
+ * The inline data-URI a content part carries, with its MIME type, or null.
+ * Covers every shape the Chats composer sends: image_url, file (PDF and other
+ * documents), input_audio and video_url.
+ */
+function inlineAttachment(p: Record<string, any>): { url: string; mime: string; image: boolean } | null {
+  switch (p?.type) {
+    case 'image_url': {
+      const url = p.image_url?.url;
+      return isDataUrl(url) ? { url, mime: /^data:([^;,]+)/.exec(url)?.[1] ?? '', image: true } : null;
+    }
+    case 'file': {
+      const url = p.file?.file_data;
+      return isDataUrl(url) ? { url, mime: /^data:([^;,]+)/.exec(url)?.[1] ?? '', image: false } : null;
+    }
+    case 'video_url': {
+      const url = p.video_url?.url;
+      return isDataUrl(url) ? { url, mime: /^data:([^;,]+)/.exec(url)?.[1] ?? '', image: false } : null;
+    }
+    case 'input_audio': {
+      const data = p.input_audio?.data;
+      if (typeof data !== 'string' || !data) return null;
+      const format = String(p.input_audio?.format || 'wav');
+      const mime = `audio/${format === 'mp3' ? 'mpeg' : format}`;
+      return { url: `data:${mime};base64,${data}`, mime, image: false };
+    }
+  }
+  return null;
+}
+
+function attachmentName(p: Record<string, any>, names: string[], index: number, url: string, image: boolean): string {
+  const given = names[index] || (typeof p.name === 'string' && p.name) || (typeof p.file?.filename === 'string' && p.file.filename);
+  if (given) return given;
+  if (image) return nameFromDataUrl(url, index);
+  const subtype = (/^data:[^/]+\/([^;,]+)/.exec(url)?.[1] ?? 'bin').split('+')[0];
+  return `attachment-${index + 1}.${subtype}`;
+}
+
+/**
+ * Return a copy of an OpenAI-shaped message body with every inline attachment
+ * (image, PDF, audio, video) replaced by a descriptor. `names` supplies the
+ * original file names positionally; anything missing falls back to a
+ * mime-derived name. The input is never mutated, so the in-memory transcript
+ * keeps its attachments.
  */
 export function stripPlaygroundImages(data: Record<string, unknown>, names: string[] = []): Record<string, unknown> {
   const content = data?.content;
@@ -441,27 +501,27 @@ export function stripPlaygroundImages(data: Record<string, unknown>, names: stri
   let stripped = 0;
   const parts = content.map(part => {
     const p = part as Record<string, any>;
-    const url = p?.type === 'image_url' ? p?.image_url?.url : undefined;
-    if (!isDataUrl(url)) return part;
+    const inline = inlineAttachment(p);
+    if (!inline) return part;
     const index = stripped++;
-    const descriptor: PlaygroundOmittedImage = {
-      type: 'image',
-      name: names[index] || (typeof p.name === 'string' && p.name) || nameFromDataUrl(url, index),
-      bytes: url.length,
-      omitted: true,
-    };
+    const name = attachmentName(p, names, index, inline.url, inline.image);
+    if (inline.image) {
+      const descriptor: PlaygroundOmittedImage = { type: 'image', name, bytes: inline.url.length, omitted: true };
+      return descriptor;
+    }
+    const descriptor: PlaygroundOmittedFile = { type: 'file', name, bytes: inline.url.length, mime_type: inline.mime, attachment: true, omitted: true };
     return descriptor;
   });
   return stripped > 0 ? { ...data, content: parts } : { ...data };
 }
 
 /**
- * Same contract as `stripPlaygroundImages`, except each image data-URI is first
- * offered to `upload`. A returned media id becomes a durable
- * `{type:'image', media_id, …}` part; an empty id or a rejection falls back to
- * the omitted descriptor, so an unconfigured or failing media backend degrades
- * instead of losing the turn. The input is never mutated, so the in-memory
- * transcript keeps its inline images.
+ * Same contract as `stripPlaygroundImages`, except each attachment data-URI is
+ * first offered to `upload`. A returned media id becomes a durable reference
+ * (`{type:'image', media_id}` for images, `{type:'file', media_id, mime_type,
+ * attachment:true}` for everything else); an empty id or a rejection falls
+ * back to the omitted descriptor, so an unconfigured or failing media backend
+ * degrades instead of losing the turn. The input is never mutated.
  */
 export async function persistPlaygroundImages(
   data: Record<string, unknown>,
@@ -475,23 +535,30 @@ export async function persistPlaygroundImages(
   const parts: unknown[] = [];
   for (const part of content) {
     const p = part as Record<string, any>;
-    const url = p?.type === 'image_url' ? p?.image_url?.url : undefined;
-    if (!isDataUrl(url)) {
+    const inline = inlineAttachment(p);
+    if (!inline) {
       parts.push(part);
       continue;
     }
     const index = found++;
-    const name = names[index] || (typeof p.name === 'string' && p.name) || nameFromDataUrl(url, index);
+    const name = attachmentName(p, names, index, inline.url, inline.image);
     let mediaID = '';
     try {
-      mediaID = (await upload(url, name)) || '';
+      mediaID = (await upload(inline.url, name)) || '';
     } catch {
-      // The uploader owns reporting; an unstored image still persists as a descriptor.
+      // The uploader owns reporting; an unstored attachment still persists as a descriptor.
       mediaID = '';
     }
-    const stored: PlaygroundStoredImage = { type: 'image', media_id: mediaID, name, bytes: url.length };
-    const omitted: PlaygroundOmittedImage = { type: 'image', name, bytes: url.length, omitted: true };
-    parts.push(mediaID ? stored : omitted);
+    const bytes = inline.url.length;
+    if (inline.image) {
+      const stored: PlaygroundStoredImage = { type: 'image', media_id: mediaID, name, bytes };
+      const omitted: PlaygroundOmittedImage = { type: 'image', name, bytes, omitted: true };
+      parts.push(mediaID ? stored : omitted);
+    } else {
+      const stored: PlaygroundStoredFile = { type: 'file', media_id: mediaID, name, bytes, mime_type: inline.mime, attachment: true };
+      const omitted: PlaygroundOmittedFile = { type: 'file', name, bytes, mime_type: inline.mime, attachment: true, omitted: true };
+      parts.push(mediaID ? stored : omitted);
+    }
   }
   return found > 0 ? { ...data, content: parts } : { ...data };
 }

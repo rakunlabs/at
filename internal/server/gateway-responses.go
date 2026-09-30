@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -327,6 +328,14 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 			fullModel: m, providerKey: pKey, actualModel: actual, info: fInfo,
 		})
 	}
+	var inputErr error
+	if chain, inputErr = admitChainInputs(chain, requestInputModalities(chatMsgs)); inputErr != nil {
+		httpResponseJSON(w, unsupportedInputBody(inputErr), http.StatusBadRequest)
+		return
+	}
+	// This loop has no per-target error slot of its own; drop the targets
+	// that cannot read the input rather than attempting them.
+	chain = slices.DeleteFunc(chain, func(t chatCallTarget) bool { return t.err != nil })
 	chain = s.partitionCooledTargets(chain)
 
 	if req.Stream {

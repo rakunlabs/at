@@ -377,28 +377,74 @@ func (s *Server) execProviderSetModelCapability(ctx context.Context, args map[st
 		delete(cfg.ModelCapabilities, model)
 	} else {
 		capability := cfg.ModelCapabilities[model]
-		imageInput, hasImage := args["image_input"].(bool)
-		rawEfforts, hasEfforts := args["reasoning_efforts"]
-		if !hasImage && !hasEfforts {
-			return "", fmt.Errorf("set image_input and/or reasoning_efforts when clear is not set")
-		}
-		if hasImage {
-			capability.ImageInput = &imageInput
-		}
-		if hasEfforts {
-			list, ok := rawEfforts.([]any)
+		stringList := func(key string) ([]string, bool, error) {
+			raw, ok := args[key]
 			if !ok {
-				return "", fmt.Errorf("reasoning_efforts must be an array of strings")
+				return nil, false, nil
 			}
-			efforts := make([]string, 0, len(list))
+			list, ok := raw.([]any)
+			if !ok {
+				return nil, true, fmt.Errorf("%s must be an array of strings", key)
+			}
+			out := make([]string, 0, len(list))
 			for _, item := range list {
-				effort, ok := item.(string)
+				v, ok := item.(string)
 				if !ok {
-					return "", fmt.Errorf("reasoning_efforts must be an array of strings")
+					return nil, true, fmt.Errorf("%s must be an array of strings", key)
 				}
-				efforts = append(efforts, effort)
+				out = append(out, v)
 			}
-			capability.ReasoningEfforts = efforts
+			return out, true, nil
+		}
+		changed := false
+		if imageInput, ok := args["image_input"].(bool); ok {
+			capability.ImageInput = &imageInput
+			capability.InputModalities = nil
+			changed = true
+		}
+		for _, field := range []struct {
+			key    string
+			target *[]string
+		}{
+			{"input_modalities", &capability.InputModalities},
+			{"output_modalities", &capability.OutputModalities},
+			{"reasoning_efforts", &capability.ReasoningEfforts},
+		} {
+			values, present, err := stringList(field.key)
+			if err != nil {
+				return "", err
+			}
+			if present {
+				*field.target = values
+				changed = true
+				if field.key == "input_modalities" {
+					capability.ImageInput = nil
+				}
+			}
+		}
+		if raw, ok := args["features"]; ok {
+			features, ok := raw.(map[string]any)
+			if !ok {
+				return "", fmt.Errorf("features must be an object of booleans")
+			}
+			if capability.Features == nil {
+				capability.Features = map[string]bool{}
+			}
+			for name, v := range features {
+				if v == nil {
+					delete(capability.Features, name)
+					continue
+				}
+				b, ok := v.(bool)
+				if !ok {
+					return "", fmt.Errorf("features.%s must be true, false or null", name)
+				}
+				capability.Features[name] = b
+			}
+			changed = true
+		}
+		if !changed {
+			return "", fmt.Errorf("set image_input, input_modalities, output_modalities, reasoning_efforts or features when clear is not set")
 		}
 		cfg.ModelCapabilities[model] = capability
 	}

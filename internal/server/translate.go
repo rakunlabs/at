@@ -208,7 +208,15 @@ type GatewayModelCapabilities struct {
 	Reasoning   *bool `json:"reasoning,omitempty"`
 	// ReasoningEfforts is the ascending list of accepted reasoning_effort
 	// values (AT extension).
-	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	ReasoningEfforts  []string `json:"reasoning_efforts,omitempty"`
+	StructuredOutput  *bool    `json:"structured_output,omitempty"`
+	Temperature       *bool    `json:"temperature,omitempty"`
+	ParallelToolCalls *bool    `json:"parallel_tool_calls,omitempty"`
+	WebSearch         *bool    `json:"web_search,omitempty"`
+	PromptCaching     *bool    `json:"prompt_caching,omitempty"`
+	PDFInput          *bool    `json:"pdf_input,omitempty"`
+	AudioInput        *bool    `json:"audio_input,omitempty"`
+	VideoInput        *bool    `json:"video_input,omitempty"`
 }
 
 // ─── Streaming response types (SSE / chat.completion.chunk format) ───

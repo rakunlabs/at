@@ -7,9 +7,13 @@ export interface ContentPart {
    *  With a `media_id` the bytes live in media storage and are re-inlined as a
    *  data URI before the request leaves the browser; without one the original
    *  data-URI was never persisted and the part is rewritten to text. */
-  type: 'text' | 'image_url' | 'image' | 'file';
+  type: 'text' | 'image_url' | 'image' | 'file' | 'input_audio' | 'video_url';
   text?: string;
   image_url?: { url: string };
+  /** Outgoing PDF/document part: `{filename, file_data: data URL}`. */
+  file?: { filename?: string; file_data?: string };
+  input_audio?: { data: string; format: string };
+  video_url?: { url: string };
   /** Media-storage object id. Present on a stored image or file. */
   media_id?: string;
   /** Descriptor fields for a stored or omitted image, or a stored file. */
@@ -18,6 +22,8 @@ export interface ContentPart {
   omitted?: boolean;
   /** Content type of a stored `file` part (images use `image`). */
   mime_type?: string;
+  /** A `file` part the user attached (re-sent to the model), not a delivered artifact. */
+  attachment?: boolean;
 }
 
 export interface ChatMessage {

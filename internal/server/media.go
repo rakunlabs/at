@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -33,9 +35,10 @@ const (
 	mediaServeCacheSeconds = 300
 )
 
-// mediaAllowedContentTypes maps the types AT is willing to store to the
-// extension used in the storage key. The map is the allowlist: the sniffed
-// type of the uploaded bytes must be a key, whatever the client claimed.
+// mediaAllowedContentTypes maps the image types the browser may render inline
+// to their canonical extension. It is no longer an upload allowlist — any
+// file is stored — but it still decides inline rendering (together with
+// mediaInlineContentType) and the extension of a nameless image.
 var mediaAllowedContentTypes = map[string]string{
 	"image/png":  ".png",
 	"image/jpeg": ".jpg",
@@ -283,8 +286,8 @@ func mediaStorageKey(settings service.MediaSettings, workspace, owner, ext strin
 	return key
 }
 
-// MediaUploadAPI handles POST /v1/media: a multipart upload of one image in
-// the "file" field.
+// MediaUploadAPI handles POST /v1/media: a multipart upload of one file of
+// any type in the "file" field.
 func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	store, owner := s.mediaAccess(w, r, false)
 	if store == nil {
@@ -310,7 +313,7 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll() //nolint:errcheck // best effort
 	}
-	file, _, err := r.FormFile("file")
+	file, header, err := r.FormFile("file")
 	if err != nil {
 		nativeError(w, http.StatusBadRequest, "file field is required")
 		return
@@ -338,14 +341,23 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, http.StatusBadRequest, "failed to rewind the uploaded file")
 		return
 	}
-	// The client's Content-Type is advisory at best and hostile at worst; the
-	// bytes decide. Anything that is not a supported image is refused, so a
-	// stored object can always be served back with a safe type.
-	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(head[:headN]), ";")[0])
-	ext, allowed := mediaAllowedContentTypes[contentType]
-	if !allowed {
-		nativeError(w, http.StatusUnsupportedMediaType, "only png, jpeg, gif and webp images can be stored")
-		return
+	// Any file may be stored. The client's Content-Type is advisory at best
+	// and hostile at worst, so the bytes decide the recorded type; the file
+	// name only refines a generic sniff and can never promote a file into a
+	// type the browser renders inline (artifactContentType). Serving is what
+	// keeps this safe: only images, PDF, audio and video are ever inline, and
+	// everything else is an attachment under CSP sandbox + nosniff.
+	contentType := artifactContentType(header.Filename, head[:headN])
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !artifactExtensionPattern.MatchString(ext) || mediaInlineContentType(mime.TypeByExtension(ext)) && !mediaInlineContentType(contentType) {
+		// No usable extension, or one claiming an inline type the bytes
+		// do not have: fall back to the sniffed type's canonical one.
+		ext = mediaAllowedContentTypes[contentType]
+		if ext == "" {
+			if exts, _ := mime.ExtensionsByType(contentType); len(exts) > 0 {
+				ext = exts[0]
+			}
+		}
 	}
 	key := mediaStorageKey(settings, principal.WorkspaceID, owner, ext)
 	checksum := hex.EncodeToString(hash.Sum(nil))

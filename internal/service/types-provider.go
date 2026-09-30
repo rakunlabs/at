@@ -27,6 +27,8 @@ type ProviderRecord struct {
 	// ReasoningEfforts is derived on read (overrides + model detection) and
 	// ignored on write; see ProviderCatalogEntry.ReasoningEfforts.
 	ReasoningEfforts map[string][]string `json:"reasoning_efforts,omitempty"`
+	// ModelCapabilities is derived on read and ignored on write.
+	ModelCapabilities map[string]ModelCapabilities `json:"model_capabilities,omitempty"`
 }
 
 const (

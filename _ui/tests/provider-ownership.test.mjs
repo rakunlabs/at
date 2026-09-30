@@ -18,6 +18,8 @@ test('provider creation defaults to personal scope and exposes explicit publicat
 });
 
 test('model choices retain stable references and ownership grouping', () => {
+  assert.match(providersPage, /formModel = formModel\.trim\(\) \|\| formModels\.find\(\(model\) => model\.trim\(\)\)\?\.trim\(\) \|\| ''/);
+  assert.match(providersPage, /const hasDefaultModel = fillDefaultModelFromList\(\)/);
   assert.match(chatPage, /const reference = p\.reference \|\| p\.key/);
   assert.match(chatPage, /groups\.push\(\{ label: `\$\{p\.key\}\$\{scope\}`, models: providerModels \}\)/);
   assert.match(agentLoader, /key: provider\.reference \|\| provider\.key/);
