@@ -244,6 +244,7 @@ export function chatShareMediaURL(shareID: string, mediaID: string, workspaceID 
  */
 export interface PlaygroundDefaults {
   model?: string;
+  reasoning_effort?: string;
   system_prompt?: string;
   mcp_sets?: string[];
   skills?: string[];

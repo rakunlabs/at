@@ -1135,24 +1135,32 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 				reqBody["max_tokens"] = budget + 1024
 			}
 		} else if opts.ReasoningEffort != "" {
-			// Map OpenAI-style reasoning_effort to Anthropic thinking budget.
-			var budget int
-			switch opts.ReasoningEffort {
-			case "low":
-				budget = 2048
-			case "medium":
-				budget = 8192
-			case "high":
-				budget = 24576
-			}
-			if budget > 0 {
-				reqBody["thinking"] = map[string]any{
-					"type":          "enabled",
-					"budget_tokens": budget,
+			if service.AnthropicThinkingMode(model) == "adaptive" {
+				// Claude 4.6+ steers thinking with output_config.effort; 4.7+
+				// rejects {type: enabled} outright. Adaptive thinking is
+				// accepted by every model in this class.
+				reqBody["thinking"] = map[string]any{"type": "adaptive"}
+				reqBody["output_config"] = map[string]any{"effort": opts.ReasoningEffort}
+			} else {
+				// Extended-thinking models take a token budget instead.
+				var budget int
+				switch opts.ReasoningEffort {
+				case "low":
+					budget = 2048
+				case "medium":
+					budget = 8192
+				case "high":
+					budget = 24576
 				}
-				// Ensure max_tokens accommodates the thinking budget.
-				if maxTokens < budget+1024 {
-					reqBody["max_tokens"] = budget + 1024
+				if budget > 0 {
+					reqBody["thinking"] = map[string]any{
+						"type":          "enabled",
+						"budget_tokens": budget,
+					}
+					// Ensure max_tokens accommodates the thinking budget.
+					if maxTokens < budget+1024 {
+						reqBody["max_tokens"] = budget + 1024
+					}
 				}
 			}
 		}

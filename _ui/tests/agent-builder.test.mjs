@@ -3,9 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
 
-const source = await readFile(new URL('../src/lib/helper/agent-builder.ts', import.meta.url), 'utf8');
-const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { applyAgentDraftPatch, agentBuilderTools } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const transpile = async (path) => ts.transpileModule(await readFile(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const dataUrl = (code) => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+const reasoningUrl = dataUrl(await transpile('../src/lib/helper/reasoning.ts'));
+const code = (await transpile('../src/lib/helper/agent-builder.ts')).replace(`'./reasoning'`, `'${reasoningUrl}'`);
+const { applyAgentDraftPatch, agentBuilderTools } = await import(dataUrl(code));
 const catalog = {
   providers: [
     { key: 'openai', type: 'openai', models: ['model-a'], default_model: 'model-a' },
@@ -49,7 +51,22 @@ test('changing provider resets stale model and incompatible reasoning together',
   assert.equal(changed.model, 'model-b');
   assert.equal(changed.reasoning_effort, '');
   assert.throws(() => applyAgentDraftPatch(draft(), { provider: 'claude', model: 'model-a' }, catalog), /Choose a model/);
-  assert.throws(() => applyAgentDraftPatch(draft(), { provider: 'claude', reasoning_effort: 'xhigh' }, catalog), /Reasoning effort/);
+  assert.throws(() => applyAgentDraftPatch(draft(), { provider: 'claude', reasoning_effort: 'none' }, catalog), /Reasoning effort/);
+});
+
+test('reasoning effort follows the per-model list when the server knows it', () => {
+  const perModel = {
+    ...catalog,
+    providers: [
+      { key: 'claude', type: 'anthropic', models: ['claude-opus-4-6', 'claude-3-5-haiku'], default_model: 'claude-opus-4-6', reasoning_efforts: { 'claude-opus-4-6': ['low', 'medium', 'high', 'max'], 'claude-3-5-haiku': [] } },
+    ],
+  };
+  const base = { ...draft(), provider: 'claude', model: 'claude-opus-4-6', reasoning_effort: '' };
+  assert.equal(applyAgentDraftPatch(base, { reasoning_effort: 'max' }, perModel).reasoning_effort, 'max');
+  // Opus 4.6 publishes max but not xhigh.
+  assert.throws(() => applyAgentDraftPatch(base, { reasoning_effort: 'xhigh' }, perModel), /Reasoning effort/);
+  // A non-reasoning model offers only Default.
+  assert.throws(() => applyAgentDraftPatch({ ...base, model: 'claude-3-5-haiku' }, { reasoning_effort: 'low' }, perModel), /Reasoning effort/);
 });
 
 test('invalid tool arguments, unsupported fields and iteration limits cannot alter a draft', () => {

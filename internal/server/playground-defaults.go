@@ -64,6 +64,10 @@ func (s *Server) PlaygroundDefaultsAPI(w http.ResponseWriter, r *http.Request) {
 		if !decodePlaygroundBody(w, r, &req) {
 			return
 		}
+		if err := service.ValidateReasoningEffort(req.ReasoningEffort); err != nil {
+			nativeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		encoded, err := json.Marshal(req)
 		if err != nil {
 			nativeError(w, http.StatusBadRequest, "invalid playground defaults")

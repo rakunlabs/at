@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -226,26 +227,26 @@ func TestCallProviderReasoningEffort(t *testing.T) {
 
 func TestProviderReasoningValidators(t *testing.T) {
 	for _, tt := range []struct {
-		name      string
-		provider  service.LLMProvider
-		maxEffort string
+		name     string
+		provider service.LLMProvider
+		accepts  []string
 	}{
-		{"openai", &openai.Provider{}, "xhigh"},
-		{"codex", &openai.CodexProvider{}, "xhigh"},
-		{"vertex", &vertex.Provider{}, "xhigh"},
-		{"anthropic", &antropic.Provider{}, "high"},
-		{"gemini", &gemini.Provider{}, "high"},
-		{"minimax", &minimax.Provider{}, "high"},
-		{"bedrock", &bedrock.Provider{}, ""},
-		{"cohere", &cohere.Provider{}, ""},
+		{"openai", &openai.Provider{}, service.ReasoningEffortLevels},
+		{"codex", &openai.CodexProvider{}, service.ReasoningEffortLevels},
+		{"vertex", &vertex.Provider{}, service.ReasoningEffortLevels},
+		{"anthropic", &antropic.Provider{}, []string{"low", "medium", "high", "xhigh", "max"}},
+		{"gemini", &gemini.Provider{}, []string{"minimal", "low", "medium", "high"}},
+		{"minimax", &minimax.Provider{}, []string{"low", "medium", "high"}},
+		{"bedrock", &bedrock.Provider{}, nil},
+		{"cohere", &cohere.Provider{}, nil},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			validator, ok := tt.provider.(service.ReasoningEffortValidator)
 			if !ok {
 				t.Fatal("missing validator")
 			}
-			for _, effort := range []string{"", "low", "medium", "high", "xhigh", "invalid"} {
-				wantErr := effort == "invalid" || (effort != "" && (tt.maxEffort == "" || (effort == "xhigh" && tt.maxEffort != "xhigh")))
+			for _, effort := range append([]string{"", "invalid"}, service.ReasoningEffortLevels...) {
+				wantErr := effort != "" && !slices.Contains(tt.accepts, effort)
 				if err := validator.ValidateReasoningEffort(effort); (err != nil) != wantErr {
 					t.Fatalf("effort %q: %v", effort, err)
 				}

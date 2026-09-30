@@ -48,7 +48,7 @@ func TestValidateModelCapabilities(t *testing.T) {
 		{name: "explicitly disabled", config: config.LLMConfig{Models: []string{"text"}, ModelCapabilities: map[string]config.ModelCapability{"text": {ImageInput: &disabled}}}},
 		{name: "empty model", config: config.LLMConfig{ModelCapabilities: map[string]config.ModelCapability{" ": {ImageInput: &enabled}}}, want: "keys must not be empty"},
 		{name: "not advertised", config: config.LLMConfig{Model: "other", ModelCapabilities: map[string]config.ModelCapability{"vision": {ImageInput: &enabled}}}, want: "does not match an advertised chat model"},
-		{name: "empty capability", config: config.LLMConfig{Model: "vision", ModelCapabilities: map[string]config.ModelCapability{"vision": {}}}, want: "image_input must be true or false"},
+		{name: "empty capability", config: config.LLMConfig{Model: "vision", ModelCapabilities: map[string]config.ModelCapability{"vision": {}}}, want: "must set image_input or reasoning_efforts"},
 	}
 
 	for _, tt := range tests {

@@ -24,6 +24,9 @@ type ProviderRecord struct {
 	UpdatedAt   string           `json:"updated_at"`
 	CreatedBy   string           `json:"created_by"`
 	UpdatedBy   string           `json:"updated_by"`
+	// ReasoningEfforts is derived on read (overrides + model detection) and
+	// ignored on write; see ProviderCatalogEntry.ReasoningEfforts.
+	ReasoningEfforts map[string][]string `json:"reasoning_efforts,omitempty"`
 }
 
 const (

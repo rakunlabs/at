@@ -3,6 +3,7 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -33,6 +34,15 @@ type liteLLMModelMetadata struct {
 	Modalities                  *liteLLMModelModalities `json:"modalities,omitempty"`
 	SupportsVision              *bool                   `json:"supports_vision,omitempty"`
 	SupportsFunctionCalling     *bool                   `json:"supports_function_calling,omitempty"`
+	SupportsReasoning           *bool                   `json:"supports_reasoning,omitempty"`
+	SupportsNoneEffort          *bool                   `json:"supports_none_reasoning_effort,omitempty"`
+	SupportsMinimalEffort       *bool                   `json:"supports_minimal_reasoning_effort,omitempty"`
+	SupportsLowEffort           *bool                   `json:"supports_low_reasoning_effort,omitempty"`
+	SupportsMediumEffort        *bool                   `json:"supports_medium_reasoning_effort,omitempty"`
+	SupportsHighEffort          *bool                   `json:"supports_high_reasoning_effort,omitempty"`
+	SupportsXHighEffort         *bool                   `json:"supports_xhigh_reasoning_effort,omitempty"`
+	SupportsMaxEffort           *bool                   `json:"supports_max_reasoning_effort,omitempty"`
+	SupportedOpenAIParams       []string                `json:"supported_openai_params,omitempty"`
 	InputCostPerToken           *float64                `json:"input_cost_per_token,omitempty"`
 	OutputCostPerToken          *float64                `json:"output_cost_per_token,omitempty"`
 	CacheReadInputTokenCost     *float64                `json:"cache_read_input_token_cost,omitempty"`
@@ -96,6 +106,7 @@ func (s *Server) ListLiteLLMModelInfo(w http.ResponseWriter, r *http.Request) {
 		if model.Capabilities != nil {
 			metadata.SupportsVision = model.Capabilities.Vision
 			metadata.SupportsFunctionCalling = model.Capabilities.ToolCalling
+			applyLiteLLMReasoning(&metadata, model)
 		}
 
 		providerKey := model.OwnedBy
@@ -124,4 +135,34 @@ func (s *Server) ListLiteLLMModelInfo(w http.ResponseWriter, r *http.Request) {
 func perTokenPrice(perMillion float64) *float64 {
 	price := perMillion / 1_000_000
 	return &price
+}
+
+// applyLiteLLMReasoning maps AT's per-model efforts onto LiteLLM's flags.
+// Every tier flag is set explicitly, because discovery clients default the
+// unset low/medium/high tiers to supported and xhigh/max/none/minimal to not.
+func applyLiteLLMReasoning(metadata *liteLLMModelMetadata, model ModelData) {
+	reasoning := model.Capabilities.Reasoning
+	if reasoning == nil {
+		return
+	}
+	metadata.SupportsReasoning = reasoning
+	if !*reasoning {
+		return
+	}
+	efforts := model.Capabilities.ReasoningEfforts
+	flag := func(effort string) *bool {
+		supported := slices.Contains(efforts, effort)
+		return &supported
+	}
+	metadata.SupportsNoneEffort = flag("none")
+	metadata.SupportsMinimalEffort = flag("minimal")
+	metadata.SupportsLowEffort = flag("low")
+	metadata.SupportsMediumEffort = flag("medium")
+	metadata.SupportsHighEffort = flag("high")
+	metadata.SupportsXHighEffort = flag("xhigh")
+	metadata.SupportsMaxEffort = flag("max")
+	// A non-empty list is read as the complete parameter set. temperature is
+	// deliberately absent: OpenAI reasoning models reject it and Claude
+	// requires the default while thinking, so clients should not send it.
+	metadata.SupportedOpenAIParams = []string{"reasoning_effort", "top_p", "max_tokens", "stop", "tools", "tool_choice", "response_format", "stream"}
 }

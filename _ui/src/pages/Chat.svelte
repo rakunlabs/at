@@ -14,6 +14,7 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
+  import { modelReasoningEfforts } from '@/lib/helper/reasoning';
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
@@ -255,6 +256,10 @@
   let models = $state<string[]>([]);
   let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
   let selectedModel = $state('');
+  /** '' leaves the provider's default reasoning behaviour untouched. */
+  let reasoningEffort = $state('');
+  /** Adapter type and per-model efforts per provider reference. */
+  let providerReasoning = $state<Record<string, { type: string; efforts?: Record<string, string[]> }>>({});
   let systemPrompt = $state('');
   let userInput = $state('');
   let activeTool = $state<{ messageIndex: number; callID: string } | null>(null);
@@ -833,6 +838,19 @@
    */
   let modelOptions = $derived(selectedModel && !models.includes(selectedModel) ? [selectedModel, ...models] : models);
 
+  /**
+   * Efforts the selected model accepts: its own list when the server knows it
+   * (detected from the model family or set on the provider), otherwise what
+   * the adapter can express. Empty hides the control.
+   */
+  let reasoningEffortOptions = $derived.by(() => {
+    const { provider_key, model } = splitModel(selectedModel);
+    const p = providerReasoning[provider_key];
+    return p ? modelReasoningEfforts(p.type, model, p.efforts).efforts : [];
+  });
+  /** Sent only when the current adapter accepts it; the choice itself is kept across model switches. */
+  let effectiveReasoningEffort = $derived(reasoningEffortOptions.includes(reasoningEffort) ? reasoningEffort : '');
+
   /** Last state successfully written to the conversation row, for diffing. */
   let savedSettings: { system_prompt: string; provider_key: string; model: string; config: string } | null = null;
   let settingsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -865,6 +883,7 @@
       skills: [...selectedSkillNames],
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
   }
 
@@ -876,6 +895,7 @@
     selectedSkillNames = names(c.skills);
     enabledBuiltinTools = names(c.builtin_tools);
     enabledFrontendTools = names(c.frontend_tools);
+    reasoningEffort = typeof c.reasoning_effort === 'string' ? c.reasoning_effort : '';
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
       ? Object.fromEntries(Object.entries(headers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
@@ -1211,8 +1231,10 @@
       // Build full model list: provider_key/model
       const allModels: string[] = [];
       const groups: Array<{ label: string; models: string[] }> = [];
+      const reasoning: Record<string, { type: string; efforts?: Record<string, string[]> }> = {};
       for (const p of info.providers ?? []) {
         const reference = p.reference || p.key;
+        reasoning[reference] = { type: p.type, efforts: p.reasoning_efforts };
         const providerModels: string[] = [];
         if (p.models && p.models.length > 0) {
           for (const m of p.models) {
@@ -1230,6 +1252,7 @@
       allModels.sort((a, b) => a.localeCompare(b));
       modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
       models = allModels;
+      providerReasoning = reasoning;
       if (allModels.length > 0 && !selectedModel) {
         selectedModel = allModels[0];
       }
@@ -1279,6 +1302,7 @@
       defaultsLoaded = true;
       if (conversationId || params.id) return;
       if (prefs.model && models.includes(prefs.model)) selectedModel = prefs.model;
+      if (prefs.reasoning_effort) reasoningEffort = prefs.reasoning_effort;
       if (prefs.system_prompt && !systemPrompt.trim()) systemPrompt = prefs.system_prompt;
       if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
       if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
@@ -1304,6 +1328,7 @@
       defaultsTimer = null;
       void savePlaygroundDefaults({
         model: selectedModel,
+        reasoning_effort: reasoningEffort,
         system_prompt: systemPrompt,
         mcp_sets: [...selectedMCPSetNames],
         skills: [...selectedSkillNames],
@@ -1333,6 +1358,7 @@
   function currentSetup(): PlaygroundDefaults {
     return {
       model: selectedModel,
+      reasoning_effort: reasoningEffort,
       system_prompt: systemPrompt,
       mcp_sets: [...selectedMCPSetNames],
       skills: [...selectedSkillNames],
@@ -1343,6 +1369,7 @@
 
   function presetMatchesCurrent(preset: ChatPreset): boolean {
     return (preset.model ?? '') === selectedModel
+      && (preset.reasoning_effort ?? '') === reasoningEffort
       && (preset.system_prompt ?? '') === systemPrompt
       && sameSelection(preset.mcp_sets, selectedMCPSetNames)
       && sameSelection(preset.skills, selectedSkillNames)
@@ -1392,6 +1419,7 @@
     }
 
     systemPrompt = preset.system_prompt ?? '';
+    reasoningEffort = preset.reasoning_effort ?? '';
     selectedMCPSetNames = [...(preset.mcp_sets ?? [])];
     selectedSkillNames = [...(preset.skills ?? [])];
     enabledBuiltinTools = [...(preset.builtin_tools ?? [])];
@@ -2415,6 +2443,7 @@
           metadata: { session_id: sessionId },
           messages: reqMessages,
           tools: discoveredTools.length > 0 ? discoveredTools : undefined,
+          reasoning_effort: effectiveReasoningEffort || undefined,
           stream: true,
           stream_options: { include_usage: true },
         },
@@ -2782,6 +2811,25 @@
       </select>
       <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
     </div>
+
+    <!-- Reasoning effort: only for adapters that accept one. -->
+    {#if reasoningEffortOptions.length > 0}
+      <div class="relative min-w-0 shrink basis-24 max-w-36">
+        <select
+          value={effectiveReasoningEffort}
+          onchange={(e) => { reasoningEffort = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
+          aria-label="Reasoning effort"
+          title="Reasoning effort — models without reasoning may reject it"
+          class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
+        >
+          <option value="">Reasoning: default</option>
+          {#each reasoningEffortOptions as effort}
+            <option value={effort}>Reasoning: {effort}</option>
+          {/each}
+        </select>
+        <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+      </div>
+    {/if}
 
     <!-- Preset switcher. Controlled by the derived id, not bound: once the
          setup diverges from the applied preset it reports none. -->

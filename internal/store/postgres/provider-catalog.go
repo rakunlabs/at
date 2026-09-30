@@ -100,7 +100,7 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 				shared = true
 			}
 		}
-		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Reference: reference, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: shared})
+		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Reference: reference, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: shared, ReasoningEfforts: catalogReasoningEfforts(cfg, models)})
 	}
 
 	seen := map[string]bool{}
@@ -144,7 +144,7 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		if isShared {
 			scope = service.ProviderScopeGlobal
 		}
-		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: isShared})
+		out = append(out, service.ProviderCatalogEntry{Key: row.Key, Scope: scope, Type: cfg.Type, DefaultModel: cfg.Model, Models: models, Shared: isShared, ReasoningEfforts: catalogReasoningEfforts(cfg, models)})
 	}
 	virtual, err := p.ListGatewayVirtualProviderCatalog(ctx, a.WorkspaceID, a.UserID)
 	if err != nil {
@@ -156,6 +156,12 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		}
 	}
 	return out, nil
+}
+
+func catalogReasoningEfforts(cfg config.LLMConfig, models []string) map[string][]string {
+	return service.CatalogReasoningEfforts(cfg.Type, models, func(model string) []string {
+		return cfg.ModelCapabilities[model].ReasoningEfforts
+	})
 }
 
 func providerModelMatches(patterns []string, model string) bool {

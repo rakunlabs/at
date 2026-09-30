@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -38,6 +39,8 @@ type infoProvider struct {
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
 	Shared       bool     `json:"shared,omitempty"`
+	// ReasoningEfforts: see service.ProviderCatalogEntry.
+	ReasoningEfforts map[string][]string `json:"reasoning_efforts,omitempty"`
 }
 
 // InfoAPI handles GET /api/v1/info.
@@ -55,6 +58,9 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 			Type:         info.providerType,
 			DefaultModel: info.defaultModel,
 			Models:       models,
+			ReasoningEfforts: service.CatalogReasoningEfforts(info.providerType, models, func(model string) []string {
+				return info.modelCapabilities[model].ReasoningEfforts
+			}),
 		})
 	}
 	s.providerMu.RUnlock()
@@ -69,7 +75,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		providerList = make([]infoProvider, 0, len(catalog))
 		for _, entry := range catalog {
-			providerList = append(providerList, infoProvider{Key: entry.Key, Reference: entry.Reference, Scope: entry.Scope, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared})
+			providerList = append(providerList, infoProvider{Key: entry.Key, Reference: entry.Reference, Scope: entry.Scope, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared, ReasoningEfforts: entry.ReasoningEfforts})
 		}
 	}
 
@@ -188,8 +194,11 @@ func validateModelCapabilities(cfg config.LLMConfig) string {
 		if !advertised[model] {
 			return fmt.Sprintf("model_capabilities.%s does not match an advertised chat model", model)
 		}
-		if capability.ImageInput == nil {
-			return fmt.Sprintf("model_capabilities.%s.image_input must be true or false", model)
+		if capability.ImageInput == nil && capability.ReasoningEfforts == nil {
+			return fmt.Sprintf("model_capabilities.%s must set image_input or reasoning_efforts", model)
+		}
+		if err := service.ValidateModelReasoningEffortOverride(cfg.Type, capability.ReasoningEfforts); err != nil {
+			return fmt.Sprintf("model_capabilities.%s.reasoning_efforts: %v", model, err)
 		}
 	}
 	return ""
@@ -538,6 +547,13 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 	if rec.Config.CredentialsJSON != "" {
 		rec.Config.CredentialsJSON = redactedSecret
 	}
+	models := slices.Clone(rec.Config.Models)
+	if rec.Config.Model != "" && !slices.Contains(models, rec.Config.Model) {
+		models = append(models, rec.Config.Model)
+	}
+	rec.ReasoningEfforts = service.CatalogReasoningEfforts(rec.Config.Type, models, func(model string) []string {
+		return rec.Config.ModelCapabilities[model].ReasoningEfforts
+	})
 }
 
 // preserveProviderAvailability keeps the disabled flag out of ordinary config

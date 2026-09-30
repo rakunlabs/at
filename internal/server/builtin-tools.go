@@ -545,13 +545,14 @@ var builtinTools = []builtinToolDef{
 		},
 		"required": []string{"key", "model"},
 	}},
-	{Name: "provider_set_model_capability", Description: "Set or clear client-facing capabilities for one existing provider model without rewriting the rest of the provider config. image_input controls whether OpenCode and other catalog clients may send images; clear restores AT's automatic detection.", InputSchema: map[string]any{
+	{Name: "provider_set_model_capability", Description: "Set or clear client-facing capabilities for one existing provider model without rewriting the rest of the provider config. image_input controls whether OpenCode and other catalog clients may send images; reasoning_efforts lists the reasoning levels the model accepts ([] declares it non-reasoning); clear restores AT's automatic detection.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"key":         map[string]any{"type": "string", "description": "Existing provider key"},
-			"model":       map[string]any{"type": "string", "description": "Provider-local model ID"},
-			"image_input": map[string]any{"type": "boolean", "description": "Whether the model accepts image input"},
-			"clear":       map[string]any{"type": "boolean", "description": "Remove the override and restore automatic capability detection"},
+			"key":               map[string]any{"type": "string", "description": "Existing provider key"},
+			"model":             map[string]any{"type": "string", "description": "Provider-local model ID"},
+			"image_input":       map[string]any{"type": "boolean", "description": "Whether the model accepts image input"},
+			"reasoning_efforts": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": service.ReasoningEffortLevels}, "description": "Reasoning efforts the model accepts; [] means the model does not reason"},
+			"clear":             map[string]any{"type": "boolean", "description": "Remove the override and restore automatic capability detection"},
 		},
 		"required": []string{"key", "model"},
 	}},

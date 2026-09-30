@@ -370,6 +370,9 @@ type ModelLimit struct {
 // explicit false value.
 type ModelCapability struct {
 	ImageInput *bool `cfg:"image_input" json:"image_input,omitempty"`
+	// ReasoningEfforts overrides the detected reasoning levels: nil keeps
+	// detection, an empty list declares the model non-reasoning.
+	ReasoningEfforts []string `cfg:"reasoning_efforts" json:"reasoning_efforts,omitzero"`
 }
 
 // RateLimitConfig describes the per-provider rate-limit policy. All fields

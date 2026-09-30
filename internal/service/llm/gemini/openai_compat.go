@@ -94,9 +94,10 @@ func translateGeminiToolChoice(v any) *functionCallingConfig {
 // Token budgets used when an OpenAI-style reasoning_effort has to be
 // expressed as a Gemini 2.5 thinkingBudget.
 const (
-	thinkingBudgetLow    = 2048
-	thinkingBudgetMedium = 8192
-	thinkingBudgetHigh   = 24576
+	thinkingBudgetMinimal = 512
+	thinkingBudgetLow     = 2048
+	thinkingBudgetMedium  = 8192
+	thinkingBudgetHigh    = 24576
 	// thinkingBudgetDynamic (-1) tells Gemini 2.5 to pick its own budget.
 	thinkingBudgetDynamic = -1
 )
@@ -168,6 +169,15 @@ func geminiThinkingConfig(model string, opts *service.ChatOptions) *thinkingConf
 			budget = thinkingBudgetDynamic
 		}
 	case opts.ReasoningEffort != "":
+		if opts.ReasoningEffort == "minimal" {
+			// Gemini 3 has a MINIMAL level; 2.5 has no equivalent below its
+			// smallest budget, and Pro cannot turn thinking off.
+			if usesThinkingLevel(model) {
+				return &thinkingConfig{ThinkingLevel: "MINIMAL"}
+			}
+			budget = thinkingBudgetMinimal
+			break
+		}
 		switch opts.ReasoningEffort {
 		case "low":
 			budget = thinkingBudgetLow

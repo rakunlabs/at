@@ -150,3 +150,14 @@ func TestUnsupportedReasoningEffortLeavesDefault(t *testing.T) {
 		t.Fatalf("xhigh should not be mapped for gemini, got %+v", cfg)
 	}
 }
+
+func TestMinimalReasoningEffort(t *testing.T) {
+	cfg := geminiThinkingConfig("gemini-3-flash-preview", &service.ChatOptions{ReasoningEffort: "minimal"})
+	if cfg == nil || cfg.ThinkingLevel != "MINIMAL" || cfg.ThinkingBudget != nil {
+		t.Fatalf("gemini 3 minimal = %+v", cfg)
+	}
+	cfg = geminiThinkingConfig("gemini-2.5-flash", &service.ChatOptions{ReasoningEffort: "minimal"})
+	if cfg == nil || cfg.ThinkingBudget == nil || *cfg.ThinkingBudget != thinkingBudgetMinimal || cfg.ThinkingLevel != "" {
+		t.Fatalf("gemini 2.5 minimal = %+v", cfg)
+	}
+}

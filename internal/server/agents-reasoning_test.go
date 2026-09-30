@@ -151,7 +151,7 @@ func TestBuiltinAgentReasoningEffortSchemas(t *testing.T) {
 				t.Fatal("effort must be optional")
 			}
 			field := schema["properties"].(map[string]any)["reasoning_effort"].(map[string]any)
-			if field["type"] != "string" || !reflect.DeepEqual(field["enum"], []string{"", "low", "medium", "high", "xhigh"}) {
+			if field["type"] != "string" || !reflect.DeepEqual(field["enum"], append([]string{""}, service.ReasoningEffortLevels...)) {
 				t.Fatalf("unexpected schema: %#v", field)
 			}
 		})
@@ -166,7 +166,7 @@ func TestBuiltinAgentCreateReasoningEffortProviderValidation(t *testing.T) {
 	}{
 		{"openai", "xhigh", true},
 		{"anthropic", "high", true},
-		{"anthropic", "xhigh", false},
+		{"anthropic", "none", false},
 		{"bedrock", "low", false},
 		{"cohere", "", true},
 		{"unknown", "high", false},
@@ -204,7 +204,7 @@ func TestAgentReasoningProviderAPI(t *testing.T) {
 			provider, effort string
 			valid            bool
 		}{
-			{"claude-key", "xhigh", false},
+			{"claude-key", "none", false},
 			{"claude-key", "high", true},
 			{"claude-key", "", true},
 			{"missing", "high", false},
@@ -262,13 +262,13 @@ func TestBuiltinAgentUpdateReasoningProvider(t *testing.T) {
 		name, provider, effort, patch, want string
 		valid                               bool
 	}{
-		{"reject effort", "claude-key", "high", `{"reasoning_effort":"xhigh"}`, "", false},
-		{"reject provider change", "openai-key", "xhigh", `{"provider":"claude-key"}`, "", false},
-		{"reject existing unsupported", "claude-key", "xhigh", `{}`, "", false},
+		{"reject effort", "claude-key", "high", `{"reasoning_effort":"none"}`, "", false},
+		{"reject provider change", "openai-key", "none", `{"provider":"claude-key"}`, "", false},
+		{"reject existing unsupported", "claude-key", "none", `{}`, "", false},
 		{"preserve omitted", "claude-key", "high", `{}`, "high", true},
-		{"clear unsupported", "claude-key", "xhigh", `{"reasoning_effort":""}`, "", true},
-		{"change and clear", "openai-key", "xhigh", `{"provider":"claude-key","reasoning_effort":""}`, "", true},
-		{"change both", "openai-key", "xhigh", `{"provider":"claude-key","reasoning_effort":"high"}`, "high", true},
+		{"clear unsupported", "claude-key", "none", `{"reasoning_effort":""}`, "", true},
+		{"change and clear", "openai-key", "none", `{"provider":"claude-key","reasoning_effort":""}`, "", true},
+		{"change both", "openai-key", "none", `{"provider":"claude-key","reasoning_effort":"high"}`, "high", true},
 		{"unknown provider", "openai-key", "high", `{"provider":"missing"}`, "", false},
 		{"missing provider", "openai-key", "high", `{"provider":""}`, "", false},
 		{"clear without lookup", "missing", "high", `{"reasoning_effort":""}`, "", true},
@@ -319,7 +319,7 @@ func TestValidateAgentReasoningConfigRegistry(t *testing.T) {
 		provider, effort string
 		valid            bool
 	}{
-		{"claude-key", "xhigh", false},
+		{"claude-key", "none", false},
 		{"claude-key", "high", true},
 		{"unknown", "high", false},
 		{"missing", "high", false},

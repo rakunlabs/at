@@ -20,6 +20,7 @@
   import { isFeatureEnabled, loadFeatures, storeFeatures } from '@/lib/store/features.svelte';
   const page = createAgentPage();
   import { applyAgentDraftPatch, type AgentDraft, type AgentBuilderCatalog } from '@/lib/helper/agent-builder';
+  import { modelReasoningEfforts, providerReasoningEfforts, REASONING_EFFORT_LEVELS } from '@/lib/helper/reasoning';
   import { can, workspaceState } from '@/lib/store/workspace.svelte';
 
   storeNavbar.title = 'Agents';
@@ -141,7 +142,7 @@
   function getBuilderCatalog(): AgentBuilderCatalog {
     // Project only form choices. Never send provider configs or connection secrets.
     return {
-      providers: providers.filter(p => !p.config.disabled).map(p => ({ key: p.key, type: p.config.type, models: [...(p.config.models || [])], default_model: p.config.model || '' })),
+      providers: providers.filter(p => !p.config.disabled).map(p => ({ key: p.key, type: p.config.type, models: [...(p.config.models || [])], default_model: p.config.model || '', reasoning_efforts: p.reasoning_efforts })),
       skills: skills.map(s => ({ id: s.id, name: s.name, description: s.description })),
       mcp_sets: mcpSets.map(s => ({ id: s.id, name: s.name })),
       workflows: workflows.map(w => ({ id: w.id, name: w.name })),
@@ -552,18 +553,16 @@
     { label: 'Global', providers: providers.filter(p => p.scope === 'global') },
   ].filter(group => group.providers.length > 0));
   let reasoningAdapterType = $derived(selectedProviderConfig?.config.type ?? '');
-  let forwardsReasoningEffort = $derived(['openai', 'azure', 'vertex'].includes(reasoningAdapterType));
-  let mapsThinkingBudget = $derived(['anthropic', 'gemini', 'vertex-gemini', 'minimax'].includes(reasoningAdapterType));
-  let reasoningUnsupported = $derived(['bedrock', 'cohere'].includes(reasoningAdapterType));
-  let reasoningEffortOptions = $derived(
-    forwardsReasoningEffort ? ['low', 'medium', 'high', 'xhigh']
-      : mapsThinkingBudget ? ['low', 'medium', 'high'] : []
+  let reasoningModelInfo = $derived(
+    modelReasoningEfforts(reasoningAdapterType, formModel || selectedProviderConfig?.config.model || '', selectedProviderConfig?.reasoning_efforts),
   );
+  let reasoningEffortOptions = $derived(reasoningModelInfo.efforts);
+  let reasoningUnsupported = $derived(!!reasoningAdapterType && providerReasoningEfforts(reasoningAdapterType).length === 0);
   let unlistedReasoningEffort = $derived(formReasoningEffort !== '' && !reasoningEffortOptions.includes(formReasoningEffort));
   let reasoningEffortError = $derived(
-    !['', 'low', 'medium', 'high', 'xhigh'].includes(formReasoningEffort)
+    formReasoningEffort !== '' && !(REASONING_EFFORT_LEVELS as readonly string[]).includes(formReasoningEffort)
       ? 'Invalid reasoning effort. Choose Default or a listed effort before saving.'
-      : unlistedReasoningEffort && (forwardsReasoningEffort || mapsThinkingBudget || reasoningUnsupported)
+      : formReasoningEffort !== '' && reasoningAdapterType && !providerReasoningEfforts(reasoningAdapterType).includes(formReasoningEffort)
         ? 'This adapter does not support the selected reasoning effort. Choose Default or a supported effort before saving.'
         : ''
   );
@@ -834,12 +833,14 @@
               </select>
               <p id="form-reasoning-help" class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
                 Default uses provider/model defaults; it does not disable thinking.
-                {#if forwardsReasoningEffort}
-                  This adapter forwards the effort. The actual model and endpoint must support the chosen setting, especially xhigh; not all OpenAI-compatible endpoints do.
-                {:else if mapsThinkingBudget}
-                  This adapter maps low, medium and high to thinking budgets. The actual model and endpoint must support thinking with the mapped budget.
-                {:else if reasoningUnsupported}
+                {#if reasoningUnsupported}
                   This adapter does not support reasoning effort overrides. Use Default.
+                {:else if reasoningModelInfo.known && reasoningEffortOptions.length === 0}
+                  This model does not reason. Use Default, or declare its levels under the provider's model capabilities.
+                {:else if reasoningModelInfo.known}
+                  Levels listed for this model, from its published specification or the provider's model capabilities.
+                {:else if reasoningEffortOptions.length > 0}
+                  This model is not recognised, so every level the adapter can express is offered; the model may reject some. Declare its levels under the provider's model capabilities to narrow the list.
                 {:else}
                   Adapter support is unknown. Only Default is offered; existing values are retained but support cannot be verified.
                 {/if}

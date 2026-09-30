@@ -272,7 +272,7 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 func agentReasoningEffortSchema() map[string]any {
 	return map[string]any{
 		"type":        "string",
-		"enum":        []string{"", "low", "medium", "high", "xhigh"},
+		"enum":        append([]string{""}, service.ReasoningEffortLevels...),
 		"description": "Optional reasoning effort. Omission preserves the existing value on update; an explicit empty string clears it to the provider default. Adapter support varies and the selected model may still reject it. Does not change model IDs or cap output tokens.",
 	}
 }

@@ -26,6 +26,8 @@ export interface ModelLimitConfig {
 
 export interface ModelCapabilityConfig {
   image_input?: boolean;
+  /** Overrides detection: [] declares the model non-reasoning. */
+  reasoning_efforts?: string[];
 }
 
 export interface LLMConfig {
@@ -70,6 +72,8 @@ export interface ProviderRecord {
   reference?: string;
   scope?: ProviderScope;
   config: LLMConfig;
+  /** Read-only, derived per model; absent models fall back to the adapter. */
+  reasoning_efforts?: Record<string, string[]>;
   created_at: string;
   updated_at: string;
 }

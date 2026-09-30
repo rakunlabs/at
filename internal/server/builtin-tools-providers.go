@@ -376,11 +376,31 @@ func (s *Server) execProviderSetModelCapability(ctx context.Context, args map[st
 	if clear {
 		delete(cfg.ModelCapabilities, model)
 	} else {
-		imageInput, ok := args["image_input"].(bool)
-		if !ok {
-			return "", fmt.Errorf("image_input must be true or false when clear is not set")
+		capability := cfg.ModelCapabilities[model]
+		imageInput, hasImage := args["image_input"].(bool)
+		rawEfforts, hasEfforts := args["reasoning_efforts"]
+		if !hasImage && !hasEfforts {
+			return "", fmt.Errorf("set image_input and/or reasoning_efforts when clear is not set")
 		}
-		cfg.ModelCapabilities[model] = config.ModelCapability{ImageInput: &imageInput}
+		if hasImage {
+			capability.ImageInput = &imageInput
+		}
+		if hasEfforts {
+			list, ok := rawEfforts.([]any)
+			if !ok {
+				return "", fmt.Errorf("reasoning_efforts must be an array of strings")
+			}
+			efforts := make([]string, 0, len(list))
+			for _, item := range list {
+				effort, ok := item.(string)
+				if !ok {
+					return "", fmt.Errorf("reasoning_efforts must be an array of strings")
+				}
+				efforts = append(efforts, effort)
+			}
+			capability.ReasoningEfforts = efforts
+		}
+		cfg.ModelCapabilities[model] = capability
 	}
 	if msg := validateModelCapabilities(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)

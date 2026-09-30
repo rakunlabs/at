@@ -205,6 +205,10 @@ type GatewayModelCapabilities struct {
 	Vision      *bool `json:"vision,omitempty"`
 	Attachment  *bool `json:"attachment,omitempty"`
 	ToolCalling *bool `json:"tool_calling,omitempty"`
+	Reasoning   *bool `json:"reasoning,omitempty"`
+	// ReasoningEfforts is the ascending list of accepted reasoning_effort
+	// values (AT extension).
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
 }
 
 // ─── Streaming response types (SSE / chat.completion.chunk format) ───

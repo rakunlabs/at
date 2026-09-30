@@ -14,6 +14,8 @@ export interface InfoProvider {
   type: string;
   default_model: string;
   models: string[];
+  /** Per-model reasoning efforts; only models with a known answer are present. */
+  reasoning_efforts?: Record<string, string[]>;
 }
 
 export interface InfoResponse {

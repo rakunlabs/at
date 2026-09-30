@@ -1,4 +1,5 @@
 import type { ToolDefinition } from './chat';
+import { modelReasoningEfforts } from './reasoning';
 
 export interface AgentDraft {
   name: string;
@@ -17,7 +18,7 @@ export interface AgentDraft {
 }
 export interface BuilderResource { id: string; name: string; description?: string }
 export interface AgentBuilderCatalog {
-  providers: { key: string; type: string; models: string[]; default_model: string }[];
+  providers: { key: string; type: string; models: string[]; default_model: string; reasoning_efforts?: Record<string, string[]> }[];
   skills: BuilderResource[];
   mcp_sets: BuilderResource[];
   workflows: BuilderResource[];
@@ -81,9 +82,8 @@ export function applyAgentDraftPatch(current: AgentDraft, input: unknown, catalo
     if (next.model && ![...provider.models, provider.default_model].includes(next.model) && !(next.provider === current.provider && next.model === current.model)) throw new Error('Choose a model listed for this provider.');
   }
   if ('reasoning_effort' in patch || next.provider !== current.provider) {
-    const type = catalog.providers.find(p => p.key === next.provider)?.type;
-    const options = ['openai', 'azure', 'vertex'].includes(type || '') ? ['', 'low', 'medium', 'high', 'xhigh']
-      : ['anthropic', 'gemini', 'vertex-gemini', 'minimax'].includes(type || '') ? ['', 'low', 'medium', 'high'] : [''];
+    const provider = catalog.providers.find(p => p.key === next.provider);
+    const options = ['', ...(provider ? modelReasoningEfforts(provider.type, next.model, provider.reasoning_efforts).efforts : [])];
     if (next.provider !== current.provider && !('reasoning_effort' in patch)) next.reasoning_effort = '';
     if (!options.includes(next.reasoning_effort)) throw new Error('Reasoning effort is not supported by this provider.');
   }

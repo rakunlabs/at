@@ -761,6 +761,8 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 // clients such as OpenCode: without it they reject an image locally before AT
 // or the upstream model gets a chance to process it.
 func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID string) {
+	applyGatewayReasoningCapabilities(model, info, modelID)
+
 	imageInput, configured := false, false
 	if capability, ok := info.modelCapabilities[modelID]; ok && capability.ImageInput != nil {
 		imageInput = *capability.ImageInput
@@ -778,13 +780,37 @@ func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID 
 		model.InputModalities = append(model.InputModalities, "image")
 	}
 	model.OutputModalities = []string{"text"}
-	model.Capabilities = &GatewayModelCapabilities{
-		Vision:     &imageInput,
-		Attachment: &imageInput,
+	if model.Capabilities == nil {
+		model.Capabilities = &GatewayModelCapabilities{}
 	}
+	model.Capabilities.Vision = &imageInput
+	model.Capabilities.Attachment = &imageInput
 	if info.providerType == "anthropic" && isVisionClaudeModel(modelID) {
 		toolCalling := true
 		model.Capabilities.ToolCalling = &toolCalling
+	}
+}
+
+// applyGatewayReasoningCapabilities advertises reasoning only for models whose
+// efforts are known — an operator override or a recognised model family.
+// Unknown models advertise nothing, so a client never offers a level the
+// upstream would reject.
+func applyGatewayReasoningCapabilities(model *ModelData, info ProviderInfo, modelID string) {
+	var override []string
+	if capability, ok := info.modelCapabilities[modelID]; ok {
+		override = capability.ReasoningEfforts
+	}
+	efforts, known := service.ModelReasoningEfforts(info.providerType, modelID, override)
+	if !known {
+		return
+	}
+	reasoning := len(efforts) > 0
+	if model.Capabilities == nil {
+		model.Capabilities = &GatewayModelCapabilities{}
+	}
+	model.Capabilities.Reasoning = &reasoning
+	if reasoning {
+		model.Capabilities.ReasoningEfforts = efforts
 	}
 }
 

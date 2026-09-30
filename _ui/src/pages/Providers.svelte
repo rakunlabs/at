@@ -30,6 +30,7 @@
     type ProviderScope,
     type LLMConfig,
   } from '@/lib/api/providers';
+  import { providerReasoningEfforts } from '@/lib/helper/reasoning';
   import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff, Boxes } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -1051,6 +1052,11 @@
   let showModelLimitsSection = $state(false);
   let formModelCapabilities = $state<Record<string, 'auto' | 'enabled' | 'disabled'>>({});
   let showModelCapabilitiesSection = $state(false);
+  /** Per-model reasoning override: absent = automatic, [] = not reasoning. */
+  let formModelReasoning = $state<Record<string, string[]>>({});
+  /** Detected per-model efforts of the record being edited (read-only hint). */
+  let detectedReasoning = $state<Record<string, string[]>>({});
+  let reasoningLevelsForType = $derived(providerReasoningEfforts(formType));
   let formEmbeddingModels = $state<string[]>([]);
   let newEmbeddingModelInput = $state('');
   let formEmbeddingMaxInputs = $state('');
@@ -1168,6 +1174,8 @@
     formModelLimits = {};
     showModelLimitsSection = false;
     formModelCapabilities = {};
+    formModelReasoning = {};
+    detectedReasoning = {};
     showModelCapabilitiesSection = false;
     formEmbeddingModels = [];
     newEmbeddingModelInput = '';
@@ -1230,7 +1238,12 @@
         capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
       ]),
     );
-    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
+    formModelReasoning = Object.fromEntries(
+      Object.entries(preset.config.model_capabilities || {})
+        .filter(([, capability]) => Array.isArray(capability.reasoning_efforts))
+        .map(([model, capability]) => [model, [...(capability.reasoning_efforts || [])]]),
+    );
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0 || Object.keys(formModelReasoning).length > 0;
     formEmbeddingModels = [...(preset.config.embedding_models || [])];
     formEmbeddingMaxInputs = preset.config.embedding_max_inputs ? String(preset.config.embedding_max_inputs) : '';
     formAuthType = preset.config.auth_type || '';
@@ -1271,7 +1284,13 @@
         capability.image_input === true ? 'enabled' : capability.image_input === false ? 'disabled' : 'auto',
       ]),
     );
-    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
+    formModelReasoning = Object.fromEntries(
+      Object.entries(rec.config.model_capabilities || {})
+        .filter(([, capability]) => Array.isArray(capability.reasoning_efforts))
+        .map(([model, capability]) => [model, [...(capability.reasoning_efforts || [])]]),
+    );
+    detectedReasoning = { ...(rec.reasoning_efforts || {}) };
+    showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0 || Object.keys(formModelReasoning).length > 0;
     formEmbeddingModels = [...(rec.config.embedding_models || [])];
     formEmbeddingMaxInputs = rec.config.embedding_max_inputs ? String(rec.config.embedding_max_inputs) : '';
     formAuthType = rec.config.auth_type || '';
@@ -1329,6 +1348,12 @@
     for (const model of modelLimitModels) {
       const mode = formModelCapabilities[model] || 'auto';
       if (mode !== 'auto') modelCapabilities[model] = { image_input: mode === 'enabled' };
+      const reasoning = formModelReasoning[model];
+      if (reasoning) {
+        // Only levels this adapter can express survive a type change.
+        const efforts = reasoningLevelsForType.filter(e => reasoning.includes(e));
+        modelCapabilities[model] = { ...modelCapabilities[model], reasoning_efforts: efforts };
+      }
     }
     if (Object.keys(modelCapabilities).length > 0) cfg.model_capabilities = modelCapabilities;
 
@@ -1579,6 +1604,8 @@
       formModelLimits = rest;
       const { [model]: _capability, ...remainingCapabilities } = formModelCapabilities;
       formModelCapabilities = remainingCapabilities;
+      const { [model]: _reasoning, ...remainingReasoning } = formModelReasoning;
+      formModelReasoning = remainingReasoning;
     }
   }
 
@@ -1592,6 +1619,30 @@
 
   function setModelImageMode(model: string, mode: 'auto' | 'enabled' | 'disabled') {
     formModelCapabilities = { ...formModelCapabilities, [model]: mode };
+  }
+
+  function reasoningMode(model: string): 'auto' | 'none' | 'manual' {
+    const efforts = formModelReasoning[model];
+    if (!efforts) return 'auto';
+    return efforts.length === 0 ? 'none' : 'manual';
+  }
+
+  function setModelReasoningMode(model: string, mode: 'auto' | 'none' | 'manual') {
+    if (mode === 'auto') {
+      const { [model]: _, ...rest } = formModelReasoning;
+      formModelReasoning = rest;
+      return;
+    }
+    const seed = mode === 'manual'
+      ? (detectedReasoning[model]?.length ? detectedReasoning[model] : reasoningLevelsForType.filter(e => ['low', 'medium', 'high'].includes(e)))
+      : [];
+    formModelReasoning = { ...formModelReasoning, [model]: [...seed] };
+  }
+
+  function toggleModelReasoningLevel(model: string, effort: string) {
+    const current = formModelReasoning[model] || [];
+    const next = current.includes(effort) ? current.filter(e => e !== effort) : [...current, effort];
+    formModelReasoning = { ...formModelReasoning, [model]: next };
   }
 
   function validateModelLimitsForm(): string {
@@ -2760,35 +2811,76 @@
           >
             <span>
               <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model capabilities</span>
-              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Control image availability in OpenCode and other gateway clients</span>
+              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Image input and reasoning levels advertised to Chats, Agents, OpenCode and other gateway clients</span>
             </span>
             <ChevronDown size={15} class={showModelCapabilitiesSection ? 'rotate-180' : ''} />
           </button>
           {#if showModelCapabilitiesSection}
             <div class="p-3 space-y-3 border-t border-gray-200 dark:border-dark-border">
               <p class="text-xs text-gray-500 dark:text-dark-text-muted">
-                Automatic uses AT's known model families. Override it when a compatible endpoint reports incomplete metadata or a deployment differs from the standard model.
+                Automatic uses AT's known model families and the providers' published per-model tables. Override it when a compatible endpoint serves an unrecognised model or a deployment differs from the standard model.
               </p>
               {#if modelLimitModels.length === 0}
                 <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
               {:else}
-                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_10rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
+                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_10rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
                   <span>Model</span>
                   <span>Image input</span>
+                  <span>Reasoning</span>
                 </div>
                 {#each modelLimitModels as model}
-                  <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_10rem] gap-2 items-center">
-                    <span class="truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
-                    <select
-                      value={formModelCapabilities[model] || 'auto'}
-                      onchange={(e) => setModelImageMode(model, e.currentTarget.value as 'auto' | 'enabled' | 'disabled')}
-                      aria-label={`${model} image input capability`}
-                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
-                    >
-                      <option value="auto">Automatic</option>
-                      <option value="enabled">Supported</option>
-                      <option value="disabled">Text only</option>
-                    </select>
+                  {@const mode = reasoningMode(model)}
+                  {@const detected = detectedReasoning[model]}
+                  <div class="space-y-1.5">
+                    <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_10rem_10rem] gap-2 items-center">
+                      <span class="truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
+                      <select
+                        value={formModelCapabilities[model] || 'auto'}
+                        onchange={(e) => setModelImageMode(model, e.currentTarget.value as 'auto' | 'enabled' | 'disabled')}
+                        aria-label={`${model} image input capability`}
+                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                      >
+                        <option value="auto">Automatic</option>
+                        <option value="enabled">Supported</option>
+                        <option value="disabled">Text only</option>
+                      </select>
+                      <select
+                        value={mode}
+                        onchange={(e) => setModelReasoningMode(model, e.currentTarget.value as 'auto' | 'none' | 'manual')}
+                        disabled={reasoningLevelsForType.length === 0}
+                        aria-label={`${model} reasoning mode`}
+                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400"
+                      >
+                        <option value="auto">Automatic</option>
+                        <option value="none">Not reasoning</option>
+                        <option value="manual">Choose levels</option>
+                      </select>
+                    </div>
+                    {#if mode === 'manual'}
+                      <div class="flex flex-wrap justify-end gap-1.5" role="group" aria-label={`${model} reasoning levels`}>
+                        {#each reasoningLevelsForType as effort}
+                          {@const on = !!formModelReasoning[model]?.includes(effort)}
+                          <button
+                            type="button"
+                            aria-pressed={on}
+                            onclick={() => toggleModelReasoningLevel(model, effort)}
+                            class={['px-2 py-1 text-xs border', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
+                          >{effort}</button>
+                        {/each}
+                      </div>
+                    {:else if mode === 'auto'}
+                      <p class="text-xs text-gray-400 dark:text-dark-text-muted sm:text-right">
+                        {#if reasoningLevelsForType.length === 0}
+                          This provider type has no reasoning control.
+                        {:else if detected && detected.length > 0}
+                          Detected: {detected.join(', ')}
+                        {:else if detected}
+                          Detected: not a reasoning model
+                        {:else}
+                          Not recognised: pickers offer every level this provider type supports, and gateway clients get no reasoning metadata.
+                        {/if}
+                      </p>
+                    {/if}
                   </div>
                 {/each}
               {/if}

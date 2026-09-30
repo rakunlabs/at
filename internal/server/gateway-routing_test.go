@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -284,11 +285,75 @@ func TestApplyGatewayModelCapabilities(t *testing.T) {
 			if gotImage != tt.wantImage {
 				t.Fatalf("image capability = %v, want %v: %+v", gotImage, tt.wantImage, model)
 			}
-			if (model.Capabilities != nil) != tt.wantMetadata {
-				t.Fatalf("metadata presence = %v, want %v: %+v", model.Capabilities != nil, tt.wantMetadata, model)
+			hasImageMetadata := model.Capabilities != nil && model.Capabilities.Vision != nil
+			if hasImageMetadata != tt.wantMetadata {
+				t.Fatalf("image metadata presence = %v, want %v: %+v", hasImageMetadata, tt.wantMetadata, model)
 			}
 			if tt.wantMetadata && (model.Capabilities.Vision == nil || *model.Capabilities.Vision != tt.wantImage) {
 				t.Fatalf("vision metadata = %+v, want %v", model.Capabilities, tt.wantImage)
+			}
+		})
+	}
+}
+
+func TestApplyGatewayReasoningCapabilities(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerType string
+		model        string
+		override     []string
+		wantKnown    bool
+		wantEfforts  []string
+	}{
+		{name: "opus 4.7", providerType: "anthropic", model: "claude-opus-4-7", wantKnown: true, wantEfforts: []string{"low", "medium", "high", "xhigh", "max"}},
+		{name: "opus 4.6 has no xhigh", providerType: "anthropic", model: "claude-opus-4-6", wantKnown: true, wantEfforts: []string{"low", "medium", "high", "max"}},
+		{name: "non-reasoning", providerType: "openai", model: "gpt-4o", wantKnown: true},
+		{name: "unknown advertises nothing", providerType: "openai", model: "llama-3.3-70b"},
+		{name: "manual override", providerType: "openai", model: "llama-3.3-70b", override: []string{"low", "high"}, wantKnown: true, wantEfforts: []string{"low", "high"}},
+		{name: "override disables", providerType: "anthropic", model: "claude-opus-5", override: []string{}, wantKnown: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := ProviderInfo{providerType: tt.providerType}
+			if tt.override != nil {
+				info.modelCapabilities = map[string]config.ModelCapability{tt.model: {ReasoningEfforts: tt.override}}
+			}
+			model := ModelData{ID: tt.providerType + "/" + tt.model}
+			applyGatewayModelCapabilities(&model, info, tt.model)
+			if !tt.wantKnown {
+				if model.Capabilities != nil && model.Capabilities.Reasoning != nil {
+					t.Fatalf("unknown model advertised reasoning: %+v", model.Capabilities)
+				}
+				return
+			}
+			if model.Capabilities == nil || model.Capabilities.Reasoning == nil || *model.Capabilities.Reasoning != (len(tt.wantEfforts) > 0) {
+				t.Fatalf("reasoning = %+v", model.Capabilities)
+			}
+			if !slices.Equal(model.Capabilities.ReasoningEfforts, tt.wantEfforts) {
+				t.Fatalf("efforts = %v, want %v", model.Capabilities.ReasoningEfforts, tt.wantEfforts)
+			}
+
+			// LiteLLM projection: every tier explicit, so discovery clients do
+			// not default unlisted low/medium/high to supported.
+			var meta liteLLMModelMetadata
+			applyLiteLLMReasoning(&meta, model)
+			if meta.SupportsReasoning == nil || *meta.SupportsReasoning != (len(tt.wantEfforts) > 0) {
+				t.Fatalf("supports_reasoning = %v", meta.SupportsReasoning)
+			}
+			if len(tt.wantEfforts) == 0 {
+				if meta.SupportedOpenAIParams != nil || meta.SupportsLowEffort != nil {
+					t.Fatalf("non-reasoning model advertised effort flags: %+v", meta)
+				}
+				return
+			}
+			flags := map[string]*bool{"none": meta.SupportsNoneEffort, "minimal": meta.SupportsMinimalEffort, "low": meta.SupportsLowEffort, "medium": meta.SupportsMediumEffort, "high": meta.SupportsHighEffort, "xhigh": meta.SupportsXHighEffort, "max": meta.SupportsMaxEffort}
+			for effort, flag := range flags {
+				if flag == nil || *flag != slices.Contains(tt.wantEfforts, effort) {
+					t.Fatalf("supports_%s_reasoning_effort = %v", effort, flag)
+				}
+			}
+			if !slices.Contains(meta.SupportedOpenAIParams, "reasoning_effort") {
+				t.Fatalf("supported_openai_params = %v", meta.SupportedOpenAIParams)
 			}
 		})
 	}
