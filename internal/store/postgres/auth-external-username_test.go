@@ -58,6 +58,42 @@ func TestExternalPostgresUsernameAndEmail(t *testing.T) {
 	}
 }
 
+// The display name is stored on first sign-in, refreshed on the next, and is
+// searchable, while the account's own username never changes because of it.
+func TestExternalPostgresDisplayName(t *testing.T) {
+	p, provider := externalFixture(t)
+	ctx := t.Context()
+	complete := func(name string) (*service.AuthUser, *service.AuthIdentityLink) {
+		t.Helper()
+		link := externalLink(provider, "person")
+		link.Username, link.DisplayName = "ada", name
+		u, l, err := p.CompleteAuthExternalIdentity(ctx, link, provider.Version, nil, time.Now().Add(time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u, l
+	}
+	first, link := complete("  Ada\tLovelace ")
+	if link.DisplayName != "Ada Lovelace" {
+		t.Fatalf("display name not normalized: %q", link.DisplayName)
+	}
+	same, refreshed := complete("Ada King")
+	if same.ID != first.ID || same.Username != first.Username || refreshed.DisplayName != "Ada King" {
+		t.Fatalf("display name refresh changed account or was dropped: %+v %+v", same, refreshed)
+	}
+	identities, err := p.ListAuthUserIdentities(ctx, []string{first.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := identities[first.ID]; len(got) != 1 || got[0].DisplayName != "Ada King" {
+		t.Fatalf("display name not listed: %+v", got)
+	}
+	page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Search: "ada king", Limit: 10})
+	if err != nil || len(page) != 1 || page[0].ID != first.ID {
+		t.Fatalf("display name not searchable: %+v %v", page, err)
+	}
+}
+
 func TestExternalPostgresUsernameIndependentCeiling(t *testing.T) {
 	p, provider := externalFixture(t)
 	// No external- prefix and no links: recovery/unlink must not erase origin.

@@ -208,7 +208,7 @@
     <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" aria-busy={loading || busy}>
       <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
         <Search size={14} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-        <input type="search" bind:value={search} oninput={queueSearch} placeholder="Search username, email or account ID" aria-label="Search users" class="w-full bg-transparent text-sm focus-visible:outline-none" />
+        <input type="search" bind:value={search} oninput={queueSearch} placeholder="Search name, username, email or account ID" aria-label="Search users" class="w-full bg-transparent text-sm focus-visible:outline-none" />
         <span role="status" class="text-xs text-gray-400 dark:text-dark-text-muted whitespace-nowrap">{loading ? 'Loading…' : busy ? 'Updating…' : `Page ${page + 1}`}</span>
       </div>
 
@@ -302,6 +302,7 @@
                           <div class="mt-2 border-l-2 border-gray-200 dark:border-dark-border pl-3">
                             <p class="text-xs font-medium break-all">{providerLabel(identity.provider_id)}</p>
                             <dl class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs mt-1">
+                              {#if identity.display_name}<dt class="text-gray-500 dark:text-dark-text-muted">Name</dt><dd class="break-all">{identity.display_name}</dd>{/if}
                               {#if identity.username}<dt class="text-gray-500 dark:text-dark-text-muted">Username</dt><dd class="break-all">{identity.username}</dd>{/if}
                               {#if identity.email}<dt class="text-gray-500 dark:text-dark-text-muted">Email</dt><dd class="break-all">{identity.email}{identity.email_verified ? '' : ' (unverified)'}</dd>{/if}
                               <dt class="text-gray-500 dark:text-dark-text-muted">Subject</dt><dd class="font-mono break-all">{identity.subject}</dd>

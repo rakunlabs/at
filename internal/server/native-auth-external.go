@@ -635,7 +635,7 @@ func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Reque
 	verifiedEmail, _ := id.Claims["email_verified"].(bool)
 	// The provider username seeds new accounts and remains refreshable display
 	// metadata on the link. Identity is always provider ID plus subject.
-	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
+	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), DisplayName: service.ClaimDisplayName(id.Claims), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
 	// Admission runs here, before any account is created or any link is
 	// refreshed, and for link and reauth as well as login. Gating provisioning
 	// alone would leave every identity that already signed in — precisely the

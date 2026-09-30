@@ -46,6 +46,7 @@ type AuthUserIdentity struct {
 	// directory has no name a human recognises unless the provider also
 	// released an email.
 	Username      string `json:"username" db:"username"`
+	DisplayName   string `json:"display_name" db:"display_name"`
 	Email         string `json:"email" db:"email"`
 	EmailVerified bool   `json:"email_verified" db:"email_verified"`
 }

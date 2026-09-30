@@ -159,6 +159,21 @@ func ClaimUsername(claims map[string]any, fallback string) string {
 	return NormalizeAuthUsername(fallback)
 }
 
+// ClaimDisplayName picks the person's full name: OIDC `name`, otherwise
+// `given_name` + `family_name`. Unlike ClaimUsername it has no fallback — ada's
+// resolved Identity.Name may be `preferred_username`, which is a handle, not a
+// name — so an empty result means the provider reported none.
+func ClaimDisplayName(claims map[string]any) string {
+	if text, ok := claims["name"].(string); ok {
+		if value := NormalizeAuthUsername(text); value != "" {
+			return value
+		}
+	}
+	given, _ := claims["given_name"].(string)
+	family, _ := claims["family_name"].(string)
+	return NormalizeAuthUsername(given + " " + family)
+}
+
 // NormalizeAuthUsername collapses whitespace, drops control characters and
 // truncates on a rune boundary. Truncating on bytes would be able to store an
 // invalid UTF-8 tail, which the JSON encoder then replaces on the way out.

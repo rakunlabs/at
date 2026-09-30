@@ -87,6 +87,9 @@ type AuthIdentityLink struct {
 	// Username is the handle the provider reports (OIDC preferred_username).
 	// Display metadata refreshed from every sign-in, never an identity key.
 	Username string `json:"username,omitempty" db:"username"`
+	// DisplayName is the person's name as the provider reports it (OIDC name).
+	// Display metadata refreshed from every sign-in, never an identity key.
+	DisplayName string `json:"display_name,omitempty" db:"display_name"`
 	// AssertedPermissions is raw provider-qualified metadata, not local authority.
 	AssertedPermissions json.RawMessage `json:"asserted_permissions" db:"asserted_permissions"`
 }

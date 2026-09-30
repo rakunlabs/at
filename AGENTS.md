@@ -726,6 +726,18 @@ this string and an odd one must not be able to fail a sign-in or store an
 invalid UTF-8 tail. Absent columns read as `''`, so nothing changes for accounts
 that predate it until their next sign-in.
 
+Migration 85 adds `auth_identity_links.display_name`, the person's full name
+(`service.ClaimDisplayName`: OIDC `name`, else `given_name` + `family_name`; no
+handle fallback). Same rules as `username`: normalized, refreshed at every
+sign-in, searchable, never an identity. Existing links fill in on next sign-in.
+
+The built-in `whoami` tool reports the account a run executes as (ID, username,
+name, verified email, workspace, role, linked identities). It takes no
+arguments and reads only the bound execution identity and the stored account,
+so a conversation cannot make it describe someone else. Under a bot/MCP service
+binding it reports the run-as account and marks `service`. Regression:
+`TestWhoamiReportsBoundAccount`, `TestExternalPostgresDisplayName`.
+
 The Users detail panel lays its identity block out on a
 `grid-cols-[5.5rem_minmax(0,1fr)]`, not a flex row with a fixed-width term. The
 term used to be the provider's raw ULID in a `w-20 shrink-0` box with no

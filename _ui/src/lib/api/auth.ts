@@ -124,6 +124,8 @@ export interface AuthUserIdentity {
   subject: string;
   /** What the provider calls this person (OIDC `preferred_username`). */
   username: string;
+  /** The person's full name as the provider reports it (OIDC `name`). */
+  display_name?: string;
   email: string;
   email_verified: boolean;
 }
@@ -171,6 +173,8 @@ export function authUserMeta(user: AuthUser): string {
   const label = authUserLabel(user);
   const email = user.identities?.find(i => i.email)?.email;
   const parts = [] as string[];
+  const name = user.identities?.find(i => i.display_name)?.display_name;
+  if (name && name !== label) parts.push(name);
   if (email && email !== label) parts.push(email);
   if (!user.username.startsWith('external-') && user.username !== label) parts.push(user.username);
   parts.push(user.id);

@@ -99,6 +99,8 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execTriggerDelete(ctx, args)
 
 	// User preference tools.
+	case "whoami":
+		return s.execWhoami(ctx, args)
 	case "set_user_preference":
 		return s.execSetUserPreference(ctx, args)
 	case "get_user_preferences":

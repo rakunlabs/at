@@ -164,3 +164,25 @@ func TestClaimUsername(t *testing.T) {
 		t.Fatal("truncation produced invalid UTF-8")
 	}
 }
+
+func TestClaimDisplayName(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		claims map[string]any
+		want   string
+	}{
+		{"name wins", map[string]any{"name": "Ada Lovelace", "given_name": "A", "family_name": "L"}, "Ada Lovelace"},
+		{"given and family", map[string]any{"given_name": "Ada", "family_name": "Lovelace"}, "Ada Lovelace"},
+		{"given only", map[string]any{"given_name": "Ada"}, "Ada"},
+		{"blank name falls through", map[string]any{"name": "  ", "family_name": "Lovelace"}, "Lovelace"},
+		// A handle is not a name: without name claims the result stays empty.
+		{"username is not a name", map[string]any{"preferred_username": "ada"}, ""},
+		{"nothing", nil, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClaimDisplayName(tt.claims); got != tt.want {
+				t.Fatalf("ClaimDisplayName = %q want %q", got, tt.want)
+			}
+		})
+	}
+}
