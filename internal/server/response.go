@@ -52,6 +52,12 @@ func responseCollection(value any) any {
 }
 
 func httpResponseJSONByte(w http.ResponseWriter, msg []byte, code int) {
+	// A caller may have copied upstream response headers before translating the
+	// body to AT's JSON shape. Never let stale framing or compression metadata
+	// describe the newly encoded body.
+	w.Header().Del("Content-Length")
+	w.Header().Del("Content-Encoding")
+	w.Header().Del("Transfer-Encoding")
 	w.Header().Set("Content-Type", "application/json")
 
 	w.WriteHeader(code)

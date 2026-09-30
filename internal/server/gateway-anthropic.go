@@ -245,11 +245,7 @@ func (s *Server) handleAnthropicSync(
 	}
 
 	s.noteProviderResponse(used.providerKey, resp.Header)
-	for k, v := range resp.Header {
-		for _, val := range v {
-			w.Header().Add(k, val)
-		}
-	}
+	forwardProviderResponseHeaders(w.Header(), resp.Header)
 	if used.fullModel != req.Model {
 		w.Header().Set("x-at-model-used", used.fullModel)
 	}

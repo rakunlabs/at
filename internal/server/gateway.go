@@ -349,11 +349,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// that reports an exhausted bucket here is one we should stop putting first
 	// on the next request. They used to be relayed without ever being inspected.
 	s.noteProviderResponse(used.providerKey, resp.Header)
-	for k, v := range resp.Header {
-		for _, val := range v {
-			respW.Header().Add(k, val)
-		}
-	}
+	forwardProviderResponseHeaders(respW.Header(), resp.Header)
 	if used.fullModel != req.Model {
 		respW.Header().Set("x-at-model-used", used.fullModel)
 	}
@@ -439,6 +435,63 @@ func (s *Server) buildProviderMessages(providerType string, msgs []OpenAIMessage
 // known whether the upstream will open.
 var streamResponseHeaders = []string{
 	"Content-Type", "Cache-Control", "Connection", "X-Accel-Buffering",
+}
+
+// providerResponseBodyHeaders describe the provider's wire response rather than
+// the response AT builds. Relaying one of these after translating JSON or SSE
+// can make the browser decode the body incorrectly; in particular, an upstream
+// Content-Length produces ERR_CONTENT_LENGTH_MISMATCH because AT's body has a
+// different size.
+var providerResponseBodyHeaders = map[string]struct{}{
+	"content-encoding":  {},
+	"content-length":    {},
+	"content-range":     {},
+	"content-type":      {},
+	"trailer":           {},
+	"transfer-encoding": {},
+}
+
+// providerResponseHopHeaders are connection-specific and must not be forwarded
+// by a gateway. Connection may name additional hop-by-hop headers, which are
+// filtered dynamically below.
+var providerResponseHopHeaders = map[string]struct{}{
+	"connection":          {},
+	"keep-alive":          {},
+	"proxy-authenticate":  {},
+	"proxy-authorization": {},
+	"te":                  {},
+	"upgrade":             {},
+}
+
+// forwardProviderResponseHeaders preserves useful provider metadata such as
+// request IDs and rate-limit state while excluding headers that belong to the
+// upstream body or transport. AT serializes a different response body, so those
+// headers cannot be reused safely.
+func forwardProviderResponseHeaders(dst, src http.Header) {
+	connectionHeaders := make(map[string]struct{})
+	for _, value := range src.Values("Connection") {
+		for token := range strings.SplitSeq(value, ",") {
+			if token = strings.TrimSpace(token); token != "" {
+				connectionHeaders[strings.ToLower(token)] = struct{}{}
+			}
+		}
+	}
+
+	for key, values := range src {
+		lowerKey := strings.ToLower(key)
+		if _, blocked := providerResponseBodyHeaders[lowerKey]; blocked {
+			continue
+		}
+		if _, blocked := providerResponseHopHeaders[lowerKey]; blocked {
+			continue
+		}
+		if _, blocked := connectionHeaders[lowerKey]; blocked {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
 }
 
 // clearStreamHeaders removes the headers a failed streaming attempt staged, plus
@@ -1129,11 +1182,7 @@ func (s *Server) handleStreamingChat(
 
 		// Forward provider headers (e.g. rate limits), and read them.
 		s.noteProviderResponse(providerKey, headers)
-		for k, v := range headers {
-			for _, val := range v {
-				w.Header().Add(k, val)
-			}
-		}
+		forwardProviderResponseHeaders(w.Header(), headers)
 
 		// Commitment boundary. Set immediately before the first byte reaches
 		// the client and nowhere else, so the invariant "committed implies bytes
