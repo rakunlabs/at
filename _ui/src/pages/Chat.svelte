@@ -36,16 +36,15 @@
     type LocalMCPServer,
   } from '@/lib/api/local-mcp';
   import {
-    REDACTED,
     approvalFor,
     approveLocalMCP,
     clipLocalToolResult,
     localMCPToolName,
-    localMCPUrlProblem,
     revokeLocalMCP,
     toolsAddedSinceApproval,
   } from '@/lib/helper/local-mcp';
   import { LocalMCPClient, type LocalMCPTool } from '@/lib/helper/local-mcp-client';
+  import LocalMCPServerEditor from '@/lib/components/playground/LocalMCPServerEditor.svelte';
   import {
     CAPABILITY_TOOLS,
     ExtensionBridge,
@@ -444,21 +443,15 @@
   );
 
   /**
-   * Editor state for the registry, which lives in the tools panel.
+   * Editor for the registry, which lives in the tools panel.
    *
-   * `localEditorOpen` is explicit rather than derived from whether the draft
-   * fields have content: a new record starts with every field empty, so
-   * inferring it left the Add action with no visible effect.
+   * `localEditorOpen` is explicit rather than derived from whether a record is
+   * selected: a new record has none, so inferring it left the Add action with
+   * no visible effect. `localEditorKey` remounts the editor per record.
    */
   let localEditorOpen = $state(false);
-  let localDraftId = $state('');
-  let localDraftName = $state('');
-  let localDraftUrl = $state('');
-  let localDraftHeaderKey = $state('');
-  let localDraftHeaderValue = $state('');
-  let localDraftHeaders = $state<Record<string, string>>({});
-  let localDraftError = $state('');
-  let localSaving = $state(false);
+  let localEditing = $state<LocalMCPServer | undefined>(undefined);
+  let localEditorKey = $state(0);
   /** Approval dialog: the tools are shown before the server may be used. */
   let localApprovalFor = $state<LocalMCPServer | null>(null);
   let localApprovalTools = $state<LocalMCPTool[]>([]);
@@ -2124,81 +2117,25 @@
     }
   }
 
-  function resetLocalDraft() {
-    localDraftError = '';
-    localDraftHeaderKey = '';
-    localDraftHeaderValue = '';
-    localDraftId = '';
-    localDraftName = '';
-    localDraftUrl = '';
-    localDraftHeaders = {};
-  }
-
   /** Opens the editor on an existing record, or empty for a new one. */
   function editLocalServer(server?: LocalMCPServer) {
-    resetLocalDraft();
-    if (server) {
-      localDraftId = server.id;
-      localDraftName = server.name;
-      localDraftUrl = server.url;
-      // Values arrive redacted; replaying the sentinel preserves the stored one.
-      localDraftHeaders = { ...(server.headers ?? {}) };
-    }
+    localEditing = server;
+    localEditorKey++;
     localEditorOpen = true;
   }
 
   function closeLocalEditor() {
-    resetLocalDraft();
+    localEditing = undefined;
     localEditorOpen = false;
   }
 
-  function addLocalDraftHeader() {
-    const key = localDraftHeaderKey.trim();
-    if (!key) return;
-    localDraftHeaders = { ...localDraftHeaders, [key]: localDraftHeaderValue };
-    localDraftHeaderKey = '';
-    localDraftHeaderValue = '';
-  }
-
-  async function saveLocalServer() {
-    const problem = localMCPUrlProblem(localDraftUrl);
-    if (!localDraftName.trim()) {
-      localDraftError = 'Name is required';
-
-      return;
-    }
-    if (problem) {
-      localDraftError = problem;
-
-      return;
-    }
-
-    const entry: LocalMCPServer = {
-      id: localDraftId,
-      name: localDraftName.trim(),
-      url: localDraftUrl.trim(),
-      headers: Object.keys(localDraftHeaders).length > 0 ? localDraftHeaders : undefined,
-    };
-    const next = localDraftId
-      ? localServers.map(s => (s.id === localDraftId ? entry : s))
-      : [...localServers, entry];
-
-    localSaving = true;
-    try {
-      localServers = await saveLocalMCPServers(next);
-      if (localDraftId) {
-        const edited = localServers.find(s => s.id === localDraftId);
-        // The address may have changed; the old session must not be reused.
-        if (edited) forgetLocalClient(edited);
-      }
-      refreshLocalApprovals();
-      closeLocalEditor();
-      void discoverTools();
-    } catch (e: any) {
-      localDraftError = e?.response?.data?.message || 'Failed to save';
-    } finally {
-      localSaving = false;
-    }
+  function localServerSaved(stored: LocalMCPServer[], edited?: LocalMCPServer) {
+    localServers = stored;
+    // The address may have changed; the old session must not be reused.
+    if (edited) forgetLocalClient(edited);
+    refreshLocalApprovals();
+    closeLocalEditor();
+    void discoverTools();
   }
 
   async function removeLocalServer(server: LocalMCPServer) {
@@ -2207,7 +2144,7 @@
       revokeLocalMCP(server.id, localStorageSafe());
       forgetLocalClient(server);
       refreshLocalApprovals();
-      if (localDraftId === server.id) closeLocalEditor();
+      if (localEditing?.id === server.id) closeLocalEditor();
       void discoverTools();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to remove', 'alert');
@@ -3337,54 +3274,14 @@
               </div>
 
               {#if localEditorOpen}
-                <div class="mt-1.5 border border-gray-300 dark:border-dark-border-subtle p-2.5 space-y-2">
-                  <div class="grid grid-cols-4 gap-2 items-center">
-                    <label class="contents">
-                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">Name</span>
-                      <input bind:value={localDraftName} placeholder="laptop" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text" />
-                    </label>
-                    <label class="contents">
-                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">URL</span>
-                      <input bind:value={localDraftUrl} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                    </label>
-                    <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
-                      Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
-                    </div>
-                  </div>
-
-                  <div class="grid grid-cols-4 gap-2 items-start">
-                    <span class="text-xs text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
-                    <div class="col-span-3 space-y-1">
-                      {#each Object.entries(localDraftHeaders) as [hk, hv]}
-                        <div class="flex items-center gap-1">
-                          <span class="text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
-                          <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
-                          <button
-                            onclick={() => { const next = { ...localDraftHeaders }; delete next[hk]; localDraftHeaders = next; }}
-                            class="ml-auto p-0.5 text-gray-400 hover:text-red-500"
-                            aria-label={`Remove header ${hk}`}
-                          ><X size={10} /></button>
-                        </div>
-                      {/each}
-                      <div class="flex items-center gap-1">
-                        <input bind:value={localDraftHeaderKey} placeholder="Authorization" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                        <input bind:value={localDraftHeaderValue} placeholder="value" type="password" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                        <button onclick={addLocalDraftHeader} class="px-2 py-1 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">Add</button>
-                      </div>
-                      <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Stored encrypted and never shown again.</p>
-                    </div>
-                  </div>
-
-                  {#if localDraftError}
-                    <p class="text-[11px] text-red-600 dark:text-red-400">{localDraftError}</p>
-                  {/if}
-                  <div class="flex items-center gap-2">
-                    <button onclick={saveLocalServer} disabled={localSaving} class="px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50">
-                      {localSaving ? 'Saving…' : 'Save'}
-                    </button>
-                    <button onclick={closeLocalEditor} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary">Cancel</button>
-                  </div>
-                </div>
+                {#key localEditorKey}
+                  <LocalMCPServerEditor
+                    server={localEditing}
+                    servers={localServers}
+                    onsaved={localServerSaved}
+                    oncancel={closeLocalEditor}
+                  />
+                {/key}
               {/if}
             </div>
           {:else}

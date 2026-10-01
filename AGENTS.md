@@ -140,6 +140,30 @@ To override, edit the constants in `internal/service/loopgov/config.go` or add U
 
 **Breaking change**: workflow `agent_call` nodes no longer accept `max_iterations: 0` (legacy "unlimited" mode). Existing graphs are migrated to the platform ceiling on server startup.
 
+### Shared agent-loop building blocks
+
+Tool discovery and the policy-neutral pieces of the loops are shared rather than
+copied per loop, so a tool an agent can use in Sessions is usable through org
+delegation and Developer Spaces too:
+
+- `internal/server/agent-tools.go` — `agentMCPTools` connects an agent's MCP sets
+  (gateway loopback for MCP servers, set URLs, upstreams, server-side set tools)
+  plus legacy `mcp_urls`, and dispatches them (`Owns` / `SetName` / `Call`).
+  An optional `accept` hook lets Developer Spaces keep container tool names.
+  `agentBuiltinTools` / `forkStatusBuiltinTools` build the admitted built-in
+  definitions; `executionSkillLookup` (admission-checked) and
+  `storeSkillLookup` (workflow registries) resolve skills by ID, then name.
+- `internal/server/org-delegation.go` — `delegateToolDefinition` +
+  `uniqueDelegateToolName` build `delegate_to_*` tools for org delegation and
+  task-linked Sessions alike, so colliding agent names stay distinct in both.
+- `internal/service/agentloop/history.go` — `SanitizeChatHistory` (stored rows),
+  `SanitizeMessages` (in-memory messages), `IsToolPairingError` /
+  `IsToolPairingMessage` (provider wording, also used by the Telegram bot) and
+  `CallMCPTool`.
+
+Loop lifecycle, confirmation, persistence and per-loop dispatch order remain in
+each loop. Regressions: `agentloop/history_test.go`, `server/agent-tools_test.go`.
+
 ## Documentation-only skills and shell controls
 
 Skills are Markdown instructions and resources. They never register or execute

@@ -27,22 +27,17 @@ type developerToolkit struct {
 	maxIterations int
 	toolTimeout   int
 
-	skills        *workflow.SkillRuntime
-	builtins      map[string]bool
-	mcpSetToolMap map[string]string
-	mcpToolNames  map[string]bool
-	mcpClients    []service.MCPClient
-	confirm       map[string]bool
+	skills   *workflow.SkillRuntime
+	builtins map[string]bool
+	mcp      *agentMCPTools
+	confirm  map[string]bool
 }
 
 func (k *developerToolkit) Close() {
 	if k == nil {
 		return
 	}
-	for _, client := range k.mcpClients {
-		client.Close()
-	}
-	k.mcpClients = nil
+	k.mcp.Close()
 }
 
 func isDeveloperContainerTool(name string) bool {
@@ -112,7 +107,7 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 
 	kit := &developerToolkit{
 		agent: agent, maxIterations: agent.Config.MaxIterations, toolTimeout: agent.Config.ToolTimeout,
-		builtins: map[string]bool{}, mcpSetToolMap: map[string]string{}, mcpToolNames: map[string]bool{}, confirm: map[string]bool{},
+		builtins: map[string]bool{}, confirm: map[string]bool{},
 	}
 	for _, name := range agent.Config.ConfirmationRequiredTools {
 		kit.confirm[name] = true
@@ -133,113 +128,25 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		return true
 	}
 
-	var lookup workflow.SkillLookup
-	if s.skillStore != nil {
-		lookup = func(nameOrID string) (*service.Skill, error) {
-			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: nameOrID}); err != nil {
-				return nil, err
-			}
-			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
-			if err != nil || skill != nil {
-				return skill, err
-			}
-			return s.skillStore.GetSkillByName(ctx, nameOrID)
-		}
-	}
-	kit.skills, err = workflow.NewSkillRuntime(ctx, lookup, agent.Config.Skills, nil, func(name string, lookupErr error) {
+	kit.skills, err = workflow.NewSkillRuntime(ctx, s.executionSkillLookup(ctx), agent.Config.Skills, nil, func(name string, lookupErr error) {
 		slog.Warn("developer session: skill lookup failed", "skill", name, "error", lookupErr)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skill runtime: %w", err)
 	}
 
-	setNames := append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...)
-	mcpURLs := append([]string{}, agent.Config.MCPs...)
-	var upstreams []service.MCPUpstream
-	if s.mcpSetStore != nil {
-		for _, setName := range setNames {
-			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
-				continue
-			}
-			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
-			if err != nil || set == nil {
-				slog.Warn("developer session: MCP set not found", "set", setName, "error", err)
-				continue
-			}
-			for _, serverName := range set.Servers {
-				mcpURLs = append(mcpURLs, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName))
-			}
-			mcpURLs = append(mcpURLs, set.URLs...)
-			upstreams = append(upstreams, set.Config.MCPUpstreams...)
-			if len(set.Config.InlineTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 || len(set.Config.WorkflowIDs) > 0 {
-				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
-				if err != nil {
-					slog.Warn("developer session: failed to list MCP set tools", "set", setName, "error", err)
-					continue
-				}
-				for _, tool := range setTools {
-					if add(tool) {
-						kit.mcpSetToolMap[tool.Name] = setName
-					}
-				}
-			}
-		}
-	}
-	addClient := func(client service.MCPClient, label string) {
-		kit.mcpClients = append(kit.mcpClients, client)
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			slog.Warn("developer session: failed to list MCP tools", "server", label, "error", err)
-			return
-		}
-		for _, tool := range tools {
-			if add(tool) {
-				kit.mcpToolNames[tool.Name] = true
-			}
-		}
-	}
-	for _, url := range mcpURLs {
-		client, err := service.NewExecutionHTTPMCPClient(ctx, url)
-		if err != nil {
-			slog.Warn("developer session: failed to connect to MCP server", "url", url, "error", err)
-			continue
-		}
-		addClient(client, url)
-	}
-	for _, upstream := range upstreams {
-		client, err := s.newExecutionMCPClient(ctx, upstream)
-		if err != nil {
-			slog.Warn("developer session: failed to connect to MCP upstream", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		addClient(client, upstream.URL+upstream.Command)
-	}
+	kit.mcp = s.newAgentMCPTools("developer session", add)
+	kit.mcp.Connect(ctx, append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...), agent.Config.MCPs)
 
 	// Built-in tools run on the AT host, not in the space container; the
 	// system prompt says so, so the agent does not look for project files there.
-	for _, name := range agent.Config.BuiltinTools {
-		if name == "agent_run" && subagentDepthFromContext(ctx) >= maxSubagentDepth {
-			continue
-		}
-		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: name}) != nil || !isKnownBuiltinTool(name) {
-			continue
-		}
-		bt, ok := builtinToolByName(name)
-		if !ok {
-			continue
-		}
-		if add(service.Tool{Name: bt.Name, Description: bt.Description, InputSchema: bt.InputSchema}) {
-			kit.builtins[bt.Name] = true
-		}
-	}
+	builtins := agentBuiltinTools(ctx, agent.Config.BuiltinTools, "developer session")
 	if kit.skills.HasFork() {
-		for _, name := range []string{"agent_run_status", "agent_run_cancel"} {
-			if kit.builtins[name] || service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: name}) != nil {
-				continue
-			}
-			if bt, ok := builtinToolByName(name); ok && add(service.Tool{Name: bt.Name, Description: bt.Description, InputSchema: bt.InputSchema}) {
-				kit.builtins[bt.Name] = true
-			}
+		builtins = append(builtins, forkStatusBuiltinTools(ctx, func(name string) bool { return kit.builtins[name] || taken[name] })...)
+	}
+	for _, tool := range builtins {
+		if add(tool) {
+			kit.builtins[tool.Name] = true
 		}
 	}
 	if kit.skills.HasSkills() {
@@ -284,14 +191,8 @@ func (s *Server) executeDeveloperAgentTool(ctx context.Context, kit *developerTo
 		return kit.skills.HandleLoadSkill(call.Arguments)
 	case kit.skills != nil && call.Name == workflow.ReadSkillResourceToolName:
 		return kit.skills.HandleReadSkillResource(call.Arguments)
-	case kit.mcpSetToolMap[call.Name] != "":
-		setName := kit.mcpSetToolMap[call.Name]
-		if err := workflow.AuthorizeMCPSetTool(ctx, setName, call.Name); err != nil {
-			return "", err
-		}
-		return s.callExecutionMCPSetTool(ctx, setName, call.Name, call.Arguments)
-	case kit.mcpToolNames[call.Name]:
-		return callMCPToolFromClients(ctx, kit.mcpClients, call.Name, call.Arguments)
+	case kit.mcp.Owns(call.Name):
+		return kit.mcp.Call(ctx, call.Name, call.Arguments, 0)
 	case kit.builtins[call.Name]:
 		if err := workflow.AuthorizeToolHandler(ctx, call.Name, "builtin", "", call.Name); err != nil {
 			return "", err

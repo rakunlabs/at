@@ -22,6 +22,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/agentloop"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
@@ -1738,12 +1739,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	// If the error is about corrupt message history, clear and retry once.
 	// RunAgenticLoop emits LLM errors as events (not Go errors), so we must
 	// check both the returned error AND the response text for tool-call errors.
-	isToolCallError := isToolPairingError(err) ||
-		(response != "" && (strings.Contains(response, "tool call result does not follow") ||
-			strings.Contains(response, "tool_use content block") ||
-			(strings.Contains(response, "tool_result") && strings.Contains(response, "not follow")) ||
-			(strings.Contains(response, "tool id") && strings.Contains(response, "not found")) ||
-			(strings.Contains(response, "tool_call_id") && strings.Contains(response, "not found"))))
+	isToolCallError := agentloop.IsToolPairingError(err) || agentloop.IsToolPairingMessage(response)
 	if isToolCallError {
 		slog.Warn("telegram bot: corrupt message history, clearing and retrying", "session_id", responseSessionID)
 		if s.chatSessionStore != nil {

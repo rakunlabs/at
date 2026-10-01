@@ -331,36 +331,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		mcpURLs = append(mcpURLs, preset.Config.MCPs...)
 	}
 
-	if edgeMCP, ok := inputs["mcp"]; ok {
-		switch v := edgeMCP.(type) {
-		case string:
-			if v != "" {
-				mcpURLs = append(mcpURLs, strings.TrimSpace(v))
-			}
-		case []string:
-			for _, s := range v {
-				if s != "" {
-					mcpURLs = append(mcpURLs, strings.TrimSpace(s))
-				}
-			}
-		case []any:
-			for _, u := range v {
-				if s, ok := u.(string); ok && s != "" {
-					mcpURLs = append(mcpURLs, strings.TrimSpace(s))
-				}
-			}
-		}
-	}
-
-	// Deduplicate MCP URLs
-	seenMCPs := make(map[string]bool)
-	var uniqueMCPs []string
-	for _, url := range mcpURLs {
-		if url != "" && !seenMCPs[url] {
-			seenMCPs[url] = true
-			uniqueMCPs = append(uniqueMCPs, url)
-		}
-	}
+	mcpURLs = append(mcpURLs, inputStrings(inputs["mcp"])...)
+	uniqueMCPs := uniqueStrings(mcpURLs)
 
 	// 1. MCP tools
 	for _, url := range uniqueMCPs {
@@ -394,26 +366,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// below in the system-prompt and llmTools build sections.
 	var extraSkillNames []string
 	extraSkillNames = append(extraSkillNames, n.skillNames...)
-	if edgeSkills, ok := inputs["skills"]; ok {
-		switch v := edgeSkills.(type) {
-		case string:
-			if v != "" {
-				extraSkillNames = append(extraSkillNames, strings.TrimSpace(v))
-			}
-		case []string:
-			for _, s := range v {
-				if s != "" {
-					extraSkillNames = append(extraSkillNames, strings.TrimSpace(s))
-				}
-			}
-		case []any:
-			for _, s := range v {
-				if name, ok := s.(string); ok && name != "" {
-					extraSkillNames = append(extraSkillNames, strings.TrimSpace(name))
-				}
-			}
-		}
-	}
+	extraSkillNames = append(extraSkillNames, inputStrings(inputs["skills"])...)
 
 	var presetSkillRefs []service.SkillRef
 	if preset != nil {
@@ -535,37 +488,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// 4. Sub-agents (Delegates)
 	// Collect agent IDs from input port "agents".
-	var subAgentIDs []string
-	if edgeAgents, ok := inputs["agents"]; ok {
-		switch v := edgeAgents.(type) {
-		case string:
-			if v != "" {
-				subAgentIDs = append(subAgentIDs, strings.TrimSpace(v))
-			}
-		case []string:
-			for _, s := range v {
-				if s != "" {
-					subAgentIDs = append(subAgentIDs, strings.TrimSpace(s))
-				}
-			}
-		case []any:
-			for _, s := range v {
-				if id, ok := s.(string); ok && id != "" {
-					subAgentIDs = append(subAgentIDs, strings.TrimSpace(id))
-				}
-			}
-		}
-	}
-
-	// Deduplicate sub-agent IDs
-	seenAgents := make(map[string]bool)
-	var uniqueAgentIDs []string
-	for _, id := range subAgentIDs {
-		if id != "" && !seenAgents[id] {
-			seenAgents[id] = true
-			uniqueAgentIDs = append(uniqueAgentIDs, id)
-		}
-	}
+	uniqueAgentIDs := uniqueStrings(inputStrings(inputs["agents"]))
 
 	for _, agentID := range uniqueAgentIDs {
 		if reg.AgentLookup == nil {
@@ -900,7 +823,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				cancel()
 			} else if mcpToolNames[tc.Name] {
 				// Dispatch to MCP client.
-				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)
+				result, callErr = agentloop.CallMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, "", hi.handler); err != nil {
 					_, block := agentloop.ToolResult(reg.LoopGov, toolResultRunID, tc, "Error: execution authority denied")
@@ -1015,18 +938,40 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}), nil
 }
 
-// ─── Tool Execution Helpers ───
-
-// callMCPTool dispatches a tool call to the appropriate MCP client.
-// It tries each client in order; the first one that has the tool wins.
-func callMCPTool(ctx context.Context, clients []service.MCPClient, name string, args map[string]any) (string, error) {
-	for _, c := range clients {
-		result, err := c.CallTool(ctx, name, args)
-		if err != nil {
-			// If one server fails, try the next.
-			continue
+// inputStrings reads an edge input that may be one string or a list of
+// strings, trimming entries and dropping empty ones.
+func inputStrings(v any) []string {
+	var raw []string
+	switch v := v.(type) {
+	case string:
+		raw = []string{v}
+	case []string:
+		raw = v
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				raw = append(raw, s)
+			}
 		}
-		return result, nil
 	}
-	return "", fmt.Errorf("MCP tool %q: no server returned a result", name)
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if s != "" {
+			out = append(out, strings.TrimSpace(s))
+		}
+	}
+	return out
+}
+
+// uniqueStrings drops empty and repeated entries, keeping first-seen order.
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	var out []string
+	for _, v := range values {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }

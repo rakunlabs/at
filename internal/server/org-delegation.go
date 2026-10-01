@@ -261,38 +261,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 		toolName := uniqueDelegateToolName(reportAgent.Name, oa.AgentID, delegateToolMap)
 
-		// Capability-aware tool description: name + org title + free-form
-		// description + resolved capabilities, so the LLM routes work to
-		// the teammate actually equipped for it.
-		toolDesc := fmt.Sprintf("Delegate a task to %s", reportAgent.Name)
-		if oa.Title != "" {
-			toolDesc += fmt.Sprintf(" (%s)", oa.Title)
-		}
-		toolDesc += "."
-		if reportAgent.Config.Description != "" {
-			toolDesc += " " + reportAgent.Config.Description
-		}
-		if capabilities != "" {
-			toolDesc += " Capabilities — " + capabilities + "."
-		}
-		tool := service.Tool{
-			Name:        toolName,
-			Description: toolDesc,
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"task": map[string]any{
-						"type":        "string",
-						"description": "The concrete task or instruction to delegate. Be specific about what you need and the expected output.",
-					},
-					"context": map[string]any{
-						"type":        "string",
-						"description": "Optional background the teammate needs: why this is needed, constraints, prior decisions, or how the result will be used. Passed to the teammate alongside the task.",
-					},
-				},
-				"required": []string{"task"},
-			},
-		}
+		tool := delegateToolDefinition(toolName, reportAgent, oa.Title, capabilities)
 
 		delegateTools = append(delegateTools, tool)
 		delegateToolMap[toolName] = oa.AgentID
@@ -364,30 +333,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	ctx = workflow.ContextWithAgentConnections(ctx, agent.Config.Connections, skillConnectionOverrides)
 
 	// e3) Load builtin tools for this agent.
-	type builtinToolHandler struct {
-		name string
-	}
-	builtinToolMap := make(map[string]builtinToolHandler)
-	var builtinToolDefs []service.Tool
-
-	for _, toolName := range agent.Config.BuiltinTools {
-		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
-			continue
-		}
-		if !isKnownBuiltinTool(toolName) {
-			slog.Warn("org-delegation: unknown builtin tool in agent config", "tool", toolName, "agent", agentID)
-			continue
-		}
-		bt, ok := builtinToolByName(toolName)
-		if !ok {
-			continue
-		}
-		builtinToolDefs = append(builtinToolDefs, service.Tool{
-			Name:        bt.Name,
-			Description: bt.Description,
-			InputSchema: bt.InputSchema,
-		})
-		builtinToolMap[bt.Name] = builtinToolHandler{name: bt.Name}
+	builtinToolMap := make(map[string]bool)
+	builtinToolDefs := agentBuiltinTools(ctx, agent.Config.BuiltinTools, "org-delegation")
+	for _, t := range builtinToolDefs {
+		builtinToolMap[t.Name] = true
 	}
 
 	// Task-processing agents always receive a small, scoped task tool surface.
@@ -395,11 +344,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// derived work should be created/updated through the current task context,
 	// not as unrelated root tasks.
 	for _, t := range taskContextToolDefs() {
-		if _, ok := builtinToolMap[t.Name]; ok {
+		if builtinToolMap[t.Name] {
 			continue
 		}
 		builtinToolDefs = append(builtinToolDefs, t)
-		builtinToolMap[t.Name] = builtinToolHandler{name: t.Name}
+		builtinToolMap[t.Name] = true
 	}
 
 	// e4) Load MCP-set tools for this agent (workflows exposed as wf_* tools,
@@ -409,95 +358,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// `wf_video_toolkit` workflow (entry `assemble_video`) and ElevenLabs MCP
 	// live in mcp_sets — silently lose those tools when run through org
 	// delegation, and every such call fails with `unknown tool`.
-	mcpToolNames := make(map[string]bool)
-	mcpSetToolMap := make(map[string]string) // tool name -> MCP set name (direct dispatch)
-	var mcpSetTools []service.Tool
-	var mcpClients []service.MCPClient
-	defer func() {
-		for _, c := range mcpClients {
-			c.Close()
-		}
-	}()
-
-	mcpSetNames := append([]string{}, agent.Config.MCPSets...)
-	mcpSetNames = append(mcpSetNames, skillToolSets...)
+	mcpTools := s.newAgentMCPTools("org-delegation", nil)
+	defer mcpTools.Close()
+	mcpSetNames := append(append([]string{}, agent.Config.MCPSets...), skillToolSets...)
 	if s.mcpSetStore != nil && len(mcpSetNames) > 0 {
-		var mcpURLs []string
-		mcpURLs = append(mcpURLs, agent.Config.MCPs...)
-		var mcpSetUpstreams []service.MCPUpstream
-
-		for _, setName := range mcpSetNames {
-			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
-				continue
-			}
-			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
-			if err != nil || set == nil {
-				slog.Warn("org-delegation: MCP set not found", "set", setName, "error", err)
-				continue
-			}
-			// MCP Server references resolve via the gateway loopback URL.
-			for _, serverName := range set.Servers {
-				mcpURLs = append(mcpURLs, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s",
-					s.config.Port, s.config.BasePath, serverName))
-			}
-			mcpURLs = append(mcpURLs, set.URLs...)
-			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
-
-			// Server-side tools (builtins/HTTP/workflows) resolve
-			// directly through callMCPSetTool — no HTTP round-trip needed.
-			if len(set.Config.InlineTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
-				len(set.Config.WorkflowIDs) > 0 {
-				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
-				if err != nil {
-					slog.Warn("org-delegation: failed to list MCP set tools", "set", setName, "error", err)
-				} else {
-					for _, t := range setTools {
-						mcpToolNames[t.Name] = true
-						mcpSetToolMap[t.Name] = setName
-						mcpSetTools = append(mcpSetTools, t)
-					}
-				}
-			}
-		}
-
-		// HTTP MCP endpoints (gateway loopback + custom URLs + legacy mcp_urls).
-		for _, url := range mcpURLs {
-			client, err := service.NewExecutionHTTPMCPClient(ctx, url)
-			if err != nil {
-				slog.Warn("org-delegation: failed to connect to MCP server, skipping", "url", url, "error", err)
-				continue
-			}
-			mcpClients = append(mcpClients, client)
-			tools, err := client.ListTools(ctx)
-			if err != nil {
-				slog.Warn("org-delegation: failed to list MCP tools, skipping", "url", url, "error", err)
-				continue
-			}
-			for _, t := range tools {
-				mcpToolNames[t.Name] = true
-				mcpSetTools = append(mcpSetTools, t)
-			}
-		}
-
-		// Direct upstreams (stdio/HTTP) declared on MCP sets — e.g. the
-		// ElevenLabs `uvx elevenlabs-mcp` stdio server.
-		for _, upstream := range mcpSetUpstreams {
-			client, err := s.newExecutionMCPClient(ctx, upstream)
-			if err != nil {
-				slog.Warn("org-delegation: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
-				continue
-			}
-			mcpClients = append(mcpClients, client)
-			tools, err := client.ListTools(ctx)
-			if err != nil {
-				slog.Warn("org-delegation: failed to list MCP upstream tools, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
-				continue
-			}
-			for _, t := range tools {
-				mcpToolNames[t.Name] = true
-				mcpSetTools = append(mcpSetTools, t)
-			}
-		}
+		mcpTools.Connect(ctx, mcpSetNames, agent.Config.MCPs)
 	}
 
 	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
@@ -723,7 +588,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// assistant tool_use blocks without matching tool_result responses.
 		// Keep the freshly rebuilt system prompt: saved state intentionally omits
 		// it, and replacing messages here made resumed agents lose their rules.
-		messages = append(messages, sanitizeLLMMessages(savedConversation)...)
+		messages = append(messages, agentloop.SanitizeMessages(savedConversation)...)
 		// Add a continuation prompt so the agent knows to pick up where it left off.
 		continueMsg := fmt.Sprintf("Continue processing this task from where you left off. This continuation run has a fresh budget of %d iterations; iterations from the previous run do not carry over. Review your progress so far and complete the remaining work.", maxIterations)
 		switch {
@@ -794,7 +659,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	// MCP-set tools (workflows, upstreams, server-side skill/builtin/HTTP).
 	// Stripped to name/description/schema so tool handlers never reach the LLM.
-	for _, t := range mcpSetTools {
+	for _, t := range mcpTools.Tools() {
 		llmTools = append(llmTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,
@@ -861,8 +726,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var windowed []service.Message
 		for attempt := 0; attempt < 3; attempt++ {
 			llmTools = s.availableLoopTools(ctx, llmTools, func(name string) bool {
-				_, builtin := builtinToolMap[name]
-				return builtin && isKnownBuiltinTool(name)
+				return builtinToolMap[name] && isKnownBuiltinTool(name)
 			})
 			resp, windowed, latencyMs, chatErr = agentloop.CallProvider(
 				ctx, s.loopGov, scopedProvider, model, agentID, task.ID, messages, llmTools, agent.Config.ReasoningEffort,
@@ -872,10 +736,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			errStr := chatErr.Error()
 			// Recover from corrupted tool call history — sanitize messages and retry once.
-			if attempt == 0 && isToolPairingError(chatErr) {
+			if attempt == 0 && agentloop.IsToolPairingError(chatErr) {
 				slog.Warn("org-delegation: tool call history error, sanitizing and retrying",
 					"agent_id", agentID, "task_id", task.ID, "error", chatErr)
-				messages = sanitizeLLMMessages(messages)
+				messages = agentloop.SanitizeMessages(messages)
 				continue
 			}
 			// Honour upstream Retry-After when the provider returned a
@@ -1061,7 +925,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			if target, ok := delegateToolMap[tc.Name]; ok {
 				actionErr = workflow.AuthorizeToolHandler(ctx, tc.Name, "delegate", "", target)
 			}
-			if set, ok := mcpSetToolMap[tc.Name]; ok {
+			if set, ok := mcpTools.SetName(tc.Name); ok {
 				actionErr = workflow.AuthorizeMCPSetTool(ctx, set, tc.Name)
 			}
 			if actionErr != nil {
@@ -1168,7 +1032,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						}))
 					}
 				}(i, tc, reportAgentID, toolStarted)
-			} else if _, ok := builtinToolMap[tc.Name]; ok {
+			} else if builtinToolMap[tc.Name] {
 				// Builtin tool — execute via dispatchBuiltinTool.
 				var result string
 				var callErr error
@@ -1207,27 +1071,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// bash_execute / mem_save ...) with structured input and
 				// the (truncated) output that got fed back into the LLM.
 				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
-			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
-				// MCP-set tool resolved server-side (workflow exposed as a
-				// wf_* tool, or a skill/builtin/HTTP tool declared via
-				// mcp_sets) — no HTTP round-trip.
-				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
-				result, callErr := s.callExecutionMCPSetTool(toolCtx, setName, tc.Name, tc.Arguments)
-				cancel()
-				if callErr != nil {
-					slog.Error("org-delegation: mcp-set tool call failed",
-						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)
-					result = fmt.Sprintf("Error: %v", callErr)
-				}
-				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
-			} else if mcpToolNames[tc.Name] {
-				// MCP tool served by a connected client (HTTP endpoint or a
-				// stdio/HTTP upstream such as the ElevenLabs MCP).
-				result, callErr := callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
+			} else if mcpTools.Owns(tc.Name) {
+				// MCP-set tools resolve server-side (workflows exposed as wf_*
+				// tools, skill/builtin/HTTP tools declared via mcp_sets);
+				// the rest are served by connected clients such as the
+				// ElevenLabs stdio MCP.
+				setName, _ := mcpTools.SetName(tc.Name)
+				result, callErr := mcpTools.Call(ctx, tc.Name, tc.Arguments, toolTimeout)
 				if callErr != nil {
 					slog.Error("org-delegation: mcp tool call failed",
-						"tool", tc.Name, "task_id", task.ID, "error", callErr)
+						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)
 					result = fmt.Sprintf("Error: %v", callErr)
 				}
 				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
@@ -1635,6 +1488,41 @@ func detectUnfulfilledDelegation(content string, delegateToolMap map[string]stri
 		}
 	}
 	return false
+}
+
+// delegateToolDefinition describes a delegate_to_* tool. The description
+// carries the org title, the agent's description and its resolved
+// capabilities so the model routes work to the teammate equipped for it.
+func delegateToolDefinition(toolName string, agent *service.Agent, title, capabilities string) service.Tool {
+	desc := fmt.Sprintf("Delegate a task to %s", agent.Name)
+	if title != "" {
+		desc += fmt.Sprintf(" (%s)", title)
+	}
+	desc += "."
+	if agent.Config.Description != "" {
+		desc += " " + agent.Config.Description
+	}
+	if capabilities != "" {
+		desc += " Capabilities — " + capabilities + "."
+	}
+	return service.Tool{
+		Name:        toolName,
+		Description: desc,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task": map[string]any{
+					"type":        "string",
+					"description": "The concrete task or instruction to delegate. Be specific about what you need and the expected output.",
+				},
+				"context": map[string]any{
+					"type":        "string",
+					"description": "Optional background the teammate needs: why this is needed, constraints, prior decisions, or how the result will be used. Passed to the teammate alongside the task.",
+				},
+			},
+			"required": []string{"task"},
+		},
+	}
 }
 
 func uniqueDelegateToolName(agentName, agentID string, existing map[string]string) string {

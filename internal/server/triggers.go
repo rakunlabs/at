@@ -569,19 +569,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build a skill lookup function for agent_call nodes.
-	var skillLookup workflow.SkillLookup
-	if s.skillStore != nil {
-		skillLookup = func(nameOrID string) (*service.Skill, error) {
-			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
-			if err != nil {
-				return nil, err
-			}
-			if sk != nil {
-				return sk, nil
-			}
-			return s.skillStore.GetSkillByName(ctx, nameOrID)
-		}
-	}
+	skillLookup := workflow.SkillLookup(s.storeSkillLookup(ctx))
 
 	// Build a variable lookup function for getVar() in Goja JS.
 	var varLookup workflow.VarLookup

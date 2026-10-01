@@ -534,7 +534,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 	// 4b. Sanitize message history — remove orphaned tool results that don't follow a tool call.
 	// This prevents "tool call result does not follow tool call" errors from LLM providers.
-	dbMessages = sanitizeMessageHistory(dbMessages)
+	dbMessages = agentloop.SanitizeChatHistory(dbMessages)
 
 	// 5. Persist user message.
 	userMsg := service.ChatMessage{
@@ -557,110 +557,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		handlerType string
 	}
 	toolHandlers := make(map[string]toolHandlerInfo)
-	mcpToolNames := make(map[string]bool)
-	var mcpClients []service.MCPClient
-	defer func() {
-		for _, c := range mcpClients {
-			c.Close()
-		}
-	}()
 
 	var allTools []service.Tool
 	if chatOrg != nil {
 		allTools = append(allTools, organizationChatTools()...)
 	}
-	mcpSetToolMap := make(map[string]string) // tool name -> MCP set name (for direct dispatch)
 
-	// Collect MCP URLs from legacy mcp_urls.
-	var mcpURLs []string
-	mcpURLs = append(mcpURLs, agent.Config.MCPs...)
-
-	// Resolve MCP Sets (internal MCPs) to URLs and direct clients.
-	var mcpSetUpstreams []service.MCPUpstream
-	if s.mcpSetStore != nil {
-		for _, setName := range agent.Config.MCPSets {
-			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
-				continue
-			}
-			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
-			if err != nil {
-				slog.Warn("agentic loop: failed to get MCP set", "set", setName, "error", err)
-				continue
-			}
-			if set == nil {
-				slog.Warn("agentic loop: MCP set not found", "set", setName)
-				continue
-			}
-			// Resolve MCP Server references to gateway URLs.
-			for _, serverName := range set.Servers {
-				gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
-				mcpURLs = append(mcpURLs, gatewayURL)
-			}
-			// Add custom MCP endpoint URLs.
-			mcpURLs = append(mcpURLs, set.URLs...)
-
-			// Collect direct upstreams for stdio/HTTP resolution.
-			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
-
-			// If the MCP set has server-side tools (HTTP/Builtins),
-			// resolve them directly — no HTTP loopback.
-			if len(set.Config.InlineTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
-				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
-				if err != nil {
-					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
-				} else {
-					for _, t := range setTools {
-						mcpToolNames[t.Name] = true
-						allTools = append(allTools, t)
-					}
-					// Register set name for tool dispatch later.
-					for _, t := range setTools {
-						mcpSetToolMap[t.Name] = setName
-					}
-				}
-			}
-		}
-	}
-
-	// MCP tools — HTTP URLs.
-	for _, url := range mcpURLs {
-		client, err := service.NewExecutionHTTPMCPClient(ctx, url)
-		if err != nil {
-			slog.Warn("agentic loop: failed to connect to MCP server, skipping", "url", url, "error", err)
-			continue
-		}
-		mcpClients = append(mcpClients, client)
-
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			slog.Warn("agentic loop: failed to list MCP tools, skipping", "url", url, "error", err)
-			continue
-		}
-		for _, t := range tools {
-			mcpToolNames[t.Name] = true
-			allTools = append(allTools, t)
-		}
-	}
-
-	// MCP tools — direct upstreams from MCP sets (HTTP or stdio).
-	for _, upstream := range mcpSetUpstreams {
-		client, err := s.newExecutionMCPClient(ctx, upstream)
-		if err != nil {
-			slog.Warn("agentic loop: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		mcpClients = append(mcpClients, client)
-
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			slog.Warn("agentic loop: failed to list MCP upstream tools, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		for _, t := range tools {
-			mcpToolNames[t.Name] = true
-			allTools = append(allTools, t)
-		}
-	}
+	mcpTools := s.newAgentMCPTools("agentic loop", nil)
+	defer mcpTools.Close()
+	mcpTools.Connect(ctx, agent.Config.MCPSets, agent.Config.MCPs)
 
 	// Skills — LAZY (progressive disclosure).
 	//
@@ -668,27 +573,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	// once. The catalog is rendered into the system prompt, and a single
 	// `load_skill` meta-tool is exposed. The skill's Markdown instructions
 	// are not injected until the LLM activates the skill.
-	var skillLookup workflow.SkillLookup
-	if s.skillStore != nil {
-		skillLookup = func(nameOrID string) (*service.Skill, error) {
-			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: nameOrID}); err != nil {
-				return nil, err
-			}
-			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
-			if err != nil {
-				return nil, err
-			}
-			if sk != nil {
-				return sk, nil
-			}
-			return s.skillStore.GetSkillByName(ctx, nameOrID)
-		}
-	}
 	var transientSkillNames []string
 	if transient && transientRuntime.SkillID != "" {
 		transientSkillNames = append(transientSkillNames, transientRuntime.SkillID)
 	}
-	skillRuntime, err := workflow.NewSkillRuntime(ctx, skillLookup, agent.Config.Skills, transientSkillNames,
+	skillRuntime, err := workflow.NewSkillRuntime(ctx, s.executionSkillLookup(ctx), agent.Config.Skills, transientSkillNames,
 		func(name string, lookupErr error) {
 			slog.Warn("agentic loop: skill lookup failed", "skill", name, "error", lookupErr)
 		})
@@ -700,19 +589,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	// migration. Attach those executable resources automatically so existing
 	// agent skill references continue to work without restoring skill execution.
 	if s.mcpSetStore != nil {
-		for _, setName := range skillRuntime.ToolSetNames() {
-			setTools, setErr := s.listExecutionMCPSetTools(ctx, setName)
-			if setErr != nil {
-				slog.Warn("agentic loop: failed to load migrated skill tool set", "set", setName, "error", setErr)
-				continue
-			}
-			for _, tool := range setTools {
-				mcpToolNames[tool.Name] = true
-				mcpSetToolMap[tool.Name] = setName
-				allTools = append(allTools, tool)
-			}
-		}
+		mcpTools.AddSetTools(ctx, skillRuntime.ToolSetNames())
 	}
+	allTools = append(allTools, mcpTools.Tools()...)
 	forkedSkillPrompt := ""
 	if transient && transientRuntime.SkillID != "" {
 		loaded, loadErr := skillRuntime.HandleLoadSkill(map[string]any{"skill_name": transientRuntime.SkillID})
@@ -723,46 +602,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 
 	// Builtin tools (from agent config).
-	for _, toolName := range agent.Config.BuiltinTools {
-		if toolName == "agent_run" && subagentDepthFromContext(ctx) >= maxSubagentDepth {
-			continue
-		}
-		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
-			continue
-		}
-		if !isKnownBuiltinTool(toolName) {
-			slog.Warn("agentic loop: unknown builtin tool in agent config", "tool", toolName, "agent", agent.ID)
-			continue
-		}
-		bt, ok := builtinToolByName(toolName)
-		if !ok {
-			continue
-		}
-		allTools = append(allTools, service.Tool{
-			Name:        bt.Name,
-			Description: bt.Description,
-			InputSchema: bt.InputSchema,
-		})
-		toolHandlers[bt.Name] = toolHandlerInfo{
-			handler:     bt.Name,
-			handlerType: "builtin",
-		}
-	}
+	builtinTools := agentBuiltinTools(ctx, agent.Config.BuiltinTools, "agentic loop")
 	if skillRuntime.HasFork() {
-		for _, toolName := range []string{"agent_run_status", "agent_run_cancel"} {
-			if _, exists := toolHandlers[toolName]; exists {
-				continue
-			}
-			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
-				continue
-			}
-			bt, ok := builtinToolByName(toolName)
-			if !ok {
-				continue
-			}
-			allTools = append(allTools, service.Tool{Name: bt.Name, Description: bt.Description, InputSchema: bt.InputSchema})
-			toolHandlers[bt.Name] = toolHandlerInfo{handler: bt.Name, handlerType: "builtin"}
-		}
+		builtinTools = append(builtinTools, forkStatusBuiltinTools(ctx, func(name string) bool {
+			return slices.ContainsFunc(builtinTools, func(t service.Tool) bool { return t.Name == name })
+		})...)
+	}
+	for _, bt := range builtinTools {
+		allTools = append(allTools, bt)
+		toolHandlers[bt.Name] = toolHandlerInfo{handler: bt.Name, handlerType: "builtin"}
 	}
 
 	// 6b. Task-linked session: inject task context and delegation tools.
@@ -797,52 +645,16 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		if orgErr == nil && org != nil {
 			reports, repErr := s.getDirectReports(ctx, org.ID, session.AgentID)
 			if repErr == nil {
+				delegateTargets := map[string]string{}
 				for _, oa := range reports {
 					reportAgent, agentErr := s.agentStore.GetAgent(ctx, oa.AgentID)
 					if agentErr != nil || reportAgent == nil {
 						continue
 					}
-					safeName := strings.Map(func(r rune) rune {
-						if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-							return r
-						}
-						return '_'
-					}, reportAgent.Name)
-					toolName := "delegate_to_" + strings.ToLower(safeName)
-					toolDesc := fmt.Sprintf("Delegate a task to %s", reportAgent.Name)
-					if oa.Title != "" {
-						toolDesc += fmt.Sprintf(" (%s)", oa.Title)
-					}
-					toolDesc += "."
-					if reportAgent.Config.Description != "" {
-						toolDesc += " " + reportAgent.Config.Description
-					}
-					if caps := s.agentCapabilitySummary(ctx, reportAgent); caps != "" {
-						toolDesc += " Capabilities — " + caps + "."
-					}
-					allTools = append(allTools, service.Tool{
-						Name:        toolName,
-						Description: toolDesc,
-						InputSchema: map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"task": map[string]any{
-									"type":        "string",
-									"description": "The concrete task or instruction to delegate. Be specific about what you need and the expected output.",
-								},
-								"context": map[string]any{
-									"type":        "string",
-									"description": "Optional background the teammate needs: why this is needed, constraints, or how the result will be used.",
-								},
-							},
-							"required": []string{"task"},
-						},
-					})
-					// Store the delegation target for dispatch later.
-					toolHandlers[toolName] = toolHandlerInfo{
-						handler:     oa.AgentID,
-						handlerType: "delegate",
-					}
+					toolName := uniqueDelegateToolName(reportAgent.Name, oa.AgentID, delegateTargets)
+					delegateTargets[toolName] = oa.AgentID
+					allTools = append(allTools, delegateToolDefinition(toolName, reportAgent, oa.Title, s.agentCapabilitySummary(ctx, reportAgent)))
+					toolHandlers[toolName] = toolHandlerInfo{handler: oa.AgentID, handlerType: "delegate"}
 				}
 			}
 		}
@@ -1152,10 +964,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		)
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
-			if isToolPairingError(err) {
+			if agentloop.IsToolPairingError(err) {
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
-				llmMessages = sanitizeLLMMessages(llmMessages)
+				llmMessages = agentloop.SanitizeMessages(llmMessages)
 				resp, windowed, latencyMs, err = agentloop.CallProvider(
 					ctx, s.loopGov, scopedProvider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 				)
@@ -1401,16 +1213,14 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				}
 			} else if tc.Name == workflow.ReadSkillResourceToolName {
 				result, callErr = skillRuntime.HandleReadSkillResource(tc.Arguments)
-			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
+			} else if setName, ok := mcpTools.SetName(tc.Name); ok {
 				// Direct MCPSet tool — no HTTP round-trip.
 				callErr = workflow.AuthorizeMCPSetTool(ctx, setName, tc.Name)
 				if callErr == nil {
-					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
-					result, callErr = s.callExecutionMCPSetTool(toolCtx, setName, tc.Name, tc.Arguments)
-					cancel()
+					result, callErr = mcpTools.Call(ctx, tc.Name, tc.Arguments, toolTimeout)
 				}
-			} else if mcpToolNames[tc.Name] {
-				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
+			} else if mcpTools.Owns(tc.Name) {
+				result, callErr = mcpTools.Call(ctx, tc.Name, tc.Arguments, 0)
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, "", hi.handler); err != nil {
 					_, block := agentloop.ToolResult(resultGovernor, loopRunID, tc, "Error: execution authority denied")
@@ -1732,293 +1542,6 @@ func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content
 	return nil
 }
 
-// getToolCallIDs extracts tool call IDs from an assistant message's ToolCalls field.
-func getToolCallIDs(toolCalls any) []string {
-	if toolCalls == nil {
-		return nil
-	}
-	var ids []string
-	switch v := toolCalls.(type) {
-	case []any:
-		for _, tc := range v {
-			if tcMap, ok := tc.(map[string]any); ok {
-				for _, key := range []string{"id", "Id", "ID"} {
-					if id, ok := tcMap[key].(string); ok && id != "" {
-						ids = append(ids, id)
-						break
-					}
-				}
-			}
-		}
-	case []map[string]any:
-		for _, tcMap := range v {
-			for _, key := range []string{"id", "Id", "ID"} {
-				if id, ok := tcMap[key].(string); ok && id != "" {
-					ids = append(ids, id)
-					break
-				}
-			}
-		}
-	}
-	return ids
-}
-
-// isToolPairingError reports whether err looks like a provider rejection
-// caused by an orphan tool_call / tool_use / tool_result pair in the
-// outgoing request. Each provider phrases this differently:
-//
-//   - Anthropic: "tool_result block ... does not refer to a preceding
-//     tool_use" / "tool call result does not follow"
-//   - OpenAI:    "tool id (call_xxxx) not found" /
-//     "Invalid parameter: messages with role 'tool' must be a response
-//     to a preceding message with 'tool_calls'"
-//   - Vertex:    same wording as OpenAI (OpenAI-compat dialect)
-//
-// Callers use this to trigger a one-shot sanitize-and-retry path on
-// the conversation. New error wordings can be added here as we
-// observe them in the wild.
-func isToolPairingError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	// Anthropic.
-	if strings.Contains(s, "tool call result does not follow") ||
-		strings.Contains(s, "tool_use content block") ||
-		(strings.Contains(s, "tool_result") && strings.Contains(s, "not follow")) {
-		return true
-	}
-	// OpenAI / Vertex.
-	if strings.Contains(s, "tool id") && strings.Contains(s, "not found") {
-		return true
-	}
-	if strings.Contains(s, "tool_call_id") && strings.Contains(s, "not found") {
-		return true
-	}
-	if strings.Contains(s, "messages with role 'tool'") &&
-		strings.Contains(s, "tool_calls") {
-		return true
-	}
-	if strings.Contains(s, "tool_calls") && strings.Contains(s, "must be followed by") {
-		return true
-	}
-	return false
-}
-
-// sanitizeMessageHistory removes corrupted tool call/result sequences from message history.
-// This prevents LLM "tool call result does not follow tool call" errors.
-func sanitizeMessageHistory(msgs []service.ChatMessage) []service.ChatMessage {
-	if len(msgs) == 0 {
-		return msgs
-	}
-
-	// Step 1: Collect ALL valid tool_call IDs from ALL assistant messages
-	validToolCallIDs := make(map[string]bool)
-	for _, msg := range msgs {
-		if msg.Role == "assistant" {
-			for _, id := range getToolCallIDs(msg.Data.ToolCalls) {
-				validToolCallIDs[id] = true
-			}
-		}
-	}
-
-	// Step 2: Collect ALL tool_call_ids from tool result messages
-	presentToolResults := make(map[string]bool)
-	for _, msg := range msgs {
-		if msg.Role == "tool" && msg.Data.ToolCallID != "" {
-			presentToolResults[msg.Data.ToolCallID] = true
-		}
-	}
-
-	// Step 3: Find assistant messages that are missing tool results
-	// These are "broken" — their tool_call IDs are dangling
-	brokenToolCallIDs := make(map[string]bool)
-	for _, msg := range msgs {
-		if msg.Role == "assistant" {
-			ids := getToolCallIDs(msg.Data.ToolCalls)
-			if len(ids) == 0 {
-				continue
-			}
-			allPresent := true
-			for _, id := range ids {
-				if !presentToolResults[id] {
-					allPresent = false
-					break
-				}
-			}
-			if !allPresent {
-				// Mark ALL tool call IDs from this assistant as broken
-				for _, id := range ids {
-					brokenToolCallIDs[id] = true
-				}
-			}
-		}
-	}
-
-	// Step 4: Build clean result — drop broken blocks and orphaned tool messages
-	var result []service.ChatMessage
-	for _, msg := range msgs {
-		if msg.Role == "assistant" {
-			ids := getToolCallIDs(msg.Data.ToolCalls)
-			if len(ids) > 0 {
-				// Check if any of this assistant's tool calls are broken
-				isBroken := false
-				for _, id := range ids {
-					if brokenToolCallIDs[id] {
-						isBroken = true
-						break
-					}
-				}
-				if isBroken {
-					slog.Debug("sanitizeMessageHistory: dropping broken assistant message", "tool_call_ids", len(ids))
-					continue
-				}
-			}
-			result = append(result, msg)
-		} else if msg.Role == "tool" {
-			// Drop tool results that are orphaned or belong to broken blocks
-			if msg.Data.ToolCallID == "" {
-				continue
-			}
-			if !validToolCallIDs[msg.Data.ToolCallID] || brokenToolCallIDs[msg.Data.ToolCallID] {
-				slog.Debug("sanitizeMessageHistory: dropping tool message", "tool_call_id", msg.Data.ToolCallID)
-				continue
-			}
-			result = append(result, msg)
-		} else {
-			result = append(result, msg)
-		}
-	}
-
-	return result
-}
-
-// sanitizeLLMMessages removes corrupted tool call/result sequences from an in-memory
-// LLM message list ([]service.Message). This is used for restored conversation state
-// in org-delegation where messages are not stored as ChatMessage rows.
-// It drops assistant messages whose tool_use blocks lack matching tool_result responses.
-func sanitizeLLMMessages(msgs []service.Message) []service.Message {
-	if len(msgs) == 0 {
-		return msgs
-	}
-
-	// Helper: extract tool_use IDs from an assistant message's content blocks.
-	extractToolUseIDs := func(content any) []string {
-		blocks, ok := content.([]service.ContentBlock)
-		if !ok {
-			return nil
-		}
-		var ids []string
-		for _, b := range blocks {
-			if b.Type == "tool_use" && b.ID != "" {
-				ids = append(ids, b.ID)
-			}
-		}
-		return ids
-	}
-
-	// Helper: extract tool_result IDs from a user message's content blocks.
-	extractToolResultIDs := func(content any) []string {
-		blocks, ok := content.([]service.ContentBlock)
-		if !ok {
-			return nil
-		}
-		var ids []string
-		for _, b := range blocks {
-			if b.Type == "tool_result" && b.ToolUseID != "" {
-				ids = append(ids, b.ToolUseID)
-			}
-		}
-		return ids
-	}
-
-	// Step 1: Collect ALL tool_use IDs and ALL tool_result IDs.
-	validToolUseIDs := make(map[string]bool)
-	presentToolResults := make(map[string]bool)
-	for _, msg := range msgs {
-		if msg.Role == "assistant" {
-			for _, id := range extractToolUseIDs(msg.Content) {
-				validToolUseIDs[id] = true
-			}
-		} else if msg.Role == "user" {
-			for _, id := range extractToolResultIDs(msg.Content) {
-				presentToolResults[id] = true
-			}
-		}
-	}
-
-	// Step 2: Find assistant messages with incomplete tool results.
-	brokenToolUseIDs := make(map[string]bool)
-	for _, msg := range msgs {
-		if msg.Role != "assistant" {
-			continue
-		}
-		ids := extractToolUseIDs(msg.Content)
-		if len(ids) == 0 {
-			continue
-		}
-		allPresent := true
-		for _, id := range ids {
-			if !presentToolResults[id] {
-				allPresent = false
-				break
-			}
-		}
-		if !allPresent {
-			for _, id := range ids {
-				brokenToolUseIDs[id] = true
-			}
-		}
-	}
-
-	if len(brokenToolUseIDs) == 0 {
-		return msgs // nothing to fix
-	}
-
-	// Step 3: Rebuild message list, dropping broken assistant and orphaned tool_result messages.
-	var result []service.Message
-	for _, msg := range msgs {
-		if msg.Role == "assistant" {
-			ids := extractToolUseIDs(msg.Content)
-			if len(ids) > 0 {
-				isBroken := false
-				for _, id := range ids {
-					if brokenToolUseIDs[id] {
-						isBroken = true
-						break
-					}
-				}
-				if isBroken {
-					slog.Debug("sanitizeLLMMessages: dropping broken assistant message", "tool_use_ids", len(ids))
-					continue
-				}
-			}
-			result = append(result, msg)
-		} else if msg.Role == "user" {
-			resultIDs := extractToolResultIDs(msg.Content)
-			if len(resultIDs) > 0 {
-				// Check if any tool_result references a broken tool_use.
-				hasBroken := false
-				for _, id := range resultIDs {
-					if brokenToolUseIDs[id] || !validToolUseIDs[id] {
-						hasBroken = true
-						break
-					}
-				}
-				if hasBroken {
-					slog.Debug("sanitizeLLMMessages: dropping orphaned tool_result message", "tool_result_ids", len(resultIDs))
-					continue
-				}
-			}
-			result = append(result, msg)
-		} else {
-			result = append(result, msg)
-		}
-	}
-
-	return result
-}
-
 func (s *Server) persistToolResults(ctx context.Context, sessionID string, results []service.ContentBlock) {
 	if _, transient := subagentRuntimeFromContext(ctx); transient {
 		return
@@ -2056,16 +1579,4 @@ func (s *Server) persistToolResults(ctx context.Context, sessionID string, resul
 			slog.Error("persist tool results failed", "error", err)
 		}
 	}
-}
-
-// callMCPToolFromClients dispatches a tool call to the appropriate MCP client.
-func callMCPToolFromClients(ctx context.Context, clients []service.MCPClient, name string, args map[string]any) (string, error) {
-	for _, c := range clients {
-		result, err := c.CallTool(ctx, name, args)
-		if err != nil {
-			continue
-		}
-		return result, nil
-	}
-	return "", fmt.Errorf("MCP tool %q: no server returned a result", name)
 }

@@ -701,19 +701,7 @@ func (s *Server) buildWorkflowEngine(ctx context.Context) *workflow.Engine {
 		return info.provider, info.defaultModel, nil
 	}
 
-	var skillLookup workflow.SkillLookup
-	if s.skillStore != nil {
-		skillLookup = func(nameOrID string) (*service.Skill, error) {
-			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
-			if err != nil {
-				return nil, err
-			}
-			if sk != nil {
-				return sk, nil
-			}
-			return s.skillStore.GetSkillByName(ctx, nameOrID)
-		}
-	}
+	skillLookup := workflow.SkillLookup(s.storeSkillLookup(ctx))
 
 	var varLookup workflow.VarLookup
 	var varLister workflow.VarLister
