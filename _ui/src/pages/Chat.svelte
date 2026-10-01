@@ -99,7 +99,7 @@
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
   import { Send, Trash2, ChevronDown, Square, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText, Paperclip, FileAudio, FileVideo } from 'lucide-svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, untrack, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -171,6 +171,8 @@
    * duplicate a row.
    */
   interface MessageMeta {
+    id?: string;
+    client_id?: string;
     sequence: number | null;
     /** The provider/model pair that produced (or accompanied) this message. */
     provider_key: string;
@@ -774,6 +776,8 @@
   let showConversations = $state(true);
   let historyLoading = $state(false);
   let historyTruncated = $state(false);
+  let historyCursor = $state('');
+  let loadingOlderHistory = $state(false);
   let saving = $state(false);
   let confirmClear = $state(false);
 
@@ -804,7 +808,7 @@
   function mediaDataUrl(id: string): Promise<string> {
     let pending = mediaDataUrls.get(id);
     if (!pending) {
-      pending = getMediaDataURL(id).catch(() => '');
+      pending = getMediaDataURL(id).catch(() => { mediaDataUrls.delete(id); return ''; });
       mediaDataUrls.set(id, pending);
     }
     return pending;
@@ -879,8 +883,7 @@
   /** Mirrors the id currently reflected in the hash route. */
   let routedId = '';
 
-  const HISTORY_MAX_PAGES = 10;
-  const HISTORY_PAGE_SIZE = 200;
+  const HISTORY_PAGE_SIZE = 50;
 
   /** `provider_key/model` — the model half may itself contain slashes. */
   function splitModel(value: string): { provider_key: string; model: string } {
@@ -1072,6 +1075,8 @@
     conversation = null;
     parentTitle = '';
     historyTruncated = false;
+    historyCursor = '';
+    loadingOlderHistory = false;
     savedSettings = null;
     historyLoading = false;
     appliedPresetId = '';
@@ -1097,24 +1102,16 @@
       savedSettings = settingsSnapshot();
       mergeConversation(c);
 
-      // Load the WHOLE transcript. A partial one would silently truncate the
-      // context sent upstream on the next turn, which is worse than slow.
-      const loaded: PlaygroundMessage[] = [];
-      let cursor = '';
-      let pages = 0;
-      while (pages < HISTORY_MAX_PAGES) {
-        const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE, before: cursor || undefined });
-        if (!current()) return;
-        loaded.unshift(...(res.data ?? []));
-        cursor = res.meta?.next_before ?? '';
-        pages += 1;
-        if (!cursor) break;
-      }
-      historyTruncated = !!cursor;
+      // Rendering is paged; completions resolve the unseen prefix on the server.
+      const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE });
+      if (!current()) return;
+      const loaded = res.data ?? [];
+      historyCursor = res.meta?.next_before ?? '';
+      historyTruncated = !!historyCursor;
 
       messages = loaded.map(toChatMessage);
       rawMessages = {};
-      meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
+      meta = loaded.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void discoverTools();
       scrollToBottom(true);
@@ -1123,6 +1120,31 @@
       addToast(playgroundErrorMessage(e, 'Failed to open conversation'), 'alert');
     } finally {
       if (current()) historyLoading = false;
+    }
+  }
+
+  async function loadOlderHistory() {
+    if (!historyCursor || loadingOlderHistory || streaming || saving || historyLoading) return;
+    const id = conversationId, cursor = historyCursor, generation = turnLifecycle.generation();
+    loadingOlderHistory = true;
+    try {
+      const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE, before: cursor });
+      if (disposed || generation !== turnLifecycle.generation() || conversationId !== id || streaming || saving) return;
+      const previousHeight = chatContainer?.scrollHeight ?? 0;
+      const previousTop = chatContainer?.scrollTop ?? 0;
+      const known = new Set(meta.map(m => m.id));
+      const older = (res.data ?? []).filter(m => !known.has(m.id));
+      messages = [...older.map(toChatMessage), ...messages];
+      meta = [...older.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] })), ...meta];
+      rawMessages = Object.fromEntries(Object.entries(rawMessages).map(([key, value]) => [Number(key) + older.length, value]));
+      historyCursor = res.meta?.next_before ?? '';
+      historyTruncated = !!historyCursor;
+      await tick();
+      if (conversationId === id && chatContainer) chatContainer.scrollTop = previousTop + chatContainer.scrollHeight - previousHeight;
+    } catch (e) {
+      if (conversationId === id) addToast(playgroundErrorMessage(e, 'Failed to load older messages'), 'alert');
+    } finally {
+      if (conversationId === id && generation === turnLifecycle.generation()) loadingOlderHistory = false;
     }
   }
 
@@ -1192,13 +1214,16 @@
     current: scope => !disposed && conversationId === scope.id && turnLifecycle.generation() === scope.generation,
     snapshot: () => messages.flatMap((message, index) => meta[index]?.sequence === null && message.role !== 'system' ? [{
       index,
-      input: { role: message.role as PlaygroundRole, provider_key: meta[index].provider_key, model: meta[index].model, data: JSON.parse(JSON.stringify(toMessageData(message))) },
+      input: { client_id: meta[index].client_id ?? (meta[index].client_id = crypto.randomUUID()), role: message.role as PlaygroundRole, provider_key: meta[index].provider_key, model: meta[index].model, data: JSON.parse(JSON.stringify(toMessageData(message))) },
       imageNames: [...meta[index].imageNames],
     }] : []),
     prepare: async entry => ({ ...entry.input, data: await persistPlaygroundImages(entry.input.data, entry.imageNames, uploadAttachment) }),
     append: (scope, inputs) => appendPlaygroundMessages(scope.id, inputs),
     adopt: (entry, stored) => {
-      if (meta[entry.index]) meta[entry.index] = { ...meta[entry.index], sequence: stored.sequence, created_at: stored.created_at || meta[entry.index].created_at };
+      // If storage omitted an attachment, the live transcript still has its
+      // bytes. Keep sending those rather than silently replacing them by a
+      // saved omission descriptor until this conversation is reopened.
+      if (meta[entry.index]) meta[entry.index] = { ...meta[entry.index], id: JSON.stringify(stored.data ?? {}).includes('"omitted":true') ? undefined : stored.id, sequence: stored.sequence, created_at: stored.created_at || meta[entry.index].created_at };
     },
     busy: value => { saving = value; },
     batchSize: PLAYGROUND_MESSAGE_BATCH_MAX,
@@ -2474,7 +2499,7 @@
 
     try {
       // Build request messages
-      const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
+      const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string } | { at_message_id: string }> = [];
 
       // Conversation prompt plus the prompts contributed by selected skills.
       const fullSystemPrompt = turn.systemPrompt;
@@ -2482,7 +2507,11 @@
         reqMessages.push({ role: 'system', content: fullSystemPrompt });
       }
 
-      for (const m of history) {
+      for (const [index, m] of history.entries()) {
+        if (conversationId && meta[index]?.id) {
+          reqMessages.push({ at_message_id: meta[index].id! });
+          continue;
+        }
         const msg: any = { role: m.role, content: await outgoingContent(m.content) };
         turnLifecycle.assert(turn);
         if (m.tool_calls) msg.tool_calls = m.tool_calls;
@@ -2494,6 +2523,8 @@
         'api/v1/chats/completions',
         {
           model: turn.model,
+          at_conversation_id: conversationId || undefined,
+          at_history_before: historyTruncated ? (meta[0]?.id || historyCursor) : undefined,
           metadata: { session_id: sessionId },
           messages: reqMessages,
           tools: turn.tools.length > 0 ? turn.tools : undefined,
@@ -3636,7 +3667,8 @@
     {:else}
       {#if historyTruncated}
         <div class="text-center text-[11px] text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-3 py-1.5">
-          Only the most recent part of this transcript is loaded. Fork from a message to continue from a bounded prefix.
+          <button onclick={loadOlderHistory} disabled={loadingOlderHistory || streaming || saving} class="underline disabled:opacity-40">{loadingOlderHistory ? 'Loading older messages…' : 'Load older messages'}</button>
+          <span class="ml-2">Earlier context is included by the server when you send.</span>
         </div>
       {/if}
       {#each messages as msg, i}

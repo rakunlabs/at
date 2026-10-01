@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { authFetch as fetch } from './transport';
+import { resumableStream } from '../helper/resumable-stream';
 import { deploymentUrl } from '../helper/deployment-url';
 import type { ListResult, ListParams } from './types';
 
@@ -94,6 +95,8 @@ export interface ListChatMessagesOptions {
   limit?: number;
   /** Page messages strictly older than this message ID (scroll-up lazy load). */
   beforeId?: string;
+  /** Fetch only messages newer than the last displayed message. */
+  afterId?: string;
 }
 
 export async function listChatMessages(
@@ -103,6 +106,7 @@ export async function listChatMessages(
   const params: Record<string, string | number> = {};
   if (opts?.limit) params.limit = opts.limit;
   if (opts?.beforeId) params.before_id = opts.beforeId;
+  if (opts?.afterId) params.after_id = opts.afterId;
   const res = await api.get<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`, { params });
   return res.data;
 }
@@ -121,12 +125,12 @@ export function sendMessage(
   // No <base href> is ever emitted — index.html has none and the Go static
   // handler does not inject one — so reading it always produced "". Resolve
   // against the document base URI, which is what every other call site uses.
-  fetch(deploymentUrl(`api/v1/chat/sessions/${sessionId}/messages`), {
+  resumableStream(fetch, deploymentUrl(`api/v1/chat/sessions/${sessionId}/messages`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, attachments }),
     signal: controller.signal,
-  })
+  }, deploymentUrl(`api/v1/chat/sessions/${sessionId}/streams`))
     .then(async (response) => {
       if (!response.ok) {
         const text = await response.text();

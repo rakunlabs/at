@@ -1215,7 +1215,26 @@ func (s *Server) handleStreamingChat(
 			ttftMs         int64
 		)
 
-		for chunk := range chunks {
+		heartbeat := time.NewTicker(15 * time.Second)
+		defer heartbeat.Stop()
+	streamLoop:
+		for {
+			var chunk service.StreamChunk
+			select {
+			case <-r.Context().Done():
+				break streamLoop
+			case <-heartbeat.C:
+				// Already committed after a successful upstream open. Heartbeats
+				// cannot move the fallback boundary or race content writes.
+				fmt.Fprint(w, ": ping\n\n")
+				flusher.Flush()
+				continue
+			case next, open := <-chunks:
+				if !open {
+					break streamLoop
+				}
+				chunk = next
+			}
 			if chunk.Error != nil {
 				s.recordUsageAsync(r.Context(), auth, fullModel, usageOrZero(streamUsage), time.Since(streamStart).Milliseconds(), "error", "provider_error", fmt.Sprint(chunk.Error))
 				slog.Error("stream chunk error", "provider", providerKey, "error", chunk.Error)

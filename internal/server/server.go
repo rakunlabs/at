@@ -90,7 +90,8 @@ type Server struct {
 	authSettings *nativeauth.Settings
 
 	// ctx is the server-level context used for long-lived goroutines (bots, etc.).
-	ctx context.Context
+	ctx         context.Context
+	chatStreams chatStreamRegistry
 
 	server *ada.Server
 
@@ -1207,6 +1208,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/chat/sessions/{id}/messages", s.ListChatMessagesAPI)
 	apiGroup.DELETE("/v1/chat/sessions/{id}/messages", s.DeleteChatMessagesAPI)
 	apiGroup.POST("/v1/chat/sessions/{id}/messages", s.SendChatMessageAPI)
+	apiGroup.GET("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
+	apiGroup.DELETE("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
 	apiGroup.POST("/v1/chat/sessions/{id}/confirm", s.ConfirmToolCallAPI)
 
 	// Bot config management
@@ -1327,6 +1330,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Playground history (per-user private transcripts of the Chat playground).
 	apiGroup.GET("/v1/chats/conversations", s.PlaygroundConversationsAPI)
 	apiGroup.POST("/v1/chats/completions", s.AdminChatCompletions)
+	apiGroup.GET("/v1/chats/streams/{stream}", s.ChatStreamAPI)
+	apiGroup.DELETE("/v1/chats/streams/{stream}", s.ChatStreamAPI)
 	apiGroup.POST("/v1/chats/conversations", s.PlaygroundConversationsAPI)
 	apiGroup.GET("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
 	apiGroup.PATCH("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)

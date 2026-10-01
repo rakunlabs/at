@@ -30,6 +30,7 @@ export function fixture() {
   let accountDefaults = initialWorkbenchSetup(FRONTEND_TOOL_NAMES), setupRevision = 0, defaultsLoaded = false, disposed = false;
   let conversationId = '', params = {}, conversation = null, scratchSessionId = '', parentTitle = '';
   let historyTruncated = false, savedSettings = null, historyLoading = false, appliedPresetId = '';
+  let historyCursor = '', loadingOlderHistory = false;
   let messages = [], rawMessages = {}, meta = [], toolDiscoveryVersion = 0, settingsTimer = null, confirmClearTimer = null;
   let extensionUnsubscribe = null, extensionBridge = null;
   const turnLifecycle = { invalidate() {}, generation: () => 0 };
@@ -48,7 +49,7 @@ export function fixture() {
   const joinModel = (provider, model) => model ? provider + '/' + model : provider;
   const settingsSnapshot = () => currentSetup();
   const mergeConversation = () => {}, scrollToBottom = () => {}, loadParentTitle = () => {}, toChatMessage = message => message;
-  const HISTORY_MAX_PAGES = 10, HISTORY_PAGE_SIZE = 200;
+  const HISTORY_PAGE_SIZE = 50;
   const saveSettings = async () => {};
   const scheduleSettingsSave = () => { settingsSaves++; };
   const discoverTools = async () => { discoveries++; };

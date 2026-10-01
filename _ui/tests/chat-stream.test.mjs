@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
 const source = await readFile(new URL('../src/lib/helper/chat.ts', import.meta.url), 'utf8');
-const code = ts.transpileModule(source.replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.chatStreamFetch(...args);'), {
+const resumeURL = await moduleURL(new URL('../src/lib/helper/resumable-stream.ts', import.meta.url));
+const code = ts.transpileModule(source.replace("from './resumable-stream'", `from '${resumeURL}'`).replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.chatStreamFetch(...args);'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
 }).outputText;
 const { streamChatCompletion } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);

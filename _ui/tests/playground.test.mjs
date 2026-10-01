@@ -30,6 +30,15 @@ delete globalThis.playgroundAxiosMock;
 
 beforeEach(() => { calls = []; response = undefined; failure = undefined; });
 
+test('append preserves stable client IDs for ambiguous network retries', async () => {
+  response = { data: [] };
+  const input = { role: 'user', provider_key: 'p', model: 'm', data: { content: 'hi' }, client_id: 'stable-123' };
+  await api.appendPlaygroundMessages('c1', [input]);
+  await api.appendPlaygroundMessages('c1', [input]);
+  assert.deepEqual(calls[0][2], { messages: [input] });
+  assert.deepEqual(calls[0], calls[1]);
+});
+
 test('reasoning effort survives defaults and both preset write paths', async () => {
   const setup = { model: 'p/m', reasoning_effort: 'high', builtin_tools: [], frontend_tools: [] };
   response = setup;

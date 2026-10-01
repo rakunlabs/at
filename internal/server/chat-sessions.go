@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -350,18 +351,37 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	beforeID := r.URL.Query().Get("before_id")
+	afterID := r.URL.Query().Get("after_id")
+	if beforeID != "" && afterID != "" {
+		httpResponse(w, "before_id and after_id cannot be combined", http.StatusBadRequest)
+		return
+	}
 
 	var (
 		messages []service.ChatMessage
 		err      error
 	)
-	if beforeID != "" {
+	if afterID != "" {
+		store, ok := s.chatSessionStore.(service.ChatMessageIncrementalStorer)
+		if !ok {
+			httpResponse(w, "incremental message reads unavailable", http.StatusNotImplemented)
+			return
+		}
+		if limit <= 0 || limit > 200 {
+			limit = 200
+		}
+		messages, err = store.ListChatMessagesAfter(r.Context(), id, afterID, limit)
+	} else if beforeID != "" {
 		if limit <= 0 {
 			limit = 50
 		}
 		messages, err = s.chatSessionStore.ListChatMessagesBefore(r.Context(), id, beforeID, limit)
 	} else {
 		messages, err = s.chatSessionStore.ListChatMessages(r.Context(), id, limit)
+	}
+	if errors.Is(err, service.ErrChatCursorExpired) {
+		httpResponse(w, "message history changed; reload the transcript", http.StatusConflict)
+		return
 	}
 	if err != nil {
 		slog.Error("list chat messages failed", "session_id", id, "error", err)
@@ -1526,6 +1546,14 @@ type sendChatMessageRequest struct {
 // SendChatMessageAPI handles POST /api/v1/chat/sessions/{id}/messages.
 // It runs an agentic loop server-side and streams the response via SSE.
 func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-AT-Stream-ID") != "" {
+		if existing, status, msg := s.chatSessionForRequest(r, r.PathValue("id")); existing == nil {
+			httpResponse(w, msg, status)
+			return
+		}
+		s.startChatStream(w, r, s.SendChatMessageAPI)
+		return
+	}
 	if s.chatSessionStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return

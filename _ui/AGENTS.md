@@ -62,6 +62,50 @@ and serializes appends, while `serial-queue.ts` also orders defaults writes.
 Regressions: `tests/chat-runtime.test.mjs`, `tests/chat-turn.test.mjs`,
 `tests/chat-persistence.test.mjs` and `tests/chat-stream.test.mjs`.
 
+### Weak-network behavior
+
+A background session/workspace probe failing with a transport error must keep
+the ready shell mounted; only actual authentication/admission failures replace
+it. Probes pause while hidden/offline and have a 15s read deadline. Concurrent
+write preflights share one in-flight check, not a cached authorization decision.
+
+Chats assigns stable `client_id`s to pending messages (migration 88 deduplicates
+appends under the conversation lock). Saved messages are sent to completions as
+`{at_message_id}` with `at_conversation_id`; the server resolves exactly those
+owner-scoped rows and selected-workspace media. Unsaved messages stay inline.
+If persistence omitted an attachment, the live message also stays inline rather
+than replacing bytes the user still has with an omission notice. Missing/stale
+references fail explicitly; they never silently shorten model context.
+
+Sessions polls only `after_id` changes in bounded pages. `adaptive-poll.ts`
+serializes polls, backs off from 3s to 30s, pauses hidden/offline and wakes on
+reconnection/visibility. A removed cursor returns 409 and reloads history.
+Manual refresh still performs a full read. Chats initially renders 50 messages;
+Load older messages prepends another page without moving the scroll position.
+`at_history_before` asks the server for the unseen prefix, so lazy rendering
+never silently shortens model context. Unavailable or oversized history fails
+explicitly rather than truncating it.
+
+Chats model streams and Sessions turns use `X-AT-Stream-ID` to start one
+execution. `resumable-stream.ts` reconnects only with GET and an exact byte
+offset, including partial UTF-8/SSE frames. A disconnect does not cancel the
+server's execution; Stop/navigation sends DELETE. Replay reads/cancellation
+recheck account, workspace, feature/capability and (for Sessions) ownership.
+Streams have 15s heartbeats and a 45s client silence watchdog. Header waits
+are bounded at 30s and reconnect attempts back off. Detached execution is
+bounded at 30 minutes and also inherits server shutdown.
+
+Replay is **replica-local, not durable across restarts**: at most 32 streams,
+8 MiB each, completed records retained up to 10 minutes (oldest completed
+records may be evicted for capacity). Multiple replicas require sticky routing.
+Missing/expired replay fails without starting new work. Check saved messages is
+a safe GET; Retry starts a new turn and can repeat tool effects. Never add blind
+POST retries or interpret a missing replay as permission to relaunch a turn.
+Regressions: `tests/network-resilience.test.mjs`, `chat-network_test.go` in server
+and postgres, and `tests/session-transport.test.mjs`.
+Replay regressions: `tests/resumable-stream.test.mjs`,
+`tests/chat-history-loading.test.mjs`, `internal/server/chat-streams_test.go`.
+
 ## Patterns
 
 - **API layer**: each `lib/api/*.ts` creates axios instance, exports typed async functions. No generated OpenAPI client.

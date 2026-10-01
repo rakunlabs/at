@@ -53,7 +53,7 @@
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;
     try { const identity = await authSession.checkSession(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!identity) { await loadLoginProviders(); if (start !== revision || storeAuth.securityHold) return; authState = 'login'; return; } if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; notice = ''; }
-    catch (e) { if (start !== revision || storeAuth.securityHold) return; if (isSetupRequired(e)) { storeAuth.identity = null; authState = 'setup'; error = ''; } else if (isAuthUnauthorized(e) || e instanceof ReauthenticationRequired) { storeAuth.identity = null; authState = 'login'; } else { authState = 'error'; error = 'Cannot load your session or workspace access. Retry when the server is available.'; } }
+    catch (e) { if (start !== revision || storeAuth.securityHold) return; if (isSetupRequired(e)) { storeAuth.identity = null; authState = 'setup'; error = ''; } else if (isAuthUnauthorized(e) || e instanceof ReauthenticationRequired) { storeAuth.identity = null; authState = 'login'; } else { if (authState !== 'ready') authState = 'error'; error = 'Connection unavailable. Your open screen is preserved; reconnect to verify access and save changes.'; } }
     finally { checking = false; }
   }
   async function initialize() {
@@ -82,7 +82,7 @@
   onMount(() => {
     if (window.matchMedia('(max-width: 639px)').matches) storeNavbar.sideBarOpen = false;
     const unsubscribe = authSession.subscribe((identity, message) => { if (storeAuth.securityHold || ticket) return; if (identity) { storeAuth.identity = identity; return; } if (loggingOut) return; revision++; storeAuth.identity = null; notice = message; authState = 'login'; });
-    void initialize(); const recheck = () => { if (authState === 'ready' && !storeAuth.securityHold) void checkSession(); };
+    void initialize(); const recheck = () => { if (authState === 'ready' && !storeAuth.securityHold && !document.hidden && navigator.onLine) void checkSession(); };
     const timer = window.setInterval(recheck, 60000); window.addEventListener('focus', recheck);
     const online = () => { if (authState === 'error') void initialize(); else recheck(); };
     const breakpoint = window.matchMedia('(max-width: 639px)');

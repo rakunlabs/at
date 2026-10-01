@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
 const source = await readFile(new URL('../src/lib/api/chat-sessions.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source
+  .replace("from '../helper/resumable-stream'", `from '${await moduleURL(new URL('../src/lib/helper/resumable-stream.ts', import.meta.url))}'`)
   .replace("import axios from 'axios';", 'const axios = { create: () => ({}) };')
   .replace("import { authFetch as fetch } from './transport';", '')
   .replace("import { deploymentUrl } from '../helper/deployment-url';", 'const deploymentUrl = path => path;'), {

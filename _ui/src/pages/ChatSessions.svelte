@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import { onMount, tick, untrack } from 'svelte';
   import { querystring } from 'svelte-spa-router';
   import { updateRouteQuery } from '@/lib/helper/route-query';
@@ -361,6 +362,33 @@
     const follow = nearBottom;
     if (await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length), true)) {
       if (follow && nearBottom) scrollToBottom();
+    }
+  }
+
+  async function pollNewMessages(): Promise<boolean> {
+    const sessionId = selectedSessionId;
+    if (!sessionId) return false;
+    const selection = selectionVersion;
+    const request = ++messageRequest;
+    const last = messages.at(-1);
+    try {
+      const fetched = await listChatMessages(sessionId, { limit: MESSAGE_PAGE, afterId: last?.id });
+      if (selectedSessionId !== sessionId || selection !== selectionVersion || request !== messageRequest) return false;
+      messageError = '';
+      if (!fetched.length) return false;
+      const known = new Set(messages.map(m => m.id));
+      const added = fetched.filter(m => !known.has(m.id));
+      messages = [...messages, ...added];
+      if (!last) hasOlder = fetched.length >= MESSAGE_PAGE;
+      if (added.length && nearBottom) scrollToBottom();
+      return added.length > 0;
+    } catch (e: any) {
+      if (selectedSessionId !== sessionId || selection !== selectionVersion || request !== messageRequest) return false;
+      if (e?.response?.status === 409) {
+        return await loadMessages(sessionId);
+      }
+      messageError = e?.response?.data?.message || e.message || 'Failed to check new messages';
+      throw e;
     }
   }
 
@@ -914,17 +942,20 @@
     loadSessions();
     loadAgents();
     loadBots();
-    let refreshing = false;
-    const timer = setInterval(async () => {
-      if (document.hidden || refreshing || sending || turnError || streamContent || toolEvents.length) return;
-      refreshing = true;
-      try { await refreshMessages(); } finally { refreshing = false; }
-    }, 3000);
+    const poller = createAdaptivePoll({
+      active: () => !document.hidden && navigator.onLine && !!selectedSessionId && !sending && !loadingMessages && !loadingOlder && !turnError && !streamContent && !toolEvents.length,
+      poll: pollNewMessages,
+    });
+    const wake = () => { if (!document.hidden && navigator.onLine) poller.wake(); };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
     return () => {
       ++selectionVersion;
       ++turnVersion;
       resetComposer();
-      clearInterval(timer);
+      poller.stop();
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
       abortController?.abort();
     };
   });
@@ -1368,7 +1399,11 @@
           {/each}
 
           {#if turnError}
-            <div role="alert" class="border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">{turnError}</div>
+            <div role="alert" class="border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
+              {turnError}
+              <button onclick={refreshMessages} disabled={loadingMessages || sending} class="ml-2 font-semibold underline underline-offset-4 disabled:opacity-40">Check saved messages</button>
+              <p class="mt-1 text-xs">Checking history does not run the agent again. Retry sends a new turn and may repeat tools.</p>
+            </div>
           {/if}
           {#if missingFinalReply}
             <div class="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 text-sm text-gray-600 dark:text-dark-text-secondary">

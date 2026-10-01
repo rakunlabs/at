@@ -71,6 +71,7 @@ export interface PlaygroundConversationInput {
 }
 
 export interface PlaygroundMessageInput {
+  client_id?: string;
   role: PlaygroundRole;
   provider_key: string;
   model: string;
@@ -364,7 +365,7 @@ export const PLAYGROUND_MESSAGE_BATCH_MAX = 200;
 
 export async function appendPlaygroundMessages(id: string, messages: PlaygroundMessageInput[]): Promise<PlaygroundMessage[]> {
   const body = {
-    messages: messages.map(m => ({ role: m.role, provider_key: m.provider_key, model: m.model, data: m.data })),
+    messages: messages.map(m => ({ ...(m.client_id ? { client_id: m.client_id } : {}), role: m.role, provider_key: m.provider_key, model: m.model, data: m.data })),
   };
   const res = await api.post<PlaygroundList<PlaygroundMessage>>(`${conversationPath(id)}/messages`, body);
   return res.data?.data ?? [];

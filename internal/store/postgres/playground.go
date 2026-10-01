@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -30,7 +31,7 @@ const (
 
 var (
 	playgroundConversationColumns = []any{"id", "owner_user_id", "title", "system_prompt", "provider_key", "model", "config", "forked_from_id", "forked_from_sequence", "imported_from_share_id", "imported_from_share_version", "created_at", "updated_at"}
-	playgroundMessageColumns      = []any{"id", "conversation_id", "sequence", "role", "provider_key", "model", "data", "created_at"}
+	playgroundMessageColumns      = []any{"id", "conversation_id", "sequence", "role", "provider_key", "model", "data", "created_at", "client_id"}
 )
 
 type playgroundConversationRow struct {
@@ -50,6 +51,7 @@ type playgroundConversationRow struct {
 }
 
 type playgroundMessageRow struct {
+	ClientID       string    `db:"client_id"`
 	ID             string    `db:"id"`
 	ConversationID string    `db:"conversation_id"`
 	Sequence       int64     `db:"sequence"`
@@ -88,6 +90,7 @@ func playgroundMessageRowToRecord(row playgroundMessageRow) (service.PlaygroundM
 		return service.PlaygroundMessage{}, fmt.Errorf("decode playground message data: %w", err)
 	}
 	return service.PlaygroundMessage{
+		ClientID:       row.ClientID,
 		ID:             row.ID,
 		ConversationID: row.ConversationID,
 		Sequence:       row.Sequence,
@@ -441,8 +444,72 @@ func (p *Postgres) ListPlaygroundMessages(ctx context.Context, owner, id, before
 	return items, nil
 }
 
+func (p *Postgres) GetPlaygroundMessagePrefix(ctx context.Context, owner, id, beforeID string) ([]service.PlaygroundMessage, error) {
+	if _, err := p.GetPlaygroundConversation(ctx, owner, id); err != nil {
+		return nil, err
+	}
+	var sequence int64
+	found, err := p.goqu.From(p.tablePlaygroundMessages).Select("sequence").Where(goqu.Ex{"conversation_id": id, "id": beforeID}).ScanValContext(ctx, &sequence)
+	if err != nil {
+		return nil, fmt.Errorf("resolve history prefix anchor: %w", err)
+	}
+	if !found {
+		return nil, service.ErrPlaygroundConflict
+	}
+	var rows []playgroundMessageRow
+	if err := p.goqu.From(p.tablePlaygroundMessages).Select(playgroundMessageColumns...).Where(goqu.Ex{"conversation_id": id}, goqu.C("sequence").Lt(sequence)).Order(goqu.C("sequence").Asc()).Limit(2001).ScanStructsContext(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("read history prefix: %w", err)
+	}
+	if len(rows) > 2000 {
+		return nil, service.ErrPlaygroundTooLarge
+	}
+	items := make([]service.PlaygroundMessage, 0, len(rows))
+	for _, row := range rows {
+		m, err := playgroundMessageRowToRecord(row)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, m)
+	}
+	return items, nil
+}
+
+func (p *Postgres) GetPlaygroundMessageReferences(ctx context.Context, owner, id string, ids []string) ([]service.PlaygroundMessage, error) {
+	if len(ids) > 2000 {
+		return nil, service.ErrPlaygroundTooLarge
+	}
+	if _, err := p.GetPlaygroundConversation(ctx, owner, id); err != nil {
+		return nil, err
+	}
+	var rows []playgroundMessageRow
+	if err := p.goqu.From(p.tablePlaygroundMessages).Select(playgroundMessageColumns...).
+		Where(goqu.Ex{"conversation_id": id}, goqu.C("id").In(ids)).ScanStructsContext(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("resolve playground message references: %w", err)
+	}
+	byID := make(map[string]service.PlaygroundMessage, len(rows))
+	for _, row := range rows {
+		m, err := playgroundMessageRowToRecord(row)
+		if err != nil {
+			return nil, err
+		}
+		byID[m.ID] = m
+	}
+	items := make([]service.PlaygroundMessage, 0, len(ids))
+	for _, key := range ids {
+		m, ok := byID[key]
+		if !ok {
+			return nil, service.ErrPlaygroundConflict
+		}
+		items = append(items, m)
+	}
+	return items, nil
+}
+
 func (p *Postgres) AppendPlaygroundMessages(ctx context.Context, owner, id string, items []service.PlaygroundMessage) ([]service.PlaygroundMessage, error) {
 	for _, item := range items {
+		if len(item.ClientID) > 128 {
+			return nil, fmt.Errorf("client_id exceeds 128 bytes: %w", service.ErrPlaygroundConflict)
+		}
 		if !service.ValidPlaygroundRole(item.Role) {
 			return nil, fmt.Errorf("invalid playground message role %q: %w", item.Role, service.ErrPlaygroundConflict)
 		}
@@ -462,13 +529,45 @@ func (p *Postgres) AppendPlaygroundMessages(ctx context.Context, owner, id strin
 			return fmt.Errorf("allocate playground sequence: %w", err)
 		}
 		records := make([]any, 0, len(items))
+		seen := make(map[string]service.PlaygroundMessage)
 		for _, item := range items {
-			admission.Sequence++
 			data, err := playgroundEncode(item.Data)
 			if err != nil {
 				return err
 			}
+			if item.ClientID != "" {
+				existing, found := seen[item.ClientID]
+				if !found {
+					var row playgroundMessageRow
+					found, err = tx.From(p.tablePlaygroundMessages).Select(playgroundMessageColumns...).
+						Where(goqu.Ex{"conversation_id": id, "client_id": item.ClientID}).ScanStructContext(ctx, &row)
+					if err != nil {
+						return fmt.Errorf("read deduplicated message: %w", err)
+					}
+					if found {
+						existing, err = playgroundMessageRowToRecord(row)
+						if err != nil {
+							return err
+						}
+					}
+				}
+				if found {
+					// Normalize JSON before comparing: numeric Go types may differ
+					// after a database round trip, but the wire payload must agree.
+					normalized, err := playgroundDecode(data)
+					if err != nil {
+						return err
+					}
+					if existing.Role != item.Role || existing.ProviderKey != item.ProviderKey || existing.Model != item.Model || !reflect.DeepEqual(existing.Data, normalized) {
+						return fmt.Errorf("client_id reused with different message: %w", service.ErrPlaygroundConflict)
+					}
+					out = append(out, existing)
+					continue
+				}
+			}
+			admission.Sequence++
 			stored := service.PlaygroundMessage{
+				ClientID:       item.ClientID,
 				ID:             ulid.Make().String(),
 				ConversationID: id,
 				Sequence:       admission.Sequence,
@@ -482,6 +581,7 @@ func (p *Postgres) AppendPlaygroundMessages(ctx context.Context, owner, id strin
 				stored.Data = map[string]any{}
 			}
 			records = append(records, goqu.Record{
+				"client_id":       stored.ClientID,
 				"id":              stored.ID,
 				"conversation_id": id,
 				"sequence":        stored.Sequence,
@@ -492,6 +592,16 @@ func (p *Postgres) AppendPlaygroundMessages(ctx context.Context, owner, id strin
 				"created_at":      admission.CreatedAt,
 			})
 			out = append(out, stored)
+			if stored.ClientID != "" {
+				stored.Data, err = playgroundDecode(data)
+				if err != nil {
+					return err
+				}
+				seen[stored.ClientID] = stored
+			}
+		}
+		if len(records) == 0 {
+			return nil
 		}
 		if _, err := tx.Insert(p.tablePlaygroundMessages).Rows(records...).Executor().ExecContext(ctx); err != nil {
 			return fmt.Errorf("append playground messages: %w", err)

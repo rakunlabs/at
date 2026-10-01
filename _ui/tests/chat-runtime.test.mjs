@@ -23,6 +23,7 @@ export function fixture() {
   let userInput = 'Hello', selectedModel = 'p/m', systemPrompt = 'Prompt', effectiveReasoningEffort = 'high';
   let streaming = false, saving = false, disposed = false, abortController = null;
   let conversationId = '', scratchSessionId = '', routedId = '', conversation = null, savedSettings = null;
+  let historyTruncated = false;
   let messages = [], meta = [], conversations = [], rawMessages = {}, pendingImages = [], pendingRefusals = [];
   let turnSkillRuns = [], skillRunProgress = {}, turnArtifacts = [], skillSystemPrompts = [], turnTraceId = '';
   let discoveredTools = [{ type: 'function', function: { name: 'test', parameters: {} } }], toolSourceMap = { test: { type: 'frontend' } };
@@ -47,7 +48,7 @@ export function fixture() {
   const createPlaygroundConversation = async input => { creates.push(input); return await createImpl(input); };
   const appendPlaygroundMessages = async (id, inputs) => {
     appends.push([id, inputs]);
-    return inputs.map((_, index) => ({ sequence: appends.length * 100 + index, created_at: 'stored' }));
+    return inputs.map((input, index) => ({ id: 'stored-' + appends.length + '-' + index, data: input.data, sequence: appends.length * 100 + index, created_at: 'stored' }));
   };
   const streamChatCompletion = async (url, body, callbacks, signal, headers) => {
     streams.push({ body, signal, headers });
@@ -91,6 +92,9 @@ test('the actual send handler claims the turn before lazy conversation creation'
   await first;
   assert.equal(chat.snapshot().streams.length, 1);
   assert.equal(chat.snapshot().streaming, false);
+  assert.equal(chat.snapshot().streams[0].body.at_conversation_id, 'saved');
+  assert.deepEqual(chat.snapshot().streams[0].body.messages.at(-1), { at_message_id: 'stored-1-0' });
+  assert.ok(chat.snapshot().appends[0][1][0].client_id);
 });
 
 test('the send lock also covers attachment persistence before the first generation', async () => {

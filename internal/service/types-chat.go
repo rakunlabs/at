@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/rakunlabs/query"
 )
@@ -110,6 +111,14 @@ type ChatSessionStorer interface {
 	CreateChatMessages(ctx context.Context, msgs []ChatMessage) error
 	DeleteChatMessages(ctx context.Context, sessionID string) error
 }
+
+// ChatMessageIncrementalStorer supports bounded, ascending polling without
+// retransmitting attachments and the already displayed transcript.
+type ChatMessageIncrementalStorer interface {
+	ListChatMessagesAfter(ctx context.Context, sessionID, afterID string, limit int) ([]ChatMessage, error)
+}
+
+var ErrChatCursorExpired = errors.New("chat message cursor no longer exists")
 
 // ─── Bot Configs ───
 

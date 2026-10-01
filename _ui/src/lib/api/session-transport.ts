@@ -38,6 +38,7 @@ export function createSessionTransport(env: Environment) {
   let subject = '';
   let currentIdentity: AuthIdentity | null = null;
   let probeFlight: Promise<AuthIdentity | null> | undefined;
+  let preflightFlight: Promise<void> | undefined;
   const listeners = new Set<(identity: AuthIdentity | null, notice: string) => void>();
   const publish = (identity: AuthIdentity | null, notice = '') => {
     currentIdentity = identity;
@@ -72,7 +73,7 @@ export function createSessionTransport(env: Environment) {
   const selfPath = (value: string) => /^auth\/(workspaces|identities|identity-providers|settings|totp)(\/|$)/.test(value);
   const protectedPath = (value: string) => selfPath(value) || value.startsWith('api/') || value === 'auth/me' || value === 'auth/users' || value.startsWith('auth/users/') || value === 'auth/passkeys' || /^auth\/mobile\/requests\/[^/]+$/.test(value);
   const protectedMutation = (value: string) => selfPath(value) || value.startsWith('auth/reauth/') || value === 'auth/invitations/accept' || value === 'auth/password' || value === 'auth/users' || value.startsWith('auth/users/') || value.startsWith('auth/passkeys/enroll/') || /^auth\/passkeys\/[^/]+\/delete$/.test(value) || value === 'auth/mobile/approve' || value === 'auth/mobile/deny';
-  const rawMe = () => env.fetch(new URL('auth/me', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+  const rawMe = () => env.fetch(new URL('auth/me', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000) });
   const readIdentity = async (response: Response) => {
     const identity = await response.json() as AuthIdentity;
     if (!identity || typeof identity.subject !== 'string' || !identity.subject) throw new Error('Invalid authentication identity');
@@ -180,10 +181,19 @@ export function createSessionTransport(env: Environment) {
   async function preflight() {
     // Without a middleware-only error code, a POST cannot be safely replayed.
     // Check before dispatch instead, including streaming POSTs with one-shot bodies.
-    const response = await rawMe();
-    if (response.ok) return;
-    if (response.status !== 401) throw setupRequiredError(response);
-    await recover(true);
+    // Coalesce only simultaneous checks, never cache admission across writes.
+    // Each caller still checks its own revision/cancellation before dispatch.
+    if (!preflightFlight) {
+      preflightFlight = (async () => {
+        const response = await rawMe();
+        if (response.ok) return;
+        if (response.status !== 401) throw setupRequiredError(response);
+        await recover(true);
+      })();
+    }
+    const pending = preflightFlight;
+    try { await pending; }
+    finally { if (preflightFlight === pending) preflightFlight = undefined; }
   }
 
   return {
@@ -195,7 +205,7 @@ export function createSessionTransport(env: Environment) {
       const start = revision();
       const check = async () => {
         if (start !== revision()) throw new ReauthenticationRequired('Your session changed. Try again.');
-        const response = await env.fetch(new URL('auth/session', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+        const response = await env.fetch(new URL('auth/session', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw setupRequiredError(response);
         const probe = await response.json();
         if (start !== revision()) throw new ReauthenticationRequired('Your session changed. Try again.');

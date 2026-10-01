@@ -55,6 +55,8 @@ type PlaygroundConversation struct {
 
 // PlaygroundMessage is one durable transcript entry.
 type PlaygroundMessage struct {
+	// ClientID deduplicates ambiguous append retries within this conversation.
+	ClientID       string `json:"client_id,omitempty" db:"client_id"`
 	ID             string `json:"id" db:"id"`
 	ConversationID string `json:"conversation_id" db:"conversation_id"`
 	// Sequence is assigned by the store, never by the client. It is gapless
@@ -64,8 +66,9 @@ type PlaygroundMessage struct {
 	ProviderKey string `json:"provider_key" db:"provider_key"`
 	Model       string `json:"model" db:"model"`
 	// Data is the opaque OpenAI-shaped message body (content, tool_calls,
-	// tool_call_id, name, usage, error, attachments). The server never
-	// interprets it beyond a size cap.
+	// tool_call_id, name, usage, error, attachments). The server
+	// validates it only with a size cap on write. Browser completions may
+	// resolve saved rows and owner-scoped media references on read.
 	Data      map[string]any `json:"data"`
 	CreatedAt string         `json:"created_at" db:"created_at"`
 }
@@ -107,4 +110,11 @@ type PlaygroundStorer interface {
 	// TruncatePlaygroundMessages removes every message at or after
 	// fromSequence, which is how retry and edit rewind a transcript.
 	TruncatePlaygroundMessages(ctx context.Context, owner, id string, fromSequence int64) error
+}
+
+// PlaygroundMessageReferenceStorer resolves precisely the saved rows the
+// browser displayed, never a guessed/latest history window.
+type PlaygroundMessageReferenceStorer interface {
+	GetPlaygroundMessageReferences(ctx context.Context, owner, conversationID string, ids []string) ([]PlaygroundMessage, error)
+	GetPlaygroundMessagePrefix(ctx context.Context, owner, conversationID, beforeID string) ([]PlaygroundMessage, error)
 }

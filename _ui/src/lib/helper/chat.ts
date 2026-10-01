@@ -1,4 +1,5 @@
 import { authFetch as fetch } from '../api/transport';
+import { resumableStream } from './resumable-stream';
 
 // ─── Chat Types ───
 
@@ -132,7 +133,9 @@ export async function streamChatCompletion(
   url: string,
   body: {
     model: string;
-    messages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }>;
+    at_conversation_id?: string;
+    at_history_before?: string;
+    messages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string } | { at_message_id: string }>;
     tools?: ToolDefinition[];
     tool_choice?: 'auto' | 'none' | 'required';
     reasoning_effort?: string;
@@ -147,19 +150,22 @@ export async function streamChatCompletion(
   // including tools it ran itself — onto one trace.
   headers?: Record<string, string>,
 ): Promise<void> {
-  const response = await fetch(url, {
+  const options = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
     body: JSON.stringify(body),
     signal,
-  });
+  };
+  const response = url.replace(/\?.*$/, '').endsWith('/chats/completions') || url.replace(/\?.*$/, '') === 'api/v1/chats/completions'
+    ? await resumableStream(fetch, url, options, url.replace(/completions(?:\?.*)?$/, 'streams'))
+    : await fetch(url, options);
 
   if (!response.ok) {
     const errBody = await response.text();
     let errMsg = `HTTP ${response.status}`;
     try {
       const errJson = JSON.parse(errBody);
-      errMsg = errJson?.error?.message || errMsg;
+      errMsg = errJson?.error?.message || errJson?.message || errMsg;
     } catch {
       errMsg = errBody || errMsg;
     }

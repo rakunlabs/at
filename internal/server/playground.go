@@ -340,6 +340,7 @@ func (s *Server) PlaygroundMessagesAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var body struct {
 			Messages []struct {
+				ClientID    string         `json:"client_id"`
 				Role        string         `json:"role"`
 				ProviderKey string         `json:"provider_key"`
 				Model       string         `json:"model"`
@@ -366,7 +367,11 @@ func (s *Server) PlaygroundMessagesAPI(w http.ResponseWriter, r *http.Request) {
 			if !playgroundPayloadFits(w, "data", m.Data) {
 				return
 			}
-			items = append(items, service.PlaygroundMessage{Role: m.Role, ProviderKey: m.ProviderKey, Model: m.Model, Data: m.Data})
+			if len(m.ClientID) > 128 {
+				nativeError(w, http.StatusBadRequest, "client_id exceeds 128 bytes")
+				return
+			}
+			items = append(items, service.PlaygroundMessage{ClientID: m.ClientID, Role: m.Role, ProviderKey: m.ProviderKey, Model: m.Model, Data: m.Data})
 		}
 		stored, err := store.AppendPlaygroundMessages(r.Context(), owner, id, items)
 		if err != nil {

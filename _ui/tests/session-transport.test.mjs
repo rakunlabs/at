@@ -13,6 +13,21 @@ const identity = { subject: 'u1', name: 'operator', roles: ['admin'], expires_at
 const json = (status, data = {}) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
+test('simultaneous writes share a preflight, but a later write verifies again', async () => {
+  const gate = deferred(), started = deferred();
+  const h = harness({ handle: async (_, { path }) => {
+    if (path.endsWith('/me')) { started.resolve(); await gate.promise; return json(200, identity); }
+  } });
+  h.setLive(true);
+  const { transport, api } = h.tab();
+  const writes = [api.post('tasks', {}), transport.fetch('api/v1/chats/completions', { method: 'POST', body: '{}' })];
+  await started.promise;
+  gate.resolve(); await Promise.all(writes);
+  assert.equal(h.calls.filter(c => c.path.endsWith('/me')).length, 1);
+  await api.post('tasks', {});
+  assert.equal(h.calls.filter(c => c.path.endsWith('/me')).length, 2);
+});
+
 test('external popup completion adopts only matching live me and releases refresh uncertainty', async () => {
   const h = harness(); const {transport} = h.tab();
   h.values.set('at-auth:/at/:blocked', '1');

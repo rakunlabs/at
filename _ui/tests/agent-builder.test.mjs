@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
 const transpile = async (path) => ts.transpileModule(await readFile(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const dataUrl = (code) => `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
@@ -77,7 +78,7 @@ test('invalid tool arguments, unsupported fields and iteration limits cannot alt
 });
 
 const chatSource = await readFile(new URL('../src/lib/helper/chat.ts', import.meta.url), 'utf8');
-const chatCode = ts.transpileModule(chatSource.replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.agentBuilderFetch(...args);'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const chatCode = ts.transpileModule(chatSource.replace("from './resumable-stream'", `from '${await moduleURL(new URL('../src/lib/helper/resumable-stream.ts', import.meta.url))}'`).replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.agentBuilderFetch(...args);'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { streamChatCompletion, getTextContent, mergeDeltaContent } = await import(`data:text/javascript;base64,${Buffer.from(chatCode).toString('base64')}`);
 const toolChunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'update_agent_form', arguments: '{"name":"Reviewer"}' } }] } }] };
 

@@ -19,6 +19,10 @@ import (
 // and the shared /api/v1/chat/completions used by embedded AI assistants.
 // Both use authenticated workspace admission rather than gateway API tokens.
 func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/chats/completions") && r.Header.Get("X-AT-Stream-ID") != "" {
+		s.startChatStream(w, r, s.AdminChatCompletions)
+		return
+	}
 	source := "assistant"
 	if strings.HasSuffix(r.URL.Path, "/chats/completions") {
 		source = "chats"
@@ -35,6 +39,9 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 				"type":    "invalid_request_error",
 			},
 		}, http.StatusBadRequest)
+		return
+	}
+	if source == "chats" && !s.resolveChatReferences(w, r, rawBody, &req) {
 		return
 	}
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
