@@ -26,13 +26,10 @@ test('explicit no-tools selections remain empty', () => {
   assert.equal(isChatTodoTool('current_time'), false);
 });
 
-test('Chats hides server todos and normalizes config, defaults and presets', async () => {
+test('Chats hides server todo implementations from its tool catalog', async () => {
   const chat = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
   assert.match(chat, /tools=\{builtinTools\.filter\(tool => !isChatTodoTool\(tool\.name\)\)\}/);
   assert.match(chat, /if \(isChatTodoTool\(toolName\)\) continue;/);
-  for (const input of ['names(c.builtin_tools)', 'prefs.builtin_tools ?? []', 'preset.builtin_tools ?? []']) {
-    assert.ok(chat.includes(`normalizeChatToolSelections(${input}`));
-  }
 });
 
 test('built-in calls carry the active turn session as a per-request header', async () => {

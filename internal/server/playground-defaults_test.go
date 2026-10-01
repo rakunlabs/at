@@ -40,7 +40,7 @@ func TestPlaygroundFrontendToolsDefaultsRoundTrip(t *testing.T) {
 // The saved workbench preset is per account: it is keyed on the authenticated
 // subject, never on a user ID in the request, so one account's setup cannot be
 // read or overwritten through another's session. An account that never saved
-// one reads the empty preset rather than a 404, because the page always asks.
+// one gets the shipped whoami selection rather than a 404.
 func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	s, _, tokens := playgroundFixture(t)
 
@@ -49,7 +49,7 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	}
 
 	w := playgroundDefaultsRequest(s, tokens[0], "GET", "")
-	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "{}" {
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"builtin_tools":["whoami"]}` {
 		t.Fatalf("empty preset: %d %s", w.Code, w.Body)
 	}
 
@@ -69,7 +69,7 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 
 	// A second administrator has their own preset, not this one.
 	w = playgroundDefaultsRequest(s, tokens[1], "GET", "")
-	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != "{}" {
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"builtin_tools":["whoami"]}` {
 		t.Fatalf("preset leaked across accounts: %d %s", w.Code, w.Body)
 	}
 	if w = playgroundDefaultsRequest(s, tokens[1], "PUT", `{"model":"other/model"}`); w.Code != 200 {
@@ -95,6 +95,9 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	}
 	if w.Code != 200 || string(disabled["frontend_tools"]) != "[]" {
 		t.Fatalf("empty selection was lost: %d %s", w.Code, w.Body)
+	}
+	if _, ok := disabled["builtin_tools"]; ok {
+		t.Fatalf("saved empty built-in selection was replaced: %s", w.Body)
 	}
 
 	// Unknown fields are refused like the rest of the Playground surface.

@@ -49,13 +49,14 @@ func (s *Server) PlaygroundDefaultsAPI(w http.ResponseWriter, r *http.Request) {
 			nativeError(w, http.StatusServiceUnavailable, "preference storage unavailable")
 			return
 		}
-		// An account that has never saved one gets the empty preset rather
-		// than a 404: the client always asks, and "no preset" is not an error.
-		out := playgroundDefaults{}
+		// Seed unsaved setups with identity lookup. Saved selections, including
+		// an empty tool list, remain authoritative.
+		out := playgroundDefaults{BuiltinTools: []string{"whoami"}}
 		if pref != nil && len(pref.Value) > 0 {
+			out = playgroundDefaults{}
 			if err := json.Unmarshal(pref.Value, &out); err != nil {
 				// A preset written by a newer client must not break the page.
-				out = playgroundDefaults{}
+				out = playgroundDefaults{BuiltinTools: []string{"whoami"}}
 			}
 		}
 		httpResponseJSON(w, out, http.StatusOK)

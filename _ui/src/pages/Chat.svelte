@@ -19,7 +19,8 @@
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
-  import { isChatTodoTool, normalizeChatToolSelections } from '@/lib/helper/chat-tool-selections';
+  import { isChatTodoTool, initialWorkbenchSetup, newWorkbenchSetup, normalizeWorkbenchSetup, workbenchSetupsEqual, type WorkbenchSetup } from '@/lib/helper/chat-tool-selections';
+  import { createDebouncedSave } from '@/lib/helper/debounced-save';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
@@ -55,7 +56,6 @@
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
-    type PlaygroundDefaults,
     type PlaygroundMessage,
     type PlaygroundMessageInput,
     type PlaygroundRole,
@@ -380,7 +380,12 @@
   // Per-account preset bookkeeping: never save one back before it loaded, or
   // an empty initial state would overwrite the stored preset.
   let defaultsLoaded = $state(false);
-  let defaultsTimer: ReturnType<typeof setTimeout> | null = null;
+  let accountDefaults = initialWorkbenchSetup(FRONTEND_TOOL_NAMES);
+  let setupRevision = 0;
+  let disposed = false;
+  const defaultsSave = createDebouncedSave<WorkbenchSetup>(async setup => {
+    await savePlaygroundDefaults(setup).catch(() => {});
+  }, 1200);
 
   // ─── Named presets ───
   //
@@ -399,11 +404,11 @@
 
   // Built-in server tools
   let builtinTools = $state<BuiltinToolDef[]>([]);
-  let enabledBuiltinTools = $state<string[]>([]);
+  let enabledBuiltinTools = $state<string[]>([...accountDefaults.builtin_tools]);
 
 
   // Frontend-only tools
-  let enabledFrontendTools = $state<string[]>([...FRONTEND_TOOL_NAMES]);
+  let enabledFrontendTools = $state<string[]>([...accountDefaults.frontend_tools]);
 
   // ─── Local MCP servers ───
   //
@@ -553,7 +558,7 @@
       // A tool-list change only matters for an extension already in use;
       // anything else is a membership change and needs a fresh scan.
       if (event.event === 'tools_changed' && extensionApprovedIds.includes(event.extension)) {
-        void refreshTools();
+        void discoverTools();
 
         return;
       }
@@ -590,7 +595,7 @@
       if (generation !== extensionScanGeneration || bridge !== extensionBridge) return;
       extensions = found;
       refreshExtensionApprovals();
-      void refreshTools();
+      void discoverTools();
     } catch {
       // discover() resolves with what it collected; a throw here means the
       // bridge is gone, which the empty list already says.
@@ -618,7 +623,7 @@
       extensionScanRequested = false;
       extensionScanGeneration += 1;
       extensionsScanning = false;
-      untrack(() => { void refreshTools(); });
+      untrack(() => { void discoverTools(); });
 
       return;
     }
@@ -694,7 +699,7 @@
     approveExtension(ext.id, extensionApprovalTools.map(t => t.name), localStorageSafe());
     refreshExtensionApprovals();
     extensionApprovalTarget = null;
-    void refreshTools();
+    void discoverTools();
   }
 
   /** One action, effective immediately: the next turn offers nothing from it. */
@@ -702,7 +707,7 @@
     revokeExtension(ext.id, localStorageSafe());
     refreshExtensionApprovals();
     if (extensionInspectorTarget?.id === ext.id) extensionInspectorTarget = null;
-    void refreshTools();
+    void discoverTools();
   }
 
   /**
@@ -878,16 +883,14 @@
   // ─── Workbench config round-trip ───
 
   function currentConfig(): Record<string, unknown> {
+    const { model, system_prompt, reasoning_effort, ...setup } = currentSetup();
     return {
       // Preserved, not offered: a conversation saved before direct MCP URLs
       // were removed keeps its record instead of having it rewritten away.
       mcp_urls: [...legacyMcpUrls],
       mcp_headers: { ...legacyMcpHeaders },
-      mcp_sets: [...selectedMCPSetNames],
-      skills: [...selectedSkillNames],
-      builtin_tools: [...enabledBuiltinTools],
-      frontend_tools: [...enabledFrontendTools],
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      ...setup,
+      ...(reasoning_effort ? { reasoning_effort } : {}),
     };
   }
 
@@ -895,16 +898,21 @@
     const c = config ?? {};
     const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
     legacyMcpUrls = names(c.mcp_urls);
-    selectedMCPSetNames = names(c.mcp_sets);
-    selectedSkillNames = names(c.skills);
-    const tools = normalizeChatToolSelections(names(c.builtin_tools), names(c.frontend_tools));
-    enabledBuiltinTools = tools.builtin_tools;
-    enabledFrontendTools = tools.frontend_tools;
-    reasoningEffort = typeof c.reasoning_effort === 'string' ? c.reasoning_effort : '';
+    applySetup(normalizeWorkbenchSetup({ ...c, model: selectedModel, system_prompt: systemPrompt }));
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
       ? Object.fromEntries(Object.entries(headers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
       : {};
+  }
+
+  function applySetup(setup: WorkbenchSetup) {
+    if (setup.model && models.includes(setup.model)) selectedModel = setup.model;
+    systemPrompt = setup.system_prompt;
+    reasoningEffort = setup.reasoning_effort;
+    selectedMCPSetNames = [...setup.mcp_sets];
+    selectedSkillNames = [...setup.skills];
+    enabledBuiltinTools = [...setup.builtin_tools];
+    enabledFrontendTools = [...setup.frontend_tools];
     showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
   }
 
@@ -1038,7 +1046,9 @@
   }
 
   async function openConversation(id: string) {
-    if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; }
+    if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; void saveSettings(); }
+    void defaultsSave.flush();
+    toolDiscoveryVersion++;
     resetBuffer();
     conversationId = id;
     scratchSessionId = '';
@@ -1046,7 +1056,17 @@
     parentTitle = '';
     historyTruncated = false;
     savedSettings = null;
-    if (!id) return;
+    historyLoading = false;
+    appliedPresetId = '';
+    if (!id) {
+      legacyMcpUrls = [];
+      legacyMcpHeaders = {};
+      const setup = newWorkbenchSetup(accountDefaults, models);
+      selectedModel = setup.model;
+      applySetup(setup);
+      void discoverTools();
+      return;
+    }
 
     historyLoading = true;
     try {
@@ -1079,7 +1099,7 @@
       rawMessages = {};
       meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
-      void refreshTools();
+      void discoverTools();
       scrollToBottom(true);
     } catch (e) {
       if (conversationId !== id) return;
@@ -1219,6 +1239,9 @@
   }
 
   onDestroy(() => {
+    disposed = true;
+    toolDiscoveryVersion++;
+    void defaultsSave.flush();
     if (confirmClearTimer) clearTimeout(confirmClearTimer);
     if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; void saveSettings(); }
     extensionUnsubscribe?.();
@@ -1301,24 +1324,23 @@
    * preset would silently rewrite saved history. Applied after the model list
    * resolves so a stale model is not selected.
    */
-  async function loadDefaults() {
+  async function loadDefaults(revision: number) {
     try {
       const prefs = await getPlaygroundDefaults();
+      if (disposed) return;
       defaultsLoaded = true;
+      // A late read must not undo selections made while the page was loading.
+      if (revision !== setupRevision) {
+        defaultsSave.schedule(accountDefaults);
+        return;
+      }
+      accountDefaults = normalizeWorkbenchSetup(prefs, FRONTEND_TOOL_NAMES);
       if (conversationId || params.id) return;
-      if (prefs.model && models.includes(prefs.model)) selectedModel = prefs.model;
-      if (prefs.reasoning_effort) reasoningEffort = prefs.reasoning_effort;
-      if (prefs.system_prompt && !systemPrompt.trim()) systemPrompt = prefs.system_prompt;
-      if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
-      if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
-      const tools = normalizeChatToolSelections(prefs.builtin_tools ?? [], prefs.frontend_tools ?? FRONTEND_TOOL_NAMES);
-      enabledBuiltinTools = tools.builtin_tools;
-      enabledFrontendTools = tools.frontend_tools;
-      showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
+      applySetup(accountDefaults);
     } catch {
       // A deployment without preference storage simply has no preset.
     } finally {
-      if (!conversationId && !params.id) void refreshTools();
+      if (!disposed && !conversationId && !params.id) void discoverTools();
     }
   }
 
@@ -1327,21 +1349,16 @@
    * and best-effort: this is a convenience, never a precondition for chatting,
    * so a failure is silent rather than a toast on every toggle.
    */
-  async function saveDefaults() {
+  function saveDefaults() {
+    setupRevision++;
+    accountDefaults = currentSetup();
     if (!defaultsLoaded) return;
-    if (defaultsTimer) clearTimeout(defaultsTimer);
-    defaultsTimer = setTimeout(() => {
-      defaultsTimer = null;
-      void savePlaygroundDefaults({
-        model: selectedModel,
-        reasoning_effort: reasoningEffort,
-        system_prompt: systemPrompt,
-        mcp_sets: [...selectedMCPSetNames],
-        skills: [...selectedSkillNames],
-        builtin_tools: [...enabledBuiltinTools],
-        frontend_tools: [...enabledFrontendTools],
-      }).catch(() => {});
-    }, 1200);
+    defaultsSave.schedule(accountDefaults);
+  }
+
+  function workbenchChanged() {
+    scheduleSettingsSave();
+    saveDefaults();
   }
 
   // ─── Named presets ───
@@ -1352,17 +1369,9 @@
     if (workspace.status === 'fulfilled') workspacePresets = workspace.value;
   }
 
-  /** Order-insensitive: a tool selection is a set, not a sequence. */
-  function sameSelection(a: string[] | undefined, b: string[] | undefined): boolean {
-    const left = [...(a ?? [])].sort();
-    const right = [...(b ?? [])].sort();
-
-    return left.length === right.length && left.every((v, i) => v === right[i]);
-  }
-
   /** The current workbench state in preset form. */
-  function currentSetup(): PlaygroundDefaults {
-    return {
+  function currentSetup(): WorkbenchSetup {
+    return normalizeWorkbenchSetup({
       model: selectedModel,
       reasoning_effort: reasoningEffort,
       system_prompt: systemPrompt,
@@ -1370,18 +1379,11 @@
       skills: [...selectedSkillNames],
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
-    };
+    });
   }
 
   function presetMatchesCurrent(preset: ChatPreset): boolean {
-    const tools = normalizeChatToolSelections(preset.builtin_tools ?? [], preset.frontend_tools ?? FRONTEND_TOOL_NAMES);
-    return (preset.model ?? '') === selectedModel
-      && (preset.reasoning_effort ?? '') === reasoningEffort
-      && (preset.system_prompt ?? '') === systemPrompt
-      && sameSelection(preset.mcp_sets, selectedMCPSetNames)
-      && sameSelection(preset.skills, selectedSkillNames)
-      && sameSelection(tools.builtin_tools, enabledBuiltinTools)
-      && sameSelection(tools.frontend_tools, enabledFrontendTools);
+    return workbenchSetupsEqual(normalizeWorkbenchSetup(preset, FRONTEND_TOOL_NAMES), currentSetup());
   }
 
   /**
@@ -1425,14 +1427,7 @@
       selectedModel = preset.model;
     }
 
-    systemPrompt = preset.system_prompt ?? '';
-    reasoningEffort = preset.reasoning_effort ?? '';
-    selectedMCPSetNames = [...(preset.mcp_sets ?? [])];
-    selectedSkillNames = [...(preset.skills ?? [])];
-    const tools = normalizeChatToolSelections(preset.builtin_tools ?? [], preset.frontend_tools ?? FRONTEND_TOOL_NAMES);
-    enabledBuiltinTools = tools.builtin_tools;
-    enabledFrontendTools = tools.frontend_tools;
-    showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
+    applySetup(normalizeWorkbenchSetup(preset, FRONTEND_TOOL_NAMES));
 
     appliedPresetId = preset.id;
     if (preset.scope === 'workspace' && !preset.can_edit) {
@@ -1514,7 +1509,8 @@
 
   // Defaults are applied after the model list so a saved model can be matched
   // against what this deployment actually offers.
-  loadInfo().then(loadDefaults);
+  const initialSetupRevision = setupRevision;
+  loadInfo().then(() => loadDefaults(initialSetupRevision));
   loadPresets();
   const catalogsReady = Promise.all([loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
@@ -1703,18 +1699,22 @@
 
   /** Discover tools from MCP sets, enabled builtins, and frontend tools. Build the dispatch map. */
   let toolDiscoveryVersion = 0;
-  async function refreshTools() {
+  function refreshTools() {
+    workbenchChanged();
+    return discoverTools();
+  }
+
+  async function discoverTools() {
     const version = ++toolDiscoveryVersion;
     loadingTools = true;
     await catalogsReady;
-    if (version !== toolDiscoveryVersion) return;
+    if (disposed || version !== toolDiscoveryVersion) return;
     const selections = {
       mcp_sets: selectedMCPSetNames,
       skills: selectedSkillNames,
       builtin_tools: enabledBuiltinTools,
     };
     const frontendTools = [...enabledFrontendTools];
-    void saveDefaults();
     const newTools: ToolDefinition[] = [];
     const newSourceMap: Record<string, ToolSource> = {};
     const newSkillPrompts: string[] = [];
@@ -1905,9 +1905,6 @@
       toolSourceMap = newSourceMap;
       skillSystemPrompts = newSkillPrompts;
       loadingTools = false;
-      // Single funnel for every tool/MCP/skill mutation. During a restore the
-      // snapshot already matches, so this resolves to no request at all.
-      scheduleSettingsSave();
     }
   }
 
@@ -2199,7 +2196,7 @@
       }
       refreshLocalApprovals();
       closeLocalEditor();
-      void refreshTools();
+      void discoverTools();
     } catch (e: any) {
       localDraftError = e?.response?.data?.message || 'Failed to save';
     } finally {
@@ -2214,7 +2211,7 @@
       forgetLocalClient(server);
       refreshLocalApprovals();
       if (localDraftId === server.id) closeLocalEditor();
-      void refreshTools();
+      void discoverTools();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to remove', 'alert');
     }
@@ -2240,7 +2237,7 @@
     approveLocalMCP(server.id, localApprovalTools.map(t => t.name), localStorageSafe());
     refreshLocalApprovals();
     localApprovalFor = null;
-    void refreshTools();
+    void discoverTools();
   }
 
   /** One action, effective immediately: the next turn offers nothing from it. */
@@ -2248,7 +2245,7 @@
     revokeLocalMCP(server.id, localStorageSafe());
     forgetLocalClient(server);
     refreshLocalApprovals();
-    void refreshTools();
+    void discoverTools();
   }
 
   /** Execute a frontend-only tool (runs entirely in the browser). */
@@ -2845,8 +2842,8 @@
     <!-- Model selector -->
     <div class="relative min-w-0 flex-1 basis-40 max-w-xs">
       <select
-        bind:value={selectedModel}
-        onchange={scheduleSettingsSave}
+        value={selectedModel}
+        onchange={(e) => { selectedModel = e.currentTarget.value; workbenchChanged(); }}
         aria-label="Model"
         disabled={loading || models.length === 0}
         class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
@@ -2873,7 +2870,7 @@
       <div class="relative min-w-0 shrink basis-24 max-w-36">
         <select
           value={effectiveReasoningEffort}
-          onchange={(e) => { reasoningEffort = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
+          onchange={(e) => { reasoningEffort = e.currentTarget.value; workbenchChanged(); }}
           aria-label="Reasoning effort"
           title="Reasoning effort — models without reasoning may reject it"
           class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
@@ -3167,7 +3164,7 @@
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
             <textarea
               value={systemPrompt}
-              oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
+              oninput={(e) => { systemPrompt = e.currentTarget.value; workbenchChanged(); }}
               aria-label="System prompt"
               placeholder="System prompt (optional)"
               rows={8}

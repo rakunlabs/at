@@ -30,6 +30,23 @@ delete globalThis.playgroundAxiosMock;
 
 beforeEach(() => { calls = []; response = undefined; failure = undefined; });
 
+test('reasoning effort survives defaults and both preset write paths', async () => {
+  const setup = { model: 'p/m', reasoning_effort: 'high', builtin_tools: [], frontend_tools: [] };
+  response = setup;
+  assert.deepEqual(await api.savePlaygroundDefaults(setup), setup);
+  response = { presets: [] };
+  await api.saveChatPresets([{ id: 'preset-1', name: 'Reasoning', ...setup }]);
+  response = { id: 'workspace-1', name: 'Reasoning', ...setup };
+  await api.createWorkspaceChatPreset({ name: 'Reasoning', ...setup });
+  await api.updateWorkspaceChatPreset('workspace-1', { name: 'Reasoning', ...setup });
+  assert.deepEqual(calls, [
+    ['put', '/chats/defaults', setup],
+    ['put', '/chats/presets', { presets: [{ id: 'preset-1', name: 'Reasoning', ...setup }] }],
+    ['post', '/chats/workspace-presets', { name: 'Reasoning', ...setup }],
+    ['put', '/chats/workspace-presets/workspace-1', { name: 'Reasoning', ...setup }],
+  ]);
+});
+
 const conversation = (overrides = {}) => ({
   id: 'c1', owner_user_id: 'u1', title: 'Hello', system_prompt: '', provider_key: 'openai', model: 'gpt-4o',
   config: {}, created_at: '2026-09-10T00:00:00Z', updated_at: '2026-09-10T00:00:00Z', ...overrides,

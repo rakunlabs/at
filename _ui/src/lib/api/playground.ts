@@ -252,13 +252,13 @@ export interface PlaygroundDefaults {
   frontend_tools?: string[];
 }
 
-/** An account that never saved a preset reads `{}` rather than a 404. */
+/** An account that never saved a preset reads the shipped defaults, not a 404. */
 export async function getPlaygroundDefaults(): Promise<PlaygroundDefaults> {
   const res = await api.get<PlaygroundDefaults>('/chats/defaults');
   return res.data || {};
 }
 
-const DEFAULTS_FIELDS = ['model', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
+const DEFAULTS_FIELDS = ['model', 'reasoning_effort', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
 
 /** Bodies are rebuilt from the allowlist: the endpoint rejects unknown fields. */
 export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise<PlaygroundDefaults> {

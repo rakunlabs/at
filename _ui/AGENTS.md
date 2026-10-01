@@ -40,6 +40,17 @@ unsaved scratch buffer and `/chats/:id` opens a saved conversation. Two
 separate route entries would remount the page on navigation and kill the
 in-flight turn, so they must stay merged.
 
+Chats workbench setups are normalized and compared through
+`lib/helper/chat-tool-selections.ts`. Fresh accounts start with `whoami`;
+saved empty selections remain empty. New chat restores the entire account
+setup, while opening saved history never changes account defaults. Discovery
+(`discoverTools`) is separate from deliberate selection changes (`refreshTools`),
+which capture a defaults snapshot before debouncing. Navigation and destruction
+flush that snapshot and clear its timer. Regression coverage:
+`tests/chat-workbench.test.mjs`, `tests/chat-workbench-lifecycle.test.mjs`,
+`tests/debounced-save.test.mjs` and the preset write cases in
+`tests/playground.test.mjs`.
+
 ## Patterns
 
 - **API layer**: each `lib/api/*.ts` creates axios instance, exports typed async functions. No generated OpenAPI client.
