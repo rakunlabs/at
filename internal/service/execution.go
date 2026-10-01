@@ -244,6 +244,11 @@ func ValidateExecutionMode(mode string) error {
 // Explicit registries: adding a new implementation does not grant authority.
 // Legacy file helpers and network tools are host-only until individually rooted.
 func ExecutionToolClass(name string) (host, known bool) {
+	// The compiled runtime registry is authoritative when attached. Core
+	// fallbacks below support standalone service consumers without a Server.
+	if host, known = registeredExecutionClass("tool", name); known {
+		return host, true
+	}
 	switch name {
 	case "file_read", "file_write", "file_list", "batch_execute":
 		return false, true

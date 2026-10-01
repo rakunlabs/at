@@ -2239,6 +2239,53 @@ Episodic production is filesystem-backed so production workflows and the UI shar
 
 Note: `internal/server/workflow_seeds/` is legacy/unreferenced — Integration Packs are the supported install mechanism.
 
+## Non-host built-in bookkeeping tools
+
+`builtin-tools-registry.go` owns the validated runtime registry: each entry joins
+its wire definition with an executor and an explicit execution class (non-host,
+host, or host plus platform host-file admission). API/MCP/workflow discovery,
+known-name checks, dispatch and service capability registration derive from that
+registry. Schema payloads remain in `builtinToolSchemas` for readability; missing
+schemas/executors, duplicates and unset classes invalidate the whole registry
+instead of guessing authority or silently returning an empty successful result.
+Registry initialization logs failures and disables built-ins. Core service-only
+class fallbacks remain, but attached runtime registrations take precedence.
+Regression: `internal/server/builtin-tools-registry_test.go`.
+
+`current_time`, `whoami`, `todo_read`, `todo_write`, `get_user_preferences`,
+`set_user_preference`, `guide_list` and `guide_get` support Restricted execution
+without `execution.host`. Explicit workspace tool permission, feature switches,
+live execution identity and existing resource admission still apply.
+
+`current_time` reads the server clock once and returns `datetime`, `utc`
+(RFC3339Nano), `timezone`, `unix_seconds` and `utc_offset_seconds`. Optional
+`timezone` accepts an IANA name, default UTC; saved preferences are not applied
+implicitly. `Local` is refused to avoid depending on host configuration. Embedded
+`time/tzdata` keeps zones available in minimal images. Regression:
+`internal/server/builtin-tools-current-time_test.go`.
+
+Todo keys include the bound workspace/account and session; sessionless calls use
+the run ID, never a shared empty/default key. Chats sends its active turn's
+conversation/scratch session ID on server built-in calls via `X-Session-ID`.
+Chats exposes todos only as browser Chat tools (the visible todo panel); server
+todo entries are hidden there but remain available to other execution surfaces.
+Legacy server todo selections in conversations/defaults/presets migrate to Chat
+tools via `normalizeChatToolSelections`, including preset equality checks.
+Regressions: `_ui/tests/chat-tool-selections.test.mjs`,
+`internal/server/builtin-tools-todo-session_test.go`.
+Preference tools use the bound run-as account
+(not tool arguments or chat-channel metadata). They expose only non-secret
+`timezone`, `location` and `language`; application settings and arbitrary keys
+are excluded. Sessions automatic prompt injection uses the same filter in
+`personal-preferences.go`, so application settings cannot hitchhike into model
+requests. Regression: `internal/server/personal-preferences_test.go`, including
+a real agent-loop provider request. Public writes atomically refuse to overwrite secret preferences
+through `PublicUserPreferenceStorer`. Existing other preference rows are preserved
+but no longer exposed or writable through these tools. Guide reads retain the
+store's resource scope; guide mutations and unreviewed management tools stay host-only.
+Regressions: `builtin-tools-non-host_test.go`, `builtin-tools-whoami_test.go`,
+`internal/store/postgres/user-preferences_test.go`.
+
 ## Built-in "get" tools take one identifier or a list
 
 Every record-fetching built-in (`agent_get`, `task_get`, `org_get`,

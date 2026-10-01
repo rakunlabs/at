@@ -22,3 +22,12 @@ test('server refusal is retained before feature catalog arrives', () => {
   assert.equal(builtinDisabledBy({ name: 'todo_read' }, key => key !== 'builtin_other'), 'builtin_other');
   assert.equal(builtinDisabledBy({ name: 'http_request' }, key => key !== 'builtin_other'), '');
 });
+
+test('Chats starts server tool families collapsed while search reveals matches', async () => {
+  const picker = await readFile(new URL('../src/lib/components/BuiltinToolPicker.svelte', import.meta.url), 'utf8');
+  const chat = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
+  assert.match(picker, /collapsed = false/);
+  assert.match(picker, /collapsed\?: boolean/);
+  assert.match(picker, /<details open=\{search\.length > 0 \|\| \(!collapsed && family\.key !== 'builtin_other'\)\}/);
+  assert.match(chat, /<BuiltinToolPicker[^\n]*\bcollapsed\b[^\n]*\/>/);
+});

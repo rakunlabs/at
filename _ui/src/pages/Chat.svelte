@@ -19,6 +19,7 @@
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
+  import { isChatTodoTool, normalizeChatToolSelections } from '@/lib/helper/chat-tool-selections';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
@@ -182,7 +183,7 @@
       type: 'function',
       function: {
         name: 'todo_write',
-        description: 'Create or update a structured todo list. Replaces the entire list with the provided items. Each item has content (description), status (pending/in_progress/completed/cancelled), and priority (high/medium/low).',
+        description: 'Create or update the visible todo list for this chat in the browser. Replaces the entire list with the provided items. Each item has content (description), status (pending/in_progress/completed/cancelled), and priority (high/medium/low).',
         parameters: {
           type: 'object',
           properties: {
@@ -208,7 +209,7 @@
       type: 'function',
       function: {
         name: 'todo_read',
-        description: 'Read the current todo list. Returns all items with their content, status, and priority.',
+        description: 'Read the visible todo list for this chat in the browser. Returns all items with their content, status, and priority.',
         parameters: { type: 'object', properties: {} },
       },
     },
@@ -896,8 +897,9 @@
     legacyMcpUrls = names(c.mcp_urls);
     selectedMCPSetNames = names(c.mcp_sets);
     selectedSkillNames = names(c.skills);
-    enabledBuiltinTools = names(c.builtin_tools);
-    enabledFrontendTools = names(c.frontend_tools);
+    const tools = normalizeChatToolSelections(names(c.builtin_tools), names(c.frontend_tools));
+    enabledBuiltinTools = tools.builtin_tools;
+    enabledFrontendTools = tools.frontend_tools;
     reasoningEffort = typeof c.reasoning_effort === 'string' ? c.reasoning_effort : '';
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
@@ -1309,8 +1311,9 @@
       if (prefs.system_prompt && !systemPrompt.trim()) systemPrompt = prefs.system_prompt;
       if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
       if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
-      if (prefs.builtin_tools?.length) enabledBuiltinTools = [...prefs.builtin_tools];
-      enabledFrontendTools = [...(prefs.frontend_tools ?? FRONTEND_TOOL_NAMES)];
+      const tools = normalizeChatToolSelections(prefs.builtin_tools ?? [], prefs.frontend_tools ?? FRONTEND_TOOL_NAMES);
+      enabledBuiltinTools = tools.builtin_tools;
+      enabledFrontendTools = tools.frontend_tools;
       showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
     } catch {
       // A deployment without preference storage simply has no preset.
@@ -1371,13 +1374,14 @@
   }
 
   function presetMatchesCurrent(preset: ChatPreset): boolean {
+    const tools = normalizeChatToolSelections(preset.builtin_tools ?? [], preset.frontend_tools ?? FRONTEND_TOOL_NAMES);
     return (preset.model ?? '') === selectedModel
       && (preset.reasoning_effort ?? '') === reasoningEffort
       && (preset.system_prompt ?? '') === systemPrompt
       && sameSelection(preset.mcp_sets, selectedMCPSetNames)
       && sameSelection(preset.skills, selectedSkillNames)
-      && sameSelection(preset.builtin_tools, enabledBuiltinTools)
-      && sameSelection(preset.frontend_tools ?? FRONTEND_TOOL_NAMES, enabledFrontendTools);
+      && sameSelection(tools.builtin_tools, enabledBuiltinTools)
+      && sameSelection(tools.frontend_tools, enabledFrontendTools);
   }
 
   /**
@@ -1425,8 +1429,9 @@
     reasoningEffort = preset.reasoning_effort ?? '';
     selectedMCPSetNames = [...(preset.mcp_sets ?? [])];
     selectedSkillNames = [...(preset.skills ?? [])];
-    enabledBuiltinTools = [...(preset.builtin_tools ?? [])];
-    enabledFrontendTools = [...(preset.frontend_tools ?? FRONTEND_TOOL_NAMES)];
+    const tools = normalizeChatToolSelections(preset.builtin_tools ?? [], preset.frontend_tools ?? FRONTEND_TOOL_NAMES);
+    enabledBuiltinTools = tools.builtin_tools;
+    enabledFrontendTools = tools.frontend_tools;
     showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
 
     appliedPresetId = preset.id;
@@ -1810,6 +1815,7 @@
 
       // 4. Add enabled built-in server tools
       for (const toolName of selections.builtin_tools) {
+        if (isChatTodoTool(toolName)) continue;
         const def = builtinTools.find(t => t.name === toolName);
         if (!def || builtinDisabledBy(def, isFeatureEnabled) || newSourceMap[def.name]) continue;
         newTools.push({
@@ -1928,7 +1934,7 @@
         const text = res.content?.map(c => c.text).join('\n') ?? '';
         return text || 'Tool executed successfully (no output)';
       } else if (source.type === 'builtin') {
-        const res = await callBuiltinTool(tc.function.name, args, '', turnTraceId);
+        const res = await callBuiltinTool(tc.function.name, args, '', turnTraceId, turnSessionId);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'local') {
@@ -3230,7 +3236,7 @@
           {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0}
             <div role="group" aria-label="Server Tools" class="block">
               <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
-              <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} onchange={refreshTools} />
+              <BuiltinToolPicker tools={builtinTools.filter(tool => !isChatTodoTool(tool.name))} bind:selected={enabledBuiltinTools} collapsed onchange={refreshTools} />
             </div>
           {/if}
           {/if}

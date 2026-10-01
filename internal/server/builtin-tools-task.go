@@ -27,7 +27,7 @@ type todoItem struct {
 }
 
 // todoStore holds per-session todo lists.
-// Key: session identifier (from request header or a default).
+// Key: bound workspace/account plus session identifier (or run ID).
 type todoStore struct {
 	mu    sync.RWMutex
 	lists map[string][]todoItem
@@ -72,8 +72,9 @@ func getSessionID(r *http.Request) string {
 	if sid := r.Header.Get("X-Request-ID"); sid != "" {
 		return sid
 	}
-	// Fallback to a default session.
-	return "default"
+	// Without an explicit session, todoScopeKey uses the bound run ID. A shared
+	// default would mix unrelated conversations from the same account.
+	return ""
 }
 
 // execTodoWrite creates or updates a todo list.
@@ -118,7 +119,10 @@ func (s *Server) execTodoWrite(ctx context.Context, args map[string]any) (string
 		}
 	}
 
-	sessionID := sessionIDFromContext(ctx)
+	sessionID, err := todoScopeKey(ctx)
+	if err != nil {
+		return "", err
+	}
 	s.todos.set(sessionID, items)
 
 	// Build summary.
@@ -146,7 +150,10 @@ func (s *Server) execTodoWrite(ctx context.Context, args map[string]any) (string
 // execTodoRead reads the current todo list.
 // Parameters: none
 func (s *Server) execTodoRead(ctx context.Context, _ map[string]any) (string, error) {
-	sessionID := sessionIDFromContext(ctx)
+	sessionID, err := todoScopeKey(ctx)
+	if err != nil {
+		return "", err
+	}
 	items := s.todos.get(sessionID)
 
 	if len(items) == 0 {
@@ -159,6 +166,24 @@ func (s *Server) execTodoRead(ctx context.Context, _ map[string]any) (string, er
 	}
 
 	return string(data), nil
+}
+
+func todoScopeKey(ctx context.Context) (string, error) {
+	prov, _, ok := service.ExecutionFromContext(ctx)
+	if !ok || prov.UserID == "" || prov.WorkspaceID == "" {
+		return "", fmt.Errorf("no authenticated user is bound to this run")
+	}
+	sessionID := sessionIDFromContext(ctx)
+	scope := "session"
+	if sessionID == "" {
+		scope, sessionID = "run", prov.RunID
+	}
+	// JSON tuple encoding avoids collisions from caller-controlled session IDs.
+	key, err := json.Marshal([]string{prov.WorkspaceID, prov.UserID, scope, sessionID})
+	if err != nil {
+		return "", fmt.Errorf("encode todo scope: %w", err)
+	}
+	return string(key), nil
 }
 
 // execBatchExecute executes multiple builtin tools in parallel.

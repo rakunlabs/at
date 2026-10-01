@@ -1012,22 +1012,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 	var varLister workflow.VarLister
 	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
-	// 9. Inject user preferences into system prompt (non-secret only).
+	// 9. Inject only the personal preferences exposed by the preference tools.
 	if s.userPrefStore != nil && sessionUserID != "" {
 		prefs, err := s.userPrefStore.ListUserPreferences(ctx, sessionUserID)
-		if err == nil && len(prefs) > 0 {
-			var prefLines []string
-			for _, p := range prefs {
-				if !p.Secret {
-					prefLines = append(prefLines, fmt.Sprintf("- %s: %s", p.Key, string(p.Value)))
-				}
-			}
-			if len(prefLines) > 0 {
-				if systemPrompt != "" {
-					systemPrompt += "\n\n"
-				}
-				systemPrompt += "User preferences:\n" + strings.Join(prefLines, "\n")
-			}
+		if err == nil {
+			systemPrompt = appendPersonalPreferencesPrompt(systemPrompt, prefs)
 		}
 	}
 

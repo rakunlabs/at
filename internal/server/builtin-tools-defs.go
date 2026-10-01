@@ -94,18 +94,10 @@ type builtinToolDef struct {
 	DisabledBy  string         `json:"disabled_by,omitempty"`
 }
 
-// knownBuiltinTools is the set of all valid builtin tool names.
-var knownBuiltinTools = func() map[string]bool {
-	m := make(map[string]bool, len(builtinTools))
-	for _, t := range builtinTools {
-		m[t.Name] = true
-	}
-	return m
-}()
-
 // isKnownBuiltinTool checks if a tool name is registered.
 func isKnownBuiltinTool(name string) bool {
-	return knownBuiltinTools[name]
+	_, ok := builtinToolRegistry.byName[name]
+	return ok
 }
 
 // builtinToolDefsForWorkflow returns the builtin tool definitions in the
@@ -141,6 +133,10 @@ func (s *Server) availableLoopTools(ctx context.Context, tools []service.Tool, i
 // BuiltinToolListAPI handles GET /api/v1/mcp/builtin-tools.
 // Returns the static list of server-side built-in tool definitions.
 func (s *Server) BuiltinToolListAPI(w http.ResponseWriter, r *http.Request) {
+	if builtinToolRegistryErr != nil {
+		httpResponse(w, "built-in tool registry unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	flags, err := s.featureFlags(r.Context())
 	if err != nil {
 		httpResponse(w, "failed to check built-in tool features", http.StatusInternalServerError)

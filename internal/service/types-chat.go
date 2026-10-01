@@ -200,6 +200,12 @@ type UserPreferenceStorer interface {
 	DeleteUserPreference(ctx context.Context, userID, key string) error
 }
 
+// PublicUserPreferenceStorer atomically refuses to replace a secret preference
+// with public tool data. A read-then-write check cannot protect concurrent writes.
+type PublicUserPreferenceStorer interface {
+	SetPublicUserPreference(ctx context.Context, pref UserPreference) error
+}
+
 // ─── Marketplace Sources ───
 
 // MarketplaceSource represents a configurable skill marketplace source.

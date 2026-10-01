@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -12,6 +13,51 @@ type whoamiStore struct {
 	service.ProviderStorer
 	users map[string]*service.AuthUser
 	links map[string][]service.AuthUserIdentity
+}
+
+func TestWhoamiDispatchRestricted(t *testing.T) {
+	for _, allowed := range []bool{true, false} {
+		name := "allowed"
+		if !allowed {
+			name = "denied"
+		}
+		t.Run(name, func(t *testing.T) {
+			s := &Server{store: &whoamiStore{users: map[string]*service.AuthUser{"u1": {ID: "u1", Username: "ada"}}}}
+			policy := service.ExecutionPolicy{WorkspaceID: "w1", Mode: service.ExecutionRestricted}
+			if allowed {
+				policy.AllowedTools = []string{"whoami"}
+			}
+			ctx, err := service.BindExecution(t.Context(), service.ExecutionProvenance{RunID: "r", UserID: "u1", WorkspaceID: "w1", Source: "chat"}, t.TempDir(), func(_ context.Context, _ service.ExecutionProvenance, action service.ExecutionAction) (service.ExecutionValidation, error) {
+				if action.Name == "execution.host" {
+					t.Fatal("whoami must not request host authority")
+				}
+				return service.ExecutionValidation{Allowed: true, Policy: policy}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := s.dispatchBuiltinTool(ctx, "whoami", map[string]any{"user_id": "someone-else"})
+			if !allowed {
+				if !errors.Is(err, service.ErrExecutionDenied) {
+					t.Fatalf("expected execution denial, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got whoamiResult
+			if err := json.Unmarshal([]byte(raw), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.UserID != "u1" || got.Username != "ada" {
+				t.Fatalf("unexpected whoami: %+v", got)
+			}
+		})
+	}
+	if _, err := (&Server{}).dispatchBuiltinTool(context.Background(), "whoami", nil); !errors.Is(err, service.ErrExecutionDenied) {
+		t.Fatalf("unbound whoami must be denied, got %v", err)
+	}
 }
 
 func (w *whoamiStore) GetAuthUserByID(_ context.Context, id string) (*service.AuthUser, error) {

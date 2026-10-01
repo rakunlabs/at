@@ -159,6 +159,32 @@ func TestExecutionVersionFence(t *testing.T) {
 	}
 }
 
+func TestExecutionToolClassRegistryPrecedence(t *testing.T) {
+	const name = "file_read"
+	key := "tool:" + name
+	executionClasses.Lock()
+	previous, existed := executionClasses.values[key]
+	executionClasses.Unlock()
+	t.Cleanup(func() {
+		executionClasses.Lock()
+		defer executionClasses.Unlock()
+		if existed {
+			executionClasses.values[key] = previous
+		} else {
+			delete(executionClasses.values, key)
+		}
+	})
+	// A compiled runtime registration must override the standalone core fallback.
+	RegisterExecutionCapability("tool", name, true)
+	if host, known := ExecutionToolClass(name); !host || !known {
+		t.Fatalf("runtime registration ignored: host=%v known=%v", host, known)
+	}
+	RegisterExecutionCapability("tool", name, false)
+	if host, known := ExecutionToolClass(name); !host || !known {
+		t.Fatalf("duplicate registration changed authority: host=%v known=%v", host, known)
+	}
+}
+
 func TestExecutionAllowAll(t *testing.T) {
 	for _, kind := range []string{"tool", "node"} {
 		for _, name := range ExecutionCapabilityNames(kind) {

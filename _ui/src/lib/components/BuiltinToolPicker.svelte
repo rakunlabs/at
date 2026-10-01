@@ -3,10 +3,11 @@
   import { builtinFamilies, builtinFamily, builtinDisabledBy, builtinGroupLabel } from '@/lib/helper/builtin-tools';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
 
-  let { tools, selected = $bindable([]), inherited = [], onchange }: {
+  let { tools, selected = $bindable([]), inherited = [], collapsed = false, onchange }: {
     tools: BuiltinToolDef[];
     selected?: string[];
     inherited?: string[];
+    collapsed?: boolean;
     onchange?: () => void;
   } = $props();
 
@@ -28,7 +29,7 @@
   {#each builtinFamilies as family}
     {@const entries = tools.filter(t => builtinFamily(t) === family.key && `${t.name} ${t.description}`.toLowerCase().includes(search.toLowerCase()))}
     {#if entries.length > 0}
-      <details open={family.key !== 'builtin_other' || search.length > 0} class="border border-gray-200 dark:border-dark-border">
+      <details open={search.length > 0 || (!collapsed && family.key !== 'builtin_other')} class="border border-gray-200 dark:border-dark-border">
         <summary class="cursor-pointer bg-gray-50 dark:bg-dark-base px-3 py-2 text-xs font-medium text-gray-700 dark:text-dark-text-secondary">
           {family.label} · {entries.filter(t => selected.includes(t.name) || inherited.includes(t.name)).length} selected
           {#if !isFeatureEnabled('builtin_tools') || !isFeatureEnabled(family.key)} · Disabled by administrator{/if}

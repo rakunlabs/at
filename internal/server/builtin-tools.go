@@ -23,21 +23,6 @@ func agentConnectionsSchema() map[string]any {
 	}
 }
 
-func init() {
-	for _, tool := range builtinTools {
-		host := true
-		switch tool.Name {
-		case "agent_run", "agent_run_status", "agent_run_cancel", "decide":
-			// decide is one provider call through the scoped execution
-			// provider, like a model call; it touches no host primitive.
-			// The child loop revalidates every provider/resource/tool action;
-			// launching or observing it grants no daemon-host primitive itself.
-			host = false
-		}
-		service.RegisterExecutionCapability("tool", tool.Name, host)
-	}
-}
-
 func agentSkillsSchema() map[string]any {
 	return map[string]any{
 		"type":        "array",
@@ -66,10 +51,11 @@ func multiIDSchema(description string) map[string]any {
 	}
 }
 
-// builtinTools is the static list of server-side built-in tools.
+// builtinToolSchemas holds the wire schemas. The validated runtime registry
+// joins these with explicit executors/classes and supplies the builtinTools view.
 // Tool definitions are registered here; executors live in builtin-tools-*.go files;
 // dispatch lives in builtin-tools-dispatch.go.
-var builtinTools = []builtinToolDef{
+var builtinToolSchemas = []builtinToolDef{
 	// ─── Original Tools ───
 	{
 		Name:        "http_request",
@@ -183,9 +169,10 @@ var builtinTools = []builtinToolDef{
 	}, "required": []string{"provider", "state", "questions"}}},
 
 	// ─── User Preference Tools ───
+	{Name: "current_time", Description: "Get the current date and time from the server clock, in UTC and an optional IANA timezone (for example Europe/Istanbul). Defaults to UTC; does not automatically read saved user preferences. Returns RFC3339 timestamps, Unix seconds and UTC offset seconds. Requires no host execution.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"timezone": map[string]any{"type": "string", "description": "IANA timezone name, e.g. Europe/Istanbul or America/New_York. Defaults to UTC."}}}},
 	{Name: "whoami", Description: "Identify the signed-in user this conversation runs as: account ID, username, full name, verified email, current workspace and role, plus linked sign-in identities. Takes no arguments; the answer comes from the authenticated session and cannot be changed by the conversation.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "set_user_preference", Description: "Save a persistent user preference such as timezone, location, or language. The value is stored per-user and will be remembered across sessions. Use this when the user tells you their timezone, location, language, or other personal preferences that should be remembered.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "description": "Preference key (e.g. 'timezone', 'location', 'language')"}, "value": map[string]any{"description": "Preference value — can be a string or a JSON object (e.g. 'Europe/Istanbul' or {\"city\": \"Istanbul\", \"country\": \"Turkey\"})"}}, "required": []string{"key", "value"}}},
-	{Name: "get_user_preferences", Description: "Retrieve all stored preferences for the current user (timezone, location, language, etc.). Returns a JSON object with all saved preferences.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "set_user_preference", Description: "Save timezone, location or language for the authenticated account this run executes as. Values persist across sessions. Application settings and secret preferences cannot be changed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "enum": []string{"timezone", "location", "language"}, "description": "Personal preference key"}, "value": map[string]any{"description": "Preference value — can be a string or a JSON object (e.g. 'Europe/Istanbul' or {\"city\": \"Istanbul\", \"country\": \"Turkey\"})"}}, "required": []string{"key", "value"}}},
+	{Name: "get_user_preferences", Description: "Retrieve non-secret timezone, location and language preferences for the authenticated account this run executes as. Application settings and credentials are excluded.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 
 	// ─── Workflow & Trigger Management Tools ───
 	{Name: "workflow_list", Description: "List all workflows in the system. Returns a summary of each workflow including ID, name, description, node/edge counts, and timestamps.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
@@ -1169,14 +1156,17 @@ func (s *Server) execSetUserPreference(ctx context.Context, args map[string]any)
 		return "", fmt.Errorf("user preference store not configured")
 	}
 
-	userID := sessionUserIDFromContext(ctx)
-	if userID == "" {
-		return "", fmt.Errorf("no user identity available — user preferences require a bot session or authenticated context")
+	userID, err := builtinPreferenceUserID(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	key, _ := args["key"].(string)
 	if key == "" {
 		return "", fmt.Errorf("key is required")
+	}
+	if !builtinPersonalPreferenceKey(key) {
+		return "", fmt.Errorf("unsupported personal preference key %q: use timezone, location or language", key)
 	}
 
 	value := args["value"]
@@ -1202,7 +1192,11 @@ func (s *Server) execSetUserPreference(ctx context.Context, args map[string]any)
 		valueJSON = data
 	}
 
-	if err := s.userPrefStore.SetUserPreference(ctx, service.UserPreference{
+	writer, ok := s.userPrefStore.(service.PublicUserPreferenceStorer)
+	if !ok {
+		return "", fmt.Errorf("public user preference writes not supported by store")
+	}
+	if err := writer.SetPublicUserPreference(ctx, service.UserPreference{
 		UserID: userID,
 		Key:    key,
 		Value:  valueJSON,
@@ -1219,15 +1213,23 @@ func (s *Server) execSetUserPreference(ctx context.Context, args map[string]any)
 	return string(data), nil
 }
 
-// execGetUserPreferences retrieves all non-secret preferences for the current user.
+func builtinPreferenceUserID(ctx context.Context) (string, error) {
+	prov, _, ok := service.ExecutionFromContext(ctx)
+	if !ok || prov.UserID == "" {
+		return "", fmt.Errorf("no authenticated user is bound to this run")
+	}
+	return prov.UserID, nil
+}
+
+// execGetUserPreferences retrieves non-secret personal preferences for the bound account.
 func (s *Server) execGetUserPreferences(ctx context.Context, _ map[string]any) (string, error) {
 	if s.userPrefStore == nil {
 		return "", fmt.Errorf("user preference store not configured")
 	}
 
-	userID := sessionUserIDFromContext(ctx)
-	if userID == "" {
-		return "", fmt.Errorf("no user identity available — user preferences require a bot session or authenticated context")
+	userID, err := builtinPreferenceUserID(ctx)
+	if err != nil {
+		return "", err
 	}
 
 	prefs, err := s.userPrefStore.ListUserPreferences(ctx, userID)
@@ -1236,10 +1238,7 @@ func (s *Server) execGetUserPreferences(ctx context.Context, _ map[string]any) (
 	}
 
 	result := make(map[string]any, len(prefs))
-	for _, p := range prefs {
-		if p.Secret {
-			continue // Don't expose secret preferences to the LLM.
-		}
+	for _, p := range personalUserPreferences(prefs) {
 		var val any
 		if err := json.Unmarshal(p.Value, &val); err != nil {
 			val = string(p.Value)

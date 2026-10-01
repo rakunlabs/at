@@ -171,6 +171,30 @@ func (p *Postgres) DeleteUserPreference(ctx context.Context, userID, key string)
 	return nil
 }
 
+func (p *Postgres) SetPublicUserPreference(ctx context.Context, pref service.UserPreference) error {
+	if pref.Secret || pref.UserID == "" || pref.Key == "" {
+		return fmt.Errorf("invalid public user preference")
+	}
+	now := time.Now().UTC()
+	result, err := p.goqu.Insert(p.tableUserPreferences).Rows(goqu.Record{
+		"id": ulid.Make().String(), "user_id": pref.UserID, "key": pref.Key,
+		"value": string(pref.Value), "secret": false, "created_at": now, "updated_at": now,
+	}).OnConflict(goqu.DoUpdate("user_id,key", goqu.Record{
+		"value": string(pref.Value), "updated_at": now,
+	}).Where(p.tableUserPreferences.Col("secret").Eq(false))).Executor().ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("save public user preference: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check public user preference write: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("secret preference cannot be overwritten: %w", service.ErrAccessDenied)
+	}
+	return nil
+}
+
 // userPrefRowToRecord converts a database row to a UserPreference, decrypting the value if secret.
 func userPrefRowToRecord(row userPreferenceRow, encKey []byte) (*service.UserPreference, error) {
 	value := row.Value
