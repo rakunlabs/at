@@ -51,6 +51,17 @@ flush that snapshot and clear its timer. Regression coverage:
 `tests/debounced-save.test.mjs` and the preset write cases in
 `tests/playground.test.mjs`.
 
+The browser chat loop owns one turn from send/retry through lazy creation,
+question persistence, all model/tool steps and final persistence. Its lifecycle
+and iterative budget live in `lib/helper/chat-turn.ts`; navigation invalidates
+the generation, and late callbacks/cleanup may not mutate the next turn. Model,
+prompt, tools, routing and trace ID are snapshotted once per turn. Chats uses
+`requireComplete` streaming and `chat-tools.ts` dispatches only JSON-object
+arguments. `chat-persistence.ts` snapshots transcripts before attachment uploads
+and serializes appends, while `serial-queue.ts` also orders defaults writes.
+Regressions: `tests/chat-runtime.test.mjs`, `tests/chat-turn.test.mjs`,
+`tests/chat-persistence.test.mjs` and `tests/chat-stream.test.mjs`.
+
 ## Patterns
 
 - **API layer**: each `lib/api/*.ts` creates axios instance, exports typed async functions. No generated OpenAPI client.

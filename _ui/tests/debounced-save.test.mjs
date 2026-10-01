@@ -1,13 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
-const source = await readFile(new URL('../src/lib/helper/debounced-save.ts', import.meta.url), 'utf8');
-const code = ts.transpileModule(source, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
-}).outputText;
-const { createDebouncedSave } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { createDebouncedSave } = await import(await moduleURL(new URL('../src/lib/helper/debounced-save.ts', import.meta.url)));
 
 function fixture() {
   const callbacks = new Map();
@@ -54,4 +49,23 @@ test('cancel removes pending writes and flushing an idle saver does nothing', as
   await save.flush();
   assert.deepEqual(writes, []);
   assert.equal(callbacks.size, 0);
+});
+
+test('a newer defaults write waits for an in-flight older write', async () => {
+  let finishOld;
+  const old = new Promise(resolve => { finishOld = resolve; });
+  const writes = [];
+  const save = createDebouncedSave(async value => {
+    writes.push(`start:${value}`);
+    if (value === 'old') await old;
+    writes.push(`finish:${value}`);
+  }, 1200);
+  save.schedule('old');
+  const first = save.flush();
+  save.schedule('new');
+  const next = save.flush();
+  assert.deepEqual(writes, ['start:old']);
+  finishOld();
+  await Promise.all([first, next]);
+  assert.deepEqual(writes, ['start:old', 'finish:old', 'start:new', 'finish:new']);
 });

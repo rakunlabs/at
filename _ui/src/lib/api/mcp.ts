@@ -93,13 +93,14 @@ export async function callBuiltinTool(
   agentId = '',
   traceId = '',
   sessionId = '',
+  signal?: AbortSignal,
 ): Promise<BuiltinCallToolResponse> {
   const res = await api.post<BuiltinCallToolResponse>('/mcp/call-builtin-tool', {
     name,
     arguments: args,
     agent_id: agentId || undefined,
     trace_id: traceId || undefined,
-  }, sessionId ? { headers: { 'X-Session-ID': sessionId } } : undefined);
+  }, { ...(sessionId ? { headers: { 'X-Session-ID': sessionId } } : {}), ...(signal ? { signal } : {}) });
   return res.data;
 }
 

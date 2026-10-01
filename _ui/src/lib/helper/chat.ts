@@ -176,76 +176,59 @@ export async function streamChatCompletion(
   // OpenAI streaming format: first delta for a tool call carries id +
   // function.name, subsequent deltas for the same index append to
   // function.arguments.
-  const accumulatedToolCalls: ToolCall[] = [];
+  const accumulatedToolCalls = new Map<number, ToolCall>();
   let finishReason = '';
   let streamError = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-      const data = trimmed.slice(6);
-      if (data === '[DONE]') continue;
-
-      try {
-        const chunk = JSON.parse(data);
-        if (chunk.error) streamError = chunk.error.message || 'The model stream failed.';
-        if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
-
-        // Usage data arrives in a final chunk with empty choices.
-        if (chunk.usage && callbacks.onUsage) {
-          callbacks.onUsage(chunk.usage);
-        }
-
-        const delta = chunk.choices?.[0]?.delta;
-        if (!delta) continue;
-
-        if (delta.content) {
-          callbacks.onDelta(delta.content);
-        }
-
-        if (delta.tool_calls && delta.tool_calls.length > 0) {
-          for (const tc of delta.tool_calls) {
-            // Use the index field if present (OpenAI format), otherwise
-            // fall back to positional index within the accumulated array.
-            const idx: number = tc.index ?? accumulatedToolCalls.length;
-
-            if (idx < accumulatedToolCalls.length) {
-              // Continuation of an existing tool call — append arguments
-              const existing = accumulatedToolCalls[idx];
-              if (tc.function?.arguments) {
-                existing.function.arguments += tc.function.arguments;
-              }
-              // id and name can also arrive in later chunks for some providers
-              if (tc.id && !existing.id) existing.id = tc.id;
-              if (tc.function?.name && !existing.function.name) {
-                existing.function.name = tc.function.name;
-              }
-            } else {
-              // New tool call at this index
-              accumulatedToolCalls.push({
-                id: tc.id || '',
-                type: 'function',
-                function: {
-                  name: tc.function?.name || '',
-                  arguments: tc.function?.arguments || '',
-                },
-              });
-            }
-          }
-        }
-      } catch {
-        // Skip unparseable chunks
+  function consumeLine(line: string) {
+    signal.throwIfAborted();
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return;
+    const data = trimmed.slice(5).trimStart();
+    if (data === '[DONE]') return;
+    let chunk: any;
+    try { chunk = JSON.parse(data); } catch {
+      if (callbacks.requireComplete) throw new Error('The model returned malformed stream data. No tools were executed.');
+      return;
+    }
+    if (!chunk || typeof chunk !== 'object') throw new Error('Invalid model stream event');
+    if (chunk.error) streamError = chunk.error.message || 'The model stream failed.';
+    if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+    if (chunk.usage) callbacks.onUsage?.(chunk.usage);
+    const delta = chunk.choices?.[0]?.delta;
+    if (!delta) return;
+    if (delta.content) callbacks.onDelta(delta.content);
+    for (const tc of delta.tool_calls ?? []) {
+      const idx: number = tc.index ?? accumulatedToolCalls.size;
+      if (!Number.isInteger(idx) || idx < 0) throw new Error('Invalid tool call index');
+      const existing = accumulatedToolCalls.get(idx);
+      if (existing) {
+        if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+        if (tc.id && !existing.id) existing.id = tc.id;
+        if (tc.function?.name && !existing.function.name) existing.function.name = tc.function.name;
+      } else {
+        accumulatedToolCalls.set(idx, {
+          id: tc.id || '', type: 'function',
+          function: { name: tc.function?.name || '', arguments: tc.function?.arguments || '' },
+        });
       }
     }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) consumeLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consumeLine(buffer);
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 
   if (signal.aborted) throw new DOMException('Request aborted', 'AbortError');
@@ -253,17 +236,18 @@ export async function streamChatCompletion(
   // applies to ordinary Chats too, not only strict form-builder calls; otherwise
   // the diagnostic can be persisted as if the model authored it.
   if (streamError) throw new Error(streamError);
+  const toolCalls = [...accumulatedToolCalls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
 
   if (callbacks.requireComplete) {
     if (!['stop', 'tool_calls', 'function_call'].includes(finishReason)) {
       throw new Error(finishReason === 'length' ? 'The model response was truncated. Ask for a smaller change.' : 'The model did not complete its response. Try again.');
     }
-    const ids = accumulatedToolCalls.map(call => call.id);
+    const ids = toolCalls.map(call => call.id);
     if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error('The model returned invalid tool call IDs. Try again.');
   }
 
   // Deliver fully assembled tool calls once after stream completes
-  if (accumulatedToolCalls.length > 0) {
-    callbacks.onToolCalls(accumulatedToolCalls);
+  if (toolCalls.length > 0) {
+    callbacks.onToolCalls(toolCalls);
   }
 }

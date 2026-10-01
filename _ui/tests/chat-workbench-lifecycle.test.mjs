@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
 const page = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = page.slice(page.indexOf('>') + 1, page.indexOf('</script>'));
@@ -13,16 +14,10 @@ const destroyCall = ast.statements.find(node => ts.isExpressionStatement(node)
   && ts.isCallExpression(node.expression) && node.expression.expression.getText(ast) === 'onDestroy');
 const destroy = destroyCall.expression.arguments[0].getText(ast);
 
-async function moduleURL(path) {
-  const source = await readFile(new URL(path, import.meta.url), 'utf8');
-  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-  return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-}
-
 // Execute the page's actual lifecycle methods with in-memory API/DOM seams.
 // AST extraction leaves these tests independent of formatting and regex shapes.
-const helpers = await moduleURL('../src/lib/helper/chat-tool-selections.ts');
-const debounce = await moduleURL('../src/lib/helper/debounced-save.ts');
+const helpers = await moduleURL(new URL('../src/lib/helper/chat-tool-selections.ts', import.meta.url));
+const debounce = await moduleURL(new URL('../src/lib/helper/debounced-save.ts', import.meta.url));
 const harness = `
 import { initialWorkbenchSetup, newWorkbenchSetup, normalizeWorkbenchSetup } from '${helpers}';
 import { createDebouncedSave } from '${debounce}';
@@ -37,6 +32,8 @@ export function fixture() {
   let historyTruncated = false, savedSettings = null, historyLoading = false, appliedPresetId = '';
   let messages = [], rawMessages = {}, meta = [], toolDiscoveryVersion = 0, settingsTimer = null, confirmClearTimer = null;
   let extensionUnsubscribe = null, extensionBridge = null;
+  const turnLifecycle = { invalidate() {}, generation: () => 0 };
+  let abortController = null;
   let settingsSaves = 0, discoveries = 0, resets = 0;
   let storedDefaults = { builtin_tools: ['whoami'] }, storedConversation;
   const writes = [], timers = new Map();
@@ -102,6 +99,7 @@ test('navigation flushes edits before resetting and destruction clears the next 
   assert.equal(chat.snapshot().timers, 0);
   chat.change({ ...edited, system_prompt: 'Last edit' });
   chat.destroy();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(chat.snapshot().timers, 0);
   assert.deepEqual(chat.snapshot().writes.map(setup => setup.system_prompt), ['Edited', 'Last edit']);
 });

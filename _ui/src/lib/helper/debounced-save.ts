@@ -1,3 +1,5 @@
+import { createSerialQueue } from './serial-queue';
+
 interface Timer {
   set(callback: () => void, delay: number): ReturnType<typeof setTimeout>;
   clear(handle: ReturnType<typeof setTimeout>): void;
@@ -10,6 +12,7 @@ export function createDebouncedSave<T>(write: (value: T) => Promise<void>, delay
 }) {
   let pending: { value: T } | null = null;
   let handle: ReturnType<typeof setTimeout> | null = null;
+  const writes = createSerialQueue();
 
   function cancel() {
     if (handle !== null) timer.clear(handle);
@@ -20,7 +23,7 @@ export function createDebouncedSave<T>(write: (value: T) => Promise<void>, delay
   async function flush() {
     const next = pending;
     cancel();
-    if (next) await write(next.value);
+    if (next) await writes.run(() => write(next.value));
   }
 
   return {

@@ -35,7 +35,6 @@ test('Chats hides server todo implementations from its tool catalog', async () =
 test('built-in calls carry the active turn session as a per-request header', async () => {
   const chat = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
   const api = await readFile(new URL('../src/lib/api/mcp.ts', import.meta.url), 'utf8');
-  assert.match(chat, /callBuiltinTool\(tc\.function\.name, args, '', turnTraceId, turnSessionId\)/);
-  assert.match(chat, /turnSessionId = sessionId/);
-  assert.match(api, /sessionId \? \{ headers: \{ 'X-Session-ID': sessionId \} \} : undefined/);
+  assert.match(chat, /callBuiltinTool\(tc\.function\.name, args, '', turn\.traceId, turn\.sessionId, turn\.controller\.signal\)/);
+  assert.match(api, /headers: \{ 'X-Session-ID': sessionId \}/);
 });

@@ -143,10 +143,11 @@ export async function callMCPSetTool(
   name: string,
   toolName: string,
   args: Record<string, any>,
+  signal?: AbortSignal,
 ): Promise<MCPSetToolCallResult> {
   const res = await api.post<MCPSetToolCallResult>(`/mcp/set-tools/${name}/call`, {
     tool_name: toolName,
     arguments: args,
-  });
+  }, signal ? { signal } : undefined);
   return res.data;
 }

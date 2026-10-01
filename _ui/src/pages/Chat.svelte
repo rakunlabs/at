@@ -21,6 +21,9 @@
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { isChatTodoTool, initialWorkbenchSetup, newWorkbenchSetup, normalizeWorkbenchSetup, workbenchSetupsEqual, type WorkbenchSetup } from '@/lib/helper/chat-tool-selections';
   import { createDebouncedSave } from '@/lib/helper/debounced-save';
+  import { createChatTurnLifecycle, runChatIterations, type ChatTurn } from '@/lib/helper/chat-turn';
+  import { dispatchChatTool } from '@/lib/helper/chat-tools';
+  import { createTranscriptWriter } from '@/lib/helper/chat-persistence';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
@@ -130,6 +133,17 @@
     extensionId?: string;
     extensionToolName?: string;
   }
+
+  interface TurnContext extends ChatTurn {
+    model: string;
+    reasoning: string;
+    systemPrompt: string;
+    tools: ToolDefinition[];
+    sources: Record<string, ToolSource>;
+    sessionId: string;
+  }
+
+  const turnLifecycle = createChatTurnLifecycle();
 
   interface TodoItem {
     content: string;
@@ -462,7 +476,6 @@
    * trace as the generation that asked for it.
    */
   let turnTraceId = $state('');
-  let turnSessionId = $state('');
 
   function localStorageSafe(): Storage | undefined {
     try {
@@ -762,7 +775,6 @@
   let historyLoading = $state(false);
   let historyTruncated = $state(false);
   let saving = $state(false);
-  let saveQueued = false;
   let confirmClear = $state(false);
 
   // ─── Media storage ───
@@ -930,6 +942,7 @@
 
   async function saveSettings() {
     const id = conversationId;
+    const generation = turnLifecycle.generation();
     if (!id || !savedSettings) return;
     const next = settingsSnapshot();
     const patch: PlaygroundConversationInput = {};
@@ -942,11 +955,12 @@
     try {
       // Returns null without calling the API when nothing changed: PATCH {} is a 400.
       const updated = await patchPlaygroundConversation(id, patch);
-      if (!updated || conversationId !== id) return;
+      if (!updated || disposed || conversationId !== id || turnLifecycle.generation() !== generation) return;
       savedSettings = next;
       conversation = updated;
       mergeConversation(updated);
     } catch (e) {
+      if (disposed || turnLifecycle.generation() !== generation) return;
       addToast(playgroundErrorMessage(e, 'Failed to save conversation settings'), 'alert');
     }
   }
@@ -1014,6 +1028,7 @@
   // ─── Open / restore ───
 
   function resetBuffer() {
+    turnLifecycle.invalidate();
     voiceContext++;
     if (abortController) { abortController.abort(); abortController = null; }
     streaming = false;
@@ -1050,6 +1065,8 @@
     void defaultsSave.flush();
     toolDiscoveryVersion++;
     resetBuffer();
+    const generation = turnLifecycle.generation();
+    const current = () => !disposed && turnLifecycle.generation() === generation && conversationId === id;
     conversationId = id;
     scratchSessionId = '';
     conversation = null;
@@ -1071,7 +1088,7 @@
     historyLoading = true;
     try {
       const c = await getPlaygroundConversation(id);
-      if (conversationId !== id) return;
+      if (!current()) return;
       conversation = c;
       systemPrompt = c.system_prompt || '';
       const pair = joinModel(c.provider_key || '', c.model || '');
@@ -1087,7 +1104,7 @@
       let pages = 0;
       while (pages < HISTORY_MAX_PAGES) {
         const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE, before: cursor || undefined });
-        if (conversationId !== id) return;
+        if (!current()) return;
         loaded.unshift(...(res.data ?? []));
         cursor = res.meta?.next_before ?? '';
         pages += 1;
@@ -1102,10 +1119,10 @@
       void discoverTools();
       scrollToBottom(true);
     } catch (e) {
-      if (conversationId !== id) return;
+      if (!current()) return;
       addToast(playgroundErrorMessage(e, 'Failed to open conversation'), 'alert');
     } finally {
-      if (conversationId === id) historyLoading = false;
+      if (current()) historyLoading = false;
     }
   }
 
@@ -1141,6 +1158,8 @@
 
   async function ensureConversation(seedTitle: string): Promise<string> {
     if (conversationId) return conversationId;
+    const generation = turnLifecycle.generation();
+    const snapshot = settingsSnapshot();
     const { provider_key, model } = splitModel(selectedModel);
     const created = await createPlaygroundConversation({
       title: playgroundTitleFrom(seedTitle),
@@ -1149,14 +1168,16 @@
       model,
       config: currentConfig(),
     });
+    if (disposed || generation !== turnLifecycle.generation()) throw new DOMException('Chat changed', 'AbortError');
     conversationId = created.id;
     // Claim the route before pushing so the router effect does not reload and
     // discard the in-flight turn.
     routedId = created.id;
     conversation = created;
-    savedSettings = settingsSnapshot();
+    savedSettings = snapshot;
     mergeConversation(created);
     push(playgroundRoute(created.id));
+    scheduleSettingsSave();
     return created.id;
   }
 
@@ -1165,56 +1186,41 @@
    * non-destructive: the transcript stays in memory with `sequence === null`,
    * so the toolbar retry re-sends exactly the same, still-unsaved messages.
    */
+  interface TranscriptScope { id: string; generation: number }
+  interface PendingEntry { index: number; input: PlaygroundMessageInput; imageNames: string[] }
+  const transcriptWriter = createTranscriptWriter<TranscriptScope, PendingEntry, PlaygroundMessageInput, PlaygroundMessage>({
+    current: scope => !disposed && conversationId === scope.id && turnLifecycle.generation() === scope.generation,
+    snapshot: () => messages.flatMap((message, index) => meta[index]?.sequence === null && message.role !== 'system' ? [{
+      index,
+      input: { role: message.role as PlaygroundRole, provider_key: meta[index].provider_key, model: meta[index].model, data: JSON.parse(JSON.stringify(toMessageData(message))) },
+      imageNames: [...meta[index].imageNames],
+    }] : []),
+    prepare: async entry => ({ ...entry.input, data: await persistPlaygroundImages(entry.input.data, entry.imageNames, uploadAttachment) }),
+    append: (scope, inputs) => appendPlaygroundMessages(scope.id, inputs),
+    adopt: (entry, stored) => {
+      if (meta[entry.index]) meta[entry.index] = { ...meta[entry.index], sequence: stored.sequence, created_at: stored.created_at || meta[entry.index].created_at };
+    },
+    busy: value => { saving = value; },
+    batchSize: PLAYGROUND_MESSAGE_BATCH_MAX,
+  });
+
   async function persistPending() {
-    const id = conversationId;
-    if (!id) return;
-    // A second turn can finish while the first batch is still in flight; queue
-    // instead of dropping it, so nothing silently stays unsaved.
-    if (saving) { saveQueued = true; return; }
-    const indexes: number[] = [];
-    for (let i = 0; i < messages.length; i += 1) {
-      if (meta[i]?.sequence === null && messages[i].role !== 'system') indexes.push(i);
-    }
-    if (indexes.length === 0) return;
-
-    saving = true;
+    const scope = { id: conversationId, generation: turnLifecycle.generation() };
+    if (!scope.id) return;
     try {
-      // An inline data-URI is never stored in `data`: it goes to media storage
-      // and leaves a `media_id` behind, or degrades to a visible descriptor.
-      const batch: PlaygroundMessageInput[] = [];
-      for (const i of indexes) {
-        batch.push({
-          role: messages[i].role as PlaygroundRole,
-          provider_key: meta[i].provider_key,
-          model: meta[i].model,
-          data: await persistPlaygroundImages(toMessageData(messages[i]), meta[i].imageNames, uploadAttachment),
-        });
-      }
-
-      for (let offset = 0; offset < batch.length; offset += PLAYGROUND_MESSAGE_BATCH_MAX) {
-        const stored = await appendPlaygroundMessages(id, batch.slice(offset, offset + PLAYGROUND_MESSAGE_BATCH_MAX));
-        if (conversationId !== id) return;
-        stored.forEach((s, k) => {
-          const index = indexes[offset + k];
-          // Adopt the stored stamp over the optimistic one: the transcript
-          // must not change what it says about a message after a reload.
-          if (meta[index]) meta[index] = { ...meta[index], sequence: s.sequence, created_at: s.created_at || meta[index].created_at };
-        });
-      }
-      // Keep the local row fresh without changing its creation-time position.
-      const current = conversations.find(c => c.id === id);
+      await transcriptWriter.write(scope);
+      if (disposed || turnLifecycle.generation() !== scope.generation) return;
+      const current = conversations.find(c => c.id === scope.id);
       if (current) mergeConversation({ ...current, updated_at: new Date().toISOString() });
     } catch (e) {
+      if (disposed || turnLifecycle.generation() !== scope.generation) return;
       addToast(playgroundErrorMessage(e, 'Failed to save messages. They are kept in the transcript — retry from the toolbar.'), 'alert');
-      saveQueued = false;
-    } finally {
-      saving = false;
-      if (saveQueued) { saveQueued = false; void persistPending(); }
     }
   }
 
   /** Keep the first `keep` messages, and drop the stored tail to match. */
   async function truncateFrom(keep: number) {
+    const generation = turnLifecycle.generation();
     const removed = meta.slice(keep).map(m => m.sequence).filter((s): s is number => s !== null);
     messages = messages.slice(0, keep);
     meta = meta.slice(0, keep);
@@ -1222,6 +1228,7 @@
     try {
       await truncatePlaygroundMessages(conversationId, Math.min(...removed));
     } catch (e) {
+      if (disposed || turnLifecycle.generation() !== generation) return;
       addToast(playgroundErrorMessage(e, 'Failed to trim stored history'), 'alert');
     }
   }
@@ -1239,6 +1246,8 @@
   }
 
   onDestroy(() => {
+    turnLifecycle.invalidate();
+    abortController?.abort();
     disposed = true;
     toolDiscoveryVersion++;
     void defaultsSave.flush();
@@ -1909,42 +1918,25 @@
   }
 
   /** Execute a tool call by dispatching to the correct backend or frontend handler. */
-  async function executeToolCall(tc: ToolCall): Promise<string> {
-    let args: Record<string, any> = {};
-    try {
-      args = JSON.parse(tc.function.arguments);
-    } catch {
-      // If args don't parse, pass empty
-    }
-
-    const source = toolSourceMap[tc.function.name];
-    if (!source) {
-      return `Error: no handler found for tool "${tc.function.name}"`;
-    }
-
-    try {
-      if (source.type === 'skill') {
-        return await executeSkillTool(tc, args);
-      }
-      if (source.type === 'mcpset' && source.mcpSetName) {
-        const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args);
+  async function executeToolCall(tc: ToolCall, turn: TurnContext): Promise<string> {
+    turnLifecycle.assert(turn);
+    return dispatchChatTool(tc, turn.sources, {
+      skill: (_, args) => executeSkillTool(tc, args, turn),
+      mcpset: async (source, args) => {
+        if (!source.mcpSetName) return 'Error: MCP set is missing';
+        const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args, turn.controller.signal);
         const text = res.content?.map(c => c.text).join('\n') ?? '';
         return text || 'Tool executed successfully (no output)';
-      } else if (source.type === 'builtin') {
-        const res = await callBuiltinTool(tc.function.name, args, '', turnTraceId, turnSessionId);
+      },
+      builtin: async (_, args) => {
+        const res = await callBuiltinTool(tc.function.name, args, '', turn.traceId, turn.sessionId, turn.controller.signal);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
-      } else if (source.type === 'local') {
-        return await executeLocalTool(source, tc.function.name, args);
-      } else if (source.type === 'extension') {
-        return await executeExtensionTool(source, tc.function.name, args);
-      } else if (source.type === 'frontend') {
-        return await executeFrontendTool(tc.function.name, args);
-      }
-      return `Error: unknown tool source type`;
-    } catch (e: any) {
-      return `Error: ${e?.response?.data?.message || e?.response?.data?.error?.message || e.message || 'tool execution failed'}`;
-    }
+      },
+      local: (source, args) => executeLocalTool(source, tc.function.name, args, turn),
+      extension: (source, args) => executeExtensionTool(source, tc.function.name, args, turn),
+      frontend: (_, args) => executeFrontendTool(tc.function.name, args),
+    });
   }
 
   /**
@@ -1952,18 +1944,19 @@
    * answers; background runs are tracked per turn so their results are always
    * collected before the turn ends, even when the model forgets to wait.
    */
-  async function executeSkillTool(tc: ToolCall, args: Record<string, any>): Promise<string> {
-    const signal = abortController?.signal;
+  async function executeSkillTool(tc: ToolCall, args: Record<string, any>, turn: TurnContext): Promise<string> {
+    const signal = turn.controller.signal;
     if (tc.function.name === RUN_STATUS_TOOL) {
       const id = String(args.run_id ?? '').trim();
       if (!id) return 'Error: run_id is required';
-      return await collectSkillRuns([id], tc.id, signal);
+      return await collectSkillRuns([id], tc.id, turn);
     }
     const skill = String(args.skill_name ?? '');
     const background = args.run_mode === 'background';
     if (!String(args.task ?? '').trim()) return `Error: load_skill: task is required for skill "${skill}"`;
     skillRunProgress = { ...skillRunProgress, [tc.id]: background ? `starting ${skill} in the background…` : `${skill} is working…` };
-    const res = await runSkill({ skill, task: String(args.task ?? ''), context: args.context ? String(args.context) : undefined, background, trace_id: turnTraceId }, signal);
+    const res = await runSkill({ skill, task: String(args.task ?? ''), context: args.context ? String(args.context) : undefined, background, trace_id: turn.traceId }, signal);
+    turnLifecycle.assert(turn);
     noteTurnArtifacts(res.result);
     if (res.error) return `Error: ${res.error}`;
     if (background) {
@@ -1975,7 +1968,8 @@
     return res.result;
   }
 
-  async function collectSkillRuns(ids: string[], toolCallId: string, signal?: AbortSignal): Promise<string> {
+  async function collectSkillRuns(ids: string[], toolCallId: string, turn: TurnContext): Promise<string> {
+    const signal = turn.controller.signal;
     const results: SkillRunStatus[] = [];
     for (const id of ids) {
       const name = turnSkillRuns.find(r => r.id === id)?.skill || id;
@@ -1985,6 +1979,7 @@
         const done = results.length;
         skillRunProgress = { ...skillRunProgress, [toolCallId]: `waiting for ${name} (${done}/${ids.length} finished)…` };
         status = await waitSkillRun(id, 20, signal);
+        turnLifecycle.assert(turn);
         if (['completed', 'failed', 'cancelled'].includes(status.status)) break;
       }
       results.push(status);
@@ -2018,7 +2013,7 @@
    * between them missing, which reads as an unexplained gap rather than an
    * absence.
    */
-  async function executeLocalTool(source: ToolSource, exposedName: string, args: Record<string, any>): Promise<string> {
+  async function executeLocalTool(source: ToolSource, exposedName: string, args: Record<string, any>, turn: TurnContext): Promise<string> {
     const server = localServers.find(s => s.id === source.localServerId);
     if (!server) return `Error: local MCP server is no longer configured`;
     // Re-checked every call: the switch may have been turned off mid-turn.
@@ -2032,7 +2027,7 @@
     let output = '';
     let failure = '';
     try {
-      const client = await localClientFor(server, abortController?.signal);
+      const client = await localClientFor(server, turn.controller.signal);
       output = clipLocalToolResult(await client.callTool(remoteName, args));
     } catch (e: any) {
       status = 'error';
@@ -2041,8 +2036,8 @@
     }
 
     void reportLocalToolObservation({
-      trace_id: turnTraceId,
-      session_id: turnSessionId,
+      trace_id: turn.traceId,
+      session_id: turn.sessionId,
       name: remoteName,
       server: server.name,
       status,
@@ -2068,7 +2063,7 @@
    * gap rather than an absence. The extension is named in the observation
    * because the work did not happen in this process.
    */
-  async function executeExtensionTool(source: ToolSource, exposedName: string, args: Record<string, any>): Promise<string> {
+  async function executeExtensionTool(source: ToolSource, exposedName: string, args: Record<string, any>, turn: TurnContext): Promise<string> {
     const ext = extensions.find(e => e.id === source.extensionId);
     if (!ext) return `Error: that browser extension is no longer connected`;
     // Re-checked every call: the switch may have been turned off mid-turn.
@@ -2084,15 +2079,15 @@
     let output = '';
     let failure = '';
     try {
-      output = clipLocalToolResult(await bridge.callTool(ext.id, remoteName, args, abortController?.signal));
+      output = clipLocalToolResult(await bridge.callTool(ext.id, remoteName, args, turn.controller.signal));
     } catch (e: any) {
       status = 'error';
       failure = e?.message || 'the extension did not complete the call';
     }
 
     void reportLocalToolObservation({
-      trace_id: turnTraceId,
-      session_id: turnSessionId,
+      trace_id: turn.traceId,
+      session_id: turn.sessionId,
       name: remoteName,
       server: ext.name,
       status,
@@ -2323,51 +2318,56 @@
       addToast(pendingRefusals[0], 'alert');
       return;
     }
-
-    // Build user message content
-    const images = pendingImages;
-    let userContent: string | ContentPart[];
-    if (images.length > 0) {
-      const parts: ContentPart[] = [];
-      for (const img of images) {
-        parts.push(attachmentPart(img) as ContentPart);
+    const turn = beginTurn();
+    if (!turn) return;
+    try {
+      // Build user message content
+      const images = pendingImages;
+      let userContent: string | ContentPart[];
+      if (images.length > 0) {
+        const parts: ContentPart[] = [];
+        for (const img of images) {
+          parts.push(attachmentPart(img) as ContentPart);
+        }
+        if (text) parts.push({ type: 'text', text });
+        userContent = parts;
+      } else {
+        userContent = text;
       }
-      if (text) {
-        parts.push({ type: 'text', text });
+
+      // Add user message to chat
+      const pair = splitModel(turn.model);
+      messages = [...messages, { role: 'user', content: userContent }];
+      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.filter(i => i.modality !== 'text').map(i => i.name) }];
+      userInput = '';
+      pendingImages = [];
+      confirmClear = false;
+      scrollToBottom();
+
+      // Lazily promote the scratch buffer. A failure here is survivable: the
+      // turn still runs, it just stays unsaved.
+      if (!conversationId) {
+        try {
+          await ensureConversation(text || images[0]?.name || 'Chat conversation');
+        } catch (e) {
+          turnLifecycle.assert(turn);
+          addToast(playgroundErrorMessage(e, 'Could not start a saved conversation — this turn runs unsaved'), 'alert');
+        }
       }
-      userContent = parts;
-    } else {
-      userContent = text;
-    }
+      turnLifecycle.assert(turn);
+      turn.sessionId = conversationId || scratchSessionId;
 
-    // Add user message to chat
-    const pair = splitModel(selectedModel);
-    messages = [...messages, { role: 'user', content: userContent }];
-    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.filter(i => i.modality !== 'text').map(i => i.name) }];
-    userInput = '';
-    pendingImages = [];
-    confirmClear = false;
-    scrollToBottom();
-
-    // Lazily promote the scratch buffer. A failure here is survivable: the turn
-    // still runs, it just stays unsaved.
-    if (!conversationId) {
-      try {
-        await ensureConversation(text || images[0]?.name || 'Chat conversation');
-      } catch (e) {
-        addToast(playgroundErrorMessage(e, 'Could not start a saved conversation — this turn runs unsaved'), 'alert');
-      }
-    }
-
-    // Persist the question BEFORE answering it. The store stamps one
-    // clock_timestamp per append, so saving the whole turn at the end gave the
-    // user's message the completion time — a question and its answer recorded
-    // as having happened at the same instant. It also means a turn that never
-    // finishes still leaves the question in history. A failure here is
-    // non-destructive: the message stays unsaved and rides the next append.
-    await persistPending();
-    await runCompletion();
-    await persistPending();
+      // Persist the question BEFORE answering it, preserving its send time and
+      // keeping it in history even if the turn never finishes. Failed writes
+      // remain unsaved in memory and ride the next append.
+      await persistPending();
+      turnLifecycle.assert(turn);
+      await runCompletion(turn);
+      if (!turnLifecycle.current(turn)) return;
+      await persistPending();
+    } catch (e) {
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') addToast((e as Error).message || 'Chat request failed', 'alert');
+    } finally { finishTurn(turn); }
   }
 
   /**
@@ -2412,35 +2412,53 @@
     return parts;
   }
 
-  /** Recursive completion loop that handles tool calls. */
-  async function runCompletion(depth: number = 0) {
-    if (depth === 0 && !setupReady()) return;
-    if (depth === 0) { turnSkillRuns = []; skillRunProgress = {}; turnArtifacts = []; }
-    // Guard against infinite tool-call loops
-    const turnPair = splitModel(selectedModel);
-
-    if (depth >= MAX_TOOL_ITERATIONS) {
-      messages = [...messages, {
-        role: 'assistant',
-        content: `Stopped after ${MAX_TOOL_ITERATIONS} tool call iterations to prevent infinite loops.`,
-      }];
-      meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
-      return;
-    }
-
-    // Snapshot the history synchronously. Re-inlining stored images is async,
-    // so the turn has to be claimed (`streaming`) before the first await —
-    // otherwise a second Enter could start a concurrent completion — and the
-    // placeholder pushed below must not end up in the request.
-    const history = messages.slice();
+  function beginTurn(): TurnContext | null {
+    const base = turnLifecycle.begin();
+    if (!base) return null;
     if (!conversationId && !scratchSessionId) {
       scratchSessionId = `chats-${Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('')}`;
     }
-    const sessionId = conversationId || scratchSessionId;
-    // One trace per turn, the conversation as the session — the same shape the
-    // server-side loops record, so a browser-run tool can be placed on it.
-    turnSessionId = sessionId;
-    turnTraceId = `chats-turn-${Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('')}`;
+    const turn = Object.assign(base, {
+      model: selectedModel,
+      reasoning: effectiveReasoningEffort,
+      systemPrompt: [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n'),
+      tools: JSON.parse(JSON.stringify(discoveredTools)) as ToolDefinition[],
+      sources: { ...toolSourceMap },
+      sessionId: conversationId || scratchSessionId,
+    });
+    turnTraceId = turn.traceId;
+    turnSkillRuns = []; skillRunProgress = {}; turnArtifacts = [];
+    streaming = true;
+    abortController = turn.controller;
+    return turn;
+  }
+
+  function finishTurn(turn: TurnContext) {
+    if (!turnLifecycle.current(turn)) return;
+    streaming = false;
+    abortController = null;
+    activeTool = null;
+    turnLifecycle.finish(turn);
+  }
+
+  async function runCompletion(turn: TurnContext) {
+    try {
+      const complete = await runChatIterations(MAX_TOOL_ITERATIONS, () => runCompletionStep(turn), () => turnLifecycle.assert(turn));
+      if (!complete) {
+        const pair = splitModel(turn.model);
+        messages = [...messages, { role: 'assistant', content: `Stopped after ${MAX_TOOL_ITERATIONS} tool call iterations to prevent infinite loops.` }];
+        meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [] }];
+      }
+    } catch (e) {
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') addToast((e as Error).message || 'Chat request failed', 'alert');
+    }
+  }
+
+  async function runCompletionStep(turn: TurnContext): Promise<boolean> {
+    turnLifecycle.assert(turn);
+    const turnPair = splitModel(turn.model);
+    const history = messages.slice();
+    const sessionId = turn.sessionId;
 
     // Add assistant placeholder. It records the pair selected right now, so a
     // mid-conversation switch is attributed to the turn that used it.
@@ -2449,9 +2467,7 @@
     // a growing answer would date it minutes early.
     messages = [...messages, { role: 'assistant', content: '' }];
     meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: '', imageNames: [] }];
-    streaming = true;
-    const controller = new AbortController();
-    abortController = controller;
+    const controller = turn.controller;
 
     // Accumulate tool calls from the stream
     let pendingToolCalls: ToolCall[] = [];
@@ -2461,13 +2477,14 @@
       const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
 
       // Conversation prompt plus the prompts contributed by selected skills.
-      const fullSystemPrompt = [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n');
+      const fullSystemPrompt = turn.systemPrompt;
       if (fullSystemPrompt) {
         reqMessages.push({ role: 'system', content: fullSystemPrompt });
       }
 
       for (const m of history) {
         const msg: any = { role: m.role, content: await outgoingContent(m.content) };
+        turnLifecycle.assert(turn);
         if (m.tool_calls) msg.tool_calls = m.tool_calls;
         if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
         reqMessages.push(msg);
@@ -2476,16 +2493,18 @@
       await streamChatCompletion(
         'api/v1/chats/completions',
         {
-          model: selectedModel,
+          model: turn.model,
           metadata: { session_id: sessionId },
           messages: reqMessages,
-          tools: discoveredTools.length > 0 ? discoveredTools : undefined,
-          reasoning_effort: effectiveReasoningEffort || undefined,
+          tools: turn.tools.length > 0 ? turn.tools : undefined,
+          reasoning_effort: turn.reasoning || undefined,
           stream: true,
           stream_options: { include_usage: true },
         },
         {
+          requireComplete: true,
           onDelta: (deltaContent) => {
+            turnLifecycle.assert(turn);
             const lastIdx = messages.length - 1;
             const prev = messages[lastIdx];
             messages[lastIdx] = {
@@ -2495,20 +2514,23 @@
             scrollToBottom();
           },
           onToolCalls: (toolCalls) => {
+            turnLifecycle.assert(turn);
             pendingToolCalls = toolCalls;
           },
           onError: (error) => {
             addToast(error, 'alert');
           },
           onUsage: (usage) => {
+            turnLifecycle.assert(turn);
             contextTokens = usage.prompt_tokens;
             completionTokens += usage.completion_tokens;
             totalTokens = contextTokens + completionTokens;
           },
         },
         controller.signal,
-        { 'x-at-trace-id': turnTraceId },
+        { 'x-at-trace-id': turn.traceId },
       );
+      turnLifecycle.assert(turn);
 
       // The response is complete — stamp it. A turn that goes on to call tools
       // stamps here too: this assistant message is finished, the tool results
@@ -2525,8 +2547,8 @@
         // Execute each tool call and add tool result messages
         for (const tc of pendingToolCalls) {
           activeTool = { messageIndex: lastIdx, callID: tc.id };
-          const result = await executeToolCall(tc);
-          controller.signal.throwIfAborted();
+          const result = await executeToolCall(tc, turn);
+          turnLifecycle.assert(turn);
           messages = [
             ...messages,
             {
@@ -2540,13 +2562,7 @@
         activeTool = null;
         scrollToBottom();
 
-        // Reset streaming state before recursive call
-        streaming = false;
-        abortController = null;
-
-        // Continue the conversation so the LLM can see tool results
-        await runCompletion(depth + 1);
-        return;
+        return true;
       }
 
       // The model answered while background skill runs are still unreported.
@@ -2555,15 +2571,13 @@
       const unreported = turnSkillRuns.filter(r => !r.reported);
       if (unreported.length > 0) {
         streaming = true;
-        const waitKey = `wait-${turnTraceId}`;
-        const report = await collectSkillRuns(unreported.map(r => r.id), waitKey, controller.signal);
+        const waitKey = `wait-${turn.traceId}`;
+        const report = await collectSkillRuns(unreported.map(r => r.id), waitKey, turn);
+        turnLifecycle.assert(turn);
         skillRunProgress = Object.fromEntries(Object.entries(skillRunProgress).filter(([k]) => k !== waitKey));
         messages = [...messages, { role: 'user', content: `Background skill runs finished:\n\n${report}\n\nReply to me using these results.` }];
         meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
-        streaming = false;
-        abortController = null;
-        await runCompletion(depth + 1);
-        return;
+        return true;
       }
 
       // The turn is complete: attach the files its skill runs delivered to the
@@ -2583,7 +2597,8 @@
         turnArtifacts = [];
       }
     } catch (e: any) {
-      if (e.name === 'AbortError') {
+      if (!turnLifecycle.current(turn)) throw e;
+      if (controller.signal.aborted || e.name === 'AbortError') {
         // User cancelled — don't show error
       } else {
         addToast(e.message || 'Chat request failed', 'alert');
@@ -2599,13 +2614,11 @@
       // an entry in the transcript, so it is stamped when it stopped rather
       // than left undated. Idempotent: a completed response already has one.
       const endedIdx = messages.length - 1;
-      if (messages[endedIdx]?.role === 'assistant' && meta[endedIdx] && !meta[endedIdx].created_at) {
+      if (turnLifecycle.current(turn) && messages[endedIdx]?.role === 'assistant' && meta[endedIdx] && !meta[endedIdx].created_at) {
         meta[endedIdx] = { ...meta[endedIdx], created_at: new Date().toISOString() };
       }
-      streaming = false;
-      abortController = null;
-      activeTool = null;
     }
+    return false;
   }
 
   function stopStreaming() {
@@ -2629,7 +2642,9 @@
   }
 
   async function clearChat() {
+    const generation = turnLifecycle.generation();
     await truncateFrom(0);
+    if (disposed || turnLifecycle.generation() !== generation) return;
     pendingImages = [];
     todos = [];
     pendingQuestion = null;
@@ -2645,11 +2660,19 @@
     // Truncating while an append is in flight would desync stored sequences.
     if (streaming || saving) return;
     if (!setupReady()) return;
-    // Trim the stored transcript first so history matches what the user sees.
-    await truncateFrom(index + 1);
-    scrollToBottom();
-    await runCompletion();
-    await persistPending();
+    const turn = beginTurn();
+    if (!turn) return;
+    try {
+      // Trim stored history first so it matches what the user sees.
+      await truncateFrom(index + 1);
+      turnLifecycle.assert(turn);
+      scrollToBottom();
+      await runCompletion(turn);
+      if (!turnLifecycle.current(turn)) return;
+      await persistPending();
+    } catch (e) {
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') addToast((e as Error).message || 'Chat retry failed', 'alert');
+    } finally { finishTurn(turn); }
   }
 
   function handleKeydown(e: KeyboardEvent) {
