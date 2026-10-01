@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -80,24 +82,24 @@ type responsesReasoning struct {
 // Responses function tools are flat, unlike Chat Completions' nested function
 // envelope. Accept the old AT nested shape as a backwards-compatible fallback.
 type responsesTool struct {
-	Type        string         `json:"type"`
-	Name        string         `json:"name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-	Strict      *bool          `json:"strict,omitempty"`
-	Function    OpenAIFunction `json:"function,omitempty"`
+	Type        string              `json:"type"`
+	Name        string              `json:"name,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Parameters  map[string]any      `json:"parameters,omitempty"`
+	Strict      *bool               `json:"strict,omitempty"`
+	Function    wire.OpenAIFunction `json:"function,omitempty"`
 }
 
 func translateResponsesTools(tools []responsesTool) []service.Tool {
-	var chatTools []OpenAITool
+	var chatTools []wire.OpenAITool
 	for _, tool := range tools {
 		fn := tool.Function
 		if tool.Name != "" {
-			fn = OpenAIFunction{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters, Strict: tool.Strict}
+			fn = wire.OpenAIFunction{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters, Strict: tool.Strict}
 		}
-		chatTools = append(chatTools, OpenAITool{Type: tool.Type, Function: fn})
+		chatTools = append(chatTools, wire.OpenAITool{Type: tool.Type, Function: fn})
 	}
-	return translateOpenAITools(chatTools)
+	return wire.TranslateOpenAITools(chatTools)
 }
 
 type responsesText struct {
@@ -329,7 +331,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	var inputErr error
-	if chain, inputErr = admitChainInputs(chain, requestInputModalities(chatMsgs)); inputErr != nil {
+	if chain, inputErr = admitChainInputs(chain, wire.RequestInputModalities(chatMsgs)); inputErr != nil {
 		httpResponseJSON(w, unsupportedInputBody(inputErr), http.StatusBadRequest)
 		return
 	}
@@ -429,7 +431,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 			requestBody: rawBody, responseBody: respBody,
 			requestedModel: req.Model, fullModel: used.fullModel,
 			usage: resp.Usage, latencyMs: totalLatency, status: "ok",
-			finishReason: normalizeFinishReason(resp),
+			finishReason: wire.NormalizeFinishReason(resp),
 		})
 	}
 	httpResponseJSON(w, out, http.StatusOK)
@@ -477,7 +479,7 @@ func (s *Server) handleStreamingResponses(
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	respID := "resp_" + generateChatID()
+	respID := "resp_" + wire.GenerateChatID()
 	createdAt := time.Now().Unix()
 
 	emitRaw := func(eventType string, data any) {
@@ -515,7 +517,7 @@ func (s *Server) handleStreamingResponses(
 	callStart := time.Now()
 	var (
 		usage           *service.Usage
-		messageItemID   = "msg_" + generateChatID()
+		messageItemID   = "msg_" + wire.GenerateChatID()
 		messageStarted  bool
 		fullText        strings.Builder
 		reasoningText   strings.Builder
@@ -592,7 +594,7 @@ func (s *Server) handleStreamingResponses(
 				item, exists := toolCallItems[tc.ID]
 				if !exists {
 					item = &responsesOutItem{
-						ID:     "fc_" + generateChatID(),
+						ID:     "fc_" + wire.GenerateChatID(),
 						Type:   "function_call",
 						Status: "in_progress",
 						CallID: tc.ID,
@@ -642,7 +644,7 @@ func (s *Server) handleStreamingResponses(
 				reasoningByCall[tc.ID] = reasoningItem
 			}
 			item := &responsesOutItem{
-				ID:     "fc_" + generateChatID(),
+				ID:     "fc_" + wire.GenerateChatID(),
 				Type:   "function_call",
 				Status: "completed",
 				CallID: tc.ID,
@@ -724,7 +726,7 @@ func (s *Server) handleStreamingResponses(
 	output := make([]responsesOutItem, 0, 1+len(reasoningByCall)+len(toolCallOrder))
 	if len(reasoningByCall) == 0 && reasoningText.Len() > 0 {
 		output = append(output, responsesOutItem{
-			ID:   "rs_" + generateChatID(),
+			ID:   "rs_" + wire.GenerateChatID(),
 			Type: "reasoning",
 			Summary: []responsesReasoningSummary{{
 				Type: "summary_text",
@@ -801,7 +803,7 @@ func responsesReasoningItemFromSignature(signature string) (responsesOutItem, bo
 		return responsesOutItem{}, false
 	}
 	if item.ID == "" {
-		item.ID = "rs_" + generateChatID()
+		item.ID = "rs_" + wire.GenerateChatID()
 	}
 	return item, true
 }
@@ -819,7 +821,7 @@ func indexOf(slice []string, s string) int {
 // buildMockResponsesResponse mirrors buildMockChatResponse for the Responses API shape.
 func buildMockResponsesResponse(model string, metadata map[string]any, parallelToolCalls *bool, content string) *responsesResponse {
 	return &responsesResponse{
-		ID:                "resp_mock_" + generateChatID(),
+		ID:                "resp_mock_" + wire.GenerateChatID(),
 		Object:            "response",
 		CreatedAt:         time.Now().Unix(),
 		Status:            "completed",
@@ -827,7 +829,7 @@ func buildMockResponsesResponse(model string, metadata map[string]any, parallelT
 		Metadata:          metadata,
 		ParallelToolCalls: parallelToolCalls,
 		Output: []responsesOutItem{{
-			ID:     "msg_mock_" + generateChatID(),
+			ID:     "msg_mock_" + wire.GenerateChatID(),
 			Type:   "message",
 			Status: "completed",
 			Role:   "assistant",
@@ -852,10 +854,10 @@ func buildMockResponsesResponse(model string, metadata map[string]any, parallelT
 //   - {type:"message", role:"user"|"assistant"|"system", content: string | content_parts}
 //   - {type:"function_call", call_id, name, arguments}
 //   - {type:"function_call_output", call_id, output}
-func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([]OpenAIMessage, error) {
-	var msgs []OpenAIMessage
+func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([]wire.OpenAIMessage, error) {
+	var msgs []wire.OpenAIMessage
 	if instructions != "" {
-		msgs = append(msgs, OpenAIMessage{
+		msgs = append(msgs, wire.OpenAIMessage{
 			Role:    "system",
 			Content: json.RawMessage(mustJSONString(instructions)),
 		})
@@ -868,7 +870,7 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 	// Single string input.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		msgs = append(msgs, OpenAIMessage{
+		msgs = append(msgs, wire.OpenAIMessage{
 			Role:    "user",
 			Content: json.RawMessage(mustJSONString(s)),
 		})
@@ -910,14 +912,14 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 			}
 			name, _ := item["name"].(string)
 			args, _ := item["arguments"].(string)
-			msgs = append(msgs, OpenAIMessage{
+			msgs = append(msgs, wire.OpenAIMessage{
 				Role:    "assistant",
 				Content: json.RawMessage(`""`),
-				ToolCalls: []OpenAIToolCall{{
+				ToolCalls: []wire.OpenAIToolCall{{
 					ID:               callID,
 					Type:             "function",
 					ThoughtSignature: pendingReasoning,
-					Function: OpenAIFunctionCall{
+					Function: wire.OpenAIFunctionCall{
 						Name:      name,
 						Arguments: args,
 					},
@@ -930,7 +932,7 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 				callID, _ = item["id"].(string)
 			}
 			output, _ := item["output"].(string)
-			msgs = append(msgs, OpenAIMessage{
+			msgs = append(msgs, wire.OpenAIMessage{
 				Role:       "tool",
 				ToolCallID: callID,
 				Content:    json.RawMessage(mustJSONString(output)),
@@ -950,18 +952,18 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 	return msgs, nil
 }
 
-func responsesMessageItemToOpenAI(item map[string]any) (OpenAIMessage, error) {
+func responsesMessageItemToOpenAI(item map[string]any) (wire.OpenAIMessage, error) {
 	role, _ := item["role"].(string)
 	if role == "" {
-		return OpenAIMessage{}, fmt.Errorf("message item missing role")
+		return wire.OpenAIMessage{}, fmt.Errorf("message item missing role")
 	}
 	contentRaw, hasContent := item["content"]
 	if !hasContent {
-		return OpenAIMessage{Role: role, Content: json.RawMessage(`""`)}, nil
+		return wire.OpenAIMessage{Role: role, Content: json.RawMessage(`""`)}, nil
 	}
 	switch c := contentRaw.(type) {
 	case string:
-		return OpenAIMessage{
+		return wire.OpenAIMessage{
 			Role:    role,
 			Content: json.RawMessage(mustJSONString(c)),
 		}, nil
@@ -1013,15 +1015,15 @@ func responsesMessageItemToOpenAI(item map[string]any) (OpenAIMessage, error) {
 		}
 		buf, err := json.Marshal(parts)
 		if err != nil {
-			return OpenAIMessage{}, err
+			return wire.OpenAIMessage{}, err
 		}
-		return OpenAIMessage{Role: role, Content: buf}, nil
+		return wire.OpenAIMessage{Role: role, Content: buf}, nil
 	default:
 		buf, err := json.Marshal(c)
 		if err != nil {
-			return OpenAIMessage{}, err
+			return wire.OpenAIMessage{}, err
 		}
-		return OpenAIMessage{Role: role, Content: buf}, nil
+		return wire.OpenAIMessage{Role: role, Content: buf}, nil
 	}
 }
 
@@ -1051,7 +1053,7 @@ func responsesRequestToChatOptions(req *responsesRequest) *service.ChatOptions {
 		opts.ParallelToolCalls = req.ParallelToolCalls
 		hasAny = true
 	}
-	if tc := parseToolChoice(req.ToolChoice); tc != nil {
+	if tc := wire.ParseToolChoice(req.ToolChoice); tc != nil {
 		if object, ok := tc.(map[string]any); ok && object["type"] == "function" {
 			if name, ok := object["name"].(string); ok && name != "" {
 				tc = map[string]any{"type": "function", "function": map[string]any{"name": name}}
@@ -1116,7 +1118,7 @@ func buildResponsesResponse(model string, metadata map[string]any, parallelToolC
 	}
 
 	// Status: incomplete when stopped for "length"; failed not derivable here.
-	switch normalizeFinishReason(resp) {
+	switch wire.NormalizeFinishReason(resp) {
 	case "length":
 		out.Status = "incomplete"
 	case "content_filter":

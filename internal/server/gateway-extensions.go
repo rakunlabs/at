@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -77,23 +79,23 @@ func shouldFallback(err error) bool {
 // without calling any upstream. Useful for SDK / integration tests.
 
 // buildMockChatResponse synthesises an OpenAI-shaped chat completion.
-func buildMockChatResponse(model, content string) *ChatCompletionResponse {
+func buildMockChatResponse(model, content string) *wire.ChatCompletionResponse {
 	c := content
-	msg := ChatCompletionMessage{
+	msg := wire.ChatCompletionMessage{
 		Role:    "assistant",
 		Content: &c,
 	}
-	return &ChatCompletionResponse{
-		ID:      generateChatID(),
+	return &wire.ChatCompletionResponse{
+		ID:      wire.GenerateChatID(),
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   model,
-		Choices: []ChatCompletionChoice{{
+		Choices: []wire.ChatCompletionChoice{{
 			Index:        0,
 			Message:      msg,
 			FinishReason: "stop",
 		}},
-		Usage: ChatCompletionUsage{
+		Usage: wire.ChatCompletionUsage{
 			PromptTokens:     0,
 			CompletionTokens: len(content) / 4, // rough char→token estimate
 			TotalTokens:      len(content) / 4,
@@ -121,43 +123,43 @@ func writeMockChatStream(w http.ResponseWriter, model, content string, includeUs
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("x-at-mock-response", "true")
 
-	chatID := generateChatID()
-	writeSSEChunk(w, flusher, ChatCompletionChunk{
+	chatID := wire.GenerateChatID()
+	writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 		ID:     chatID,
 		Object: "chat.completion.chunk",
 		Model:  model,
-		Choices: []ChunkChoice{{
+		Choices: []wire.ChunkChoice{{
 			Index: 0,
-			Delta: ChunkDelta{Role: "assistant"},
+			Delta: wire.ChunkDelta{Role: "assistant"},
 		}},
 	})
-	writeSSEChunk(w, flusher, ChatCompletionChunk{
+	writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 		ID:     chatID,
 		Object: "chat.completion.chunk",
 		Model:  model,
-		Choices: []ChunkChoice{{
+		Choices: []wire.ChunkChoice{{
 			Index: 0,
-			Delta: ChunkDelta{Content: content},
+			Delta: wire.ChunkDelta{Content: content},
 		}},
 	})
 	finishReason := "stop"
-	writeSSEChunk(w, flusher, ChatCompletionChunk{
+	writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 		ID:     chatID,
 		Object: "chat.completion.chunk",
 		Model:  model,
-		Choices: []ChunkChoice{{
+		Choices: []wire.ChunkChoice{{
 			Index:        0,
-			Delta:        ChunkDelta{},
+			Delta:        wire.ChunkDelta{},
 			FinishReason: &finishReason,
 		}},
 	})
 	if includeUsage {
-		writeSSEChunk(w, flusher, ChatCompletionChunk{
+		writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 			ID:      chatID,
 			Object:  "chat.completion.chunk",
 			Model:   model,
-			Choices: []ChunkChoice{},
-			Usage: &ChatCompletionUsage{
+			Choices: []wire.ChunkChoice{},
+			Usage: &wire.ChatCompletionUsage{
 				CompletionTokens: len(content) / 4,
 				TotalTokens:      len(content) / 4,
 			},

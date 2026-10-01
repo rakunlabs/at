@@ -8,9 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/agentmd"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/query"
 )
 
 // agentsResponse wraps a list of agent records for JSON output.

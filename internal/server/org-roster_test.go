@@ -6,9 +6,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/loopgov"
-	"github.com/rakunlabs/query"
 )
 
 // mockSkillStoreForRoster resolves skills by ID or name from an in-memory

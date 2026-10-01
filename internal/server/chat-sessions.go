@@ -14,10 +14,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/agentloop"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/rakunlabs/query"
 )
 
 // ─── Chat Session CRUD ───

@@ -7,9 +7,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/rakunlabs/query"
 )
 
 // --- Mock stores for delegation tests ---

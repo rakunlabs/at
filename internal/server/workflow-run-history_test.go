@@ -10,6 +10,8 @@ import (
 
 	"github.com/rakunlabs/ada"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -29,10 +31,10 @@ func TestWorkflowRunHistoryRecordsBackgroundRuns(t *testing.T) {
 	if policyW.Code != 200 {
 		t.Fatalf("configure policy: %d %s", policyW.Code, policyW.Body.String())
 	}
-	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, testPasswordHash, nil); err != nil {
+	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, nativeauthtest.PasswordHash, nil); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), f.store)
+	a, err := nativeauth.New(nativeauthtest.Config(), f.store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,19 +42,19 @@ func TestWorkflowRunHistoryRecordsBackgroundRuns(t *testing.T) {
 	f.s.config.BasePath = "/at"
 	f.s.workflowStore, f.s.workflowVersionStore = f.store, f.store
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	api := mux.Group("/at/api")
 	api.Use(f.s.workspaceBusinessAuthentication())
 	api.POST("/v1/workflows", f.s.CreateWorkflowAPI)
 	api.POST("/v1/workflows/run/{id}", f.s.RunWorkflowAPI)
 	api.POST("/v1/workflows/run-stream/{id}", f.s.RunWorkflowStreamAPI)
 	api.GET("/v1/workflows/{id}/runs", f.s.ListWorkflowRunsAPI)
-	cookie := nativeLoginCookie(t, mux, "machine-admin")
+	cookie := nativeauthtest.LoginCookie(t, mux, "machine-admin")
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, "/at/api/v1"+path, strings.NewReader(body))
 		r.AddCookie(cookie)
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-AT-Workspace-ID", f.workspace)
 		w := httptest.NewRecorder()

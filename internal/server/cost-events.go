@@ -7,8 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ListCostEventsAPI handles GET /api/v1/cost-events.

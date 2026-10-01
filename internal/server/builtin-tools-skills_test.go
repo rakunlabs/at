@@ -6,9 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/executiontest"
-	"github.com/rakunlabs/query"
 )
 
 // fakeSkillStore is a minimal in-memory implementation of service.SkillStorer

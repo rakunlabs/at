@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -25,7 +27,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Parse request (same format as gateway). Capture the raw bytes first
 	// so the LLM audit log can persist the exact request.
 	rawBody, _ := io.ReadAll(r.Body)
-	var req ChatCompletionRequest
+	var req wire.ChatCompletionRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
@@ -101,7 +103,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	)
 
 	// Translate tools
-	tools := translateOpenAITools(req.Tools)
+	tools := wire.TranslateOpenAITools(req.Tools)
 
 	// Translate messages based on provider type. buildProviderMessages is
 	// the single source of truth (it also covers bedrock, which needs the
@@ -109,7 +111,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	messages, _ := s.buildProviderMessages(providerType, req.Messages, nil)
 
 	// Build per-request generation options from the client request.
-	opts := buildChatOptions(&req)
+	opts := wire.BuildChatOptions(&req)
 
 	if req.Stream {
 		audit := streamAuditCtx{
@@ -145,7 +147,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	forwardProviderResponseHeaders(w.Header(), resp.Header)
 
 	s.cacheThoughtSignatures(resp.ToolCalls)
-	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
+	chatResp := wire.BuildOpenAIResponse(wire.GenerateChatID(), req.Model, resp)
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
 

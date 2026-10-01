@@ -13,6 +13,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/alan"
 
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	hostterminal "github.com/rakunlabs/at/internal/service/terminal"
 )
@@ -20,7 +21,7 @@ import (
 type terminalFixtureStore struct {
 	service.Storer
 	service.TerminalStorer
-	*fakeAuthStore
+	*nativeauthtest.FakeStore
 	items []service.TerminalSession
 }
 
@@ -47,25 +48,25 @@ func (f *terminalFixtureStore) GetTerminalPreferences(context.Context, string) (
 
 func TestTerminalHTTPAdmission(t *testing.T) {
 	auth, authStore, mux := nativeFixture(t)
-	store := &terminalFixtureStore{fakeAuthStore: authStore}
+	store := &terminalFixtureStore{FakeStore: authStore}
 	s := &Server{ctx: t.Context(), store: store, nativeAuth: auth}
 	s.initTerminals()
 	item := service.TerminalSession{ID: ulid.Make().String(), OwnerID: "admin", TargetID: s.terminals.host.ID, TargetName: "host", Username: "root", Title: "Build"}
 	store.items = []service.TerminalSession{item, {ID: ulid.Make().String(), OwnerID: "another-admin", Title: "Private terminal"}}
 	api := mux.Group("/at/api/v1/terminals")
-	api.Use(auth.require(true))
+	api.Use(auth.Require(true))
 	api.GET("", s.ListTerminalsAPI)
 	api.PUT("/{id}", s.UpdateTerminalAPI)
 	api.GET("/{id}/ws", s.TerminalWebSocketAPI)
-	admin := nativeLoginCookie(t, mux, "admin")
-	reader := nativeLoginCookie(t, mux, "reader")
+	admin := nativeauthtest.LoginCookie(t, mux, "admin")
+	reader := nativeauthtest.LoginCookie(t, mux, "reader")
 	for _, tt := range []struct {
 		name   string
 		cookie *http.Cookie
 		want   int
 	}{{"anonymous", nil, 401}, {"member", reader, 403}, {"admin", admin, 200}} {
 		t.Run(tt.name, func(t *testing.T) {
-			w := nativeRequest(mux, "GET", "/at/api/v1/terminals", "", "", tt.cookie)
+			w := nativeauthtest.Request(mux, "GET", "/at/api/v1/terminals", "", "", tt.cookie)
 			if w.Code != tt.want {
 				t.Fatalf("status %d: %s", w.Code, w.Body)
 			}
@@ -75,23 +76,23 @@ func TestTerminalHTTPAdmission(t *testing.T) {
 		})
 	}
 	for _, origin := range []string{"", "https://evil.example"} {
-		w := nativeRequest(mux, "GET", "/at/api/v1/terminals/"+item.ID+"/ws", "", origin, admin)
+		w := nativeauthtest.Request(mux, "GET", "/at/api/v1/terminals/"+item.ID+"/ws", "", origin, admin)
 		if w.Code != 403 {
 			t.Fatalf("websocket accepted origin %q: %d %s", origin, w.Code, w.Body)
 		}
 	}
-	w := nativeRequest(mux, "PUT", "/at/api/v1/terminals/"+store.items[1].ID, `{"title":"stolen","position":0}`, "https://at.example", admin)
+	w := nativeauthtest.Request(mux, "PUT", "/at/api/v1/terminals/"+store.items[1].ID, `{"title":"stolen","position":0}`, "https://at.example", admin)
 	if w.Code != 404 {
 		t.Fatalf("cross-owner mutation: %d %s", w.Code, w.Body)
 	}
-	w = nativeRequest(mux, "PUT", "/at/api/v1/terminals/"+item.ID, `{"title":"changed","position":0,"owner":"another-admin"}`, "https://at.example", admin)
+	w = nativeauthtest.Request(mux, "PUT", "/at/api/v1/terminals/"+item.ID, `{"title":"changed","position":0,"owner":"another-admin"}`, "https://at.example", admin)
 	if w.Code != 400 {
 		t.Fatalf("client supplied owner accepted: %d %s", w.Code, w.Body)
 	}
 }
 
 func TestTerminalLiveAuthorization(t *testing.T) {
-	f := &fakeAuthStore{users: map[string]service.AuthUser{"admin": {ID: "admin", Admin: true}, "member": {ID: "member"}}, sessions: map[string]service.AuthSession{
+	f := &nativeauthtest.FakeStore{Users: map[string]service.AuthUser{"admin": {ID: "admin", Admin: true}, "member": {ID: "member"}}, Sessions: map[string]service.AuthSession{
 		"admin-session": {UserID: "admin", ExpiresAt: time.Now().Add(time.Hour)}, "member-session": {UserID: "member", ExpiresAt: time.Now().Add(time.Hour)},
 	}}
 	m := &terminalManager{auth: f}
@@ -205,8 +206,8 @@ func TestTerminalAlanRoutingAndStreaming(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	f := &fakeAuthStore{users: map[string]service.AuthUser{"admin": {ID: "admin", Admin: true}}, sessions: map[string]service.AuthSession{"login": {UserID: "admin", ExpiresAt: time.Now().Add(time.Hour)}}}
-	store := &terminalFixtureStore{fakeAuthStore: f}
+	f := &nativeauthtest.FakeStore{Users: map[string]service.AuthUser{"admin": {ID: "admin", Admin: true}}, Sessions: map[string]service.AuthSession{"login": {UserID: "admin", ExpiresAt: time.Now().Add(time.Hour)}}}
+	store := &terminalFixtureStore{FakeStore: f}
 	makeNode := func(bind, dns, id string) *terminalManager {
 		a, err := alan.New(alan.Config{BindAddr: bind, DNSAddr: dns, Port: port, RefreshInterval: 100 * time.Millisecond, Security: alan.SecurityConfig{Enabled: true, Key: []byte("terminal-integration-test-cluster-key")}})
 		if err != nil {

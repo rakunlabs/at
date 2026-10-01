@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/loopgov"
-	"github.com/rakunlabs/query"
 )
 
 // ─── Fakes ───

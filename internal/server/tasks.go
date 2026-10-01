@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ListTasksAPI handles GET /api/v1/tasks.

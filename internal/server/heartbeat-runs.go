@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ListHeartbeatRunsAPI handles GET /api/v1/agents/{id}/runs.

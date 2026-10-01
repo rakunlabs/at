@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ListOrganizationsAPI handles GET /api/v1/organizations.

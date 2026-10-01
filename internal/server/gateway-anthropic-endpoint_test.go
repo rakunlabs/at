@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
+
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres"
@@ -61,7 +64,7 @@ func anthropicEndpointServer(t *testing.T, providers map[string]ProviderInfo) (*
 	t.Helper()
 
 	p := postgrestest.New(t, nil)
-	cfg := nativeTestConfig()
+	cfg := nativeauthtest.Config()
 	cfg.Workspace = &config.Workspace{Root: t.TempDir(), TTLHours: -1}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -113,7 +116,7 @@ func TestAnthropicEndpointServesUnmodifiedClient(t *testing.T) {
 		t.Fatalf("routing profile header = %q", got)
 	}
 
-	var body anthropicResponse
+	var body wire.AnthropicResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v — %s", err, w.Body)
 	}
@@ -263,22 +266,22 @@ func TestAnthropicEndpointErrorEnvelope(t *testing.T) {
 		w := httptest.NewRecorder()
 		s.server.ServeHTTP(w, r)
 
-		assertAnthropicError(t, w, http.StatusUnauthorized, anthropicErrAuthentication)
+		assertAnthropicError(t, w, http.StatusUnauthorized, wire.AnthropicErrAuthentication)
 	})
 
 	t.Run("missing max_tokens is an invalid_request_error", func(t *testing.T) {
 		w := postAnthropic(t, s, token, `{"model":"anthropic/claude-sonnet","messages":[{"role":"user","content":"hi"}]}`)
-		assertAnthropicError(t, w, http.StatusBadRequest, anthropicErrInvalidRequest)
+		assertAnthropicError(t, w, http.StatusBadRequest, wire.AnthropicErrInvalidRequest)
 	})
 
 	t.Run("unknown model is a not_found_error", func(t *testing.T) {
 		w := postAnthropic(t, s, token, `{"model":"ghost/model","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`)
-		assertAnthropicError(t, w, http.StatusNotFound, anthropicErrNotFound)
+		assertAnthropicError(t, w, http.StatusNotFound, wire.AnthropicErrNotFound)
 	})
 
 	t.Run("unresolvable bare name is an invalid_request_error", func(t *testing.T) {
 		w := postAnthropic(t, s, token, `{"model":"nonexistent-profile","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`)
-		assertAnthropicError(t, w, http.StatusBadRequest, anthropicErrInvalidRequest)
+		assertAnthropicError(t, w, http.StatusBadRequest, wire.AnthropicErrInvalidRequest)
 	})
 }
 

@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/gcp"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/rakunlabs/query"
 )
 
 // ─── Info API ───

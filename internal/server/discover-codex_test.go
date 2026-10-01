@@ -16,6 +16,8 @@ import (
 	"github.com/rakunlabs/ada"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -29,7 +31,7 @@ func (wrongGlobalCodex) Models(context.Context) ([]string, error) {
 
 func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 	p := postgrestest.New(t, bytes.Repeat([]byte{9}, 32))
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +68,7 @@ func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]string{{"slug": "model-" + account}}})
 	}))
 	defer upstream.Close()
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,13 +81,13 @@ func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 	for range 2 {
 		s := &Server{store: p, nativeAuth: a, config: config.Server{BasePath: "/at"}, providerFactory: factory, version: "dev", providers: map[string]ProviderInfo{"openai": {provider: wrongGlobalCodex{}}}}
 		mux := ada.New()
-		a.register(mux, "/at")
+		a.Register(mux, "/at")
 		api := mux.Group("/at/api")
 		api.Use(s.workspaceBusinessAuthentication())
 		api.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
 		servers = append(servers, mux)
 	}
-	cookie := nativeLoginCookie(t, servers[0], "admin")
+	cookie := nativeauthtest.LoginCookie(t, servers[0], "admin")
 	var scopes []context.Context
 	var ids []string
 	for _, name := range []string{"one", "two"} {
@@ -115,7 +117,7 @@ func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 		r := httptest.NewRequest("POST", "/at/api/v1/providers/discover-models", strings.NewReader(body))
 		r.AddCookie(cookie)
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		r.Header.Set("X-AT-Workspace-ID", ids[index])
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)

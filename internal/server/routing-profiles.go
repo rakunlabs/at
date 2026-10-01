@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ─── Routing profile CRUD API ───
@@ -26,7 +29,7 @@ import (
 // already avoids for disabled providers. A lookup failure lists nothing rather
 // than failing the call — the endpoint's job is to advertise what is routable,
 // and provider models are unaffected.
-func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []ModelData {
+func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []wire.ModelData {
 	store, ok := s.routingProfileStore.(service.GatewayRoutingProfileStorer)
 	if !ok || auth == nil || auth.token == nil || auth.token.WorkspaceID == "" {
 		return nil
@@ -38,7 +41,7 @@ func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []M
 		return nil
 	}
 
-	out := make([]ModelData, 0, len(profiles))
+	out := make([]wire.ModelData, 0, len(profiles))
 	for _, profile := range profiles {
 		usable := false
 		for _, target := range profile.Targets {
@@ -50,7 +53,7 @@ func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []M
 		if !usable {
 			continue
 		}
-		out = append(out, ModelData{
+		out = append(out, wire.ModelData{
 			ID:             profile.Name,
 			Object:         "model",
 			OwnedBy:        "at-routing-profile",

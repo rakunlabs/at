@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -21,14 +23,14 @@ func (s *Server) handleAnthropicStream(
 	w http.ResponseWriter,
 	r *http.Request,
 	auth *authResult,
-	req *anthropicMessagesRequest,
+	req *wire.AnthropicMessagesRequest,
 	chain []chatCallTarget,
 	baseOpts *service.ChatOptions,
 	audit anthropicAuditContext,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeAnthropicError(w, http.StatusInternalServerError, anthropicErrAPI, "streaming not supported by this server")
+		writeAnthropicError(w, http.StatusInternalServerError, wire.AnthropicErrAPI, "streaming not supported by this server")
 
 		return
 	}
@@ -99,7 +101,7 @@ func (s *Server) handleAnthropicStream(
 
 		s.noteProviderResponse(target.providerKey, result.headers)
 
-		writer := newAnthropicStreamWriter(w, flusher, anthropicMessageID(), target.actualModel)
+		writer := wire.NewAnthropicStreamWriter(w, flusher, wire.AnthropicMessageID(), target.actualModel)
 		s.pumpAnthropicStream(r.Context(), writer, result.chunks, req, streamCtx{
 			auth:        auth,
 			target:      target,
@@ -113,7 +115,7 @@ func (s *Server) handleAnthropicStream(
 	// Nothing has been written, so a real status code is still possible.
 	status, _ := classifyGatewayError(streamErr)
 	addGatewayRateLimitHeaders(w, streamErr)
-	writeAnthropicError(w, status, anthropicErrorTypeForStatus(status), anthropicErrorMessage(streamErr))
+	writeAnthropicError(w, status, wire.AnthropicErrorTypeForStatus(status), anthropicErrorMessage(streamErr))
 }
 
 // streamCtx bundles the recording inputs for the pump.
@@ -127,9 +129,9 @@ type streamCtx struct {
 // pumpAnthropicStream relays provider chunks as Anthropic SSE events.
 func (s *Server) pumpAnthropicStream(
 	ctx context.Context,
-	writer *anthropicStreamWriter,
+	writer *wire.AnthropicStreamWriter,
 	chunks <-chan service.StreamChunk,
-	req *anthropicMessagesRequest,
+	req *wire.AnthropicMessagesRequest,
 	sc streamCtx,
 ) {
 	var (
@@ -160,7 +162,7 @@ func (s *Server) pumpAnthropicStream(
 		case chunk, open := <-chunks:
 			if !open {
 				ensureStarted()
-				stopReason, matched := anthropicStopReason(&service.LLMResponse{
+				stopReason, matched := wire.AnthropicStopReason(&service.LLMResponse{
 					Content:      content.String(),
 					ToolCalls:    toolCalls,
 					FinishReason: finishReason,
@@ -174,7 +176,7 @@ func (s *Server) pumpAnthropicStream(
 			if chunk.Error != nil {
 				ensureStarted()
 				slog.Error("anthropic messages: stream chunk error", "provider", sc.target.providerKey, "error", chunk.Error)
-				writer.Error(anthropicErrorTypeForStatus(gatewayStatusForError(chunk.Error)), chunk.Error.Error())
+				writer.Error(wire.AnthropicErrorTypeForStatus(gatewayStatusForError(chunk.Error)), chunk.Error.Error())
 				s.recordAnthropicStreamEnd(ctx, sc, req, usage, finishReason, content.String(), toolCalls, ttftMs, chunk.Error)
 
 				return
@@ -214,7 +216,7 @@ func (s *Server) pumpAnthropicStream(
 func (s *Server) recordAnthropicStreamEnd(
 	ctx context.Context,
 	sc streamCtx,
-	req *anthropicMessagesRequest,
+	req *wire.AnthropicMessagesRequest,
 	usage *service.Usage,
 	stopReason, content string,
 	toolCalls []service.ToolCall,
@@ -268,4 +270,8 @@ func gatewayStatusForError(err error) int {
 	status, _ := classifyGatewayError(err)
 
 	return status
+}
+
+func writeAnthropicError(w http.ResponseWriter, status int, errType, message string) {
+	httpResponseJSON(w, wire.AnthropicErrorBody(errType, message), status)
 }

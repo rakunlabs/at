@@ -11,6 +11,8 @@ import (
 	"github.com/rakunlabs/ada"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/loopgov"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -18,20 +20,20 @@ import (
 
 func TestWorkspacePermanentDeletionHTTP(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
 	s := &Server{store: p, nativeAuth: a, loopGov: loopgov.New(loopgov.Config{WorkspaceRoot: root}, nil), config: config.Server{Workspace: &config.Workspace{Root: root}}}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	s.registerWorkspaceRoutes(mux, "/at")
-	cookie := nativeLoginCookie(t, mux, "admin")
+	cookie := nativeauthtest.LoginCookie(t, mux, "admin")
 	ctx := service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: admin.ID})
 	workspace, err := p.CreateWorkspace(ctx, "Delete me", admin.ID)
 	if err != nil {
@@ -63,19 +65,19 @@ func TestWorkspacePermanentDeletionHTTP(t *testing.T) {
 	selection := func(id string) func(*http.Request) {
 		return func(r *http.Request) { r.Header.Set("X-AT-Workspace-ID", id) }
 	}
-	w := nativeRequest(mux, "POST", path, `{"confirmation":"Delete me"}`, a.cfg.Origin, cookie, selection(other.ID))
+	w := nativeauthtest.Request(mux, "POST", path, `{"confirmation":"Delete me"}`, a.Origin(), cookie, selection(other.ID))
 	if w.Code != 404 {
 		t.Fatalf("cross-workspace delete: %d %s", w.Code, w.Body)
 	}
-	w = nativeRequest(mux, "POST", path, `{"confirmation":"wrong"}`, a.cfg.Origin, cookie, selection(workspace.ID))
+	w = nativeauthtest.Request(mux, "POST", path, `{"confirmation":"wrong"}`, a.Origin(), cookie, selection(workspace.ID))
 	if w.Code != 409 || runCtx.Err() != nil {
 		t.Fatalf("confirmation: %d %s", w.Code, w.Body)
 	}
-	w = nativeRequest(mux, "PUT", "/at/auth/workspaces/preferences", `{"mode":"workspace","workspace_id":"`+workspace.ID+`"}`, a.cfg.Origin, cookie)
+	w = nativeauthtest.Request(mux, "PUT", "/at/auth/workspaces/preferences", `{"mode":"workspace","workspace_id":"`+workspace.ID+`"}`, a.Origin(), cookie)
 	if w.Code != 200 {
 		t.Fatalf("preference: %d %s", w.Code, w.Body)
 	}
-	w = nativeRequest(mux, "POST", path, `{"confirmation":"Delete me"}`, a.cfg.Origin, cookie, selection(workspace.ID))
+	w = nativeauthtest.Request(mux, "POST", path, `{"confirmation":"Delete me"}`, a.Origin(), cookie, selection(workspace.ID))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"deleted":true`) || strings.Contains(w.Body.String(), "cleanup_warning") {
 		t.Fatalf("delete: %d %s", w.Code, w.Body)
 	}
@@ -88,11 +90,11 @@ func TestWorkspacePermanentDeletionHTTP(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "workspaces", other.ID, "assets", "result.txt")); err != nil {
 		t.Fatal("sibling files deleted")
 	}
-	w = nativeRequest(mux, "GET", "/at/auth/workspaces", "", "", cookie)
+	w = nativeauthtest.Request(mux, "GET", "/at/auth/workspaces", "", "", cookie)
 	if w.Code != 200 || strings.Contains(w.Body.String(), workspace.ID) || !strings.Contains(w.Body.String(), other.ID) {
 		t.Fatalf("list: %d %s", w.Code, w.Body)
 	}
-	w = nativeRequest(mux, "GET", "/at/auth/workspaces/preferences", "", "", cookie)
+	w = nativeauthtest.Request(mux, "GET", "/at/auth/workspaces/preferences", "", "", cookie)
 	if w.Code != 200 || strings.Contains(w.Body.String(), workspace.ID) {
 		t.Fatalf("stale preference: %d %s", w.Code, w.Body)
 	}

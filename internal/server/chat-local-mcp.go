@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 

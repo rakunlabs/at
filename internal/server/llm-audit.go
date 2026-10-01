@@ -14,12 +14,15 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/oklog/ulid/v2"
-	"github.com/rakunlabs/at/internal/service"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // auditTraceInfo extracts the client-supplied trace and session correlation
@@ -438,7 +441,7 @@ func clipSpanBody(b []byte) string {
 
 // chatRespFinishReason returns the finish reason of the first choice, or ""
 // when the response has no choices.
-func chatRespFinishReason(resp *ChatCompletionResponse) string {
+func chatRespFinishReason(resp *wire.ChatCompletionResponse) string {
 	if resp == nil || len(resp.Choices) == 0 {
 		return ""
 	}
@@ -480,7 +483,7 @@ func usageOrZero(u *service.Usage) service.Usage {
 // response JSON from the accumulated streaming deltas, so the audit log
 // stores a single coherent response body instead of raw SSE frames.
 func streamAuditResponseBody(id, model, content, reasoning string, toolCalls []service.ToolCall, finishReason string, usage *service.Usage) []byte {
-	msg := ChatCompletionMessage{Role: "assistant"}
+	msg := wire.ChatCompletionMessage{Role: "assistant"}
 	if content != "" {
 		msg.Content = &content
 	}
@@ -490,30 +493,30 @@ func streamAuditResponseBody(id, model, content, reasoning string, toolCalls []s
 	for i, tc := range toolCalls {
 		idx := i
 		argsJSON, _ := json.Marshal(tc.Arguments)
-		msg.ToolCalls = append(msg.ToolCalls, OpenAIToolCall{
+		msg.ToolCalls = append(msg.ToolCalls, wire.OpenAIToolCall{
 			Index: &idx,
 			ID:    tc.ID,
 			Type:  "function",
-			Function: OpenAIFunctionCall{
+			Function: wire.OpenAIFunctionCall{
 				Name:      tc.Name,
 				Arguments: string(argsJSON),
 			},
 		})
 	}
 
-	resp := ChatCompletionResponse{
+	resp := wire.ChatCompletionResponse{
 		ID:      id,
 		Object:  "chat.completion",
 		Created: time.Now().Unix(),
 		Model:   model,
-		Choices: []ChatCompletionChoice{{
+		Choices: []wire.ChatCompletionChoice{{
 			Index:        0,
 			Message:      msg,
 			FinishReason: finishReason,
 		}},
 	}
 	if usage != nil {
-		resp.Usage = chatCompletionUsageFromService(*usage)
+		resp.Usage = wire.ChatCompletionUsageFromService(*usage)
 	}
 
 	b, _ := json.Marshal(resp)

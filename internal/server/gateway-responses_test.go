@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -33,7 +35,7 @@ func TestResponsesMediaReachesAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks := convertOpenAIContentToAnthropic(msg.Content)
+	blocks := wire.ConvertOpenAIContentToAnthropic(msg.Content)
 	if len(blocks) != 3 || blocks[1].Type != "document" || blocks[1].Source.Data != "cGRm" || blocks[2].Type != "image" {
 		t.Fatalf("media lost: %+v", blocks)
 	}

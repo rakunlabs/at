@@ -15,6 +15,8 @@ import (
 	"github.com/rakunlabs/ada"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -26,11 +28,11 @@ func (f providerAuthTestTransport) RoundTrip(r *http.Request) (*http.Response, e
 
 func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 	store := postgrestest.New(t, bytes.Repeat([]byte{1}, 32))
-	admin, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), store)
+	a, err := nativeauth.New(nativeauthtest.Config(), store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +55,7 @@ func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 		})}, nil
 	}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	api := mux.Group("/at/api")
 	api.Use(s.workspaceBusinessAuthentication())
 	api.POST("/v1/providers", s.CreateProviderAPI)
@@ -61,12 +63,12 @@ func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 	api.POST("/v1/providers/claude-auth/callback", s.ClaudeAuthCallbackAPI)
 	api.POST("/v1/providers/claude-auth/token", s.ClaudeAuthTokenAPI)
 	api.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
-	cookie := nativeLoginCookie(t, mux, "admin")
+	cookie := nativeauthtest.LoginCookie(t, mux, "admin")
 	call := func(path, workspace, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, "/at/api/v1/providers"+path, strings.NewReader(body))
 		r.AddCookie(cookie)
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-AT-Workspace-ID", workspace)
 		w := httptest.NewRecorder()

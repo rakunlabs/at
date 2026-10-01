@@ -129,7 +129,7 @@ func (s *Server) execSkillInstallTemplate(ctx context.Context, args map[string]a
 			vars[i] = v.Key + " - " + v.Description
 		}
 		out["required_variables"] = vars
-		out["setup_note"] = "Configure the required variables in AT Settings > Variables before using this skill"
+		out["setup_note"] = "Configure the required variables in AT nativeauth.Settings > Variables before using this skill"
 	}
 
 	data, _ := json.MarshalIndent(out, "", "  ")

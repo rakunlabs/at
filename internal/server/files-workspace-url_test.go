@@ -7,17 +7,19 @@ import (
 
 	"github.com/rakunlabs/ada"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
 )
 
 func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
+	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: nativeauthtest.PasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,13 +39,13 @@ func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 	if err := p.SetWorkspaceMember(service.WithAccessPrincipal(ctx, actor), service.WorkspaceMembership{WorkspaceID: own.ID, UserID: user.ID, Role: "viewer", Status: "active"}); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{store: p, nativeAuth: a}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	group := mux.Group("/at/api/v1")
 	group.Use(s.workspaceAuthentication(true, ""))
 	admitted := func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +64,7 @@ func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 	group.HEAD("/files/serve", admitted)
 	group.POST("/files/serve", admitted)
 	group.GET("/files/browse", admitted)
-	cookie := nativeLoginCookie(t, mux, "reader")
+	cookie := nativeauthtest.LoginCookie(t, mux, "reader")
 	for _, tt := range []struct {
 		name, method, path, header, byteRange string
 		cookie                                *http.Cookie
@@ -82,7 +84,7 @@ func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 		{"not for writes", "POST", "files/serve?workspace_id=" + own.ID, "", "", cookie, 400},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			w := nativeRequest(mux, tt.method, "/at/api/v1/"+tt.path, "", a.cfg.Origin, tt.cookie, func(r *http.Request) {
+			w := nativeauthtest.Request(mux, tt.method, "/at/api/v1/"+tt.path, "", a.Origin(), tt.cookie, func(r *http.Request) {
 				if tt.header != "" {
 					r.Header.Set("X-AT-Workspace-ID", tt.header)
 				}
@@ -98,7 +100,7 @@ func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 	if _, err := p.InvalidateAuthUser(t.Context(), user.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	w := nativeRequest(mux, "GET", "/at/api/v1/files/serve?workspace_id="+own.ID, "", a.cfg.Origin, cookie)
+	w := nativeauthtest.Request(mux, "GET", "/at/api/v1/files/serve?workspace_id="+own.ID, "", a.Origin(), cookie)
 	if w.Code != 401 || !strings.Contains(w.Body.String(), "authentication required") {
 		t.Fatal("saved file URL bypassed session revocation")
 	}

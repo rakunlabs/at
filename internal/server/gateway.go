@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+
 	str2duration "github.com/xhit/go-str2duration/v2"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -128,7 +130,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// persist the exact bytes the client sent (Langfuse-style), then
 	// unmarshal from the captured buffer.
 	rawBody, _ := io.ReadAll(r.Body)
-	var req ChatCompletionRequest
+	var req wire.ChatCompletionRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
 		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
@@ -213,7 +215,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// model, audio to Claude) before it costs anything upstream. Targets that
 	// cannot read it are skipped, so a fallback that can still serves.
 	var inputErr error
-	if chain, inputErr = admitChainInputs(chain, requestInputModalities(req.Messages)); inputErr != nil {
+	if chain, inputErr = admitChainInputs(chain, wire.RequestInputModalities(req.Messages)); inputErr != nil {
 		httpResponseJSON(respW, unsupportedInputBody(inputErr), http.StatusBadRequest)
 		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
@@ -240,7 +242,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// Build per-request generation options once. extra_body is cloned per
 	// attempt to avoid cross-attempt mutation.
-	baseOpts := buildChatOptions(&req)
+	baseOpts := wire.BuildChatOptions(&req)
 
 	if req.Stream {
 		// Streaming falls back too, bounded by the commitment boundary: nothing
@@ -355,7 +357,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.cacheThoughtSignatures(resp.ToolCalls)
-	chatResp := buildOpenAIResponse(generateChatID(), used.fullModel, resp)
+	chatResp := wire.BuildOpenAIResponse(wire.GenerateChatID(), used.fullModel, resp)
 	if costCents := s.estimateGatewayUsageCostCents(r.Context(), used.providerKey, used.actualModel, used.fullModel, resp.Usage); costCents > 0 {
 		respW.Header().Set("x-at-response-cost-cents", fmt.Sprintf("%.6f", costCents))
 	}
@@ -395,11 +397,11 @@ func anthropicFamilyProvider(providerType string) bool {
 // through the OpenAI DTO would be a lossy detour back to where the input
 // started. Translation is selected per fallback attempt from the original
 // request, so a chain spanning provider families never compounds conversions.
-func (s *Server) buildAnthropicProviderMessages(providerType string, req *anthropicMessagesRequest) ([]service.Message, []service.Tool) {
-	tools := translateAnthropicTools(req.Tools)
+func (s *Server) buildAnthropicProviderMessages(providerType string, req *wire.AnthropicMessagesRequest) ([]service.Message, []service.Tool) {
+	tools := wire.TranslateAnthropicTools(req.Tools)
 
 	if anthropicFamilyProvider(providerType) {
-		systemPrompt, messages := translateAnthropicMessages(req)
+		systemPrompt, messages := wire.TranslateAnthropicMessages(req)
 		if systemPrompt != "" {
 			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
 		}
@@ -407,27 +409,27 @@ func (s *Server) buildAnthropicProviderMessages(providerType string, req *anthro
 		return messages, tools
 	}
 
-	openAIMessages := translateAnthropicToOpenAI(req)
+	openAIMessages := wire.TranslateAnthropicToOpenAI(req)
 
-	return translateOpenAIMessages(openAIMessages, s.lookupThoughtSignature), tools
+	return wire.TranslateOpenAIMessages(openAIMessages, s.lookupThoughtSignature), tools
 }
 
 // buildProviderMessages translates the OpenAI-shape messages + tools into
 // the provider-flavoured service.Message and service.Tool slices.
-func (s *Server) buildProviderMessages(providerType string, msgs []OpenAIMessage, tools []OpenAITool) ([]service.Message, []service.Tool) {
-	tt := translateOpenAITools(tools)
+func (s *Server) buildProviderMessages(providerType string, msgs []wire.OpenAIMessage, tools []wire.OpenAITool) ([]service.Message, []service.Tool) {
+	tt := wire.TranslateOpenAITools(tools)
 	switch providerType {
 	case "anthropic", "minimax", "bedrock":
 		// Bedrock's Converse API uses an Anthropic-style content-block
 		// shape, so we reuse the same translator. The bedrock adapter
 		// converts service.ContentBlock to Converse blocks internally.
-		systemPrompt, messages := translateOpenAIToAnthropic(msgs)
+		systemPrompt, messages := wire.TranslateOpenAIToAnthropic(msgs)
 		if systemPrompt != "" {
 			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
 		}
 		return messages, tt
 	default:
-		return translateOpenAIMessages(msgs, s.lookupThoughtSignature), tt
+		return wire.TranslateOpenAIMessages(msgs, s.lookupThoughtSignature), tt
 	}
 }
 
@@ -732,16 +734,16 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	models := s.gatewayModels(r.Context(), auth)
-	httpResponseJSON(w, ModelsResponse{Object: "list", Data: models}, http.StatusOK)
+	httpResponseJSON(w, wire.ModelsResponse{Object: "list", Data: models}, http.StatusOK)
 }
 
 // gatewayModels returns the token-visible catalog shared by the OpenAI models
 // endpoint and richer metadata projections. It always returns a non-nil slice.
-func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelData {
+func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []wire.ModelData {
 	// Never nil: a nil slice marshals to `null`, and OpenAI clients iterate
 	// `data` without a nil check, so an empty registry or a fully restrictive
 	// token allowlist crashed them instead of listing nothing.
-	models := []ModelData{}
+	models := []wire.ModelData{}
 	s.providerMu.RLock()
 	for key, info := range s.providers {
 		// A disabled provider advertises nothing: listing models that are
@@ -763,7 +765,7 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 			seen[m] = true
 			fullID := key + "/" + m
 			if auth.isModelAllowed(key, fullID) {
-				model := ModelData{
+				model := wire.ModelData{
 					ID:      fullID,
 					Object:  "model",
 					OwnedBy: key,
@@ -801,7 +803,7 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 				for _, model := range entry.Models {
 					fullID := entry.Key + "/" + model
 					if auth.isModelAllowed(entry.Key, fullID) {
-						models = append(models, ModelData{ID: fullID, Object: "model", OwnedBy: entry.Key, Mode: "chat"})
+						models = append(models, wire.ModelData{ID: fullID, Object: "model", OwnedBy: entry.Key, Mode: "chat"})
 					}
 				}
 			}
@@ -824,7 +826,7 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []ModelDat
 // overrides. Only known values are advertised. Clients such as OpenCode refuse
 // an attachment locally unless its modality is declared, so an input modality
 // that is absent here is one the client will never send.
-func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID string) {
+func applyGatewayModelCapabilities(model *wire.ModelData, info ProviderInfo, modelID string) {
 	caps := info.resolvedCapabilities(modelID)
 	if !caps.Known() {
 		return
@@ -835,7 +837,7 @@ func applyGatewayModelCapabilities(model *ModelData, info ProviderInfo, modelID 
 	if caps.OutputModalities != nil {
 		model.OutputModalities = caps.OutputModalities
 	}
-	c := &GatewayModelCapabilities{}
+	c := &wire.GatewayModelCapabilities{}
 	if caps.InputModalities != nil {
 		c.Vision = boolPtr(caps.Accepts(service.ModalityImage))
 		c.PDFInput = boolPtr(caps.Accepts(service.ModalityPDF))
@@ -1111,7 +1113,7 @@ func (s *Server) handleStreamingChat(
 	providerKey, actualModel, fullModel string,
 	messages []service.Message,
 	tools []service.Tool,
-	streamOpts *StreamOptions,
+	streamOpts *wire.StreamOptions,
 	opts *service.ChatOptions,
 	audit streamAuditCtx,
 ) (committed bool, streamErr error) {
@@ -1132,7 +1134,7 @@ func (s *Server) handleStreamingChat(
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	chatID := generateChatID()
+	chatID := wire.GenerateChatID()
 
 	// Determine whether the client requested usage reporting in the stream.
 	includeUsage := streamOpts != nil && streamOpts.IncludeUsage
@@ -1190,13 +1192,13 @@ func (s *Server) handleStreamingChat(
 		committed = true
 
 		// First chunk: send role
-		writeSSEChunk(w, flusher, ChatCompletionChunk{
+		writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 			ID:     chatID,
 			Object: "chat.completion.chunk",
 			Model:  fullModel,
-			Choices: []ChunkChoice{{
+			Choices: []wire.ChunkChoice{{
 				Index: 0,
-				Delta: ChunkDelta{Role: "assistant"},
+				Delta: wire.ChunkDelta{Role: "assistant"},
 			}},
 		})
 
@@ -1247,7 +1249,7 @@ func (s *Server) handleStreamingChat(
 				auditToolCalls = append(auditToolCalls, chunk.ToolCalls...)
 			}
 			if chunk.FinishReason != "" {
-				auditFinish = mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
+				auditFinish = wire.MapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
 			}
 
 			// Usage-only chunks (no content, no tool calls, no finish reason)
@@ -1256,13 +1258,13 @@ func (s *Server) handleStreamingChat(
 				continue
 			}
 
-			cc := ChatCompletionChunk{
+			cc := wire.ChatCompletionChunk{
 				ID:     chatID,
 				Object: "chat.completion.chunk",
 				Model:  fullModel,
-				Choices: []ChunkChoice{{
+				Choices: []wire.ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{
+					Delta: wire.ChunkDelta{
 						Content:          buildDeltaContent(chunk.Content, chunk.InlineImages),
 						ReasoningContent: buildReasoningContent(chunk.ReasoningContent),
 					},
@@ -1277,12 +1279,12 @@ func (s *Server) handleStreamingChat(
 				for i, tc := range chunk.ToolCalls {
 					idx := i
 					argsJSON, _ := json.Marshal(tc.Arguments)
-					cc.Choices[0].Delta.ToolCalls = append(cc.Choices[0].Delta.ToolCalls, OpenAIToolCall{
+					cc.Choices[0].Delta.ToolCalls = append(cc.Choices[0].Delta.ToolCalls, wire.OpenAIToolCall{
 						Index:            &idx,
 						ID:               tc.ID,
 						Type:             "function",
 						ThoughtSignature: tc.ThoughtSignature,
-						Function: OpenAIFunctionCall{
+						Function: wire.OpenAIFunctionCall{
 							Name:      tc.Name,
 							Arguments: string(argsJSON),
 						},
@@ -1300,20 +1302,20 @@ func (s *Server) handleStreamingChat(
 				writeSSEChunk(w, flusher, cc)
 				// Then send a separate chunk with just the finish_reason
 				// (normalized to OpenAI's vocabulary).
-				fr := mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
-				writeSSEChunk(w, flusher, ChatCompletionChunk{
+				fr := wire.MapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
+				writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 					ID:     chatID,
 					Object: "chat.completion.chunk",
 					Model:  fullModel,
-					Choices: []ChunkChoice{{
+					Choices: []wire.ChunkChoice{{
 						Index:        0,
-						Delta:        ChunkDelta{},
+						Delta:        wire.ChunkDelta{},
 						FinishReason: &fr,
 					}},
 				})
 			} else {
 				if chunk.FinishReason != "" {
-					fr := mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
+					fr := wire.MapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
 					cc.Choices[0].FinishReason = &fr
 				}
 				writeSSEChunk(w, flusher, cc)
@@ -1323,12 +1325,12 @@ func (s *Server) handleStreamingChat(
 		// If the client requested usage reporting, emit a final chunk
 		// with empty choices and the accumulated usage object.
 		if includeUsage && streamUsage != nil {
-			writeSSEChunk(w, flusher, ChatCompletionChunk{
+			writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 				ID:      chatID,
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
-				Choices: []ChunkChoice{},
-				Usage:   chatCompletionUsagePtrFromService(*streamUsage),
+				Choices: []wire.ChunkChoice{},
+				Usage:   wire.ChatCompletionUsagePtrFromService(*streamUsage),
 			})
 		}
 
@@ -1377,25 +1379,25 @@ func (s *Server) handleStreamingChat(
 
 		// Chunk 1: role
 		committed = true
-		writeSSEChunk(w, flusher, ChatCompletionChunk{
+		writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 			ID:     chatID,
 			Object: "chat.completion.chunk",
 			Model:  fullModel,
-			Choices: []ChunkChoice{{
+			Choices: []wire.ChunkChoice{{
 				Index: 0,
-				Delta: ChunkDelta{Role: "assistant"},
+				Delta: wire.ChunkDelta{Role: "assistant"},
 			}},
 		})
 
 		// Chunk 2: reasoning content (if any)
 		if resp.ReasoningContent != "" {
-			writeSSEChunk(w, flusher, ChatCompletionChunk{
+			writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 				ID:     chatID,
 				Object: "chat.completion.chunk",
 				Model:  fullModel,
-				Choices: []ChunkChoice{{
+				Choices: []wire.ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{ReasoningContent: resp.ReasoningContent},
+					Delta: wire.ChunkDelta{ReasoningContent: resp.ReasoningContent},
 				}},
 			})
 		}
@@ -1403,13 +1405,13 @@ func (s *Server) handleStreamingChat(
 		// Chunk 3: content (if any)
 		deltaContent := buildDeltaContent(resp.Content, resp.InlineImages)
 		if deltaContent != nil {
-			writeSSEChunk(w, flusher, ChatCompletionChunk{
+			writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 				ID:     chatID,
 				Object: "chat.completion.chunk",
 				Model:  fullModel,
-				Choices: []ChunkChoice{{
+				Choices: []wire.ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{Content: deltaContent},
+					Delta: wire.ChunkDelta{Content: deltaContent},
 				}},
 			})
 		}
@@ -1419,66 +1421,66 @@ func (s *Server) handleStreamingChat(
 			// Cache thought_signatures for later restoration.
 			s.cacheThoughtSignatures(resp.ToolCalls)
 
-			var toolCalls []OpenAIToolCall
+			var toolCalls []wire.OpenAIToolCall
 			for i, tc := range resp.ToolCalls {
 				idx := i
 				argsJSON, _ := json.Marshal(tc.Arguments)
-				toolCalls = append(toolCalls, OpenAIToolCall{
+				toolCalls = append(toolCalls, wire.OpenAIToolCall{
 					Index:            &idx,
 					ID:               tc.ID,
 					Type:             "function",
 					ThoughtSignature: tc.ThoughtSignature,
-					Function: OpenAIFunctionCall{
+					Function: wire.OpenAIFunctionCall{
 						Name:      tc.Name,
 						Arguments: string(argsJSON),
 					},
 				})
 			}
-			writeSSEChunk(w, flusher, ChatCompletionChunk{
+			writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 				ID:     chatID,
 				Object: "chat.completion.chunk",
 				Model:  fullModel,
-				Choices: []ChunkChoice{{
+				Choices: []wire.ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{ToolCalls: toolCalls},
+					Delta: wire.ChunkDelta{ToolCalls: toolCalls},
 				}},
 			})
 		}
 
 		// Final chunk: finish reason (normalized to OpenAI's vocabulary).
-		finishReason := normalizeFinishReason(resp)
-		writeSSEChunk(w, flusher, ChatCompletionChunk{
+		finishReason := wire.NormalizeFinishReason(resp)
+		writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 			ID:     chatID,
 			Object: "chat.completion.chunk",
 			Model:  fullModel,
-			Choices: []ChunkChoice{{
+			Choices: []wire.ChunkChoice{{
 				Index:        0,
-				Delta:        ChunkDelta{},
+				Delta:        wire.ChunkDelta{},
 				FinishReason: &finishReason,
 			}},
 		})
 
 		// Emit usage chunk for fake streaming if requested.
 		if includeUsage {
-			writeSSEChunk(w, flusher, ChatCompletionChunk{
+			writeSSEChunk(w, flusher, wire.ChatCompletionChunk{
 				ID:      chatID,
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
-				Choices: []ChunkChoice{},
-				Usage:   chatCompletionUsagePtrFromService(resp.Usage),
+				Choices: []wire.ChunkChoice{},
+				Usage:   wire.ChatCompletionUsagePtrFromService(resp.Usage),
 			})
 		}
 
 		// Fire-and-forget usage recording for DB tokens (fake streaming).
 		s.recordUsageAsync(r.Context(), auth, fullModel, resp.Usage, fakeLatencyMs, "ok", "", "")
-		if respBody, mErr := json.Marshal(buildOpenAIResponse(chatID, fullModel, resp)); mErr == nil {
+		if respBody, mErr := json.Marshal(wire.BuildOpenAIResponse(chatID, fullModel, resp)); mErr == nil {
 			s.recordLLMCallAsync(r.Context(), llmAuditParams{
 				auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
 				traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
 				requestBody: audit.requestBody, responseBody: respBody,
 				requestedModel: audit.requestedModel, fullModel: fullModel,
 				usage: resp.Usage, latencyMs: fakeLatencyMs, streamed: true, status: "ok",
-				finishReason: normalizeFinishReason(resp),
+				finishReason: wire.NormalizeFinishReason(resp),
 			})
 		}
 	}
@@ -1534,7 +1536,7 @@ func buildReasoningContent(text string) any {
 // writeSSEChunk writes a single SSE data line with the JSON-encoded chunk.
 // It auto-stamps the Created timestamp when callers leave it unset so every
 // chunk carries a unix-second value as OpenAI clients expect.
-func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk ChatCompletionChunk) {
+func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk wire.ChatCompletionChunk) {
 	if chunk.Created == 0 {
 		chunk.Created = time.Now().Unix()
 	}

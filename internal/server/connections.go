@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ─── Connection CRUD API ───

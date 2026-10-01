@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ListApprovalsAPI handles GET /api/v1/approvals.

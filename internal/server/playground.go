@@ -9,6 +9,7 @@ import (
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -51,7 +52,7 @@ func (s *Server) playgroundAccess(w http.ResponseWriter, r *http.Request) (servi
 	w.Header().Set("Cache-Control", "no-store")
 	// Authentication settings live in the database, so the coordinator is
 	// resolved per request; the boot-time field is nil on a normal server.
-	if nativeRuntimeFromRequest(r, s.nativeAuth) == nil {
+	if nativeauth.RuntimeFromRequest(r, s.nativeAuth) == nil {
 		nativeError(w, http.StatusServiceUnavailable, "playground history requires native authentication")
 		return nil, ""
 	}

@@ -55,7 +55,7 @@ type backgroundSubagentRun struct {
 	// was started from Chats.
 	Artifacts     []chatArtifact
 	ArtifactsNote string
-	done        chan struct{}
+	done          chan struct{}
 }
 
 // subagentProgressFunc receives a one-line summary of what a running subagent

@@ -10,9 +10,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rakunlabs/logi"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/rakunlabs/logi"
 
 	// Blank import triggers init() registration of all built-in node types.
 	_ "github.com/rakunlabs/at/internal/service/workflow/nodes"

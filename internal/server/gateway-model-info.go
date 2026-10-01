@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -159,7 +160,7 @@ func perTokenPrice(perMillion float64) *float64 {
 // applyLiteLLMReasoning maps AT's per-model efforts onto LiteLLM's flags.
 // Every tier flag is set explicitly, because discovery clients default the
 // unset low/medium/high tiers to supported and xhigh/max/none/minimal to not.
-func applyLiteLLMReasoning(metadata *liteLLMModelMetadata, model ModelData) {
+func applyLiteLLMReasoning(metadata *liteLLMModelMetadata, model wire.ModelData) {
 	reasoning := model.Capabilities.Reasoning
 	if reasoning == nil {
 		return
@@ -186,7 +187,7 @@ func applyLiteLLMReasoning(metadata *liteLLMModelMetadata, model ModelData) {
 // model well enough to say something true. Clients read a non-empty list as
 // the complete set: temperature missing means "never send it", which is how
 // reasoning models (which reject it) are protected.
-func applyLiteLLMParams(metadata *liteLLMModelMetadata, model ModelData) {
+func applyLiteLLMParams(metadata *liteLLMModelMetadata, model wire.ModelData) {
 	c := model.Capabilities
 	if c.Temperature == nil && c.Reasoning == nil {
 		return

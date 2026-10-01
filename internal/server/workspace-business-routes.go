@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -398,7 +399,7 @@ func (s *Server) workspaceBusinessAuthentication() func(http.Handler) http.Handl
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, scoped := service.AccessPrincipalFromContext(r.Context())
-			if !scoped && service.LegacyWorkspaceAccessFromContext(r.Context()) && nativeRuntimeFromRequest(r, s.nativeAuth) == nil {
+			if !scoped && service.LegacyWorkspaceAccessFromContext(r.Context()) && nativeauth.RuntimeFromRequest(r, s.nativeAuth) == nil {
 				if len(r.Header.Values("X-AT-Workspace-ID")) > 0 {
 					nativeError(w, 400, "workspace selection requires native authentication")
 					return

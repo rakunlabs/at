@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rakunlabs/at/internal/service/executiontest"
 	"time"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 func TestResolveBashTimeout(t *testing.T) {

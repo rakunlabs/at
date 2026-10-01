@@ -14,9 +14,10 @@ import (
 
 	str2duration "github.com/xhit/go-str2duration/v2"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ─── API Token Management ───

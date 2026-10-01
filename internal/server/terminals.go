@@ -19,6 +19,7 @@ import (
 	"github.com/rakunlabs/ada/middleware/auth/issuer"
 	"github.com/rakunlabs/alan"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 	hostterminal "github.com/rakunlabs/at/internal/service/terminal"
 )
@@ -473,7 +474,7 @@ func (m *terminalManager) target(ctx context.Context, req terminalRPC, id string
 
 func (s *Server) terminalAccess(w http.ResponseWriter, r *http.Request) (*terminalManager, terminalRPC) {
 	id := identity.FromContext(r.Context())
-	pair, ok := r.Context().Value(nativeSessionContextKey{}).(*issuer.Pair)
+	pair, ok := r.Context().Value(nativeauth.SessionContextKey{}).(*issuer.Pair)
 	if id == nil || !id.HasRole("admin") || !ok || pair == nil {
 		nativeError(w, 403, "host terminals are administrator-only")
 		return nil, terminalRPC{}
@@ -671,7 +672,7 @@ func (s *Server) TerminalPreferencesAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var body service.TerminalPreferences
-	if !decodeNativeBodyLimit(w, r, &body, 16384) {
+	if !nativeauth.DecodeBodyLimit(w, r, &body, 16384) {
 		return
 	}
 	if len(body.DefaultUsers) > 64 || len(body.ActiveID) > 26 {

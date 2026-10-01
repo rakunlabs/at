@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // --- Mock stores for task intake tests ---

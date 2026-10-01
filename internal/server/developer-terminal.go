@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -21,12 +22,12 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	auth := nativeRuntimeFromRequest(r, s.nativeAuth)
+	auth := nativeauth.RuntimeFromRequest(r, s.nativeAuth)
 	if auth == nil || r.Header.Get("Origin") == "" {
 		nativeError(w, http.StatusForbidden, "configured browser Origin required")
 		return
 	}
-	if !auth.sameOrigin(w, r) {
+	if !auth.SameOrigin(w, r) {
 		return
 	}
 	h, ok := s.developerRuntime(w, r)

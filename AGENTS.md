@@ -11,6 +11,10 @@ Module: `github.com/rakunlabs/at` — Go 1.27
 ```
 cmd/at/main.go              → bootstrap: config → store → providers → server.Start
 internal/server/            → HTTP handlers (ada framework), middleware, static UI
+internal/gateway/wire/      → gateway wire DTOs + OpenAI/Anthropic translation (pure, no *Server)
+internal/clientip/          → trusted-proxy aware client address resolution
+internal/nativeauth/        → native sign-in: sessions, passkeys, MFA, mobile, external OAuth2, auth settings
+internal/httpx/             → shared JSON response helpers
 internal/service/           → domain types + store interfaces (at.go)
 internal/service/workflow/  → DAG engine: parse → topoSort → run (concurrent fan-out)
 internal/service/workflow/nodes/ → node types registered via init()
@@ -261,7 +265,7 @@ Provider-specific compatibility notes:
 - **Gemini thinking** is selected per model generation, because the two field names are mutually exclusive and sending the wrong one is a 400: Gemini 3+ (`gemini-3*`, and later majors) gets `thinkingLevel` (`MINIMAL`/`LOW`/`MEDIUM`/`HIGH`), Gemini 2.5 and earlier get `thinkingBudget` in tokens. `reasoning_effort` low/medium/high maps to 2048/8192/24576 tokens or the matching level; an explicit `thinking` block wins over it, and `thinking.budget_tokens: 0` is preserved (`thinkingBudget` is a pointer, so a zero budget is no longer erased by `omitempty`). Any enabled config also sets `includeThoughts`, which is what actually makes Gemini emit `thought` parts — without it `reasoning_content` was always empty. Requests that ask for no thinking still send no `thinkingConfig` at all. See `geminiThinkingConfig` in `internal/service/llm/gemini/openai_compat.go`.
 - **Gemini tool-call correlation** uses `functionCall.id` / `functionResponse.id` when the model supplies one. Matching results to calls by function name alone is ambiguous whenever a single turn calls the same function more than once, which is the normal parallel-tool-call case. Upstream IDs are preserved into `service.ToolCall.ID` and echoed symmetrically on both the call and the response. IDs this adapter minted itself (`call_<ulid>`, used only when the model sent none) are never replayed upstream, since Gemini never issued them.
 - **Gemini usage** folds `toolUsePromptTokenCount` into `PromptTokens`: server-side tool input (Google Search grounding, code execution) is billed as input but reported outside `promptTokenCount`, so ignoring it under-reported cost on every grounded request. `cachedContentTokenCount` is subtracted from `promptTokenCount` because the latter is the total effective prompt size and already includes the cached prefix. Explicit context caching (the `cachedContents` resource) is not managed by AT; a pre-created handle can be passed through as `extra_body.cachedContent`. Implicit caching needs no wiring and works today — the request prefix AT builds is byte-stable across calls.
-- **Finish reason vs tool calls**: adapters call `common.ReconcileToolCallFinish` after collecting tool calls, so a response carrying pending calls is always `Finished: false` / `finish_reason: "tool_calls"`. OpenAI itself reports `tool_calls`, but many OpenAI-compatible servers (Ollama, LM Studio, vLLM, several hosted gateways) return `"stop"` with a populated `tool_calls` array; the agent loops gate execution on `resp.Finished || len(resp.ToolCalls) == 0`, so taking that at face value silently dropped the calls and ended the run on whatever text came with them. Truncated/filtered responses (`length` / `content_filter`) drop their partial calls *before* reconciliation, so those stop reasons are preserved. `normalizeFinishReason` / `mapStreamFinishReason` apply the same rule at the gateway edge. Regression: `internal/service/llm/openai/compat-regression_test.go`.
+- **Finish reason vs tool calls**: adapters call `common.ReconcileToolCallFinish` after collecting tool calls, so a response carrying pending calls is always `Finished: false` / `finish_reason: "tool_calls"`. OpenAI itself reports `tool_calls`, but many OpenAI-compatible servers (Ollama, LM Studio, vLLM, several hosted gateways) return `"stop"` with a populated `tool_calls` array; the agent loops gate execution on `resp.Finished || len(resp.ToolCalls) == 0`, so taking that at face value silently dropped the calls and ended the run on whatever text came with them. Truncated/filtered responses (`length` / `content_filter`) drop their partial calls *before* reconciliation, so those stop reasons are preserved. `wire.NormalizeFinishReason` / `wire.MapStreamFinishReason` (`internal/gateway/wire`) apply the same rule at the gateway edge. Regression: `internal/service/llm/openai/compat-regression_test.go`.
 - **`refusal`** is a first-class field (`service.LLMResponse.Refusal`). OpenAI returns it *instead of* content, with `finish_reason: "stop"`, on structured-output and safety refusals — so dropping it made a refusal indistinguishable from an empty response. It is forwarded in the gateway's `message.refusal` (the wire field already existed but was never populated) and reported by org delegation as a `REFUSED` result instead of an unexplained `EMPTY_RESPONSE`.
 - Upstream provider errors surface as real gateway errors (429/5xx envelopes), never as HTTP-200 responses with error text in `content`.
 - Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax, systemone).
@@ -519,8 +523,8 @@ lossy detour back to where the input started:
 
 | | OpenAI-family target | Anthropic-family target |
 |---|---|---|
-| **OpenAI inbound** | `translateOpenAIMessages` | `translateOpenAIToAnthropic` |
-| **Anthropic inbound** | `translateAnthropicToOpenAI` | `translateAnthropicMessages` (near-identity) |
+| **OpenAI inbound** | `wire.TranslateOpenAIMessages` | `wire.TranslateOpenAIToAnthropic` |
+| **Anthropic inbound** | `wire.TranslateAnthropicToOpenAI` | `wire.TranslateAnthropicMessages` (near-identity) |
 
 The branch is evaluated per fallback attempt from the original request, so a
 chain spanning provider families never derives one attempt from another's form.
@@ -1219,7 +1223,7 @@ safe. A same-host Turna service proxy needs `trusted_proxies: ["loopback"]`:
 `private` does not include `127.0.0.1` or `::1`. Prefer `X-Forwarded-For` over
 Turna's legacy `X-Real-IP`, which can preserve a caller-supplied value.
 
-Resolution (`clientIPResolver`, `internal/server/client-ip.go`) reads the header
+Resolution (`clientip.Resolver`, `internal/clientip`) reads the header
 only when the peer is trusted, then walks the chain **right to left** and returns
 the first hop that is not itself a trusted proxy. That is what makes the result
 unforgeable — a client may prepend anything to `X-Forwarded-For`, but its own
@@ -1236,7 +1240,7 @@ durable admission keeps the raw form (one odd transport must not rate-limit ever
 other one with it), while the entry-capped in-process map collapses them into one
 bucket (there the unbounded key space is the risk). With the default empty
 configuration behaviour is byte-for-byte what it was before. Regression:
-`internal/server/client-ip_test.go`, `internal/config/trusted-proxies_test.go`,
+`internal/clientip/clientip_test.go`, `internal/config/trusted-proxies_test.go`,
 plus the trusted-proxy cases in `TestPasswordLoginLockoutPostgres` and
 `TestMobileBeginTrustedProxySources`.
 
@@ -1587,7 +1591,7 @@ ada's own flow (used by pika) answers `<script>window.close()</script>` and lets
 the opener re-check `/auth/me`. That does not work here: AT's callback can return
 `mfa_required` with a challenge the main window must continue with, so the result
 has to travel back as data. Regression:
-`internal/server/native-auth-external-bridge_test.go` plus the bridge assertions
+`internal/nativeauth/external-bridge_test.go` plus the bridge assertions
 in `TestExternalOAuth2LoginAndReplicaFlow`.
 
 ### Selected-workspace provider catalog and workflows
@@ -2425,7 +2429,7 @@ so existing containers keep their `at.config` label. `POST
 .../home/files` copies an upload in with `docker cp` (default mode 600), because
 exec-based file tools are confined to `/workspace`. `POST .../home/reset`
 removes the volume and every managed container mounting it. Deleting an account
-does the same (`nativeAuth.onUserDeleted`). Storage is **not encrypted by AT**:
+does the same (`nativeauth.Auth.OnUserDeleted`). Storage is **not encrypted by AT**:
 it relies on the host disk. Agent commands run as the same user and can read
 the home, which the UI states. Regression: `internal/service/container/home_test.go`
 (including `TestDockerPersistentHome` against real Docker).
@@ -2513,15 +2517,17 @@ Docker). Other regressions:
 `make test` is `go test -v -race ./...`. Two structural costs used to dominate it
 (212s → 33s once both were removed); keep them in mind before adding fixtures.
 
-**Password hashing.** `internal/server`'s `TestMain` lowers
-`nativePasswordIterations` to 1000, but an encoded PBKDF2 hash is verified with
+**Password hashing.** The `TestMain` of both `internal/server` and
+`internal/nativeauth` calls `nativeauth.LowerPasswordCostForTests`, which lowers
+`nativePasswordIterations` to 1000. An encoded PBKDF2 hash is verified with
 *its own* iteration count, so a fixture storing `password.Dummy` — built by the
 library at the 600k default — paid full production cost on every sign-in (~1.5s
-under `-race`). Fixture accounts therefore store `testPasswordHash` and sign in
-with `testPassword` (`native-auth-cost_test.go`), and the unknown-user
-comparison target is the package variable `nativePasswordDummy`, lowered
-alongside it. Production keeps the library default for both, because the dummy
-must cost what a real hash costs or the unknown-user path is timeable.
+under `-race`). Fixture accounts therefore store `nativeauthtest.PasswordHash`
+and sign in with `nativeauthtest.Password`; the same call lowers the
+unknown-user comparison target `nativePasswordDummy`. Production keeps the
+library default for both, because the dummy must cost what a real hash costs or
+the unknown-user path is timeable. A new test package that signs in must do the
+same in its own `TestMain`.
 
 **Database fixtures.** `internal/store/postgres/pgtemplate` migrates one
 template database per process and hands each test a copy

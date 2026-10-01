@@ -189,7 +189,7 @@ func TestGatewayMCPWSHandler_TunnelsFrames(t *testing.T) {
 	select {
 	case h := <-gotHeaders:
 		if got := h.Get("X-Upstream-Auth"); got != "secret-1" {
-			t.Errorf("X-Upstream-Auth = %q, want secret-1", got)
+			t.Errorf("X-Upstream-nativeauth.Auth = %q, want secret-1", got)
 		}
 		if got := h.Get("Authorization"); got != "" {
 			t.Errorf("Authorization leaked upstream: %q", got)

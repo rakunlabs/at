@@ -8,11 +8,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
+
+	"github.com/worldline-go/types"
+
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
-	"github.com/worldline-go/types"
 )
 
 const routingTestWorkspace = "legacy-default"
@@ -20,7 +24,7 @@ const routingTestWorkspace = "legacy-default"
 func routingProfileServer(t *testing.T) (*Server, *postgres.Postgres, context.Context) {
 	t.Helper()
 	p := postgrestest.New(t, nil)
-	cfg := nativeTestConfig()
+	cfg := nativeauthtest.Config()
 	cfg.Workspace = &config.Workspace{Root: t.TempDir(), TTLHours: -1}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -194,7 +198,7 @@ func TestRoutingProfileAppearsInModelList(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
 	}
-	var got ModelsResponse
+	var got wire.ModelsResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}

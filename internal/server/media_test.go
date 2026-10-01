@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -29,7 +31,7 @@ import (
 func mediaFixture(t *testing.T) (*Server, *postgres.Postgres, []string) {
 	t.Helper()
 	p := postgrestest.New(t, nil)
-	cfg := nativeTestConfig()
+	cfg := nativeauthtest.Config()
 	cfg.Workspace = &config.Workspace{Root: t.TempDir(), TTLHours: -1}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -40,15 +42,15 @@ func mediaFixture(t *testing.T) (*Server, *postgres.Postgres, []string) {
 	tokens := []string{}
 	for i, name := range []string{"admin-a", "admin-b", "reader"} {
 		// The first administrator claims the installation.
-		u, err := p.CreateAuthUser(ctx, service.AuthUser{Username: name, Admin: name != "reader", PasswordHash: testPasswordHash}, i == 0)
+		u, err := p.CreateAuthUser(ctx, service.AuthUser{Username: name, Admin: name != "reader", PasswordHash: nativeauthtest.PasswordHash}, i == 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		access, refresh, err := nativeCredentialPair()
+		access, refresh, err := nativeauth.CredentialPair()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := p.CreateAuthSession(ctx, service.AuthSession{Hash: name, UserID: u.ID, Version: u.SessionVersion, Transport: "mobile", AccessHash: nativeSessionHash(access), RefreshHash: nativeSessionHash(refresh), ExpiresAt: time.Now().Add(time.Hour), AccessExpiresAt: time.Now().Add(time.Minute)}); err != nil {
+		if err := p.CreateAuthSession(ctx, service.AuthSession{Hash: name, UserID: u.ID, Version: u.SessionVersion, Transport: "mobile", AccessHash: nativeauth.SessionHash(access), RefreshHash: nativeauth.SessionHash(refresh), ExpiresAt: time.Now().Add(time.Hour), AccessExpiresAt: time.Now().Add(time.Minute)}); err != nil {
 			t.Fatal(err)
 		}
 		tokens = append(tokens, access)

@@ -17,6 +17,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/blob"
 )
@@ -70,7 +71,7 @@ type mediaSettingsRequest struct {
 // owner-scoped to Chats and are not the future Files authorization boundary.
 func (s *Server) storageSettingsAccess(w http.ResponseWriter, r *http.Request) service.StorageSettingsStorer {
 	w.Header().Set("Cache-Control", "no-store")
-	if nativeRuntimeFromRequest(r, s.nativeAuth) == nil {
+	if nativeauth.RuntimeFromRequest(r, s.nativeAuth) == nil {
 		nativeError(w, http.StatusServiceUnavailable, "storage requires native authentication")
 		return nil
 	}
@@ -109,7 +110,7 @@ func (s *Server) mediaAccess(w http.ResponseWriter, r *http.Request, admin bool)
 	w.Header().Set("Cache-Control", "no-store")
 	// Authentication settings live in the database, so the coordinator is
 	// resolved per request; the boot-time field is nil on a normal server.
-	if nativeRuntimeFromRequest(r, s.nativeAuth) == nil {
+	if nativeauth.RuntimeFromRequest(r, s.nativeAuth) == nil {
 		nativeError(w, http.StatusServiceUnavailable, "media storage requires native authentication")
 		return nil, ""
 	}

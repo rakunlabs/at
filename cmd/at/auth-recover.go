@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/rakunlabs/at/internal/config"
-	"github.com/rakunlabs/at/internal/server"
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store"
 )
@@ -64,7 +64,7 @@ func runAuthCommand(ctx context.Context, args []string) (bool, error) {
 	if state == nil || state.SetupRequired {
 		return true, fmt.Errorf("operator recovery requires a claimed installation; complete first-run setup instead")
 	}
-	err = writeRecoveryTicketFile(*output, func() (string, error) { return server.IssueAuthRecoveryTicket(ctx, security, *id, "operator") })
+	err = writeRecoveryTicketFile(*output, func() (string, error) { return nativeauth.IssueAuthRecoveryTicket(ctx, security, *id, "operator") })
 	if err != nil {
 		return true, err
 	}

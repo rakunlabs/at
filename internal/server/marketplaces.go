@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 func (s *Server) ListMarketplacesAPI(w http.ResponseWriter, r *http.Request) {

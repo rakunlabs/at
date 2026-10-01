@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -84,60 +82,10 @@ func manualPKCEKey(provider, connectionID string) string {
 	return "manual:" + provider + ":" + connectionID
 }
 
-type nativeOAuthState struct {
-	sessionHash string
-	payload     string
-	target      string
-	expires     time.Time
-}
-
-// Native OAuth state is opaque, bounded, short-lived and tied to the exact
-// initiating session and return endpoint. Legacy state encoding stays unchanged.
-func (a *nativeAuth) newOAuthState(r *http.Request, payload, target string) (string, error) {
-	c, err := a.currentSession(r)
-	if err != nil {
-		return "", fmt.Errorf("OAuth requires a session: %w", err)
-	}
-	var nonce [32]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return "", fmt.Errorf("generate OAuth state: %w", err)
-	}
-	a.oauthMu.Lock()
-	defer a.oauthMu.Unlock()
-	if a.oauthStates == nil {
-		a.oauthStates = make(map[string]nativeOAuthState)
-	}
-	for key, entry := range a.oauthStates {
-		if !entry.expires.After(time.Now()) {
-			delete(a.oauthStates, key)
-		}
-	}
-	if len(a.oauthStates) >= 1024 {
-		return "", fmt.Errorf("too many pending OAuth authorizations; retry later")
-	}
-	state := base64.RawURLEncoding.EncodeToString(nonce[:])
-	a.oauthStates[state] = nativeOAuthState{sessionHash: c.SessionID, payload: payload, target: target, expires: time.Now().Add(10 * time.Minute)}
-	return state, nil
-}
-
-func (a *nativeAuth) takeOAuthState(w http.ResponseWriter, r *http.Request, target string) (string, bool) {
-	c, err := a.currentSession(r)
-	state := r.URL.Query().Get("state")
-	a.oauthMu.Lock()
-	defer a.oauthMu.Unlock()
-	entry, ok := a.oauthStates[state]
-	if err != nil || !ok || !entry.expires.After(time.Now()) || entry.target != target || entry.sessionHash != c.SessionID {
-		nativeError(w, http.StatusForbidden, "invalid or expired OAuth state; restart authorization")
-		return "", false
-	}
-	delete(a.oauthStates, state)
-	return entry.payload, true
-}
-
 func (s *Server) manualOAuthPKCEKey(r *http.Request, provider, connectionID string) (string, error) {
 	key := manualPKCEKey(provider, connectionID)
 	if s.nativeAuth != nil {
-		c, err := s.nativeAuth.currentSession(r)
+		c, err := s.nativeAuth.CurrentSession(r)
 		if err != nil {
 			return "", fmt.Errorf("resolve manual OAuth session: %w", err)
 		}
@@ -193,7 +141,7 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	// Encode provider + optional scope (user_id OR connection_id) in state.
 	state := buildOAuthState(providerName, r.URL.Query().Get("user_id"), connectionID)
 	if s.nativeAuth != nil {
-		state, err = s.nativeAuth.newOAuthState(r, state, "callback")
+		state, err = s.nativeAuth.NewOAuthState(r, state, "callback")
 		if err != nil {
 			nativeError(w, http.StatusServiceUnavailable, err.Error())
 			return
@@ -250,7 +198,7 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 
 	state := buildOAuthState(providerName, "", connectionID)
 	if s.nativeAuth != nil {
-		state, err = s.nativeAuth.newOAuthState(r, state, "code-display")
+		state, err = s.nativeAuth.NewOAuthState(r, state, "code-display")
 		if err != nil {
 			nativeError(w, http.StatusServiceUnavailable, err.Error())
 			return
@@ -319,7 +267,7 @@ func (s *Server) buildAuthorizeURL(c *service.Connector, clientID, redirectURI, 
 // This page displays the code so the user can copy it back to the AT Connections page.
 func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
 	if s.nativeAuth != nil {
-		if _, ok := s.nativeAuth.takeOAuthState(w, r, "code-display"); !ok {
+		if _, ok := s.nativeAuth.TakeOAuthState(w, r, "code-display"); !ok {
 			return
 		}
 	}
@@ -605,7 +553,7 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	payload := state
 	if s.nativeAuth != nil {
 		var ok bool
-		payload, ok = s.nativeAuth.takeOAuthState(w, r, "callback")
+		payload, ok = s.nativeAuth.TakeOAuthState(w, r, "callback")
 		if !ok {
 			return
 		}
@@ -726,7 +674,7 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 // building OAuth redirect URIs from the incoming request.
 func (s *Server) oauthBaseURL(r *http.Request) string {
 	if s.nativeAuth != nil {
-		return s.nativeAuth.cfg.Origin + strings.TrimSuffix(s.config.BasePath, "/")
+		return s.nativeAuth.Origin() + strings.TrimSuffix(s.config.BasePath, "/")
 	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {

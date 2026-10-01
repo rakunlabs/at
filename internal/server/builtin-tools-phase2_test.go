@@ -6,10 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/executiontest"
-	"github.com/rakunlabs/query"
 )
 
 // ─── Phase 2 Focused Tests ───

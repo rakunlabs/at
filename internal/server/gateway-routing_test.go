@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
+
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres"
@@ -42,7 +45,7 @@ func gatewayRoutingToken(t *testing.T, ctx context.Context, p *postgres.Postgres
 // asserted on the production mux rather than on the handlers in isolation.
 func TestGatewayRouting(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	cfg := nativeTestConfig()
+	cfg := nativeauthtest.Config()
 	cfg.Workspace = &config.Workspace{Root: t.TempDir(), TTLHours: -1}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -92,7 +95,7 @@ func TestGatewayRouting(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status %d: %s", w.Code, w.Body)
 		}
-		var got ModelsResponse
+		var got wire.ModelsResponse
 		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 			t.Fatal(err)
 		}
@@ -278,7 +281,7 @@ func TestApplyGatewayModelCapabilities(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model := ModelData{}
+			model := wire.ModelData{}
 			info := ProviderInfo{providerType: tt.providerType}
 			if tt.capability != nil {
 				info.modelCapabilities = map[string]config.ModelCapability{tt.model: *tt.capability}
@@ -333,7 +336,7 @@ func TestApplyGatewayReasoningCapabilities(t *testing.T) {
 			if tt.override != nil {
 				info.modelCapabilities = map[string]config.ModelCapability{tt.model: {ReasoningEfforts: tt.override}}
 			}
-			model := ModelData{ID: tt.providerType + "/" + tt.model}
+			model := wire.ModelData{ID: tt.providerType + "/" + tt.model}
 			applyGatewayModelCapabilities(&model, info, tt.model)
 			if !tt.wantKnown {
 				if model.Capabilities != nil && model.Capabilities.Reasoning != nil {

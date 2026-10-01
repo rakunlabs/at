@@ -17,8 +17,10 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
+
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 	"github.com/rakunlabs/at/internal/service/loopgov"
@@ -79,13 +81,13 @@ type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
 
 type Server struct {
 	config     config.Server
-	nativeAuth *nativeAuth
+	nativeAuth *nativeauth.Auth
 
 	// authSettings owns the database-backed authentication policy and the
 	// immutable per-version coordinator each request runs under. It is the
 	// runtime replacement for the boot-time nativeAuth singleton: product
 	// auth knobs live in the database, not YAML.
-	authSettings *nativeAuthSettings
+	authSettings *nativeauth.Settings
 
 	// ctx is the server-level context used for long-lived goroutines (bots, etc.).
 	ctx context.Context
@@ -450,13 +452,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// runs under maintenance authority. It only permits discovery: every
 	// discovered subject still resolves its own live workspace binding.
 	ctx = service.WithExecutionMaintenance(ctx)
-	native, err := newNativeAuth(cfg, store)
+	native, err := nativeauth.New(cfg, store)
 	if err != nil {
 		return nil, err
 	}
 	// Authentication policy is database-backed and enabled by default, so an
 	// unclaimed installation still gates management behind first-run setup.
-	runtimeAuth, err := newNativeAuthSettings(ctx, cfg, store)
+	runtimeAuth, err := nativeauth.NewSettings(ctx, cfg, store)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +575,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		containerManager: container.New(),
 	}
 	if native != nil {
-		native.onUserDeleted = s.removeDeveloperHome
+		native.OnUserDeleted = s.removeDeveloperHome
 	}
 
 	// Wire the OAuth refresh persistence callback on every initially-loaded
@@ -728,7 +730,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// The runtime manager owns every /auth/* route, including status, first-run
 	// setup, policy settings, and the per-version native/external coordinators.
 	// Registering native auth again here would bypass that runtime dispatch.
-	runtimeAuth.register(mux, cfg.BasePath)
+	runtimeAuth.Register(mux, cfg.BasePath)
 	s.registerWorkspaceRoutes(mux, cfg.BasePath)
 	s.registerRuntimeRoutes(mux, cfg.BasePath)
 
@@ -798,7 +800,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// from MCP Sets (skills/HTTP/builtins). Not under /gateway/ so it's not
 	// exposed through any external reverse proxy.
 	internalGroup := mux.Group(cfg.BasePath + "/internal")
-	internalGroup.Use(runtimeAuth.require(true))
+	internalGroup.Use(runtimeAuth.Require(true))
 	internalGroup.POST("/v1/mcp/{name}", s.InternalMCPHandler)
 	internalGroup.POST("/v1/mcp/{name}/mcp", s.InternalMCPHandler)
 
@@ -812,7 +814,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup := baseGroup.Group("/api")
 	// Workspace-classified business routes admit scoped members; every other
 	// management route stays installation-only until its whole path is scoped.
-	apiGroup.Use(runtimeAuth.withRuntime, s.workspaceBusinessAuthentication())
+	apiGroup.Use(runtimeAuth.WithRuntime, s.workspaceBusinessAuthentication())
 	apiGroup.Use(s.featureGateMiddleware())
 
 	// Gateway info API
@@ -1406,7 +1408,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	folderM.SetFs(http.FS(f))
 
-	spa := nativeSPAFrameProtection(http.Handler(folderM))
+	spa := nativeauth.SPAFrameProtection(http.Handler(folderM))
 	baseGroup.Handle("/*", spa)
 	if cfg.BasePath != "" {
 		// A trailing wildcard does not match its own slashless base, so
@@ -1573,10 +1575,10 @@ func (s *Server) removeProvider(key string) {
 // If configured, requests must provide a matching Authorization: Bearer <token> header.
 func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
 	if s.authSettings != nil {
-		return s.authSettings.require(true)
+		return s.authSettings.Require(true)
 	}
 	if s.nativeAuth != nil {
-		return s.nativeAuth.require(true)
+		return s.nativeAuth.Require(true)
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -17,27 +17,29 @@ import (
 	"github.com/rakunlabs/ada"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
 )
 
 func TestWorkspaceHTTPAdmissionAndRestrictedRollout(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
+	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: nativeauthtest.PasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{store: p, nativeAuth: a}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	s.registerWorkspaceRoutes(mux, "/at")
 	api := mux.Group("/at/api")
 	api.Use(s.requireUnscopedWorkspacePlatform())
@@ -65,7 +67,7 @@ func TestWorkspaceHTTPAdmissionAndRestrictedRollout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cookie := nativeLoginCookie(t, mux, "reader")
+	cookie := nativeauthtest.LoginCookie(t, mux, "reader")
 	call := func(method, path, body, workspace, origin string, c *http.Cookie, bearer string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -105,7 +107,7 @@ func TestWorkspaceHTTPAdmissionAndRestrictedRollout(t *testing.T) {
 			t.Fatalf("%s %s: %d want %d %s", tt.method, tt.path, rec.Code, tt.want, rec.Body)
 		}
 	}
-	adminCookie := nativeLoginCookie(t, mux, "admin")
+	adminCookie := nativeauthtest.LoginCookie(t, mux, "admin")
 	// Installation-wide data must never be presented as selected-workspace data,
 	// so an unpartitioned route answers but labels its scope.
 	if rec := call("GET", "/at/api/v1/agents", "", one.ID, "", adminCookie, ""); rec.Code != 200 || rec.Header().Get("X-AT-Scope") != "installation" {
@@ -127,11 +129,11 @@ func TestWorkspaceHTTPAdmissionAndRestrictedRollout(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	access, refresh, err := nativeCredentialPair()
+	access, refresh, err := nativeauth.CredentialPair()
 	if err != nil {
 		t.Fatal(err)
 	}
-	session := service.AuthSession{Hash: "workspace-mobile", Transport: "mobile", UserID: user.ID, Version: user.SessionVersion, AccessHash: nativeSessionHash(access), RefreshHash: nativeSessionHash(refresh), AccessExpiresAt: time.Now().Add(time.Minute), ExpiresAt: time.Now().Add(time.Hour)}
+	session := service.AuthSession{Hash: "workspace-mobile", Transport: "mobile", UserID: user.ID, Version: user.SessionVersion, AccessHash: nativeauth.SessionHash(access), RefreshHash: nativeauth.SessionHash(refresh), AccessExpiresAt: time.Now().Add(time.Minute), ExpiresAt: time.Now().Add(time.Hour)}
 	if err = p.CreateAuthSession(ctx, session); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +193,7 @@ func TestWorkspaceRoutePolicyCoverage(t *testing.T) {
 	}
 	// Management admission must stay deny-by-default: workspace-classified
 	// business routes admit scoped members, everything else installation-only.
-	for _, gate := range []string{"apiGroup.Use(runtimeAuth.withRuntime, s.workspaceBusinessAuthentication())", "internalGroup.Use(runtimeAuth.require(true))"} {
+	for _, gate := range []string{"apiGroup.Use(runtimeAuth.WithRuntime, s.workspaceBusinessAuthentication())", "internalGroup.Use(runtimeAuth.Require(true))"} {
 		if !strings.Contains(string(data), gate) {
 			t.Fatalf("restricted rollout gate removed: %s", gate)
 		}
@@ -244,7 +246,7 @@ func TestWorkspaceRoutePolicyCoverage(t *testing.T) {
 
 func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	platform, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "platform", PasswordHash: testPasswordHash, Admin: true}, false)
+	platform, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "platform", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,33 +260,33 @@ func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 		t.Fatal(err)
 	}
 	root = service.WithAccessPrincipal(root, actor)
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{store: p, nativeAuth: a}
 	mux := ada.New()
 	s.registerWorkspaceRoutes(mux, "/at")
-	target, err := p.CreateAuthUser(root, service.AuthUser{Username: "target", PasswordHash: testPasswordHash}, false)
+	target, err := p.CreateAuthUser(root, service.AuthUser{Username: "target", PasswordHash: nativeauthtest.PasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, role := range []string{"viewer", "member", "admin", "owner"} {
 		t.Run(role, func(t *testing.T) {
-			u, err := p.CreateAuthUser(root, service.AuthUser{Username: role, PasswordHash: testPasswordHash}, false)
+			u, err := p.CreateAuthUser(root, service.AuthUser{Username: role, PasswordHash: nativeauthtest.PasswordHash}, false)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if err = p.SetWorkspaceMember(root, service.WorkspaceMembership{WorkspaceID: w.ID, UserID: u.ID, Role: role, Status: "active"}); err != nil {
 				t.Fatal(err)
 			}
-			id := authIdentity(u)
+			id := nativeauth.Identity(u)
 			id.Claims = map[string]any{"session_version": u.SessionVersion}
 			pair, err := a.Issue(root, id)
 			if err != nil {
 				t.Fatal(err)
 			}
-			cookie := &http.Cookie{Name: a.session.CookieName, Value: pair.Access.Value}
+			cookie := &http.Cookie{Name: a.SessionCookieName(), Value: pair.Access.Value}
 			call := func(method, path, body string) *httptest.ResponseRecorder {
 				r := httptest.NewRequest(method, path, strings.NewReader(body))
 				r.Header.Set("Content-Type", "application/json")
@@ -338,13 +340,13 @@ func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 // administration stays admin-only.
 func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false); err != nil {
+	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false); err != nil {
+	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: nativeauthtest.PasswordHash}, false); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +354,7 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 	// is mounted or every pattern silently misses.
 	s := &Server{store: p, nativeAuth: a, config: config.Server{BasePath: "/at"}}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	api := mux.Group("/at/api")
 	api.Use(s.workspaceBusinessAuthentication())
 	reached := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }
@@ -364,14 +366,14 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 		api.HandleWithMethod(route.method, route.path, reached)
 	}
 	// One login per user: the shared login limiter rejects a per-request sign-in.
-	cookies := map[string]*http.Cookie{"reader": nativeLoginCookie(t, mux, "reader"), "admin": nativeLoginCookie(t, mux, "admin")}
+	cookies := map[string]*http.Cookie{"reader": nativeauthtest.LoginCookie(t, mux, "reader"), "admin": nativeauthtest.LoginCookie(t, mux, "admin")}
 	call := func(method, path, user string) int {
 		r := httptest.NewRequest(method, path, strings.NewReader("{}"))
 		r.Header.Set("Content-Type", "application/json")
 		if path == "/at/api/v1/bots" {
 			r.Header.Set("X-AT-Workspace-ID", "legacy-default")
 		}
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		r.AddCookie(cookies[user])
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, r)
@@ -420,29 +422,29 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 // untouched, so re-enabling the feature restores access.
 func TestWorkspaceManagementDisabledPinsDefault(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: nativeauthtest.PasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), p)
+	a, err := nativeauth.New(nativeauthtest.Config(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	feature := &fakeFeatureStore{key: service.FeatureWorkspaceManagement, enabled: true}
 	s := &Server{store: p, nativeAuth: a, featureStore: feature, config: config.Server{BasePath: "/at"}}
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	s.registerWorkspaceRoutes(mux, "/at")
 	ctx := service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: admin.ID})
 	other, err := p.CreateWorkspace(ctx, "Other", admin.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := nativeLoginCookie(t, mux, "admin")
+	cookie := nativeauthtest.LoginCookie(t, mux, "admin")
 	call := func(method, path, body, workspace string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		if workspace != "" {
 			r.Header.Set("X-AT-Workspace-ID", workspace)
 		}

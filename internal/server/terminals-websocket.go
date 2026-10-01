@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
 	hostterminal "github.com/rakunlabs/at/internal/service/terminal"
 )
 
@@ -22,12 +23,12 @@ func (s *Server) TerminalWebSocketAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Require an explicit configured browser Origin even for this GET upgrade.
-	auth := nativeRuntimeFromRequest(r, s.nativeAuth)
+	auth := nativeauth.RuntimeFromRequest(r, s.nativeAuth)
 	if auth == nil || r.Header.Get("Origin") == "" {
 		nativeError(w, 403, "configured browser Origin required")
 		return
 	}
-	if !auth.sameOrigin(w, r) {
+	if !auth.SameOrigin(w, r) {
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())

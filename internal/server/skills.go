@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/skillmd"
-	"github.com/rakunlabs/query"
 )
 
 // sha256Hex returns the hex-encoded SHA-256 hash of s.

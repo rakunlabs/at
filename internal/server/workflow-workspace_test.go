@@ -10,16 +10,18 @@ import (
 
 	"github.com/rakunlabs/ada"
 
+	"github.com/rakunlabs/at/internal/nativeauth"
+	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 	"github.com/rakunlabs/at/internal/service"
 )
 
 func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 	f := newMachineFixture(t)
 	actor, _ := service.AccessPrincipalFromContext(f.ctx)
-	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, testPasswordHash, nil); err != nil {
+	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, nativeauthtest.PasswordHash, nil); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newNativeAuth(nativeTestConfig(), f.store)
+	a, err := nativeauth.New(nativeauthtest.Config(), f.store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +29,7 @@ func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 	f.s.config.BasePath = "/at"
 	f.s.workflowStore, f.s.workflowVersionStore = f.store, f.store
 	mux := ada.New()
-	a.register(mux, "/at")
+	a.Register(mux, "/at")
 	api := mux.Group("/at/api")
 	api.Use(f.s.workspaceBusinessAuthentication())
 	api.GET("/v1/workflows", f.s.ListWorkflowsAPI)
@@ -40,7 +42,7 @@ func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 	api.POST("/v1/workflows/run-stream/{id}", f.s.RunWorkflowStreamAPI)
 	api.GET("/v1/runs", f.s.ListActiveRunsAPI)
 	api.POST("/v1/runs/{id}/cancel", f.s.CancelRunAPI)
-	cookie := nativeLoginCookie(t, mux, "machine-admin")
+	cookie := nativeauthtest.LoginCookie(t, mux, "machine-admin")
 	other, err := f.store.CreateWorkspace(service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: actor.UserID}), "other", actor.UserID)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +51,7 @@ func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 		t.Helper()
 		r := httptest.NewRequest(method, "/at/api/v1"+path, strings.NewReader(body))
 		r.AddCookie(cookie)
-		r.Header.Set("Origin", a.cfg.Origin)
+		r.Header.Set("Origin", a.Origin())
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-AT-Workspace-ID", workspace)
 		w := httptest.NewRecorder()
