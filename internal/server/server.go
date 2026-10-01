@@ -1200,17 +1200,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
 
 	// Chat session management
-	apiGroup.GET("/v1/chat/sessions", s.ListChatSessionsAPI)
-	apiGroup.POST("/v1/chat/sessions", s.CreateChatSessionAPI)
-	apiGroup.GET("/v1/chat/sessions/{id}", s.GetChatSessionAPI)
-	apiGroup.PUT("/v1/chat/sessions/{id}", s.UpdateChatSessionAPI)
-	apiGroup.DELETE("/v1/chat/sessions/{id}", s.DeleteChatSessionAPI)
-	apiGroup.GET("/v1/chat/sessions/{id}/messages", s.ListChatMessagesAPI)
-	apiGroup.DELETE("/v1/chat/sessions/{id}/messages", s.DeleteChatMessagesAPI)
-	apiGroup.POST("/v1/chat/sessions/{id}/messages", s.SendChatMessageAPI)
-	apiGroup.GET("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
-	apiGroup.DELETE("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
-	apiGroup.POST("/v1/chat/sessions/{id}/confirm", s.ConfirmToolCallAPI)
+	s.registerChatSessionRoutes(apiGroup)
 
 	// Bot config management
 	apiGroup.GET("/v1/bots", s.ListBotConfigsAPI)
@@ -1324,46 +1314,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/mcp-templates/{slug}", s.GetMCPTemplateAPI)
 	apiGroup.POST("/v1/mcp-templates/{slug}/install", s.InstallMCPTemplateAPI)
 
-	// Admin chat completions (used by workflow editor AI panel)
-	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
-
-	// Playground history (per-user private transcripts of the Chat playground).
-	apiGroup.GET("/v1/chats/conversations", s.PlaygroundConversationsAPI)
-	apiGroup.POST("/v1/chats/completions", s.AdminChatCompletions)
-	apiGroup.GET("/v1/chats/streams/{stream}", s.ChatStreamAPI)
-	apiGroup.DELETE("/v1/chats/streams/{stream}", s.ChatStreamAPI)
-	apiGroup.POST("/v1/chats/conversations", s.PlaygroundConversationsAPI)
-	apiGroup.GET("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.PATCH("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.DELETE("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.POST("/v1/chats/conversations/{id}/fork", s.PlaygroundForkAPI)
-	apiGroup.GET("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.POST("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.DELETE("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.POST("/v1/chats/conversations/{id}/shares/preview", s.ChatSharePreviewAPI)
-	apiGroup.POST("/v1/chats/conversations/{id}/shares", s.PublishChatShareAPI)
-	apiGroup.GET("/v1/chats/conversations/{id}/share", s.ChatConversationShareAPI)
-	apiGroup.GET("/v1/chats/shares/{id}", s.ChatShareAPI)
-	apiGroup.PUT("/v1/chats/shares/{id}", s.ChatShareAPI)
-	apiGroup.DELETE("/v1/chats/shares/{id}", s.ChatShareAPI)
-	apiGroup.POST("/v1/chats/shares/{id}/import", s.ImportChatShareAPI)
-	apiGroup.GET("/v1/chats/shares/{id}/media/{media}", s.ChatShareMediaAPI)
-	apiGroup.GET("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
-	apiGroup.PUT("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
-	apiGroup.GET("/v1/chats/presets", s.ChatPresetsAPI)
-	apiGroup.PUT("/v1/chats/presets", s.ChatPresetsAPI)
-	apiGroup.GET("/v1/chats/workspace-presets", s.WorkspaceChatPresetsAPI)
-	apiGroup.POST("/v1/chats/workspace-presets", s.WorkspaceChatPresetsAPI)
-	apiGroup.PUT("/v1/chats/workspace-presets/{id}", s.WorkspaceChatPresetsAPI)
-	apiGroup.DELETE("/v1/chats/workspace-presets/{id}", s.WorkspaceChatPresetsAPI)
-	// Personal registry of MCP servers running on the account holder's own
-	// machines. Stored and validated here; dialled only by their browser.
-	apiGroup.GET("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)
-	apiGroup.PUT("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)
-	apiGroup.POST("/v1/chats/local-mcp-servers/{id}/reveal", s.LocalMCPServerRevealAPI)
-	apiGroup.POST("/v1/chats/tool-observations", s.ChatToolObservationAPI)
-	apiGroup.POST("/v1/chats/skill-runs", s.ChatSkillRunAPI)
-	apiGroup.GET("/v1/chats/skill-runs/{id}", s.ChatSkillRunStatusAPI)
+	// Browser workbench and shared assistant completions.
+	s.registerChatWorkbenchRoutes(apiGroup)
 
 	// Configurable media storage: administrator settings plus per-user,
 	// owner-scoped image objects (Playground attachments).

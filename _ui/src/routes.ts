@@ -1,66 +1,78 @@
 import { push } from 'svelte-spa-router';
 import { wrap } from 'svelte-spa-router/wrap';
-import Home from '@/pages/Home.svelte';
-import Providers from '@/pages/Providers.svelte';
-import RoutingProfiles from '@/pages/RoutingProfiles.svelte';
-import VirtualProviders from '@/pages/VirtualProviders.svelte';
-import Skills from '@/pages/Skills.svelte';
-import Marketplaces from '@/pages/Marketplaces.svelte';
-import Agents from '@/pages/Agents.svelte';
-import Secrets from '@/pages/Secrets.svelte';
-import Chat from '@/pages/Chat.svelte';
-import SharedChat from '@/pages/SharedChat.svelte';
-import ChatSessions from '@/pages/ChatSessions.svelte';
-import Tokens from '@/pages/Tokens.svelte';
-import NodeConfigs from '@/pages/NodeConfigs.svelte';
-import Workflows from '@/pages/Workflows.svelte';
-import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
-import Runs from '@/pages/Runs.svelte';
-import McpServers from '@/pages/McpServers.svelte';
-import Mcps from '@/pages/Mcps.svelte';
-import Bots from '@/pages/Bots.svelte';
-import Docs from '@/pages/Docs.svelte';
-import Settings from '@/pages/Settings.svelte';
-import SystemSettings from '@/pages/SystemSettings.svelte';
-import AccountSecurity from '@/pages/AccountSecurity.svelte';
-import AuthenticationSettings from '@/pages/AuthenticationSettings.svelte';
-import WorkspaceSettings from '@/pages/WorkspaceSettings.svelte';
-import Permissions from '@/pages/Permissions.svelte';
-import ExecutionSettings from '@/pages/ExecutionSettings.svelte';
-import StorageSettings from '@/pages/StorageSettings.svelte';
-import TraceExportSettings from '@/pages/TraceExportSettings.svelte';
-import GitCredentials from '@/pages/GitCredentials.svelte';
-import Organizations from '@/pages/Organizations.svelte';
-import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
-import Tasks from '@/pages/Tasks.svelte';
-import TaskDetail from '@/pages/TaskDetail.svelte';
-import Studio from '@/pages/Studio.svelte';
-import Webhooks from '@/pages/Webhooks.svelte';
-import Crons from '@/pages/Crons.svelte';
-import LLMCalls from '@/pages/LLMCalls.svelte';
-import Usage from '@/pages/Usage.svelte';
-import Pricing from '@/pages/Pricing.svelte';
-import Connections from '@/pages/Connections.svelte';
-import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
-import Files from '@/pages/Files.svelte';
-import DeveloperSpaces from '@/pages/DeveloperSpaces.svelte';
-import Terminal from '@/pages/Terminal.svelte';
-import Features from '@/pages/Features.svelte';
-import NotFound from '@/pages/NotFound.svelte';
-import Users from '@/pages/Users.svelte';
+import RouteLoading from '@/lib/components/RouteLoading.svelte';
+import RouteLoadError from '@/lib/components/RouteLoadError.svelte';
+import { createRouteLoader } from '@/lib/helper/route-loader';
 import { isNativeAdmin } from '@/lib/store/auth.svelte';
 import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
 import { routeFeature } from '@/lib/helper/feature-routes';
+
+const Home = () => import('@/pages/Home.svelte');
+const Providers = () => import('@/pages/Providers.svelte');
+const RoutingProfiles = () => import('@/pages/RoutingProfiles.svelte');
+const VirtualProviders = () => import('@/pages/VirtualProviders.svelte');
+const Skills = () => import('@/pages/Skills.svelte');
+const Marketplaces = () => import('@/pages/Marketplaces.svelte');
+const Agents = () => import('@/pages/Agents.svelte');
+const Secrets = () => import('@/pages/Secrets.svelte');
+const Chat = () => import('@/pages/Chat.svelte');
+const SharedChat = () => import('@/pages/SharedChat.svelte');
+const ChatSessions = () => import('@/pages/ChatSessions.svelte');
+const Tokens = () => import('@/pages/Tokens.svelte');
+const NodeConfigs = () => import('@/pages/NodeConfigs.svelte');
+const Workflows = () => import('@/pages/Workflows.svelte');
+const WorkflowEditor = () => import('@/pages/WorkflowEditor.svelte');
+const Runs = () => import('@/pages/Runs.svelte');
+const McpServers = () => import('@/pages/McpServers.svelte');
+const Mcps = () => import('@/pages/Mcps.svelte');
+const Bots = () => import('@/pages/Bots.svelte');
+const Docs = () => import('@/pages/Docs.svelte');
+const Settings = () => import('@/pages/Settings.svelte');
+const SystemSettings = () => import('@/pages/SystemSettings.svelte');
+const AccountSecurity = () => import('@/pages/AccountSecurity.svelte');
+const AuthenticationSettings = () => import('@/pages/AuthenticationSettings.svelte');
+const WorkspaceSettings = () => import('@/pages/WorkspaceSettings.svelte');
+const Permissions = () => import('@/pages/Permissions.svelte');
+const ExecutionSettings = () => import('@/pages/ExecutionSettings.svelte');
+const StorageSettings = () => import('@/pages/StorageSettings.svelte');
+const TraceExportSettings = () => import('@/pages/TraceExportSettings.svelte');
+const GitCredentials = () => import('@/pages/GitCredentials.svelte');
+const Organizations = () => import('@/pages/Organizations.svelte');
+const OrganizationDetail = () => import('@/pages/OrganizationDetail.svelte');
+const Tasks = () => import('@/pages/Tasks.svelte');
+const TaskDetail = () => import('@/pages/TaskDetail.svelte');
+const Studio = () => import('@/pages/Studio.svelte');
+const Webhooks = () => import('@/pages/Webhooks.svelte');
+const Crons = () => import('@/pages/Crons.svelte');
+const LLMCalls = () => import('@/pages/LLMCalls.svelte');
+const Usage = () => import('@/pages/Usage.svelte');
+const Pricing = () => import('@/pages/Pricing.svelte');
+const Connections = () => import('@/pages/Connections.svelte');
+const IntegrationPacks = () => import('@/pages/IntegrationPacks.svelte');
+const Files = () => import('@/pages/Files.svelte');
+const DeveloperSpaces = () => import('@/pages/DeveloperSpaces.svelte');
+const Terminal = () => import('@/pages/Terminal.svelte');
+const Features = () => import('@/pages/Features.svelte');
+const NotFound = () => import('@/pages/NotFound.svelte');
+const Users = () => import('@/pages/Users.svelte');
+
+type PageLoader = () => Promise<{ default: any }>;
+
+function lazy(loader: PageLoader, conditions: Array<() => boolean | Promise<boolean>> = []) {
+  return wrap({
+    asyncComponent: createRouteLoader(loader, () => ({ default: RouteLoadError })),
+    loadingComponent: RouteLoading as any,
+    conditions,
+  });
+}
 
 /**
  * Guards a route on whatever feature owns it in the shared route map, so a
  * catalog change never has to be mirrored here and in the sidebar separately.
  */
-function guarded(component: any, route: string, ...extra: Array<() => boolean>) {
+function guarded(loader: PageLoader, route: string, ...extra: Array<() => boolean>) {
   const feature = routeFeature(route);
-  return wrap({
-    component,
-    conditions: [...extra, async () => {
+  return lazy(loader, [...extra, async () => {
       try {
         await loadFeatures();
       } catch {
@@ -69,8 +81,7 @@ function guarded(component: any, route: string, ...extra: Array<() => boolean>) 
       if (!feature || isFeatureEnabled(feature)) return true;
       push('/');
       return false;
-    }],
-  });
+    }]);
 }
 
 function adminOnly() {
@@ -80,19 +91,16 @@ function adminOnly() {
 }
 
 function redirect(to: string) {
-  return wrap({
-    component: Home as any,
-    conditions: [() => {
+  return lazy(Home, [() => {
       push(to);
       return false;
-    }],
-  });
+    }]);
 }
 
 export default {
-  '/': Home,
-  '/terminal': guarded(Terminal as any, '/terminal', adminOnly),
-  '/users': wrap({ component: Users as any, conditions: [adminOnly] }),
+  '/': lazy(Home),
+  '/terminal': guarded(Terminal, '/terminal', adminOnly),
+  '/users': lazy(Users, [adminOnly]),
   '/providers': guarded(Providers, '/providers'),
   '/routing-profiles': guarded(RoutingProfiles, '/routing-profiles'),
   '/virtual-providers': guarded(VirtualProviders, '/virtual-providers'),
@@ -120,18 +128,18 @@ export default {
   '/mcps': guarded(Mcps, '/mcps'),
   '/bots': guarded(Bots, '/bots'),
   '/docs': guarded(Docs, '/docs'),
-  '/settings': Settings,
-  '/settings/system': SystemSettings,
-  '/settings/account': AccountSecurity,
-  '/settings/authentication': AuthenticationSettings,
-  '/settings/workspace': WorkspaceSettings,
-  '/settings/permissions': Permissions,
+  '/settings': lazy(Settings),
+  '/settings/system': lazy(SystemSettings),
+  '/settings/account': lazy(AccountSecurity),
+  '/settings/authentication': lazy(AuthenticationSettings),
+  '/settings/workspace': lazy(WorkspaceSettings),
+  '/settings/permissions': lazy(Permissions),
   '/settings/execution': guarded(ExecutionSettings, '/settings/execution', adminOnly),
-  '/settings/storage': StorageSettings,
-  '/settings/trace-export': TraceExportSettings,
-  '/settings/git-credentials': GitCredentials,
-  '/settings/users': Users,
-  '/settings/features': Features,
+  '/settings/storage': lazy(StorageSettings),
+  '/settings/trace-export': lazy(TraceExportSettings),
+  '/settings/git-credentials': lazy(GitCredentials),
+  '/settings/users': lazy(Users),
+  '/settings/features': lazy(Features),
   '/settings/tokens': guarded(Tokens, '/settings/tokens'),
   '/features': redirect('/settings/features'),
   '/organizations': guarded(Organizations, '/organizations'),
@@ -144,5 +152,5 @@ export default {
   '/pricing': guarded(Pricing, '/pricing'),
   '/files': guarded(Files, '/files'),
   '/developer-spaces': guarded(DeveloperSpaces, '/developer-spaces'),
-  '*': NotFound
+  '*': lazy(NotFound)
 };

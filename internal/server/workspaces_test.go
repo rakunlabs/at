@@ -185,7 +185,7 @@ func TestWorkspaceRoutePolicyCoverage(t *testing.T) {
 	if validWorkspaceRoutePolicy(unknown) {
 		t.Fatal("unclassified policy accepted")
 	}
-	// Enumerate every literal server.go route and fail if a new routing group is
+	// Enumerate bootstrap and extracted chat routes and fail if a new routing group is
 	// introduced without classification. The full inventory is emitted with -v.
 	data, err := os.ReadFile("server.go")
 	if err != nil {
@@ -198,47 +198,49 @@ func TestWorkspaceRoutePolicyCoverage(t *testing.T) {
 			t.Fatalf("restricted rollout gate removed: %s", gate)
 		}
 	}
-	f, err := parser.ParseFile(token.NewFileSet(), "server.go", data, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	groups := map[string]string{"apiGroup": "platform", "settingsGroup": "platform", "internalGroup": "platform", "gatewayGroup": "token", "webhookGroup": "machine-webhook", "baseGroup": "public-static", "mux": "public"}
+	groups := map[string]string{"apiGroup": "platform", "api": "platform", "settingsGroup": "platform", "internalGroup": "platform", "gatewayGroup": "token", "webhookGroup": "machine-webhook", "baseGroup": "public-static", "mux": "public"}
 	count := 0
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) == 0 {
+	for _, filename := range []string{"server.go", "routes-chat.go"} {
+		f, err := parser.ParseFile(token.NewFileSet(), filename, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "GET", "POST", "PUT", "PATCH", "DELETE", "Handle":
+			default:
+				return true
+			}
+			lit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			group, ok := sel.X.(*ast.Ident)
+			if !ok {
+				t.Error("unclassified chained route")
+				return true
+			}
+			class, ok := groups[group.Name]
+			if !ok {
+				t.Errorf("unclassified route group %s", group.Name)
+			}
+			path, _ := strconv.Unquote(lit.Value)
+			if group.Name == "gatewayGroup" && strings.HasPrefix(path, "/v1/health") {
+				class = "public-health"
+			}
+			t.Logf("%s %s %s %s", class, group.Name, sel.Sel.Name, path)
+			count++
 			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		switch sel.Sel.Name {
-		case "GET", "POST", "PUT", "PATCH", "DELETE", "Handle":
-		default:
-			return true
-		}
-		lit, ok := call.Args[0].(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			return true
-		}
-		group, ok := sel.X.(*ast.Ident)
-		if !ok {
-			t.Error("unclassified chained route")
-			return true
-		}
-		class, ok := groups[group.Name]
-		if !ok {
-			t.Errorf("unclassified route group %s", group.Name)
-		}
-		path, _ := strconv.Unquote(lit.Value)
-		if group.Name == "gatewayGroup" && strings.HasPrefix(path, "/v1/health") {
-			class = "public-health"
-		}
-		t.Logf("%s %s %s %s", class, group.Name, sel.Sel.Name, path)
-		count++
-		return true
-	})
+		})
+	}
 	if count < 200 {
 		t.Fatalf("inventory unexpectedly small: %d", count)
 	}

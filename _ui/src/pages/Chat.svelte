@@ -92,7 +92,6 @@
     dataUrlToBlob,
     getMediaDataURL,
     isMediaStorageDisabled,
-    mediaImageURL,
     mediaUploadErrorMessage,
     uploadMedia,
   } from '@/lib/api/media';
@@ -102,7 +101,8 @@
   import { onDestroy, untrack, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
-  import Markdown from '@/lib/components/Markdown.svelte';
+  import MessageContent from '@/lib/components/playground/MessageContent.svelte';
+  import { createChatMediaCache } from '@/lib/helper/chat-media-cache';
 
   storeNavbar.title = 'Chats';
 
@@ -783,22 +783,10 @@
 
   // ─── Media storage ───
 
-  /**
-   * `media_id` → the re-inlined data URI. A restored transcript only carries
-   * ids, but every provider needs image content in the request body, so the
-   * bytes are fetched once and reused for the rest of the page session. Media
-   * objects are immutable server-side, so an entry can never go stale; a failed
-   * fetch is cached as `''` so a deleted object is not refetched on every
-   * message of every turn. A page reload starts from empty.
-   */
-  const mediaDataUrls = new Map<string, Promise<string>>();
-
-  /**
-   * Inline data URI → the media id it was stored as. A save retry after a
-   * partial failure then re-uses the existing object instead of uploading the
-   * same bytes twice.
-   */
-  const uploadedMedia = new Map<string, string>();
+  const mediaCache = createChatMediaCache({
+    download: getMediaDataURL,
+    upload: (dataUrl, name) => uploadMedia(dataUrlToBlob(dataUrl), name),
+  });
 
   /** Set once a 503 proves storage is off: one quiet hint, never a toast per image. */
   let mediaStorageOff = $state(false);
@@ -806,12 +794,7 @@
 
   /** Bytes for a stored image, fetched lazily and cached per id. */
   function mediaDataUrl(id: string): Promise<string> {
-    let pending = mediaDataUrls.get(id);
-    if (!pending) {
-      pending = getMediaDataURL(id).catch(() => { mediaDataUrls.delete(id); return ''; });
-      mediaDataUrls.set(id, pending);
-    }
-    return pending;
+    return mediaCache.download(id).catch(() => '');
   }
 
   /**
@@ -822,14 +805,8 @@
    * per-image error worth repeating.
    */
   async function uploadAttachment(dataUrl: string, name: string): Promise<string> {
-    const existing = uploadedMedia.get(dataUrl);
-    if (existing) return existing;
     try {
-      const object = await uploadMedia(dataUrlToBlob(dataUrl), name);
-      uploadedMedia.set(dataUrl, object.id);
-      // The bytes are already inline in this tab: skip the round trip later.
-      mediaDataUrls.set(object.id, Promise.resolve(dataUrl));
-      return object.id;
+      return await mediaCache.upload(dataUrl, name);
     } catch (e) {
       if (isMediaStorageDisabled(e)) {
         mediaStorageOff = true;
@@ -2804,52 +2781,6 @@
   {/if}
 {/snippet}
 
-{#snippet omittedImage(part: ContentPart, tone: string)}
-  <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] {tone}">
-    <ImageOff size={11} class="shrink-0" />
-    <span class="truncate">{part.name || (part.type === 'file' ? 'attachment' : 'image')} — {part.type === 'file' ? 'attachment' : 'image'} not saved to history</span>
-  </div>
-{/snippet}
-
-{#snippet pendingUpload(part: ContentPart)}
-  {@const url = part.type === 'video_url' ? part.video_url?.url : part.type === 'file' ? part.file?.file_data : part.input_audio ? `data:audio/${part.input_audio.format === 'mp3' ? 'mpeg' : part.input_audio.format};base64,${part.input_audio.data}` : ''}
-  <div class="mb-2 border border-white/40 bg-white/5">
-    {#if part.type === 'input_audio' && url}
-      <audio controls src={url} class="w-full p-1"></audio>
-    {:else if part.type === 'video_url' && url}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video controls src={url} class="w-full max-h-64"></video>
-    {/if}
-    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-white/80">
-      <FileText size={11} class="shrink-0" />
-      <span class="truncate">{part.file?.filename || (part.type === 'input_audio' ? 'audio' : part.type === 'video_url' ? 'video' : 'attachment')}</span>
-    </div>
-  </div>
-{/snippet}
-
-{#snippet fileArtifact(part: ContentPart)}
-  {@const url = mediaImageURL(part.media_id!, workspaceTransport.selected)}
-  {@const type = part.mime_type || ''}
-  <div class="my-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-    {#if type === 'application/pdf'}
-      <!-- The server sends CSP: sandbox and nosniff; an iframe sandbox would
-           also block Chrome's PDF viewer. -->
-      <iframe src={url} title={part.name || 'PDF'} class="w-full h-96 bg-white"></iframe>
-    {:else if type.startsWith('audio/')}
-      <audio controls src={url} class="w-full p-2"></audio>
-    {:else if type.startsWith('video/')}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video controls src={url} class="w-full max-h-96"></video>
-    {/if}
-    <div class="flex items-center gap-2 px-3 py-2 text-xs">
-      <FileText size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
-      <span class="truncate font-medium text-gray-700 dark:text-dark-text">{part.name || 'file'}</span>
-      <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-text-muted">{type || 'file'}{part.bytes ? ` · ${formatFileSize(part.bytes)}` : ''}</span>
-      <a href={url} download={part.name || 'file'} class="ml-auto shrink-0 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated">Download</a>
-    </div>
-  </div>
-{/snippet}
-
 <div class="flex h-full">
   {#if showConversations}
     <ConversationList
@@ -3676,38 +3607,7 @@
           <div class="flex justify-end group">
             <div class="max-w-[75%]">
               <div class="px-4 py-2.5 text-sm leading-relaxed bg-gray-900 dark:bg-[#2B2D42] text-white">
-                {#if typeof msg.content === 'string'}
-                  <span class="whitespace-pre-wrap">{msg.content}</span>
-                {:else}
-                  {#each msg.content as part}
-                    {#if part.type === 'image_url' && part.image_url?.url}
-                      <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50" />
-                    {:else if part.type === 'image' && part.media_id}
-                      <img
-                        src={mediaImageURL(part.media_id, workspaceTransport.selected)}
-                        alt={part.name || 'Stored image attachment'}
-                        loading="lazy"
-                        class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50"
-                      />
-                    {:else if part.type === 'image'}
-                      {@render omittedImage(part, 'border-white/40 text-white/80')}
-                    {:else if part.type === 'file' && part.media_id}
-                      <div class="text-gray-800 dark:text-dark-text">{@render fileArtifact(part)}</div>
-                    {:else if (part.type === 'file' && part.file) || part.type === 'input_audio' || part.type === 'video_url'}
-                      {@render pendingUpload(part)}
-                    {:else if part.type === 'file'}
-                      {@render omittedImage(part, 'border-white/40 text-white/80')}
-                    {:else if part.type === 'text' && part.text?.startsWith('<file name="')}
-                      {@const fileName = /^<file name="([^"]*)"/.exec(part.text)?.[1] || 'file'}
-                      <div class="mb-2 flex items-center gap-1.5 border border-white/40 px-2 py-1 text-[11px] text-white/80">
-                        <FileText size={11} class="shrink-0" />
-                        <span class="truncate">{fileName}</span>
-                      </div>
-                    {:else if part.type === 'text' && part.text}
-                      <span class="whitespace-pre-wrap">{part.text}</span>
-                    {/if}
-                  {/each}
-                {/if}
+                <MessageContent message={msg} workspace={workspaceTransport.selected} formatSize={formatFileSize} />
               </div>
               <div class="mt-1 flex justify-end items-center gap-3">
                 {@render copyAction(i)}
@@ -3732,38 +3632,7 @@
           <div class="flex justify-start group">
             <div class={msg.tool_calls?.length ? 'min-w-0 w-full sm:max-w-[85%]' : 'max-w-[75%]'}>
               <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
-                {#if typeof msg.content === 'string'}
-                  {#if !msg.content && streaming && i === messages.length - 1}
-                    <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
-                  {:else if rawMessages[i]}
-                    <pre class="whitespace-pre-wrap break-words font-mono text-xs">{msg.content}</pre>
-                  {:else}
-                    <Markdown source={msg.content} />
-                  {/if}
-                {:else}
-                  {#each msg.content as part}
-                    {#if part.type === 'image_url' && part.image_url?.url}
-                      <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border" />
-                    {:else if part.type === 'image' && part.media_id}
-                      <img
-                        src={mediaImageURL(part.media_id, workspaceTransport.selected)}
-                        alt={part.name || 'Stored image attachment'}
-                        loading="lazy"
-                        class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border"
-                      />
-                    {:else if part.type === 'image'}
-                      {@render omittedImage(part, 'border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted')}
-                    {:else if part.type === 'file' && part.media_id}
-                      {@render fileArtifact(part)}
-                    {:else if part.type === 'text' && part.text}
-                      {#if rawMessages[i]}
-                        <pre class="whitespace-pre-wrap break-words font-mono text-xs">{part.text}</pre>
-                      {:else}
-                        <Markdown source={part.text} />
-                      {/if}
-                    {/if}
-                  {/each}
-                {/if}
+                <MessageContent message={msg} workspace={workspaceTransport.selected} raw={!!rawMessages[i]} thinking={streaming && i === messages.length - 1} formatSize={formatFileSize} />
                 <!-- Results remain attached to their originating call. -->
                 {#if msg.tool_calls && msg.tool_calls.length > 0}
                   <div class="mt-2 pt-2 border-t border-gray-200 dark:border-dark-border space-y-1">

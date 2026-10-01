@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
+  import { createSessionTurnController, emptySessionTurn, sessionTurnBusy } from '@/lib/helper/session-turn';
   import { onMount, tick, untrack } from 'svelte';
   import { querystring } from 'svelte-spa-router';
   import { updateRouteQuery } from '@/lib/helper/route-query';
@@ -50,11 +51,11 @@
   let showDesktopSessionList = $state(true);
   let loadingMessages = $state(false);
   let messageError = $state('');
-  let turnError = $state('');
+  let turnState = $state(emptySessionTurn());
+  let turnError = $derived(turnState.error);
   let nearBottom = $state(true);
   let messageRequest = 0;
   let selectionVersion = 0;
-  let turnVersion = 0;
   let selectedSessionId = $state<string | null>(null);
   let editingTitle = $state(false);
   let titleDraft = $state('');
@@ -62,8 +63,8 @@
   let titleInput = $state<HTMLInputElement>();
   let titleButton = $state<HTMLButtonElement>();
   let messages = $state<ChatMessage[]>([]);
-  let streamContent = $state('');
-  let toolEvents = $state<any[]>([]);
+  let streamContent = $derived(turnState.content);
+  let toolEvents = $derived(turnState.tools);
   let expandedTools = $state<Record<string, boolean>>({});
   let showToolActivity = $state(false);
   let toolActivityCount = $derived(messages.filter(m => m.role === 'tool' || getToolCalls(m.data).length > 0).length + toolEvents.length);
@@ -125,17 +126,29 @@
   let transcribing = $state(false);
   let inputText = $state('');
   let loading = $state(false);
-  let sending = $state(false);
+  let preparingTurn = $state(false);
+  let sending = $derived(preparingTurn || sessionTurnBusy(turnState));
   let missingFinalReply = $derived(!sending && !loadingMessages && !streamContent && messages.length > 0 && (messages[messages.length - 1].role === 'tool' || (messages[messages.length - 1].role === 'assistant' && !getMessageText(messages[messages.length - 1].data) && getToolCalls(messages[messages.length - 1].data).length > 0)));
   let showAgentPicker = $state(false);
   let showSlashMenu = $state(false);
   let slashFilter = $state('');
-  let pendingConfirmation = $state<{
-    toolName: string;
-    toolId: string;
-    arguments: string;
-  } | null>(null);
-  let abortController: AbortController | null = null;
+  let pendingConfirmation = $derived(turnState.confirmation);
+  const turnController = createSessionTurnController({
+    send: sendMessage,
+    confirm: confirmToolCall,
+    changed: state => { turnState = state; },
+    activity: scrollToBottom,
+    complete: async (sessionId, lastResponse, current) => {
+      const loaded = await loadMessages(sessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
+      if (!current()) return false;
+      const adopted = loaded && (!lastResponse || messages.some(m => m.role === 'assistant' && getMessageText(m.data) === lastResponse));
+      // A late sidebar refresh must not change another session's state.
+      void getChatSession(sessionId).then(updated => {
+        if (current()) sessions = sessions.map(s => s.id === updated.id ? updated : s);
+      }).catch(() => {});
+      return adopted;
+    },
+  });
   let messagesContainer = $state<HTMLDivElement | undefined>(undefined);
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
 
@@ -439,11 +452,8 @@
     }
     const selection = ++selectionVersion;
     resetComposer();
-    ++turnVersion;
-    if (abortController) {
-      abortController.abort();
-      abortController = null;
-    }
+    turnController.reset();
+    preparingTurn = false;
     selectedSessionId = id;
     showSessionList = false;
     messages = [];
@@ -451,13 +461,8 @@
     loadingOlder = false;
     loadingMessages = true;
     messageError = '';
-    turnError = '';
-    pendingConfirmation = null;
     expandedTools = {};
     rawSourceMode = {};
-    streamContent = '';
-    toolEvents = [];
-    sending = false;
     showAgentPicker = false;
     showSlashMenu = false;
     await loadMessages(id);
@@ -628,11 +633,11 @@
     const content = inputText.trim();
     const sentAttachments = attachments.slice();
     // Lock submission before awaiting session creation.
-    sending = true;
+    preparingTurn = true;
     if (!selectedSessionId) {
       const createdID = await quickCreateSession(pendingAgentId || undefined);
       if (!createdID || selectedSessionId !== createdID) {
-        if (!selectedSessionId) sending = false;
+        if (!selectedSessionId) preparingTurn = false;
         return;
       }
       pendingAgentId = null;
@@ -642,9 +647,6 @@
     attachments = [];
     attachmentError = '';
     showSlashMenu = false;
-    sending = true;
-    streamContent = '';
-    toolEvents = [];
 
     // Optimistic user message.
     const nowIso = new Date().toISOString();
@@ -669,72 +671,9 @@
   }
 
   function startTurn(sessionId: string, content: string, sentAttachments: ChatAttachment[] = []) {
-    const turn = ++turnVersion;
-    let lastResponse = '';
     ++messageRequest; // Discard a background refresh started before this turn.
-    const active = () => turn === turnVersion && selectedSessionId === sessionId;
-    sending = true;
-    turnError = '';
-    streamContent = '';
-    toolEvents = [];
-    abortController = sendMessage(
-      sessionId,
-      content,
-      (event) => {
-        if (!active()) return;
-        if (event.type === 'content') {
-          lastResponse = event.content || '';
-          if (toolEvents.some(e => e.type === 'wait')) toolEvents = toolEvents.filter(e => e.type !== 'wait');
-          if (event.content) streamContent += (streamContent ? '\n\n' : '') + event.content;
-          scrollToBottom();
-        } else if (event.type === 'tool_call') {
-          toolEvents = [...toolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
-          scrollToBottom();
-        } else if (event.type === 'tool_progress') {
-          const progress = `${event.tool_name}: ${event.content}`;
-          toolEvents = toolEvents.some(e => e.type === 'call' && e.id === event.tool_id)
-            ? toolEvents.map(e => e.type === 'call' && e.id === event.tool_id ? { ...e, progress } : e)
-            : [...toolEvents.filter(e => e.type !== 'wait'), { type: 'wait', name: event.tool_name, id: 'wait', progress: event.content }];
-          scrollToBottom();
-        } else if (event.type === 'tool_result') {
-          toolEvents = [...toolEvents.filter(e => e.id !== event.tool_id), { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
-          scrollToBottom();
-        } else if (event.type === 'tool_confirm') {
-          pendingConfirmation = {
-            toolName: event.tool_name,
-            toolId: event.tool_id,
-            arguments: event.arguments || '{}',
-          };
-          scrollToBottom();
-        }
-      },
-      (error) => {
-        if (!active()) return;
-        turnError = error;
-        sending = false;
-        abortController = null;
-        pendingConfirmation = null;
-      },
-      async () => {
-        if (!active()) return;
-        abortController = null;
-        pendingConfirmation = null;
-        const loaded = await loadMessages(sessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
-        if (!active()) return;
-        sending = false;
-        // Keep the received answer visible if persistence/history cannot be read.
-        if (loaded && (!lastResponse || messages.some(m => m.role === 'assistant' && getMessageText(m.data) === lastResponse))) {
-          streamContent = '';
-          toolEvents = [];
-        }
-        scrollToBottom();
-        try {
-          const updated = await getChatSession(sessionId);
-          sessions = sessions.map(s => s.id === updated.id ? updated : s);
-        } catch { /* The transcript remains usable; the next reload refreshes links. */ }
-      },
-      sentAttachments,
-    );
+    preparingTurn = false;
+    turnController.start(sessionId, content, sentAttachments);
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -754,19 +693,12 @@
   }
 
   function stopGeneration() {
-    ++turnVersion;
-    if (!abortController && sending) {
+    if (preparingTurn) {
       ++selectionVersion; // Cancel an in-flight lazy session creation.
-      sending = false;
+      preparingTurn = false;
       return;
     }
-    if (abortController) {
-      abortController.abort();
-      abortController = null;
-      sending = false;
-      pendingConfirmation = null;
-      turnError = 'Generation stopped. Any received response is kept below.';
-    }
+    turnController.stop();
   }
 
   async function retryLastMessage() {
@@ -786,11 +718,8 @@
   }
 
   async function handleConfirmation(approved: boolean) {
-    if (!pendingConfirmation || !selectedSessionId) return;
-    const { toolId } = pendingConfirmation;
-    pendingConfirmation = null;
     try {
-      await confirmToolCall(selectedSessionId, toolId, approved);
+      await turnController.confirm(approved);
     } catch (err: any) {
       addToast(err.message || 'Failed to send confirmation', 'alert');
     }
@@ -911,13 +840,8 @@
   function clearSessionSelection() {
     ++selectionVersion;
     resetComposer();
-    ++turnVersion;
-    abortController?.abort();
-    abortController = null;
-    sending = false;
-    streamContent = '';
-    toolEvents = [];
-    pendingConfirmation = null;
+    turnController.reset();
+    preparingTurn = false;
     selectedSessionId = null;
     showSessionList = true;
     messages = [];
@@ -925,7 +849,6 @@
     loadingOlder = false;
     hasOlder = false;
     messageError = '';
-    turnError = '';
   }
 
   const routeSession = $derived(new URLSearchParams($querystring).get('session'));
@@ -951,12 +874,11 @@
     document.addEventListener('visibilitychange', wake);
     return () => {
       ++selectionVersion;
-      ++turnVersion;
+      turnController.destroy();
       resetComposer();
       poller.stop();
       window.removeEventListener('online', wake);
       document.removeEventListener('visibilitychange', wake);
-      abortController?.abort();
     };
   });
 </script>
@@ -1494,6 +1416,7 @@
               <div class="flex items-center gap-2">
                 <button
                   onclick={() => handleConfirmation(true)}
+                  disabled={turnState.confirming}
                   class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white "
                 >
                   <ShieldCheck size={12} />
@@ -1501,6 +1424,7 @@
                 </button>
                 <button
                   onclick={() => handleConfirmation(false)}
+                  disabled={turnState.confirming}
                   class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-red-500 hover:bg-red-600 text-white "
                 >
                   <ShieldX size={12} />

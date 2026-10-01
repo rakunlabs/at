@@ -33,6 +33,14 @@ src/
 
 ## Pages (routes.ts)
 
+Page components are dynamically imported through `lazy()`/`guarded()` in
+`routes.ts`. Guards run before downloading a page. `route-loader.ts` coalesces
+in-flight imports and caches successful modules; failed downloads show an
+explicit reload screen and are not cached. Keep one stable wrapped route for
+Chats (`/chats/:id?`) so changing conversation parameters never remounts an
+active turn. Loading/error placeholders must stay lightweight and must not
+import page components. Regression: `tests/route-loader.test.mjs`.
+
 `/` Home, `/providers`, `/workflows`, `/workflows/:id` WorkflowEditor, `/chats/:id?` Chats (`pages/Chat.svelte`), `/sessions`, `/tokens`, `/secrets`, `/skills`, `/node-configs`, `/runs`, `/settings`, `/docs`, `*` NotFound
 
 Chats is a single route with an optional param: `/chats` is an
@@ -62,7 +70,23 @@ and serializes appends, while `serial-queue.ts` also orders defaults writes.
 Regressions: `tests/chat-runtime.test.mjs`, `tests/chat-turn.test.mjs`,
 `tests/chat-persistence.test.mjs` and `tests/chat-stream.test.mjs`.
 
+`components/playground/MessageContent.svelte` owns text/Markdown/raw and media
+presentation, with the selected workspace passed explicitly for media URLs.
+It never runs tools, persists history or owns turn state. `chat-media-cache.ts`
+owns the per-workbench upload/download cache; in-flight requests are shared,
+successful uploads seed replay bytes, and failures remain retryable. Never make
+this cache global across accounts/workspaces. Regressions:
+`tests/chat-message-content.test.mjs`, `tests/chat-media-cache.test.mjs`.
+
 ### Weak-network behavior
+
+Sessions turn state lives in `lib/helper/session-turn.ts`, separate from
+transcript loading and composer/session creation. The controller owns running,
+confirmation, finishing and terminal states; reset/Stop/destruction invalidate
+callbacks before aborting the transport. History adoption clears received text
+only when the saved response is present. Confirmation is single-flight and a
+failed request leaves the prompt available for retry. Late history/confirmation
+responses cannot mutate a replacement turn. Regression: `tests/session-turn.test.mjs`.
 
 A background session/workspace probe failing with a transport error must keep
 the ready shell mounted; only actual authentication/admission failures replace
