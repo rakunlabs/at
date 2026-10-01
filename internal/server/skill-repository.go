@@ -61,6 +61,13 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 		return nil, fmt.Errorf("create temporary repository directory: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
+	// Canonicalize the trusted temporary parent, not repository-controlled paths.
+	// On macOS the system temporary directory commonly passes through /var,
+	// which is a symlink to /private/var.
+	tempDir, err = filepath.EvalSymlinks(tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve temporary repository directory: %w", err)
+	}
 
 	repoDir := filepath.Join(tempDir, "repo")
 	args := []string{"clone", "--depth", "1", "--single-branch"}

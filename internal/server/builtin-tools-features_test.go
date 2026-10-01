@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -85,8 +87,13 @@ func TestBuiltinOtherPreservesResourceDependencies(t *testing.T) {
 func TestBuiltinFeatureChangeBlocksDispatchAndBatch(t *testing.T) {
 	ctx := runtimeTestContext(t, t.TempDir(), &atomic.Bool{})
 	s := toolFeatureServer(map[string]bool{})
-	if _, err := s.dispatchBuiltinTool(ctx, "file_list", map[string]any{}); err != nil {
-		t.Fatal(err)
+	if _, err := s.dispatchBuiltinTool(ctx, "file_list", map[string]any{}); runtime.GOOS == "linux" {
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else if !errors.Is(err, service.ErrExecutionDenied) {
+		// Rooted file access intentionally fails closed without Linux openat2.
+		t.Fatalf("unsupported platform file access: %v", err)
 	}
 	s.features.data.Store(&featureSnapshot{flags: map[string]bool{service.FeatureFiles: false}, loadedAt: time.Now()})
 	if _, err := s.dispatchBuiltinTool(ctx, "file_list", map[string]any{}); err == nil {

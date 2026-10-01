@@ -62,6 +62,51 @@ func TestRepositorySkillRootRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestFetchGitSkillPackagesWithSymlinkedTempParent(t *testing.T) {
+	parent := t.TempDir()
+	realTemp := filepath.Join(parent, "real")
+	if err := os.Mkdir(realTemp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(parent, "alias")
+	if err := os.Symlink(realTemp, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	t.Setenv("TMPDIR", alias)
+	repo := filepath.Join(parent, "repo")
+	writeTestFile(t, filepath.Join(repo, "skills", "alpha", "SKILL.md"), "---\nname: alpha\n---\nInstructions\n")
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "skill")
+	packages, err := (&Server{}).fetchGitSkillPackages(t.Context(), skillImportSource{
+		URL: repo, Repository: true, Path: "skills/alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 || packages[0].Path != "skills/alpha" {
+		t.Fatalf("packages: %+v", packages)
+	}
+}
+
+func TestRepositorySkillRootRejectsSymlinks(t *testing.T) {
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(repo, "skills", "SKILL.md"), "Instructions\n")
+	if err := os.Symlink(filepath.Join(repo, "skills"), filepath.Join(repo, "alias")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, requested := range []string{"alias", "alias/SKILL.md"} {
+		if _, err := repositorySkillRoot(repo, requested); err == nil {
+			t.Fatalf("symlink path %q admitted", requested)
+		}
+	}
+}
+
 func TestReadSkillPackageIncludesBinaryFilesInChecksum(t *testing.T) {
 	repo := t.TempDir()
 	mainFile := filepath.Join(repo, "SKILL.md")

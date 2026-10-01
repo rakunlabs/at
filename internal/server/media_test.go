@@ -10,6 +10,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"mime"
 	"mime/multipart"
 	"net/http/httptest"
 	"os"
@@ -357,7 +358,12 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 	// SVG is an active document: stored, never rendered.
 	storedAs("x.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`), "image/svg+xml", "image/svg+xml", "attachment")
 	storedAs("page.html", []byte("<html><script>alert(1)</script></html>"), "text/html", "text/html", "attachment")
-	storedAs("query.sql", []byte("select 1;\n"), "application/sql", "application/sql", "attachment")
+	// Extension MIME types come from the host database (macOS uses x-sql).
+	sqlType := strings.Split(mime.TypeByExtension(".sql"), ";")[0]
+	if sqlType == "" {
+		sqlType = "text/plain"
+	}
+	storedAs("query.sql", []byte("select 1;\n"), "application/sql", sqlType, "attachment")
 	storedAs("doc.pdf", []byte("%PDF-1.7\n1 0 obj\n"), "application/pdf", "application/pdf", "inline")
 	if w = mediaUpload(t, s, tokens[0], "empty.png", nil, "image/png"); w.Code != 400 {
 		t.Fatalf("empty upload: %d %s", w.Code, w.Body)
