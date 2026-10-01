@@ -99,7 +99,15 @@ func (p *Postgres) SetUserPreference(ctx context.Context, pref service.UserPrefe
 		if err != nil {
 			return err
 		}
-		storeValue = enc
+		// value is JSONB: ciphertext must be stored as a JSON string, not
+		// as the bare enc:... representation used by TEXT secret columns.
+		if atcrypto.IsEncrypted(enc) {
+			encoded, err := json.Marshal(enc)
+			if err != nil {
+				return fmt.Errorf("marshal encrypted user preference: %w", err)
+			}
+			storeValue = string(encoded)
+		}
 	}
 
 	now := time.Now().UTC()
@@ -198,12 +206,18 @@ func (p *Postgres) SetPublicUserPreference(ctx context.Context, pref service.Use
 // userPrefRowToRecord converts a database row to a UserPreference, decrypting the value if secret.
 func userPrefRowToRecord(row userPreferenceRow, encKey []byte) (*service.UserPreference, error) {
 	value := row.Value
-	if row.Secret && encKey != nil && atcrypto.IsEncrypted(value) {
-		decrypted, err := atcrypto.Decrypt(value, encKey)
-		if err != nil {
-			return nil, fmt.Errorf("decrypt user preference %q/%q: %w", row.UserID, row.Key, err)
+	if row.Secret {
+		var ciphertext string
+		if err := json.Unmarshal([]byte(value), &ciphertext); err == nil && atcrypto.IsEncrypted(ciphertext) {
+			value = ciphertext
 		}
-		value = decrypted
+		if atcrypto.IsEncrypted(value) {
+			decrypted, err := atcrypto.Decrypt(value, encKey)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt user preference %q/%q: %w", row.UserID, row.Key, err)
+			}
+			value = decrypted
+		}
 	}
 
 	return &service.UserPreference{
