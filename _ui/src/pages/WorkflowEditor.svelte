@@ -49,8 +49,6 @@
   import LogNode from '@/lib/components/workflow/LogNode.svelte';
   import WorkflowCallNode from '@/lib/components/workflow/WorkflowCallNode.svelte';
   import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
-  import ImageGenerateNode from '@/lib/components/workflow/ImageGenerateNode.svelte';
-  import VisionAnalyzeNode from '@/lib/components/workflow/VisionAnalyzeNode.svelte';
   import AudioGenerateNode from '@/lib/components/workflow/AudioGenerateNode.svelte';
   import AudioTranscribeNode from '@/lib/components/workflow/AudioTranscribeNode.svelte';
   import EmbeddingNode from '@/lib/components/workflow/EmbeddingNode.svelte';
@@ -77,8 +75,6 @@
   import WorkflowCallProps from '@/lib/components/workflow/WorkflowCallProps.svelte';
   import GroupProps from '@/lib/components/workflow/GroupProps.svelte';
   import StickyNoteProps from '@/lib/components/workflow/StickyNoteProps.svelte';
-  import ImageGenerateProps from '@/lib/components/workflow/ImageGenerateProps.svelte';
-  import VisionAnalyzeProps from '@/lib/components/workflow/VisionAnalyzeProps.svelte';
   import AudioGenerateProps from '@/lib/components/workflow/AudioGenerateProps.svelte';
   import AudioTranscribeProps from '@/lib/components/workflow/AudioTranscribeProps.svelte';
   import EmbeddingProps from '@/lib/components/workflow/EmbeddingProps.svelte';
@@ -113,8 +109,6 @@
     workflow_call: WorkflowCallProps,
     group: GroupProps,
     sticky_note: StickyNoteProps,
-    image_generate: ImageGenerateProps,
-    vision_analyze: VisionAnalyzeProps,
     audio_generate: AudioGenerateProps,
     audio_transcribe: AudioTranscribeProps,
     embedding: EmbeddingProps,
@@ -155,8 +149,6 @@
     workflow_call: WorkflowCallNode,
     group: GroupNode,
     sticky_note: MarkdownStickyNote,
-    image_generate: ImageGenerateNode,
-    vision_analyze: VisionAnalyzeNode,
     audio_generate: AudioGenerateNode,
     audio_transcribe: AudioTranscribeNode,
     embedding: EmbeddingNode,

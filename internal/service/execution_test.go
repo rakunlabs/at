@@ -53,6 +53,16 @@ func TestExecutionPolicyAuthorityAndRevocation(t *testing.T) {
 			if (err == nil) != tt.admin {
 				t.Fatalf("policy edit admin=%v: %v", tt.admin, err)
 			}
+			if tt.admin {
+				// Removed node types may linger in stored policies; saving drops them.
+				changed, err := PrepareExecutionPolicyChange(ctx, ExecutionPolicy{WorkspaceID: "w", Mode: tt.mode, AllowedNodes: []string{"image_generate", "llm_call", "vision_analyze"}})
+				if err != nil || len(changed.AllowedNodes) != 1 || changed.AllowedNodes[0] != "llm_call" {
+					t.Fatalf("retired nodes: %v %v", changed.AllowedNodes, err)
+				}
+				if _, err := PrepareExecutionPolicyChange(ctx, ExecutionPolicy{WorkspaceID: "w", Mode: tt.mode, AllowedNodes: []string{"no_such_node"}}); err == nil {
+					t.Fatal("unknown node accepted")
+				}
+			}
 			revoked.Store(true)
 			if !errors.Is(CheckExecution(ctx, ExecutionAction{Kind: "tool", Name: "file_read"}), ErrExecutionDenied) {
 				t.Fatal("revoked actor retained authority")

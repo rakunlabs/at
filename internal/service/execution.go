@@ -259,11 +259,16 @@ func ExecutionToolClass(name string) (host, known bool) {
 	}
 }
 
+// retiredExecutionNodes are node types that no longer exist. Stored policies
+// may still list them; saving such a policy drops them instead of refusing
+// the whole change.
+var retiredExecutionNodes = map[string]bool{"image_generate": true, "vision_analyze": true}
+
 func ExecutionNodeClass(name string) (host, known bool) {
 	switch name {
 	case "input", "output", "template", "log", "http_trigger", "cron_trigger", "agent_config", "skill_config", "mcp_config", "llm_call", "agent_call", "workflow_call":
 		return false, true
-	case "exec", "script", "conditional", "loop", "http_request", "email", "chat_reply", "embedding", "audio_transcribe", "audio_generate", "vision_analyze", "image_generate":
+	case "exec", "script", "conditional", "loop", "http_request", "email", "chat_reply", "embedding", "audio_transcribe", "audio_generate":
 		return true, true
 	default:
 		return registeredExecutionClass("node", name)
@@ -304,7 +309,7 @@ func ExecutionCapabilityNames(kind string) []string {
 	case "tool":
 		names = strings.Fields("file_read file_write file_list batch_execute bash_execute js_execute http_request url_fetch file_edit file_multiedit file_patch file_glob file_grep lsp_query transcribe_local")
 	case "node":
-		names = strings.Fields("input output template log http_trigger cron_trigger agent_config skill_config mcp_config llm_call agent_call workflow_call exec script conditional loop http_request email chat_reply embedding audio_transcribe audio_generate vision_analyze image_generate")
+		names = strings.Fields("input output template log http_trigger cron_trigger agent_config skill_config mcp_config llm_call agent_call workflow_call exec script conditional loop http_request email chat_reply embedding audio_transcribe audio_generate")
 	default:
 		return nil
 	}
@@ -373,11 +378,17 @@ func PrepareExecutionPolicyChange(ctx context.Context, policy ExecutionPolicy) (
 			}
 		}
 	}
+	allowedNodes := policy.AllowedNodes[:0:0]
 	for _, name := range policy.AllowedNodes {
+		if retiredExecutionNodes[name] {
+			continue
+		}
 		if _, known := ExecutionNodeClass(name); !known {
 			return ExecutionPolicy{}, fmt.Errorf("unknown node %q", name)
 		}
+		allowedNodes = append(allowedNodes, name)
 	}
+	policy.AllowedNodes = allowedNodes
 	policy.GrantedBy = a.provenance.UserID
 	return policy, ctx.Err()
 }

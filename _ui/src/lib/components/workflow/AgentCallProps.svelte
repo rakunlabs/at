@@ -106,6 +106,11 @@
         <span class="text-[10px] text-gray-400 ml-1">— Skill names from skill_config node (optional)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">string[]</div>
       </div>
+      <div title="Files sent to the model with the prompt: images, PDFs, audio, video or text. Connect the file output of HTTP Request (save response), Exec paths, or the files/image output of another LLM or Agent Call. Remote URLs must be downloaded with HTTP Request first. Up to 10 files, 20 MB total.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">attachments</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Images, PDFs, audio, text… sent with the prompt (optional)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"file ref | path | [..] | { name, content_base64 } | data: URL"}</div>
+      </div>
     </div>
   </div>
   <div>
@@ -115,6 +120,16 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">response</span>
         <span class="text-[10px] text-gray-400 ml-1">— Final agent response after tool-call loop</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"{ response: string }"}</div>
+      </div>
+      <div title="Every file left in the agent's output directory: files its tools saved (the directory is their working directory) and images the model returned directly. Connect to Email attachments or inline images.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">files</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Files the agent produced ([] when none)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"[{ path, name, content_type, size_bytes }]"}</div>
+      </div>
+      <div title="The first produced file that is an image. Absent when there is none.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">image</span>
+        <span class="text-[10px] text-gray-400 ml-1">— First produced image</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"{ path, name, content_type, size_bytes }"}</div>
       </div>
     </div>
   </div>

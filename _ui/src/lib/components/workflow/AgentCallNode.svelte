@@ -26,6 +26,7 @@
   <HandleGroup position="left" class="!gap-1">
     <Handle id="prompt" type="input" port="text" accept={['text', 'data']} label="prompt" />
     <Handle id="context" type="input" port="data" accept={['data', 'text']} label="context" />
+    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
   </HandleGroup>
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-purple-50">
     <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-purple-500 text-white tracking-wide">AGENT</span>
@@ -64,6 +65,8 @@
   <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="response" type="output" port="text" label="response" />
+    <Handle id="files" type="output" port="data" label="files" />
+    <Handle id="image" type="output" port="data" label="image" />
   </HandleGroup>
   <HandleGroup position="bottom" class="!gap-1">
     <Handle id="skills" type="input" port="config" accept={['config']} label="skills" />

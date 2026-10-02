@@ -31,6 +31,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
 			{Name: "values", Type: workflow.PortTypeData, Label: "Values", Position: "left"},
 			{Name: "attachments", Type: workflow.PortTypeData, Label: "Attachments", Position: "left"},
+			{Name: "inline_images", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Inline images", Position: "left"},
 		},
 		Outputs: []workflow.PortMeta{
 			{Name: "success", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
@@ -49,6 +50,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 			{Name: "from", Type: "string", Description: "Sender override (Go template)"},
 			{Name: "reply_to", Type: "string", Description: "Reply-to address (Go template)"},
 			{Name: "attachments", Type: "string", Description: "Run-workspace file paths to attach, one per line (Go template)"},
+			{Name: "inline_images", Type: "string", Description: "Run-workspace image paths to show inside an HTML body, one per line (Go template)"},
 		},
 		Color: "amber",
 	}
@@ -70,6 +72,7 @@ func (*emailNode) Meta() workflow.NodeMeta {
 //	"from":          string — sender address override template (optional; defaults to config value)
 //	"reply_to":      string — Reply-To header template (optional)
 //	"attachments":   string — run-workspace file paths, one per line or comma-separated (template, optional)
+//	"inline_images": string — run-workspace image paths embedded in an HTML body (template, optional)
 //
 // NodeConfig Data (type "email"):
 //
@@ -89,6 +92,13 @@ func (*emailNode) Meta() workflow.NodeMeta {
 //	"values" — additional template variables (merged on top of data)
 //	"attachments" — file references, paths or inline {name, content_base64}
 //	                items (see parseAttachmentInput); combined with the field
+//	"inline_images" — images in the same shapes, embedded (Content-ID) rather
+//	                attached; requires content_type text/html. The body
+//	                references them with {{cid "name"}} / {{cid 0}}; any image
+//	                it does not reference is appended at the end of the body.
+//
+// Template functions: getVar, cid, and markdown (renders model Markdown to
+// HTML with raw HTML dropped) — e.g. {{markdown .response}}.
 //
 // Attachment files are read from the run workspace (runs/<run_id>), the
 // directory HTTP Request's save_response and exec's AT_WORK_DIR write to.
@@ -109,6 +119,7 @@ type emailNode struct {
 	fromTmpl    string
 	replyToTmpl string
 	attachTmpl  string
+	inlineTmpl  string
 }
 
 func init() {
@@ -129,6 +140,7 @@ func newEmailNode(node service.WorkflowNode) (workflow.Noder, error) {
 	from, _ := node.Data["from"].(string)
 	replyTo, _ := node.Data["reply_to"].(string)
 	attachments, _ := node.Data["attachments"].(string)
+	inlineImages, _ := node.Data["inline_images"].(string)
 
 	return &emailNode{
 		configID:    configID,
@@ -141,6 +153,7 @@ func newEmailNode(node service.WorkflowNode) (workflow.Noder, error) {
 		fromTmpl:    from,
 		replyToTmpl: replyTo,
 		attachTmpl:  strings.TrimSpace(attachments),
+		inlineTmpl:  strings.TrimSpace(inlineImages),
 	}, nil
 }
 
@@ -158,6 +171,9 @@ func (n *emailNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	}
 	if n.bodyTmpl == "" {
 		return fmt.Errorf("email: 'body' is required")
+	}
+	if n.inlineTmpl != "" && n.contentType != "text/html" {
+		return fmt.Errorf("email: inline images need content_type text/html")
 	}
 	if reg.NodeConfigLookup == nil {
 		return fmt.Errorf("email: node config lookup not available")
@@ -206,6 +222,18 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	// Build template context.
 	tmplCtx := buildTemplateContext(inputs)
 	extraFuncs := varFuncMap(reg)
+	extraFuncs["markdown"] = markdownToHTML
+
+	// Inline images are resolved first so the body template can reference
+	// them with {{cid ...}}.
+	inlineImages, err := n.resolveInlineImages(ctx, inputs, tmplCtx, extraFuncs)
+	if err != nil {
+		return nil, err
+	}
+	if len(inlineImages) > 0 && n.contentType != "text/html" {
+		return nil, fmt.Errorf("email: inline images need content_type text/html")
+	}
+	inlineImageFuncs(inlineImages, tmplCtx, extraFuncs)
 
 	// Render all template fields.
 	to, err := renderEmailTemplate("to", n.toTmpl, tmplCtx, extraFuncs)
@@ -228,6 +256,7 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	if err != nil {
 		return nil, err
 	}
+	body = appendUnreferencedImages(body, inlineImages)
 
 	// Resolve sender: node override > config default.
 	from := sc.From
@@ -279,6 +308,9 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		if err := m.ReplyTo(replyTo); err != nil {
 			return nil, fmt.Errorf("email: set reply-to: %w", err)
 		}
+	}
+	if err := embedInMessage(m, inlineImages); err != nil {
+		return nil, fmt.Errorf("email: %w", err)
 	}
 	if err := attachToMessage(m, attachments); err != nil {
 		return nil, fmt.Errorf("email: %w", err)
@@ -343,6 +375,13 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 			names[i] = a.name
 		}
 		outData["attachments"] = names
+	}
+	if len(inlineImages) > 0 {
+		names := make([]string, len(inlineImages))
+		for i, img := range inlineImages {
+			names[i] = img.name
+		}
+		outData["inline_images"] = names
 	}
 
 	// Selection-based routing by port name.

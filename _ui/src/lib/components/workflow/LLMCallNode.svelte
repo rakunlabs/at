@@ -8,6 +8,7 @@
     provider?: string;
     model?: string;
     system_prompt?: string;
+    output_format?: string;
     node_number?: number;
   }
 
@@ -25,6 +26,7 @@
   <HandleGroup position="left" class="!gap-1">
     <Handle id="prompt" type="input" port="text" accept={['text', 'data']} label="prompt" />
     <Handle id="context" type="input" port="data" accept={['data', 'text']} label="context" />
+    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
   </HandleGroup>
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-blue-50">
     <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-blue-500 text-white tracking-wide">LLM</span>
@@ -57,5 +59,10 @@
   <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="response" type="output" port="text" label="response" />
+    <Handle id="files" type="output" port="data" label="files" />
+    <Handle id="image" type="output" port="data" label="image" />
+    {#if data.output_format === 'json'}
+      <Handle id="json" type="output" port="data" label="json" />
+    {/if}
   </HandleGroup>
 </div>

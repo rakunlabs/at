@@ -27,7 +27,7 @@ type PinnedNode struct {
 
 func pinnableNode(nodeType string) bool {
 	switch nodeType {
-	case "input", "llm_call", "agent_call", "template", "http_request", "script", "exec", "email", "log", "workflow_call", "image_generate", "vision_analyze", "audio_generate", "audio_transcribe", "embedding", "decision", "conditional", "edit_fields", "filter", "switch", "merge", "aggregate":
+	case "input", "llm_call", "agent_call", "template", "http_request", "script", "exec", "email", "log", "workflow_call", "audio_generate", "audio_transcribe", "embedding", "decision", "conditional", "edit_fields", "filter", "switch", "merge", "aggregate":
 		return true
 	}
 	return false

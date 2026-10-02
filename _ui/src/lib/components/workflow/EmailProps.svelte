@@ -108,6 +108,21 @@
   ></textarea></label>
   <div class="mt-0.5 text-[10px] text-gray-400">One path per line, relative to this run's workspace. Files saved by HTTP Request or written by Exec to $AT_WORK_DIR can be attached. Up to 20 files, 25 MB total.</div>
 </div>
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inline images (Go template)</span>
+  <textarea
+    bind:value={data.inline_images}
+    rows={2}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+    placeholder="charts/summary.png"
+  ></textarea></label>
+  <div class="mt-0.5 text-[10px] text-gray-400">
+    Images shown inside the body (needs text/html), added to the <span class="font-mono">inline images</span> port.
+    Place one with <span class="font-mono">{'<img src="\x7B\x7Bcid 0\x7D\x7D">'}</span> or <span class="font-mono">{'\x7B\x7Bcid "name.png"\x7D\x7D'}</span>; images the body does not reference are added at the end.
+    With an agent's <span class="font-mono">response</span> connected to <span class="font-mono">data</span>, <span class="font-mono">{'\x7B\x7Bmarkdown .data\x7D\x7D'}</span> turns its Markdown answer into HTML.
+  </div>
+</div>
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>
@@ -127,6 +142,11 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">attachments</span>
         <span class="text-[10px] text-gray-400 ml-1">— Files to attach (added to the field above)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"file ref | path | [..] | { name, content_base64 }"}</div>
+      </div>
+      <div title="Images to show inside an HTML body (embedded with Content-ID): e.g. the image or files output of LLM Call or Agent Call.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">inline_images</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Images shown in the body (HTML only)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"file ref | path | [..]"}</div>
       </div>
     </div>
   </div>

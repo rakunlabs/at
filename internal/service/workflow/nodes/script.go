@@ -33,7 +33,10 @@ import (
 // Any io.ReadCloser values in inputs (e.g. HTTP body) are automatically
 // wrapped in BodyWrapper with .toString(), .jsonParse(), .toBase64(), .bytes() methods.
 //
-// Output ports: index 0 = "false", index 1 = "true", index 2 = "always"
+// Output ports: index 0 = "false", index 1 = "true", index 2 = "always".
+// "true"/"false"/"always" carry every input plus result/error; "result"
+// (active when the script returns) carries only the returned value, so it can
+// feed a prompt or template without the inputs' headers and status codes.
 //
 // Returns NodeResultSelection.
 type scriptNode struct {
@@ -74,6 +77,7 @@ func (n *scriptNode) Meta() workflow.NodeMeta {
 			{Name: "true", Type: workflow.PortTypeData, Label: "True", Position: "right"},
 			{Name: "false", Type: workflow.PortTypeData, Label: "False", Position: "right"},
 			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+			{Name: "result", Type: workflow.PortTypeData, Label: "Result", Position: "right"},
 		},
 		Fields: []workflow.FieldMeta{
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
@@ -127,7 +131,7 @@ func (n *scriptNode) Run(ctx context.Context, reg *workflow.Registry, inputs map
 
 	// Any return (regardless of value) → "true" port.
 	// Port 2 ("always") is always active.
-	selection := []string{"always", "true"}
+	selection := []string{"always", "true", "result"}
 
 	return workflow.NewSelectionResult(outData, selection), nil
 }

@@ -47,6 +47,33 @@
     placeholder="System prompt (optional)"
   ></textarea></label>
 </div>
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output format</span>
+  <select
+    bind:value={data.output_format}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+  >
+    <option value="text">Text</option>
+    <option value="json">JSON object</option>
+  </select></label>
+  {#if data.output_format === 'json'}
+    <div class="mt-0.5 text-[10px] text-gray-400">The answer is parsed and sent on the <span class="font-mono">json</span> output, so Switch rules and templates can read its fields (<span class="font-mono">/severity</span>, <span class="font-mono">{'\x7B\x7B.summary\x7D\x7D'}</span>). An answer that is not a JSON object fails the step. Describe the fields you want in the prompt.</div>
+  {/if}
+</div>
+{#if data.output_format === 'json'}
+  <div>
+    <label class="block">
+      <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">JSON schema (optional)</span>
+    <textarea
+      bind:value={data.json_schema}
+      rows={4}
+      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+      placeholder={'{"type":"object","properties":{"severity":{"type":"string","enum":["critical","warning","ok"]}},"required":["severity"]}'}
+    ></textarea></label>
+    <div class="mt-0.5 text-[10px] text-gray-400">Constrains the object on providers with structured output (OpenAI, Gemini); others receive it as an instruction.</div>
+  </div>
+{/if}
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>
@@ -62,6 +89,11 @@
         <span class="text-[10px] text-gray-400 ml-1">— Extra reference data appended to prompt (optional)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">string</div>
       </div>
+      <div title="Files sent to the model with the prompt: images, PDFs, audio, video or text. Connect the file output of HTTP Request (save response), Exec paths, or the files/image output of another LLM or Agent Call. Remote URLs must be downloaded with HTTP Request first. Up to 10 files, 20 MB total.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">attachments</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Images, PDFs, audio, text… sent with the prompt (optional)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"file ref | path | [..] | { name, content_base64 } | data: URL"}</div>
+      </div>
     </div>
   </div>
   <div>
@@ -71,6 +103,21 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">response</span>
         <span class="text-[10px] text-gray-400 ml-1">— Map with LLM response, connectable to any node</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"{ response: string }"}</div>
+      </div>
+      <div title="Images the model returned (image-output models such as Gemini image), saved in the run workspace. Connect to Email attachments or inline images.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">files</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Generated images as run files ([] when none)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"[{ path, name, content_type, size_bytes }]"}</div>
+      </div>
+      <div title="The first generated image. Absent when the model returned none.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">image</span>
+        <span class="text-[10px] text-gray-400 ml-1">— First generated image</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"{ path, name, content_type, size_bytes }"}</div>
+      </div>
+      <div title="Only with Output format: JSON object. The parsed answer, for Switch rules (/field) and templates (.field).">
+        <span class="text-[11px] font-mono font-medium text-gray-700">json</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Parsed JSON answer (JSON output format)</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">object</div>
       </div>
     </div>
   </div>

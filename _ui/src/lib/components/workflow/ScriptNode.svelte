@@ -60,5 +60,6 @@
     <Handle id="true" type="output" port="data" label="true" />
     <Handle id="false" type="output" port="data" label="false" />
     <Handle id="always" type="output" port="data" label="always" />
+    <Handle id="result" type="output" port="data" label="result" />
   </HandleGroup>
 </div>

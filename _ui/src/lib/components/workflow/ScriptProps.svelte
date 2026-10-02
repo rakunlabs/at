@@ -91,6 +91,11 @@
         <span class="text-[10px] text-gray-400 ml-1">— Fires on both success and error</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">{"{ ...inputs, result: any }"}</div>
       </div>
+      <div title="Only the returned value, without the inputs. Activated when the script returns. Use it to feed a prompt or template, e.g. after combining several HTTP responses.">
+        <span class="text-[11px] font-mono font-medium text-gray-700">result</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Just the returned value</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">any</div>
+      </div>
     </div>
   </div>
 </div>

@@ -57,6 +57,44 @@ not normalised, when absolute or containing `..`.
   list, `{name, content_base64}` items from Script, or an object wrapping them
   under `file`/`attachments`. ≤20 files / 25 MB total. Attachments are resolved
   **before** dialling SMTP, so a missing file fails the node and sends nothing.
+- `email` **inline images** (`inline_images` field + port, same shapes, HTML
+  bodies only) are embedded as `multipart/related` parts with a Content-ID —
+  the only form mail clients reliably display, since they block `data:` URIs
+  and remote images. The body places one with `{{cid "name.png"}}` / `{{cid 0}}`;
+  any image the body does not reference is appended, so wiring an image is
+  enough. Non-image files are refused. `{{markdown .data}}` renders upstream
+  model Markdown to HTML with raw HTML dropped (the text comes from a model,
+  not from the template author). Inline images and attachments share the
+  20-file / 25 MB bounds per field.
+- `llm_call` and `agent_call` emit what they produce as files
+  (`run-outputs.go`), each invocation in its own `llm-*` / `agent-*`
+  directory so fan-out branches never collide:
+  - `llm_call`: images returned in `LLMResponse.InlineImages` (Gemini image
+    models) → `files` (`[]` when none) + `image` (first).
+  - `agent_call`: the directory is the tools' working directory
+    (`ContextWithWorkDir`, i.e. `AT_WORK_DIR` for bash) and the prompt names it;
+    inline model images are saved there too. On finish every regular,
+    non-hidden file (≤100) is emitted as `files` plus the first image as
+    `image`. Without a run workspace the agent still runs and reports `[]`.
+  Only known image types (png/jpeg/webp/gif) are stored under image names.
+- `llm_call` and `agent_call` take an **`attachments`** input
+  (`model-inputs.go`): file refs, run paths, `{name, content_base64}` items or
+  `data:` URLs, sent to the model as native `image` / `document` / `audio` /
+  `video` content blocks after the prompt (small UTF-8 files as text). ≤10
+  files / 20 MB. Types come from the bytes, not the claimed name. Remote
+  http(s) URLs are **refused**, not fetched: both nodes are non-host, and a
+  fetch would let a restricted workflow reach the server's network — download
+  with HTTP Request (`save_response`) and connect its `file`. With nothing
+  connected the user message stays a plain string, so existing graphs send
+  exactly what they did before.
+- **Removed node types**: `image_generate` and `vision_analyze`. Generation
+  is an image-output model on LLM Call or an image tool on Agent Call; analysis
+  is the `attachments` input. Saved graphs that still contain them fail
+  validation with `unknown type` and must be edited. Execution policies that
+  list them stay readable, and saving one drops the names
+  (`retiredExecutionNodes`). The gateway's `/images/generations` and the
+  `ImageProvider` adapters are unaffected.
+  Regression: `media-files_test.go`.
 
 `gate` differs from `wait`: it never persists or sleeps, so it needs no durable
 launch and works inside Loop. Topological execution means both inputs have

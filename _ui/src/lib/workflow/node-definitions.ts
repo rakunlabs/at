@@ -54,7 +54,7 @@ export const workflowNodeDefinitions = [
     label: 'LLM Call',
     description: 'Call an LLM provider',
     paletteGroup: 'Processing',
-    createDefaultData: () => ({ label: 'LLM Call', provider: '', model: '', system_prompt: '' }),
+    createDefaultData: () => ({ label: 'LLM Call', provider: '', model: '', system_prompt: '', output_format: 'text' }),
   },
   {
     type: 'agent_call',
@@ -110,6 +110,8 @@ export const workflowNodeDefinitions = [
       content_type: 'text/plain',
       from: '',
       reply_to: '',
+      attachments: '',
+      inline_images: '',
     }),
   },
   {
@@ -140,28 +142,6 @@ export const workflowNodeDefinitions = [
     description: 'Log data and pass through',
     paletteGroup: 'Processing',
     createDefaultData: () => ({ label: 'Log', level: 'info', message: '' }),
-  },
-  {
-    type: 'image_generate',
-    label: 'Image Generate',
-    description: 'Generate images from text',
-    paletteGroup: 'Media',
-    createDefaultData: () => ({
-      label: 'Image Generate',
-      provider: '',
-      model: '',
-      size: '1024x1024',
-      quality: 'standard',
-      style: 'vivid',
-      n: 1,
-    }),
-  },
-  {
-    type: 'vision_analyze',
-    label: 'Vision Analyze',
-    description: 'Analyze images with LLM',
-    paletteGroup: 'Media',
-    createDefaultData: () => ({ label: 'Vision Analyze', provider: '', model: '', system_prompt: '' }),
   },
   {
     type: 'audio_generate',

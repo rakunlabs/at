@@ -198,12 +198,15 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 		Inputs: []workflow.PortMeta{
 			{Name: "prompt", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Prompt", Position: "left"},
 			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
+			{Name: "attachments", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Attachments", Position: "left"},
 			{Name: "skills", Type: workflow.PortTypeConfig, Label: "Skills", Position: "bottom"},
 			{Name: "mcp", Type: workflow.PortTypeConfig, Label: "MCP", Position: "bottom"},
 			{Name: "agents", Type: workflow.PortTypeConfig, Label: "Agents", Position: "bottom"},
 		},
 		Outputs: []workflow.PortMeta{
 			{Name: "response", Type: workflow.PortTypeText, Label: "Response", Position: "right"},
+			{Name: "files", Type: workflow.PortTypeData, Label: "Files", Position: "right"},
+			{Name: "image", Type: workflow.PortTypeData, Label: "Image", Position: "right"},
 		},
 		Fields: []workflow.FieldMeta{
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
@@ -581,6 +584,45 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		prompt = prompt + "\n\nContext:\n" + ctxStr
 	}
 
+	// ─── Output directory ───
+	//
+	// Tools run with a per-invocation directory in the run workspace as their
+	// working directory, and images the model returns directly are saved
+	// there too. Everything left in it is emitted as "files", so a later node
+	// (Email attachments) can use what the agent produced. Without a writable
+	// run workspace the agent still runs, it just reports no files.
+	outputRel := newRunOutputDir("agent")
+	outputDir, outputErr := createRunOutputDir(ctx, outputRel)
+	if outputErr != nil {
+		logi.Ctx(ctx).Debug("agent_call: no run output directory", "error", outputErr)
+		outputRel = ""
+	} else {
+		ctx = workflow.ContextWithWorkDir(ctx, outputDir)
+		prompt += fmt.Sprintf("\n\nSave every file you produce (images, documents, …) in this directory: %s. Files saved there are passed on to the next workflow step automatically; mention them by file name in your answer.", outputDir)
+	}
+	inlineImageCount := 0
+	finish := func(text string, extra map[string]any) (workflow.NodeResult, error) {
+		out := map[string]any{"response": text, "files": []any{}}
+		for k, v := range extra {
+			out[k] = v
+		}
+		if outputRel != "" {
+			files, err := collectRunOutputFiles(ctx, outputRel)
+			if err != nil {
+				logi.Ctx(ctx).Warn("agent_call: collect output files", "error", err)
+			}
+			if len(files) > 0 {
+				out["files"] = runFileRefsToAny(files)
+				for _, f := range files {
+					if strings.HasPrefix(f.ContentType, "image/") {
+						out["image"] = f.toMap()
+						break
+					}
+				}
+			}
+		}
+		return workflow.NewResult(out), nil
+	}
 	// ─── Build Messages ───
 
 	var messages []service.Message
@@ -590,9 +632,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			Content: systemPrompt,
 		})
 	}
+	userContent, err := userMessageContent(ctx, prompt, inputs["attachments"])
+	if err != nil {
+		return nil, fmt.Errorf("agent_call: attachments: %w", err)
+	}
 	messages = append(messages, service.Message{
 		Role:    "user",
-		Content: prompt,
+		Content: userContent,
 	})
 
 	// ─── Agentic Loop ───
@@ -764,11 +810,17 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 		messages = append(messages, agentloop.AssistantMessage(resp))
 
+		if len(resp.InlineImages) > 0 && outputRel != "" {
+			saved, saveErr := saveInlineImages(ctx, outputRel, inlineImageCount, resp.InlineImages)
+			inlineImageCount += len(saved)
+			if saveErr != nil {
+				logi.Ctx(ctx).Warn("agent_call: save generated images", "error", saveErr)
+			}
+		}
+
 		// If the LLM is done (no tool calls), return the final answer.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
-			return workflow.NewResult(map[string]any{
-				"response": resp.Content,
-			}), nil
+			return finish(resp.Content, nil)
 		}
 
 		// Execute tool calls and build tool results.
@@ -932,10 +984,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	return workflow.NewResult(map[string]any{
-		"response": lastContent,
-		"text":     lastContent,
-	}), nil
+	return finish(lastContent, map[string]any{"text": lastContent})
 }
 
 // inputStrings reads an edge input that may be one string or a list of
