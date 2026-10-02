@@ -660,7 +660,7 @@
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mb-1">No MCP servers</p>
       <p class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Create an MCP server to expose tools to external agents</p>
     </div>
-  {:else if servers.length > 0}
+  {:else if servers.length > 0 && !showForm}
     <div class="border border-gray-200 dark:border-dark-border overflow-hidden">
       <table class="w-full">
         <thead>

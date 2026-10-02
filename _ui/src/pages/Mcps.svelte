@@ -764,7 +764,7 @@
         </div>
       </div>
       <!-- Category Filter Chips -->
-      {#if myCategories.length > 0}
+      {#if myCategories.length > 0 && !showForm}
         <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
           <button
             onclick={() => mySelectedCategory = ''}
@@ -1393,7 +1393,7 @@
       {/if}
 
       <!-- Set list -->
-      {#if loading || sets.length > 0 || !showForm}
+      {#if !showForm}
         <DataTable
           items={pagedSets}
           {loading}

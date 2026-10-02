@@ -186,7 +186,8 @@ test('opencodeDiscoveryConfig leaves models empty and wires the discovery plugin
         enabled: true,
         endpoint: '/gateway/v1/models',
         smartModelName: true,
-        modelInfoFormat: 'omniroute',
+        modelInfoFormat: 'litellm',
+        modelInfoEndpoint: '/gateway/v1/model/info',
       },
     },
     models: {},
@@ -198,6 +199,7 @@ test('opencodeDiscoveryConfig keeps the deployment path prefix in the endpoint',
     snippets.opencodeDiscoveryConfig({ baseUrl: 'https://host/at', instanceName: 'AT' }),
   );
   assert.equal(cfg.providers.at.settings.modelsDiscovery.endpoint, '/at/gateway/v1/models');
+  assert.equal(cfg.providers.at.settings.modelsDiscovery.modelInfoEndpoint, '/at/gateway/v1/model/info');
   assert.equal(cfg.providers.at.settings.baseURL, 'https://host/at/gateway/v1');
 });
 

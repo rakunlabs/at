@@ -72,7 +72,9 @@
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return `${p.provider_key}/${p.model}`.toLowerCase().includes(q) || (p.source_model || '').toLowerCase().includes(q);
-    })
+    }).sort((a, b) =>
+      `${a.provider_key}/${a.model}`.localeCompare(`${b.provider_key}/${b.model}`, undefined, { numeric: true, sensitivity: 'base' })
+    )
   );
 
   let mappedPreview = $derived(preview.map(withManualMatch));

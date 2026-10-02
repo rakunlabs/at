@@ -133,8 +133,11 @@
     The generated discovery block uses
     <code
       class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
-      >modelInfoFormat: "omniroute"</code
-    > so opencode reads each model's configured context and maximum output limits instead of applying unknown-model defaults. After updating an existing config, run
+      >modelInfoFormat: "litellm"</code
+    > with <code
+      class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+      >/gateway/v1/model/info</code
+    > so opencode reads each model's configured context and maximum output limits, reasoning levels and the prices set on the Pricing page instead of applying unknown-model defaults. After updating an existing config, run
     <code
       class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
       >opencode service restart</code

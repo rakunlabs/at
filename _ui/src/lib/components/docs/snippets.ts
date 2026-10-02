@@ -121,11 +121,12 @@ function opencodeProviderId(instanceName: string): string {
 }
 
 /**
- * Origin-absolute path of `/gateway/v1/models` for this deployment. The
- * discovery plugin resolves `endpoint` against the origin, not against
- * `baseURL`, so a prefix deployment (`https://host/at`) must keep its prefix.
+ * Origin-absolute path of a `/gateway/v1/...` endpoint for this deployment.
+ * The discovery plugin resolves `endpoint` and `modelInfoEndpoint` against the
+ * origin, not against `baseURL`, so a prefix deployment (`https://host/at`)
+ * must keep its prefix.
  */
-function gatewayModelsPath(baseUrl: string): string {
+function gatewayPath(baseUrl: string, endpoint: string): string {
   let path = '';
   try {
     path = new URL(baseUrl).pathname;
@@ -133,7 +134,7 @@ function gatewayModelsPath(baseUrl: string): string {
     const m = baseUrl.match(/^[a-z][a-z0-9+.-]*:\/\/[^/]+(\/.*)$/i);
     path = m ? m[1] : '';
   }
-  return `${path.replace(/\/+$/, '')}/gateway/v1/models`;
+  return `${path.replace(/\/+$/, '')}/gateway/v1/${endpoint}`;
 }
 
 /**
@@ -180,9 +181,10 @@ export function opencodeDiscoveryConfig(opts: { baseUrl: string; instanceName: s
       baseURL: `${opts.baseUrl}/gateway/v1`,
       modelsDiscovery: {
         enabled: true,
-        endpoint: gatewayModelsPath(opts.baseUrl),
+        endpoint: gatewayPath(opts.baseUrl, 'models'),
         smartModelName: true,
-        modelInfoFormat: 'omniroute',
+        modelInfoFormat: 'litellm',
+        modelInfoEndpoint: gatewayPath(opts.baseUrl, 'model/info'),
       },
     },
     models: {},
