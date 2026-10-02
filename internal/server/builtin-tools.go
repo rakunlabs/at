@@ -546,6 +546,50 @@ var builtinToolSchemas = []builtinToolDef{
 		},
 		"required": []string{"key", "model"},
 	}},
+	{Name: "model_pricing_list", Description: "List the effective model price table used for cost accounting, budgets and /gateway/v1/model/info. Prices are USD per 1M tokens. Optional provider_key (exact) and model (substring) filters.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"provider_key": map[string]any{"type": "string", "description": "Only rows for this provider key"},
+			"model":        map[string]any{"type": "string", "description": "Case-insensitive model substring filter"},
+		},
+	}},
+	{Name: "model_pricing_set", Description: "Set a manual price for one provider_key + model (USD per 1M tokens), like the Pricing page editor. Omitted prices keep their stored value. The row is marked as a manual override, so catalog sync will not overwrite it unless asked; model_pricing_reset restores the synced source price.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"provider_key": map[string]any{"type": "string", "description": "Provider key as configured in AT"},
+			"model":        map[string]any{"type": "string", "description": "Provider-local model ID"},
+			"input":        map[string]any{"type": "number", "minimum": 0, "description": "Input (prompt) price per 1M tokens"},
+			"output":       map[string]any{"type": "number", "minimum": 0, "description": "Output (completion) price per 1M tokens"},
+			"cache_read":   map[string]any{"type": "number", "minimum": 0, "description": "Cache read price per 1M tokens"},
+			"cache_write":  map[string]any{"type": "number", "minimum": 0, "description": "Cache write price per 1M tokens"},
+		},
+		"required": []string{"provider_key", "model"},
+	}},
+	{Name: "model_pricing_delete", Description: "Delete one stored model price by id, or by provider_key + model. The model then counts as unpriced.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":           map[string]any{"type": "string", "description": "Pricing row ID"},
+			"provider_key": map[string]any{"type": "string", "description": "Provider key (with model)"},
+			"model":        map[string]any{"type": "string", "description": "Model ID (with provider_key)"},
+		},
+	}},
+	{Name: "model_pricing_reset", Description: "Drop the manual override on one model price (by id, or provider_key + model) and restore the price last synced from a catalog source.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":           map[string]any{"type": "string", "description": "Pricing row ID"},
+			"provider_key": map[string]any{"type": "string", "description": "Provider key (with model)"},
+			"model":        map[string]any{"type": "string", "description": "Model ID (with provider_key)"},
+		},
+	}},
+	{Name: "model_pricing_sync", Description: "Match configured provider models against a pricing catalog source (default at-pricing: the reviewed AT catalog from GitHub, falling back to the copy bundled in this binary; or llm-prices). Without apply it is a dry run listing new/changed prices; apply=true stores the matches. Manual overrides are kept unless overwrite_overrides=true.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"source":              map[string]any{"type": "string", "enum": []string{"at-pricing", "llm-prices"}, "description": "Catalog source (default at-pricing)"},
+			"provider_key":        map[string]any{"type": "string", "description": "Limit to one provider key"},
+			"apply":               map[string]any{"type": "boolean", "description": "Store the matched prices (default false = dry run)"},
+			"overwrite_overrides": map[string]any{"type": "boolean", "description": "Also replace manually overridden prices"},
+		},
+	}},
 	{Name: "provider_delete", Description: "Delete an LLM provider by key. The provider is also removed from the in-memory registry; agents referencing it will fail until they're updated.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "description": "Provider key to delete"}}, "required": []string{"key"}}},
 	{Name: "provider_discover_models", Description: "Discover available model IDs for a provider config by calling its model-listing API. Supported types: openai, anthropic, gemini, vertex, vertex-gemini, minimax. Pass an existing `key` to fall back to the stored API key if `config.api_key` is empty (useful when editing a provider whose key is redacted). Returns {models: [...]}.", InputSchema: map[string]any{
 		"type": "object",

@@ -477,6 +477,7 @@ var builtinToolFeaturePrefixes = []struct {
 	{"mcp_server_", service.FeatureMCPServers},
 	{"mcp_set_", service.FeatureMCPServers},
 	{"provider_", service.FeatureProviderSetup},
+	{"model_pricing_", service.FeatureModelPricing},
 	{"apitoken_", service.FeatureAPITokens},
 	{"variable_", service.FeatureVariables},
 	{"connection_", service.FeatureExternalConnections},

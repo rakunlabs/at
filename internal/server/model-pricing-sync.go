@@ -254,23 +254,37 @@ func (s *Server) ApplyModelPricingSyncAPI(w http.ResponseWriter, r *http.Request
 		selected[item.ProviderKey+"\x00"+item.Model] = struct{}{}
 	}
 
+	out := s.applyPricingSyncPreview(r.Context(), req.Source, preview, selected, req.OverwriteOverrides)
+
+	status := http.StatusOK
+	if len(out.Errors) > 0 && out.Applied == 0 {
+		status = http.StatusInternalServerError
+	}
+	httpResponseJSON(w, out, status)
+}
+
+// applyPricingSyncPreview stores the selected matched preview rows. A nil
+// selection applies every row; manual overrides are kept unless overwrite is set.
+func (s *Server) applyPricingSyncPreview(ctx context.Context, defaultSource string, preview []modelPricingSyncPreviewItem, selected map[string]struct{}, overwrite bool) modelPricingSyncApplyResponse {
 	now := time.Now().UTC().Format(time.RFC3339)
 	var out modelPricingSyncApplyResponse
 	for _, item := range preview {
-		if _, ok := selected[item.ProviderKey+"\x00"+item.Model]; !ok {
-			continue
+		if selected != nil {
+			if _, ok := selected[item.ProviderKey+"\x00"+item.Model]; !ok {
+				continue
+			}
 		}
 		if !item.Matched {
 			out.Skipped++
 			continue
 		}
-		if item.ManualOverride && !req.OverwriteOverrides {
+		if item.ManualOverride && !overwrite {
 			out.Skipped++
 			continue
 		}
 		source := item.Source
 		if source == "" {
-			source = req.Source
+			source = defaultSource
 		}
 
 		pricing := service.ModelPricing{
@@ -291,19 +305,14 @@ func (s *Server) ApplyModelPricingSyncAPI(w http.ResponseWriter, r *http.Request
 			ManualOverride:             false,
 			LastSyncedAt:               now,
 		}
-		if err := s.agentBudgetStore.SetModelPricing(r.Context(), pricing); err != nil {
+		if err := s.agentBudgetStore.SetModelPricing(ctx, pricing); err != nil {
 			out.Errors = append(out.Errors, fmt.Sprintf("%s/%s: %v", item.ProviderKey, item.Model, err))
 			out.Skipped++
 			continue
 		}
 		out.Applied++
 	}
-
-	status := http.StatusOK
-	if len(out.Errors) > 0 && out.Applied == 0 {
-		status = http.StatusInternalServerError
-	}
-	httpResponseJSON(w, out, status)
+	return out
 }
 
 // ExportModelPricingCatalogAPI handles GET /api/v1/model-pricing/catalog.

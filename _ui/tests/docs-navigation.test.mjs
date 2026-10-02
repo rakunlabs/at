@@ -165,23 +165,31 @@ test('opencodeProviderConfig sorts models and slugs the instance name', () => {
       models: ['b/2', 'a/1'],
     }),
   );
-  assert.deepEqual(Object.keys(cfg.provider['my-gateway'].models), ['a/1', 'b/2']);
-  assert.equal(cfg.provider['my-gateway'].options.baseURL, 'https://at/gateway/v1');
+  assert.equal(cfg.plugins, undefined);
+  assert.equal(cfg.provider, undefined);
+  assert.deepEqual(Object.keys(cfg.providers['my-gateway'].models), ['a/1', 'b/2']);
+  assert.deepEqual(cfg.providers['my-gateway'].settings, { baseURL: 'https://at/gateway/v1' });
 });
 
 test('opencodeDiscoveryConfig leaves models empty and wires the discovery plugin', () => {
   const cfg = JSON.parse(
     snippets.opencodeDiscoveryConfig({ baseUrl: 'https://at', instanceName: 'My Gateway' }),
   );
-  assert.deepEqual(cfg.plugin, ['opencode-models-discovery@latest']);
-  const p = cfg.provider['my-gateway'];
-  assert.deepEqual(p.models, {});
-  assert.equal(p.options.baseURL, 'https://at/gateway/v1');
-  assert.deepEqual(p.options.modelsDiscovery, {
-    enabled: true,
-    endpoint: '/gateway/v1/models',
-    modelInfoFormat: 'litellm',
-    modelInfoEndpoint: '/gateway/v1/model/info',
+  assert.equal(cfg.plugin, undefined);
+  assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@1.7.1', options: {} }]);
+  assert.deepEqual(cfg.providers['my-gateway'], {
+    name: 'My Gateway',
+    package: '@opencode/ai/providers/openai-compatible',
+    settings: {
+      baseURL: 'https://at/gateway/v1',
+      modelsDiscovery: {
+        enabled: true,
+        endpoint: '/gateway/v1/models',
+        smartModelName: true,
+        modelInfoFormat: 'omniroute',
+      },
+    },
+    models: {},
   });
 });
 
@@ -189,50 +197,8 @@ test('opencodeDiscoveryConfig keeps the deployment path prefix in the endpoint',
   const cfg = JSON.parse(
     snippets.opencodeDiscoveryConfig({ baseUrl: 'https://host/at', instanceName: 'AT' }),
   );
-  assert.equal(cfg.provider.at.options.modelsDiscovery.endpoint, '/at/gateway/v1/models');
-  assert.equal(cfg.provider.at.options.modelsDiscovery.modelInfoEndpoint, '/at/gateway/v1/model/info');
-  assert.equal(cfg.provider.at.options.baseURL, 'https://host/at/gateway/v1');
-});
-
-test('opencodeDiscoveryConfig emits the V2 providers/package/settings schema', () => {
-  const cfg = JSON.parse(
-    snippets.opencodeDiscoveryConfig({
-      baseUrl: 'https://host/at',
-      instanceName: 'AT',
-      version: 'v2',
-    }),
-  );
-  assert.equal(cfg.provider, undefined);
-  assert.equal(cfg.plugin, undefined);
-  assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@1.6.2', options: {} }]);
-  assert.deepEqual(cfg.providers.at, {
-    name: 'AT',
-    package: '@opencode/ai/providers/openai-compatible',
-    settings: {
-      baseURL: 'https://host/at/gateway/v1',
-      modelsDiscovery: {
-        enabled: true,
-        endpoint: '/at/gateway/v1/models',
-        modelInfoFormat: 'litellm',
-        modelInfoEndpoint: '/at/gateway/v1/model/info',
-      },
-    },
-    models: {},
-  });
-});
-
-test('opencodeProviderConfig emits the V2 schema without a discovery plugin', () => {
-  const cfg = JSON.parse(
-    snippets.opencodeProviderConfig({
-      baseUrl: 'https://at',
-      instanceName: 'AT',
-      models: ['b/2', 'a/1'],
-      version: 'v2',
-    }),
-  );
-  assert.equal(cfg.plugins, undefined);
-  assert.deepEqual(Object.keys(cfg.providers.at.models), ['a/1', 'b/2']);
-  assert.deepEqual(cfg.providers.at.settings, { baseURL: 'https://at/gateway/v1' });
+  assert.equal(cfg.providers.at.settings.modelsDiscovery.endpoint, '/at/gateway/v1/models');
+  assert.equal(cfg.providers.at.settings.baseURL, 'https://host/at/gateway/v1');
 });
 
 test('codeExampleFor covers every advertised tab', () => {

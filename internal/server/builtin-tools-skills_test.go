@@ -433,6 +433,7 @@ func TestAtManagementTemplate_HasNewTools(t *testing.T) {
 		"bot_create", "bot_delete", "bot_start", "bot_stop", "bot_status",
 		// Phase 2: Provider write
 		"provider_create", "provider_update", "provider_set_model_limit", "provider_set_model_capability", "provider_delete", "provider_discover_models",
+		"model_pricing_list", "model_pricing_set", "model_pricing_delete", "model_pricing_reset", "model_pricing_sync",
 		// Phase 2: API tokens
 		"apitoken_list", "apitoken_create", "apitoken_update", "apitoken_delete",
 		"apitoken_get_usage", "apitoken_reset_usage",
@@ -507,6 +508,7 @@ func TestDispatch_NewToolsHaveDefinitions(t *testing.T) {
 		// Phase 2
 		"bot_create", "bot_delete", "bot_start", "bot_stop", "bot_status",
 		"provider_create", "provider_update", "provider_set_model_limit", "provider_set_model_capability", "provider_delete", "provider_discover_models",
+		"model_pricing_list", "model_pricing_set", "model_pricing_delete", "model_pricing_reset", "model_pricing_sync",
 		"apitoken_list", "apitoken_create", "apitoken_update", "apitoken_delete",
 		"apitoken_get_usage", "apitoken_reset_usage",
 		"variable_list", "variable_get", "variable_create", "variable_update", "variable_delete",

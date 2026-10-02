@@ -136,22 +136,14 @@ function gatewayModelsPath(baseUrl: string): string {
   return `${path.replace(/\/+$/, '')}/gateway/v1/models`;
 }
 
-function gatewayModelInfoPath(baseUrl: string): string {
-  return gatewayModelsPath(baseUrl).replace(/\/models$/, '/model/info');
-}
-
 /**
- * opencode config schema generation. V1 uses `provider` / `npm` / `options`
- * and a string `plugin` list; V2 renamed them to `providers` / `package` /
- * `settings` and takes `plugins` as `{package, options}` objects.
+ * opencode V2 config schema: `providers` / `package` / `settings`, with
+ * `plugins` as `{package, options}` objects.
  */
-export type OpencodeVersion = 'v1' | 'v2';
-
-const opencodeV2ProviderPackage = '@opencode/ai/providers/openai-compatible';
-const opencodeV2DiscoveryPlugin = 'opencode-models-discovery@1.6.2';
+const opencodeProviderPackage = '@opencode/ai/providers/openai-compatible';
+const opencodeDiscoveryPlugin = 'opencode-models-discovery@1.7.1';
 
 function opencodeConfig(opts: {
-  version: OpencodeVersion;
   instanceName: string;
   settings: Record<string, unknown>;
   models: Record<string, { name: string }>;
@@ -161,31 +153,17 @@ function opencodeConfig(opts: {
   const name = opts.instanceName || 'AT';
   const cfg: Record<string, unknown> = { $schema: 'https://opencode.ai/config.json' };
 
-  if (opts.version === 'v2') {
-    if (opts.discovery) {
-      cfg.plugins = [{ package: opencodeV2DiscoveryPlugin, options: {} }];
-    }
-    cfg.providers = {
-      [id]: {
-        name,
-        package: opencodeV2ProviderPackage,
-        settings: opts.settings,
-        models: opts.models,
-      },
-    };
-  } else {
-    if (opts.discovery) {
-      cfg.plugin = ['opencode-models-discovery@latest'];
-    }
-    cfg.provider = {
-      [id]: {
-        npm: '@ai-sdk/openai-compatible',
-        name,
-        options: opts.settings,
-        models: opts.models,
-      },
-    };
+  if (opts.discovery) {
+    cfg.plugins = [{ package: opencodeDiscoveryPlugin, options: {} }];
   }
+  cfg.providers = {
+    [id]: {
+      name,
+      package: opencodeProviderPackage,
+      settings: opts.settings,
+      models: opts.models,
+    },
+  };
 
   return JSON.stringify(cfg, null, 2);
 }
@@ -195,23 +173,16 @@ function opencodeConfig(opts: {
  * `opencode-models-discovery` plugin read the model list from
  * `/gateway/v1/models` instead of pinning it in the file.
  */
-export function opencodeDiscoveryConfig(opts: {
-  baseUrl: string;
-  instanceName: string;
-  version?: OpencodeVersion;
-}): string {
+export function opencodeDiscoveryConfig(opts: { baseUrl: string; instanceName: string }): string {
   return opencodeConfig({
-    version: opts.version ?? 'v1',
     instanceName: opts.instanceName,
     settings: {
       baseURL: `${opts.baseUrl}/gateway/v1`,
       modelsDiscovery: {
         enabled: true,
         endpoint: gatewayModelsPath(opts.baseUrl),
-        // Keep discovery on /models. The separate LiteLLM projection enriches
-        // those models with AT's limits, capabilities and configured prices.
-        modelInfoFormat: 'litellm',
-        modelInfoEndpoint: gatewayModelInfoPath(opts.baseUrl),
+        smartModelName: true,
+        modelInfoFormat: 'omniroute',
       },
     },
     models: {},
@@ -227,7 +198,6 @@ export function opencodeProviderConfig(opts: {
   baseUrl: string;
   instanceName: string;
   models: string[];
-  version?: OpencodeVersion;
 }): string {
   const modelsObj: Record<string, { name: string }> = {};
   for (const m of [...opts.models].sort()) {
@@ -235,7 +205,6 @@ export function opencodeProviderConfig(opts: {
   }
 
   return opencodeConfig({
-    version: opts.version ?? 'v1',
     instanceName: opts.instanceName,
     settings: { baseURL: `${opts.baseUrl}/gateway/v1` },
     models: modelsObj,
