@@ -1,51 +1,15 @@
 <script lang="ts">
-  import { Handle, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface TemplateData {
-    label?: string;
-    template?: string;
-    variables?: string[];
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<TemplateData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
-
-  let previewText = $derived(() => {
-    if (!data.template) return '';
-    const maxLen = 80;
-    return data.template.length > maxLen ? data.template.slice(0, maxLen) + '...' : data.template;
-  });
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
+  let variables = $derived<string[]>(Array.isArray(data.variables) ? data.variables : []);
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
-  ]}
->
-  <Handle id="input" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-yellow-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-yellow-500 text-white tracking-wide">TPL</span>
-    <span class="text-gray-900">{data.label || 'Template'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.template}
-      <div class="font-mono text-[10px] text-gray-500 whitespace-pre-wrap break-all leading-snug mb-1">{previewText()}</div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Configure template text</div>
-    {/if}
-    {#if data.variables && data.variables.length > 0}
-      <div class="flex flex-wrap gap-0.5 mt-1">
-        {#each data.variables as v}
-          <span class="font-mono text-[10px] bg-yellow-100 text-yellow-800 px-1 rounded border border-yellow-300">{`{{.${v}}}`}</span>
-        {/each}
-      </div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <Handle id="output" type="output" port="text" position="right" label="text" />
-</div>
+<WorkflowNode {id} type="template" {data} {selected}
+  inputs={[{ id: 'input', label: 'data' }]}
+  outputs={[{ id: 'output', label: 'text', port: 'text' }]}
+  code={data.template}
+  tags={variables.map(v => `{{.${v}}}`)}
+  setup={!data.template ? 'Write the template' : ''}
+/>

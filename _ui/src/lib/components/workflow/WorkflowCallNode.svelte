@@ -1,51 +1,13 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface WorkflowCallData {
-    label?: string;
-    workflow_id?: string;
-    workflow_name?: string;
-    inputs?: Record<string, any>;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<WorkflowCallData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-indigo-500 ring-2 ring-indigo-500/25'
-  ]}
->
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-indigo-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-indigo-500 text-white tracking-wide">WF</span>
-    <span class="text-gray-900">{data.label || 'Workflow Call'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-
-  <div class="px-2.5 py-1.5 space-y-1">
-    {#if data.workflow_id}
-      <div class="flex gap-1 items-baseline">
-        <span class="text-gray-400 text-[10px] shrink-0">Call:</span>
-        <span class="text-gray-700 font-mono text-[11px] truncate max-w-[140px]" title={data.workflow_id}>
-          {data.workflow_name || data.workflow_id}
-        </span>
-      </div>
-    {:else}
-      <div class="text-gray-400 text-[11px] italic">Select a workflow...</div>
-    {/if}
-  </div>
-
-  <HandleGroup position="left">
-    <Handle id="inputs" type="input" port="data" label="inputs" />
-  </HandleGroup>
-
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right">
-    <Handle id="output" type="output" port="data" label="output" />
-  </HandleGroup>
-</div>
+<WorkflowNode {id} type="workflow_call" {data} {selected}
+  inputs={[{ id: 'inputs', accept: undefined }]}
+  outputs={[{ id: 'output' }]}
+  fields={[{ label: 'Calls', value: data.workflow_name || data.workflow_id }]}
+  setup={!data.workflow_id ? 'Select a workflow' : ''}
+/>

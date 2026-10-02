@@ -1,43 +1,31 @@
-/* Workflow cards use one readable scale; notes and groups keep their own sizing.
- * Handle layout remains owned by Kaykay so measured connection positions follow
- * the card dimensions at every zoom level. */
+/* Workflow step cards (WorkflowNode.svelte). Notes and groups keep their own
+ * sizing. Handles are positioned by Kaykay inside each port row, so measured
+ * connection points follow the card at every zoom level. */
 @reference "./global.css";
 
-.workflow-node-card {
-  @apply w-64 min-h-24 select-none border border-gray-300 bg-white text-sm shadow-sm dark:border-dark-border-subtle dark:bg-dark-surface;
+/* In the components layer so the per-kind stripe utility (border-t-*) wins. */
+@layer components {
+  .workflow-node-card {
+    @apply relative w-72 select-none border border-t-[3px] border-gray-200 bg-white text-sm shadow-sm dark:border-dark-border-subtle dark:bg-dark-surface;
+  }
+
+  .workflow-node-card.workflow-node-selected {
+    @apply border-x-blue-500 border-b-blue-500 shadow-md ring-2 ring-blue-500/25;
+  }
+
+  .workflow-node-card.workflow-node-failed {
+    @apply border-x-red-400 border-b-red-400 dark:border-x-red-800 dark:border-b-red-800;
+  }
 }
 
-.workflow-node-card > .border-b {
-  @apply min-h-12 gap-2 border-gray-200 bg-gray-50 px-3 py-3 dark:border-dark-border dark:bg-dark-elevated;
+/* Port names are drawn inside the card next to their handle. Kaykay still
+ * receives the label for connection feedback and accessibility. */
+.workflow-node-card .kaykay-handle .kaykay-handle-label {
+  display: none;
 }
 
-.workflow-node-card > .border-b > span:first-child {
-  @apply inline-flex min-h-7 min-w-8 items-center justify-center rounded-none px-1.5 text-xs;
-}
-
-.workflow-node-card > .border-b > span:nth-child(2) {
-  @apply min-w-0 break-words text-sm font-semibold;
-}
-
-.workflow-node-card > .px-2\.5 {
-  @apply px-3 py-3;
-}
-
-.workflow-node-card :is(.text-\[9px\], .text-\[10px\], .text-\[11px\]) {
-  font-size: 0.75rem;
-  line-height: 1rem;
-}
-
-.workflow-node-card :is(.text-gray-300, .text-gray-400, .text-gray-500) {
-  @apply text-gray-600 dark:text-dark-text-secondary;
-}
-
-.workflow-node-card :is(.text-gray-600, .text-gray-700, .text-gray-900) {
-  @apply dark:text-dark-text;
-}
-
-.workflow-node-card .font-mono {
-  overflow-wrap: anywhere;
+.workflow-workbench {
+  --kaykay-node-selected-outline: transparent;
 }
 
 .workflow-workbench .kaykay-node.status-running {

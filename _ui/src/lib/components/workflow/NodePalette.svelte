@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Search, Plus, X, ChevronRight, Play, BrainCircuit, Image, GitBranch, Plug, ArrowRightFromLine, StickyNote, Database } from 'lucide-svelte';
   import { workflowPaletteGroups } from '@/lib/workflow/node-definitions';
+  import { getWorkflowNodeAppearance, workflowKindTile } from '@/lib/workflow/node-appearance';
 
   let { onadd, ondragstart, onclose, disabled = false }: {
     onadd: (type: string) => void;
@@ -38,12 +39,15 @@
       <section class="mb-3">
         <button onclick={() => collapsed[group.label] = !collapsed[group.label]} aria-expanded={!!query.trim() || !collapsed[group.label]} class="flex w-full items-center gap-2 px-2 py-2 text-left text-xs font-semibold text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">
           <ChevronRight size={14} class={query.trim() || !collapsed[group.label] ? 'rotate-90' : ''} />
+          <Icon size={14} />
           {group.label}<span class="ml-auto tabular-nums">{group.nodes.length}</span>
         </button>
         {#if query.trim() || !collapsed[group.label]}
           {#each group.nodes as node (node.type)}
+            {@const appearance = getWorkflowNodeAppearance(node.type)}
+            {@const NodeIcon = appearance.icon}
             <button {disabled} draggable={!disabled} ondragstart={event => ondragstart(event, node.type)} onclick={() => onadd(node.type)} class="group flex min-h-16 w-full items-center gap-3 border border-transparent px-2 py-3 text-left hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:hover:border-dark-border-subtle dark:hover:bg-dark-elevated">
-              <span class="flex size-9 shrink-0 items-center justify-center border border-gray-200 bg-gray-50 text-gray-700 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text"><Icon size={20} /></span>
+              <span class={['flex size-9 shrink-0 items-center justify-center', workflowKindTile[appearance.kind]]}><NodeIcon size={18} strokeWidth={2.25} /></span>
               <span class="min-w-0 flex-1"><span class="block text-sm font-medium text-gray-900 dark:text-dark-text">{node.label}</span><span class="mt-0.5 block text-xs leading-relaxed text-gray-600 dark:text-dark-text-secondary">{node.description}</span></span>
               <Plus size={16} class="shrink-0 text-gray-500 dark:text-dark-text-secondary" />
             </button>

@@ -27,6 +27,9 @@
   import { switchOutputPorts } from '@/lib/workflow/data-operations';
   import { canvasInputHandle, storedInputHandle } from '@/lib/workflow/ports';
   import { findNodePlacement } from '@/lib/workflow/node-placement';
+  import { setWorkflowNodeActions } from '@/lib/workflow/node-actions';
+  import { loadCollapsedNodes, saveCollapsedNodes } from '@/lib/workflow/collapsed-nodes';
+  import EdgeRunLabels from '@/lib/components/workflow/EdgeRunLabels.svelte';
   import { buildTestRunOptions, pinNodeOutput, type PinnedNode } from '@/lib/workflow/test-runs';
   import '@/style/workflow.css';
 
@@ -264,6 +267,28 @@
       });
     }
     return sources;
+  });
+
+  // Collapsed steps are a per-browser viewing preference (see collapsed-nodes.ts).
+  let collapsedNodes = $state(new Set<string>());
+  $effect(() => {
+    const workflowId = params.id;
+    untrack(() => { collapsedNodes = loadCollapsedNodes(workflowId); });
+  });
+  setWorkflowNodeActions({
+    addAfter: (nodeId, handleId) => {
+      if (viewingVersion != null) return;
+      pendingConnection = { nodeId, handleId };
+      showPalette = true;
+    },
+    isCollapsed: nodeId => collapsedNodes.has(nodeId),
+    toggleCollapsed: nodeId => {
+      const next = new Set(collapsedNodes);
+      if (!next.delete(nodeId)) next.add(nodeId);
+      collapsedNodes = next;
+      saveCollapsedNodes(params.id, next);
+    },
+    readonly: () => viewingVersion != null,
   });
 
   $effect(() => {
@@ -623,10 +648,10 @@
     const center = flow.screenToCanvas({ x: flow.canvas_width / 2, y: flow.canvas_height / 2 });
     const preferred = source && sourcePosition
       ? { x: sourcePosition.x + source.computed_width + 100, y: sourcePosition.y }
-      : { x: center.x - 130, y: center.y - 60 };
-    const pos = position ?? findNodePlacement(preferred, getWorkflowNodeDimensions(type) ?? { width: 256, height: 140 },
+      : { x: center.x - 144, y: center.y - 70 };
+    const pos = position ?? findNodePlacement(preferred, getWorkflowNodeDimensions(type) ?? { width: 288, height: 160 },
       flow.nodes.filter(node => node.type !== 'group').map(node => ({
-        ...flow.getAbsolutePosition(node.id), width: node.computed_width || 256, height: node.computed_height || 140,
+        ...flow.getAbsolutePosition(node.id), width: node.computed_width || 288, height: node.computed_height || 160,
       })));
     const nodeOpts: Record<string, any> = {
       id: `${type}_${nodeCounter}`,
@@ -662,8 +687,8 @@
       await tick();
       const rect = canvasRef?.getContainer()?.getBoundingClientRect();
       if (rect) flow.setViewport({
-        x: rect.width / 2 - (pos.x + 128) * flow.viewport.zoom,
-        y: rect.height / 2 - (pos.y + 60) * flow.viewport.zoom,
+        x: rect.width / 2 - (pos.x + 144) * flow.viewport.zoom,
+        y: rect.height / 2 - (pos.y + 70) * flow.viewport.zoom,
         zoom: flow.viewport.zoom,
       });
     }
@@ -1022,6 +1047,7 @@
             <Controls position="bottom-left" />
             <Minimap width={160} height={100} />
           {/snippet}
+          <EdgeRunLabels />
 
         </Canvas>
         {#if flow}

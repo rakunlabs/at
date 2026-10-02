@@ -1,80 +1,25 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface EmailData {
-    label?: string;
-    config_id?: string;
-    to?: string;
-    cc?: string;
-    bcc?: string;
-    subject?: string;
-    body?: string;
-    content_type?: string;
-    from?: string;
-    reply_to?: string;
-    attachments?: string;
-    inline_images?: string;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<EmailData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
-
-  let subjectPreview = $derived(() => {
-    if (!data.subject) return '';
-    const maxLen = 32;
-    return data.subject.length > maxLen ? data.subject.slice(0, maxLen) + '...' : data.subject;
-  });
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
+  let tags = $derived([
+    data.content_type === 'text/html' && 'HTML', data.attachments && 'attachments', data.inline_images && 'inline images',
+  ].filter(Boolean) as string[]);
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+<WorkflowNode {id} type="email" {data} {selected}
+  inputs={[
+    { id: 'values', accept: ['data'] },
+    { id: 'data' },
+    { id: 'attachments', optional: true },
+    { id: 'inline_images', label: 'inline images', optional: true },
   ]}
->
-  <HandleGroup position="left" class="!gap-1">
-    <Handle id="values" type="input" port="data" accept={['data']} label="values" />
-    <Handle id="data" type="input" port="data" accept={['data', 'text']} label="data" />
-    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
-    <Handle id="inline_images" type="input" port="data" accept={['data', 'text']} label="inline images" />
-  </HandleGroup>
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-amber-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-amber-600 text-white tracking-wide">SMTP</span>
-    <span class="text-gray-900">{data.label || 'Email'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5 space-y-0.5">
-    {#if data.to}
-      <div class="flex gap-1 items-baseline">
-        <span class="text-gray-400 text-[10px] shrink-0">To:</span>
-        <span class="text-gray-700 font-mono text-[10px] overflow-hidden text-ellipsis whitespace-nowrap max-w-36 inline-block">{data.to}</span>
-      </div>
-    {/if}
-    {#if data.subject}
-      <div class="flex gap-1 items-baseline">
-        <span class="text-gray-400 text-[10px] shrink-0">Subj:</span>
-        <span class="text-gray-600 text-[10px] overflow-hidden text-ellipsis whitespace-nowrap max-w-36 inline-block">{subjectPreview()}</span>
-      </div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Configure email</div>
-    {/if}
-    {#if data.attachments}
-      <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">attachments</span>
-    {/if}
-    {#if data.inline_images}
-      <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">inline images</span>
-    {/if}
-    {#if data.content_type === 'text/html'}
-      <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">HTML</span>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right" class="!gap-1">
-    <Handle id="success" type="output" port="data" label="success" />
-    <Handle id="error" type="output" port="data" label="error" />
-    <Handle id="always" type="output" port="data" label="always" />
-  </HandleGroup>
-</div>
+  outputs={[{ id: 'success' }, { id: 'error' }, { id: 'always', optional: true }]}
+  fields={[
+    { label: 'To', value: data.to, mono: true },
+    { label: 'Subject', value: data.subject },
+  ]}
+  {tags}
+  setup={!data.to && !data.subject ? 'Set recipients and subject' : ''}
+/>

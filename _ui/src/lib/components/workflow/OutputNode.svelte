@@ -1,40 +1,13 @@
 <script lang="ts">
-  import { Handle, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface OutputData {
-    label?: string;
-    fields?: string[];
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<OutputData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
+  let fields = $derived<string[]>(Array.isArray(data.fields) ? data.fields : []);
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
-  ]}
->
-  <Handle id="input" type="input" port="data" position="left" accept={['data', 'text']} label="in" />
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-red-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-red-500 text-white tracking-wide">OUT</span>
-    <span class="text-gray-900">{data.label || 'Output'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.fields && data.fields.length > 0}
-      <div class="flex flex-col gap-0.5">
-        {#each data.fields as field}
-          <div class="text-gray-500 font-mono text-[11px]">{field}</div>
-        {/each}
-      </div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Workflow output data</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-</div>
+<WorkflowNode {id} type="output" {data} {selected}
+  inputs={[{ id: 'input', label: 'in' }]}
+  tags={fields}
+  empty="Returns its input as the workflow result"
+/>

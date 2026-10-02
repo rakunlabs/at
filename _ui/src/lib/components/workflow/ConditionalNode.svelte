@@ -1,46 +1,13 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface ConditionalData {
-    label?: string;
-    expression?: string;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<ConditionalData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
-
-  let previewExpr = $derived(() => {
-    if (!data.expression) return '';
-    const maxLen = 60;
-    return data.expression.length > maxLen ? data.expression.slice(0, maxLen) + '...' : data.expression;
-  });
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
-  ]}
->
-  <Handle id="input" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-amber-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-amber-600 text-white tracking-wide">IF</span>
-    <span class="text-gray-900">{data.label || 'Conditional'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.expression}
-      <div class="font-mono text-[10px] text-gray-500 whitespace-pre-wrap break-all leading-snug">{previewExpr()}</div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Set JS expression</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right" class="!gap-1">
-    <Handle id="true" type="output" port="data" label="true" />
-    <Handle id="false" type="output" port="data" label="false" />
-  </HandleGroup>
-</div>
+<WorkflowNode {id} type="conditional" {data} {selected}
+  inputs={[{ id: 'input', label: 'data' }]}
+  outputs={[{ id: 'true' }, { id: 'false' }]}
+  code={data.expression}
+  setup={!data.expression ? 'Write a condition' : ''}
+/>

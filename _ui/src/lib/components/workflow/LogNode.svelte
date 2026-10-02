@@ -1,55 +1,13 @@
 <script lang="ts">
-  import { Handle, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface LogData {
-    label?: string;
-    level?: string;
-    message?: string;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<LogData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
-
-  const levelColors: Record<string, string> = {
-    info: 'bg-blue-100 text-blue-700 border-blue-300',
-    warn: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-    error: 'bg-red-100 text-red-700 border-red-300',
-    debug: 'bg-gray-100 text-gray-600 border-gray-300',
-  };
-
-  let level = $derived(data.level || 'info');
-  let levelClass = $derived(levelColors[level] || levelColors.info);
-
-  let previewMsg = $derived(() => {
-    if (!data.message) return '';
-    const maxLen = 60;
-    return data.message.length > maxLen ? data.message.slice(0, maxLen) + '...' : data.message;
-  });
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
-  ]}
->
-  <Handle id="data" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-slate-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-slate-500 text-white tracking-wide">LOG</span>
-    <span class="text-gray-900">{data.label || 'Log'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-    <span class="{data.node_number == null ? 'ml-auto' : ''} text-[9px] font-mono px-1 py-px rounded border {levelClass}">{level}</span>
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.message}
-      <div class="font-mono text-[10px] text-gray-500 whitespace-pre-wrap break-all leading-snug">{previewMsg()}</div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Pass-through logger</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <Handle id="output" type="output" port="data" position="right" label="data" />
-</div>
+<WorkflowNode {id} type="log" {data} {selected}
+  inputs={[{ id: 'data' }]}
+  outputs={[{ id: 'output', label: 'data' }]}
+  fields={[{ label: 'Level', value: data.level || 'info' }]}
+  code={data.message}
+/>

@@ -1,55 +1,17 @@
 <script lang="ts">
-  import { Handle, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface CronTriggerData {
-    label?: string;
-    schedule?: string;
-    timezone?: string;
-    payload?: Record<string, any>;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<CronTriggerData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
+  let payloadKeys = $derived(data.payload && typeof data.payload === 'object' ? Object.keys(data.payload).length : 0);
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+<WorkflowNode {id} type="cron_trigger" {data} {selected}
+  outputs={[{ id: 'output', label: 'out' }]}
+  fields={[
+    { label: 'Schedule', value: data.schedule, mono: true },
+    { label: 'Timezone', value: data.timezone },
+    { label: 'Payload', value: payloadKeys ? `${payloadKeys} ${payloadKeys === 1 ? 'field' : 'fields'}` : '' },
   ]}
->
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-green-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-green-500 text-white tracking-wide">CRON</span>
-    <span class="text-gray-900">{data.label || 'Cron Trigger'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.schedule}
-      <div class="flex flex-col gap-0.5 mb-0.5">
-        <div class="flex gap-1 items-baseline">
-          <span class="text-gray-400 text-[10px] shrink-0">Schedule:</span>
-          <span class="text-gray-700 font-mono text-[11px]">{data.schedule}</span>
-        </div>
-        {#if data.timezone}
-          <div class="flex gap-1 items-baseline">
-            <span class="text-gray-400 text-[10px] shrink-0">TZ:</span>
-            <span class="text-gray-500 text-[10px] truncate max-w-[120px]" title={data.timezone}>{data.timezone}</span>
-          </div>
-        {/if}
-      </div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Set cron schedule</div>
-    {/if}
-    {#if data.payload && Object.keys(data.payload).length > 0}
-      <div class="flex gap-1 items-baseline">
-        <span class="text-gray-400 text-[10px] shrink-0">Payload:</span>
-        <span class="text-gray-500 text-[10px]">{Object.keys(data.payload).length} fields</span>
-      </div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <Handle id="output" type="output" port="data" position="right" label="out" />
-</div>
+  setup={!data.schedule ? 'Set a cron schedule' : ''}
+/>

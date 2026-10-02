@@ -1,44 +1,14 @@
 <script lang="ts">
-  import { Handle, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface HttpTriggerData {
-    label?: string;
-    trigger_id?: string;
-    alias?: string;
-    public?: boolean;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<HttpTriggerData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+<WorkflowNode {id} type="http_trigger" {data} {selected}
+  outputs={[{ id: 'output', label: 'out' }]}
+  fields={[
+    { label: 'Path', value: data.trigger_id ? `/webhooks/${data.alias || data.trigger_id}` : 'Generated when saved', mono: !!data.trigger_id },
+    { label: 'Access', value: data.public ? 'Public' : 'Token required' },
   ]}
->
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-indigo-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-indigo-500 text-white tracking-wide">HTTP</span>
-    <span class="text-gray-900">{data.label || 'HTTP Trigger'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-    {#if !data.public}
-      <span class="text-[8px] px-1 py-px rounded bg-amber-100 text-amber-700 font-medium {data.node_number == null ? 'ml-auto' : ''}">AUTH</span>
-    {/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.trigger_id}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Webhook:</span>
-        <span class="text-gray-600 font-mono text-[10px] break-all">/webhooks/{data.alias || data.trigger_id}</span>
-      </div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Save to generate webhook URL</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <Handle id="output" type="output" port="data" position="right" label="out" />
-</div>
+/>

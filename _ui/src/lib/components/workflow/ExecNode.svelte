@@ -1,67 +1,18 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
 
-  interface ExecData {
-    label?: string;
-    command?: string;
-    working_dir?: string;
-    timeout?: number;
-    sandbox_root?: string;
-    input_count?: number;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<ExecData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
-
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
   let inputCount = $derived(Math.max(1, Math.min(data.input_count || 1, 10)));
-
-  let previewCmd = $derived(() => {
-    if (!data.command) return '';
-    const maxLen = 60;
-    return data.command.length > maxLen ? data.command.slice(0, maxLen) + '...' : data.command;
-  });
+  let inputs = $derived(inputCount === 1 ? [{ id: 'data' }] : Array.from({ length: inputCount }, (_, i) => ({ id: `data${i + 1}` })));
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+<WorkflowNode {id} type="exec" {data} {selected} {inputs}
+  outputs={[{ id: 'true', label: 'ok' }, { id: 'false', label: 'fail' }, { id: 'always', optional: true }]}
+  fields={[
+    { label: 'Directory', value: data.working_dir, mono: true },
+    { label: 'Timeout', value: data.timeout && data.timeout !== 60 ? `${data.timeout}s` : '' },
   ]}
->
-  {#if inputCount === 1}
-    <Handle id="data" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
-  {:else}
-    <HandleGroup position="left" class="!gap-1">
-      {#each Array(inputCount) as _, i}
-        <Handle id="data{i + 1}" type="input" port="data" accept={['data', 'text']} label="data{i + 1}" />
-      {/each}
-    </HandleGroup>
-  {/if}
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-green-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-green-600 text-white tracking-wide">SH</span>
-    <span class="text-gray-900">{data.label || 'Exec'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.command}
-      <div class="font-mono text-[10px] text-gray-500 whitespace-pre-wrap break-all leading-snug">{previewCmd()}</div>
-    {:else}
-      <div class="text-gray-400 text-[11px]">Shell command to run</div>
-    {/if}
-    {#if data.working_dir}
-      <div class="text-[9px] text-gray-400 mt-0.5">dir: {data.working_dir}</div>
-    {/if}
-    {#if data.timeout && data.timeout !== 60}
-      <div class="text-[9px] text-gray-400 mt-0.5">timeout: {data.timeout}s</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right" class="!gap-1">
-    <Handle id="true" type="output" port="data" label="ok" />
-    <Handle id="false" type="output" port="data" label="fail" />
-    <Handle id="always" type="output" port="data" label="always" />
-  </HandleGroup>
-</div>
+  code={data.command}
+  setup={!data.command ? 'Write a shell command' : ''}
+/>

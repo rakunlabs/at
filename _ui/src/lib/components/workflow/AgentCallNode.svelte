@@ -1,77 +1,38 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import { Handle, type NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
+  import { modelLabel } from '@/lib/workflow/node-appearance';
 
-  interface AgentCallData {
-    label?: string;
-    agent_id?: string;
-    provider?: string;
-    model?: string;
-    system_prompt?: string;
-    max_iterations?: number;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<AgentCallData> = $props();
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
+  const resources = ['skills', 'mcp', 'memory', 'agents'];
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-purple-500 ring-2 ring-purple-500/25'
+<WorkflowNode {id} type="agent_call" {data} {selected}
+  inputs={[
+    { id: 'prompt', port: 'text', accept: ['text', 'data'] },
+    { id: 'context' },
+    { id: 'attachments', optional: true },
   ]}
+  outputs={[
+    { id: 'response', port: 'text' },
+    { id: 'files', optional: true },
+    { id: 'image', optional: true },
+  ]}
+  fields={[
+    { label: 'Preset', value: data.agent_id ? 'Agent preset' : '' },
+    { label: 'Model', value: modelLabel(data.provider, data.model), mono: true },
+    { label: 'Max steps', value: data.max_iterations ?? '' },
+  ]}
+  setup={!data.provider && !data.model && !data.agent_id ? 'Choose a provider and model' : ''}
 >
-  <HandleGroup position="left" class="!gap-1">
-    <Handle id="prompt" type="input" port="text" accept={['text', 'data']} label="prompt" />
-    <Handle id="context" type="input" port="data" accept={['data', 'text']} label="context" />
-    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
-  </HandleGroup>
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-purple-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-purple-500 text-white tracking-wide">AGENT</span>
-    <span class="text-gray-900">{data.label || 'Agent Call'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.agent_id}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Preset:</span>
-        <span class="text-gray-700 font-mono text-[11px] truncate max-w-[120px]" title={data.agent_id}>Loaded</span>
-      </div>
-    {/if}
-    {#if data.provider}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Provider:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.provider}</span>
-      </div>
-    {/if}
-    {#if data.model}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Model:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.model}</span>
-      </div>
-    {/if}
-    {#if data.max_iterations !== undefined}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Max iter:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.max_iterations === 0 ? 'unlimited' : data.max_iterations}</span>
-      </div>
-    {/if}
-    {#if !data.provider && !data.model && !data.agent_id}
-      <div class="text-gray-400 text-[11px]">Configure provider & model</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right" class="!gap-1">
-    <Handle id="response" type="output" port="text" label="response" />
-    <Handle id="files" type="output" port="data" label="files" />
-    <Handle id="image" type="output" port="data" label="image" />
-  </HandleGroup>
-  <HandleGroup position="bottom" class="!gap-1">
-    <Handle id="skills" type="input" port="config" accept={['config']} label="skills" />
-    <Handle id="mcp" type="input" port="config" accept={['config']} label="mcp" />
-    <Handle id="memory" type="input" port="config" accept={['config']} label="memory" />
-    <Handle id="agents" type="input" port="config" accept={['config']} label="agents" />
-  </HandleGroup>
-</div>
+  {#snippet extra()}
+    <div class="grid grid-cols-4 border-t border-gray-100 text-center text-[11px] leading-6 text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+      {#each resources as resource (resource)}
+        <div class="relative">
+          {resource}
+          <Handle id={resource} type="input" port="config" accept={['config']} position="bottom" label={resource} />
+        </div>
+      {/each}
+    </div>
+  {/snippet}
+</WorkflowNode>

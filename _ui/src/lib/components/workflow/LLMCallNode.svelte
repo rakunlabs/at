@@ -1,68 +1,27 @@
 <script lang="ts">
-  import { Handle, HandleGroup, type NodeProps } from 'kaykay';
-  import NodePreview from './NodePreview.svelte';
-  import { workflowRun } from '@/lib/store/workflow-run.svelte';
+  import type { NodeProps } from 'kaykay';
+  import WorkflowNode from './WorkflowNode.svelte';
+  import { modelLabel } from '@/lib/workflow/node-appearance';
 
-  interface LLMCallData {
-    label?: string;
-    provider?: string;
-    model?: string;
-    system_prompt?: string;
-    output_format?: string;
-    node_number?: number;
-  }
-
-  let { id, data, selected }: NodeProps<LLMCallData> = $props();
-
-  let runState = $derived(workflowRun.nodeRunStates[id]);
+  let { id, data, selected }: NodeProps<Record<string, any>> = $props();
 </script>
 
-<div
-  class={[
-    'workflow-node-card',
-    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+<WorkflowNode {id} type="llm_call" {data} {selected}
+  inputs={[
+    { id: 'prompt', port: 'text', accept: ['text', 'data'] },
+    { id: 'context' },
+    { id: 'attachments', optional: true },
   ]}
->
-  <HandleGroup position="left" class="!gap-1">
-    <Handle id="prompt" type="input" port="text" accept={['text', 'data']} label="prompt" />
-    <Handle id="context" type="input" port="data" accept={['data', 'text']} label="context" />
-    <Handle id="attachments" type="input" port="data" accept={['data', 'text']} label="attachments" />
-  </HandleGroup>
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-blue-50">
-    <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-blue-500 text-white tracking-wide">LLM</span>
-    <span class="text-gray-900">{data.label || 'LLM Call'}</span>
-    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
-  </div>
-  <div class="px-2.5 py-1.5">
-    {#if data.provider}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Provider:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.provider}</span>
-      </div>
-    {/if}
-    {#if data.model}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Model:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.model}</span>
-      </div>
-    {/if}
-    {#if data.system_prompt}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">System:</span>
-        <span class="text-gray-700 font-mono text-[11px] overflow-hidden text-ellipsis whitespace-nowrap max-w-32 inline-block">{data.system_prompt}</span>
-      </div>
-    {/if}
-    {#if !data.provider && !data.model}
-      <div class="text-gray-400 text-[11px]">Configure provider & model</div>
-    {/if}
-  </div>
-  <NodePreview state={runState} nodeId={id} />
-  <HandleGroup position="right" class="!gap-1">
-    <Handle id="response" type="output" port="text" label="response" />
-    <Handle id="files" type="output" port="data" label="files" />
-    <Handle id="image" type="output" port="data" label="image" />
-    {#if data.output_format === 'json'}
-      <Handle id="json" type="output" port="data" label="json" />
-    {/if}
-  </HandleGroup>
-</div>
+  outputs={[
+    { id: 'response', port: 'text' },
+    ...(data.output_format === 'json' ? [{ id: 'json' }] : []),
+    { id: 'files', optional: true },
+    { id: 'image', optional: true },
+  ]}
+  fields={[
+    { label: 'Model', value: modelLabel(data.provider, data.model), mono: true },
+    { label: 'Output', value: data.output_format && data.output_format !== 'text' ? data.output_format.toUpperCase() : '' },
+    { label: 'System', value: data.system_prompt },
+  ]}
+  setup={!data.provider && !data.model ? 'Choose a provider and model' : ''}
+/>
