@@ -254,7 +254,7 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 			traceID: traceID, sessionID: sessionID, userField: req.User,
 			requestBody: rawBody, requestedModel: req.Model, fullModel: req.Model,
 			latencyMs: latencyMs, status: "error", errCode: classifyHTTPError(err), errMsg: err.Error(),
-			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, false),
+			obsType: service.ObservationEmbedding, name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, false),
 		})
 		status, body := classifyGatewayError(err)
 		addGatewayRateLimitHeaders(w, err)
@@ -273,7 +273,7 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 			traceID: traceID, sessionID: sessionID, userField: req.User,
 			requestBody: rawBody, requestedModel: req.Model, fullModel: req.Model,
 			latencyMs: latencyMs, status: "error", errCode: "invalid_upstream_response", errMsg: err.Error(),
-			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
+			obsType: service.ObservationEmbedding, name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
 		})
 		httpResponseJSON(w, map[string]any{"error": map[string]any{
 			"message": err.Error(), "type": "server_error", "code": "invalid_upstream_response",
@@ -323,7 +323,7 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 			requestBody: rawBody, responseBody: responseBody,
 			requestedModel: req.Model, fullModel: req.Model,
 			usage: resp.Usage, latencyMs: latencyMs, status: "ok", finishReason: "stop",
-			name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
+			obsType: service.ObservationEmbedding, name: "embeddings", metadata: embeddingAuditMetadata(inputs, req, resp.UsageEstimated),
 		})
 	}
 	httpResponseJSON(w, out, http.StatusOK)

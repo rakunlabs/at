@@ -25,7 +25,7 @@
     {path:'/mcps',label:'MCP Sets',icon:Layers},
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
     {path:'/files',label:'Files',icon:FolderOpen}, {path:'/developer-spaces',label:'Developer Spaces',icon:Container}, {path:'/integrations',label:'Integrations',icon:Package},
-    {path:'/usage',label:'Usage',icon:Tally5}, {path:'/llm-calls',label:'Traces',icon:Activity},
+    {path:'/usage',label:'Usage',icon:Tally5}, {path:'/traces',label:'Traces',icon:Activity},
     {path:'/terminal',label:'Terminal',icon:TerminalSquare},
   ];
   // One selection rule for every link, including the bottom nav: you are inside

@@ -701,6 +701,12 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// left empty and the recorder's source ("workflow") plus agent
 	// attribution locate the run.
 	runTraceID := ulid.Make().String()
+	runSessionID := ""
+	// Inside a traced workflow run, the node joins that trace beneath the
+	// node's span rather than starting a disconnected trace.
+	if parent, ok := service.TraceParentFromContext(ctx); ok {
+		runTraceID, runSessionID = parent.TraceID, parent.SessionID
+	}
 	reasoningEffort := ""
 	if preset != nil {
 		reasoningEffort = preset.Config.ReasoningEffort
@@ -708,11 +714,25 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	observationContext := agentloop.ObservationContext{
 		Source:          "workflow",
 		TraceID:         runTraceID,
+		SessionID:       runSessionID,
 		AgentID:         n.agentID,
 		RunID:           runTraceID,
 		Provider:        providerKey,
 		Model:           model,
 		ReasoningEffort: reasoningEffort,
+	}
+	runName := "agent_call"
+	if preset != nil && preset.Name != "" {
+		runName = preset.Name
+	}
+	var runSpan *agentloop.RunSpan
+	ctx, runSpan = agentloop.StartRun(ctx, &observationContext, runName)
+	var runOutput string
+	var runErr error
+	if reg.RecordObservation != nil {
+		defer func() {
+			reg.RecordObservation(context.WithoutCancel(ctx), runSpan.Finish(prompt, runOutput, runErr))
+		}()
 	}
 	toolResultRunID := n.agentID
 	if toolResultRunID == "" {
@@ -742,13 +762,15 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 		// Check for cancellation between iterations.
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("agent_call: cancelled: %w", err)
+			runErr = fmt.Errorf("agent_call: cancelled: %w", err)
+			return nil, runErr
 		}
 
 		// Check agent budget before making an LLM call.
 		if n.agentID != "" && reg.CheckBudget != nil {
 			if err := reg.CheckBudget(ctx, n.agentID); err != nil {
-				return nil, fmt.Errorf("agent_call: budget exceeded: %w", err)
+				runErr = fmt.Errorf("agent_call: budget exceeded: %w", err)
+				return nil, runErr
 			}
 		}
 
@@ -777,9 +799,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					Context: observationContext, Messages: callMessages, Tools: llmTools,
 					LatencyMs: latencyMs, Iteration: iteration, Err: err,
 					ErrorCode: classifyLLMError(err),
+					Started:   time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 				}))
 			}
-			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
+			runErr = fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
+			return nil, runErr
 		}
 
 		// Record token usage for cost tracking.
@@ -805,6 +829,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			genObsID = reg.RecordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
 				Context: observationContext, Messages: callMessages, Tools: llmTools,
 				Response: resp, LatencyMs: latencyMs, Iteration: iteration,
+				Started: time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 			}))
 		}
 
@@ -820,13 +845,17 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 		// If the LLM is done (no tool calls), return the final answer.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
+			runOutput = resp.Content
 			return finish(resp.Content, nil)
 		}
 
 		// Execute tool calls and build tool results.
 		var toolResults []service.ContentBlock
+		iterationCtx := ctx
 		for _, tc := range resp.ToolCalls {
 			toolStarted := time.Now()
+			toolObsID := ulid.Make().String()
+			ctx, _ = service.WithTraceParent(iterationCtx, observationContext.TraceID, toolObsID, observationContext.SessionID)
 			logi.Ctx(ctx).Debug("agent_call: tool call",
 				"tool", tc.Name, "iteration", iteration)
 
@@ -880,6 +909,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, "", hi.handler); err != nil {
 					_, block := agentloop.ToolResult(reg.LoopGov, toolResultRunID, tc, "Error: execution authority denied")
 					toolResults = append(toolResults, block)
+					ctx = iterationCtx
 					continue
 				}
 				if hi.handlerType == "bash" {
@@ -946,16 +976,20 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			// Observation: tool call, parented to this iteration's
 			// generation — the workflow agent_call node leaves the same
 			// kind of trace as the org-delegation / chat-session loops.
+			ctx = iterationCtx
 			if reg.RecordObservation != nil {
-				reg.RecordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
+				toolObs := agentloop.NewToolObservation(agentloop.ToolObservationParams{
 					Context: observationContext, ParentObservationID: genObsID,
 					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
-					Iteration: iteration, Err: callErr, Metadata: subagentToolMetadata(result),
-				}))
+					Iteration: iteration, Err: callErr, Metadata: subagentToolMetadata(result), Started: toolStarted,
+				})
+				toolObs.ID = toolObsID
+				reg.RecordObservation(ctx, toolObs)
 			}
 
 			toolResults = append(toolResults, block)
 		}
+		ctx = iterationCtx
 
 		messages = append(messages, service.Message{
 			Role:    "user",
@@ -984,6 +1018,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
+	runOutput = lastContent
 	return finish(lastContent, map[string]any{"text": lastContent})
 }
 

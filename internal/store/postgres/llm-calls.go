@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
@@ -25,41 +28,46 @@ type llmCallRow struct {
 	Level               string `db:"level"`
 	Metadata            string `db:"metadata"`
 
-	TraceID            string  `db:"trace_id"`
-	SessionID          string  `db:"session_id"`
-	Source             string  `db:"source"`
-	Endpoint           string  `db:"endpoint"`
-	TokenID            string  `db:"token_id"`
-	AgentID            string  `db:"agent_id"`
-	TaskID             string  `db:"task_id"`
-	RunID              string  `db:"run_id"`
-	OrganizationID     string  `db:"organization_id"`
-	Provider           string  `db:"provider"`
-	Model              string  `db:"model"`
-	RequestedModel     string  `db:"requested_model"`
-	RequestBody        string  `db:"request_body"`
-	ResponseBody       string  `db:"response_body"`
-	RequestBytes       int64   `db:"request_bytes"`
-	ResponseBytes      int64   `db:"response_bytes"`
-	RequestTruncated   bool    `db:"request_truncated"`
-	ResponseTruncated  bool    `db:"response_truncated"`
-	RequestRef         string  `db:"request_ref"`
-	ResponseRef        string  `db:"response_ref"`
-	Streamed           bool    `db:"streamed"`
-	InputTokens        int64   `db:"input_tokens"`
-	OutputTokens       int64   `db:"output_tokens"`
-	CacheReadTokens    int64   `db:"cache_read_tokens"`
-	CacheWriteTokens   int64   `db:"cache_write_tokens"`
-	ReasoningTokens    int64   `db:"reasoning_tokens"`
-	CostCents          float64 `db:"cost_cents"`
-	LatencyMs          int64   `db:"latency_ms"`
-	TimeToFirstTokenMs int64   `db:"time_to_first_token_ms"`
-	Status             string  `db:"status"`
-	ErrorCode          string  `db:"error_code"`
-	ErrorMessage       string  `db:"error_message"`
-	FinishReason       string  `db:"finish_reason"`
-	UserField          string  `db:"user_field"`
-	CreatedAt          string  `db:"created_at"`
+	TraceID            string    `db:"trace_id"`
+	SessionID          string    `db:"session_id"`
+	Source             string    `db:"source"`
+	Endpoint           string    `db:"endpoint"`
+	TokenID            string    `db:"token_id"`
+	AgentID            string    `db:"agent_id"`
+	TaskID             string    `db:"task_id"`
+	RunID              string    `db:"run_id"`
+	OrganizationID     string    `db:"organization_id"`
+	Provider           string    `db:"provider"`
+	Model              string    `db:"model"`
+	RequestedModel     string    `db:"requested_model"`
+	RequestBody        string    `db:"request_body"`
+	ResponseBody       string    `db:"response_body"`
+	RequestBytes       int64     `db:"request_bytes"`
+	ResponseBytes      int64     `db:"response_bytes"`
+	RequestTruncated   bool      `db:"request_truncated"`
+	ResponseTruncated  bool      `db:"response_truncated"`
+	RequestRef         string    `db:"request_ref"`
+	ResponseRef        string    `db:"response_ref"`
+	Streamed           bool      `db:"streamed"`
+	InputTokens        int64     `db:"input_tokens"`
+	OutputTokens       int64     `db:"output_tokens"`
+	CacheReadTokens    int64     `db:"cache_read_tokens"`
+	CacheWriteTokens   int64     `db:"cache_write_tokens"`
+	ReasoningTokens    int64     `db:"reasoning_tokens"`
+	CostCents          float64   `db:"cost_cents"`
+	LatencyMs          int64     `db:"latency_ms"`
+	TimeToFirstTokenMs int64     `db:"time_to_first_token_ms"`
+	Status             string    `db:"status"`
+	ErrorCode          string    `db:"error_code"`
+	ErrorMessage       string    `db:"error_message"`
+	FinishReason       string    `db:"finish_reason"`
+	UserField          string    `db:"user_field"`
+	UserID             string    `db:"user_id"`
+	Environment        string    `db:"environment"`
+	Release            string    `db:"release"`
+	StartedAt          time.Time `db:"started_at"`
+	EndedAt            time.Time `db:"ended_at"`
+	CreatedAt          string    `db:"created_at"`
 }
 
 // llmCallListColumns clips the body and IO columns to a preview so list
@@ -69,7 +77,7 @@ func llmCallListColumns() []interface{} {
 		"id", "observation_type", "parent_observation_id", "name",
 		goqu.L(fmt.Sprintf("substr(input, 1, %d)", service.LLMCallPreviewBytes)).As("input"),
 		goqu.L(fmt.Sprintf("substr(output, 1, %d)", service.LLMCallPreviewBytes)).As("output"),
-		"level", "metadata",
+		"level", llmCallMetadataColumn(),
 		"trace_id", "session_id", "source", "endpoint",
 		"token_id", "agent_id", "task_id", "run_id", "organization_id",
 		"provider", "model", "requested_model",
@@ -80,13 +88,20 @@ func llmCallListColumns() []interface{} {
 		"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
 		"cost_cents", "latency_ms", "time_to_first_token_ms",
 		"status", "error_code", "error_message", "finish_reason", "user_field",
+		"user_id", "environment", "release", "started_at", "ended_at",
 		"created_at",
 	}
 }
 
+// llmCallMetadataColumn reads the JSONB metadata column as text so a NULL
+// (no metadata) scans into an empty string.
+func llmCallMetadataColumn() interface{} {
+	return goqu.L("COALESCE(metadata::text, '')").As("metadata")
+}
+
 var llmCallColumns = []interface{}{
 	"id", "observation_type", "parent_observation_id", "name",
-	"input", "output", "level", "metadata",
+	"input", "output", "level", llmCallMetadataColumn(),
 	"trace_id", "session_id", "source", "endpoint",
 	"token_id", "agent_id", "task_id", "run_id", "organization_id",
 	"provider", "model", "requested_model",
@@ -96,6 +111,7 @@ var llmCallColumns = []interface{}{
 	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens",
 	"cost_cents", "latency_ms", "time_to_first_token_ms",
 	"status", "error_code", "error_message", "finish_reason", "user_field",
+	"user_id", "environment", "release", "started_at", "ended_at",
 	"created_at",
 }
 
@@ -113,6 +129,7 @@ func scanLLMCallRow(scanner interface{ Scan(dest ...any) error }) (llmCallRow, e
 		&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheWriteTokens, &row.ReasoningTokens,
 		&row.CostCents, &row.LatencyMs, &row.TimeToFirstTokenMs,
 		&row.Status, &row.ErrorCode, &row.ErrorMessage, &row.FinishReason, &row.UserField,
+		&row.UserID, &row.Environment, &row.Release, &row.StartedAt, &row.EndedAt,
 		&row.CreatedAt,
 	)
 
@@ -145,17 +162,19 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 		level = service.ObservationLevelDefault
 	}
 
-	metadata := ""
+	metadata := any(nil)
 	if len(call.Metadata) > 0 {
 		if b, err := json.Marshal(call.Metadata); err == nil {
 			metadata = string(b)
 		}
 	}
+	endedAt, startedAt := observationTimes(call)
+	workspaceID := llmCallWriteWorkspace(ctx, call)
 
 	query, _, err := p.goqu.Insert(p.tableLLMCalls).Rows(
 		goqu.Record{
 			"id":                     id,
-			"workspace_id":           llmCallWriteWorkspace(ctx, call),
+			"workspace_id":           workspaceID,
 			"observation_type":       obsType,
 			"parent_observation_id":  call.ParentObservationID,
 			"name":                   call.Name,
@@ -197,6 +216,11 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 			"error_message":          truncatePGString(call.ErrorMessage, 500),
 			"finish_reason":          call.FinishReason,
 			"user_field":             call.UserField,
+			"user_id":                call.UserID,
+			"environment":            truncatePGString(call.Environment, 128),
+			"release":                truncatePGString(call.Release, 128),
+			"started_at":             startedAt,
+			"ended_at":               endedAt,
 			"created_at":             createdAt,
 		},
 	).ToSQL()
@@ -208,7 +232,81 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 		return fmt.Errorf("record llm call: %w", err)
 	}
 
+	if call.TraceID != "" && !call.Trace.Empty() {
+		if err := p.upsertLLMTrace(ctx, workspaceID, call.TraceID, call.Trace); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// observationTimes resolves the stored end and start of an observation. The
+// end defaults to now; a missing or unparsable start is derived from latency,
+// which is what readers computed before explicit start times existed.
+func observationTimes(call service.LLMCall) (time.Time, time.Time) {
+	ended := time.Now().UTC()
+	if t, err := time.Parse(time.RFC3339Nano, call.EndedAt); err == nil {
+		ended = t.UTC()
+	}
+	started := ended.Add(-time.Duration(max(call.LatencyMs, 0)) * time.Millisecond)
+	if t, err := time.Parse(time.RFC3339Nano, call.StartedAt); err == nil && !t.After(ended) {
+		started = t.UTC()
+	}
+	return ended, started
+}
+
+// upsertLLMTrace merges trace-level attributes: the first non-empty name,
+// end user and input win (the trace's opening request), the last non-empty
+// output wins (its final answer) and tags accumulate without duplicates.
+func (p *Postgres) upsertLLMTrace(ctx context.Context, workspaceID, traceID string, u *service.TraceUpdate) error {
+	tbl := p.tableLLMTraces.GetTable()
+	tags := normalizeTraceTags(u.Tags)
+	query := fmt.Sprintf(`INSERT INTO %[1]s AS t (workspace_id, trace_id, name, end_user, tags, input, output)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (workspace_id, trace_id) DO UPDATE SET
+  name = CASE WHEN t.name = '' THEN EXCLUDED.name ELSE t.name END,
+  end_user = CASE WHEN t.end_user = '' THEN EXCLUDED.end_user ELSE t.end_user END,
+  tags = ARRAY(SELECT DISTINCT unnest(t.tags || EXCLUDED.tags) ORDER BY 1),
+  input = CASE WHEN t.input = '' THEN EXCLUDED.input ELSE t.input END,
+  output = CASE WHEN EXCLUDED.output <> '' THEN EXCLUDED.output ELSE t.output END,
+  updated_at = clock_timestamp()`, tbl)
+	if _, err := p.db.ExecContext(ctx, query, workspaceID, traceID,
+		truncatePGString(u.Name, 256), truncatePGString(u.EndUser, 256), tags,
+		clipTracePreview(u.Input), clipTracePreview(u.Output)); err != nil {
+		return fmt.Errorf("upsert llm trace: %w", err)
+	}
+	return nil
+}
+
+// normalizeTraceTags trims, bounds and de-duplicates tags. The value is
+// client-influenced (gateway headers), so both count and length are capped.
+func normalizeTraceTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := map[string]bool{}
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" || len(tag) > 64 || seen[tag] || strings.ContainsFunc(tag, unicode.IsControl) {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+		if len(out) == 20 {
+			break
+		}
+	}
+	return out
+}
+
+func clipTracePreview(s string) string {
+	if len(s) <= service.TracePreviewBytes {
+		return s
+	}
+	cut := service.TracePreviewBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 func llmCallWriteWorkspace(ctx context.Context, call service.LLMCall) string {
@@ -392,8 +490,10 @@ func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*serv
 	}, rows.Err()
 }
 
-// ExpireLLMCallBodiesBefore nulls the heavy body columns (and full tool IO
-// beyond the preview) on rows older than cutoff, keeping the skeleton.
+// ExpireLLMCallBodiesBefore blanks the heavy body columns and the spill
+// references (which held full tool IO) on rows older than cutoff, keeping the
+// skeleton, including the bounded tool IO previews. Trace-level input/output
+// previews are captured only with body capture on, so they expire here too.
 func (p *Postgres) ExpireLLMCallBodiesBefore(ctx context.Context, cutoff string) (int64, error) {
 	query, _, err := p.goqu.Update(p.tableLLMCalls).
 		Set(goqu.Record{
@@ -417,6 +517,9 @@ func (p *Postgres) ExpireLLMCallBodiesBefore(ctx context.Context, cutoff string)
 	if err != nil {
 		return 0, fmt.Errorf("expire llm call bodies before %q: %w", cutoff, err)
 	}
+	if err := p.expireTracePreviews(ctx, cutoff); err != nil {
+		return 0, err
+	}
 
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -437,6 +540,9 @@ func (p *Postgres) DeleteLLMCallsBefore(ctx context.Context, cutoff string) (int
 	res, err := p.db.ExecContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("delete llm calls before %q: %w", cutoff, err)
+	}
+	if err := p.deleteOrphanTraceRows(ctx, cutoff); err != nil {
+		return 0, err
 	}
 
 	n, err := res.RowsAffected()
@@ -497,6 +603,11 @@ func llmCallRowToRecord(row llmCallRow) service.LLMCall {
 		ErrorMessage:       row.ErrorMessage,
 		FinishReason:       row.FinishReason,
 		UserField:          row.UserField,
+		UserID:             row.UserID,
+		Environment:        row.Environment,
+		Release:            row.Release,
+		StartedAt:          row.StartedAt.UTC().Format(time.RFC3339Nano),
+		EndedAt:            row.EndedAt.UTC().Format(time.RFC3339Nano),
 		CreatedAt:          row.CreatedAt,
 	}
 }

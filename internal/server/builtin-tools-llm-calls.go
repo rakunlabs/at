@@ -114,7 +114,7 @@ func (s *Server) execLLMTraceGet(ctx context.Context, args map[string]any) (stri
 	if err != nil {
 		return "", err
 	}
-	q.Sort = []query.ExpressionSort{{Field: "created_at"}}
+	q.Sort = []query.ExpressionSort{{Field: "started_at"}, {Field: "id"}}
 	records, err := s.llmCallStore.ListLLMCalls(ctx, q)
 	if err != nil {
 		return "", fmt.Errorf("list trace observations: %w", err)

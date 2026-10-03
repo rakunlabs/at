@@ -66,11 +66,16 @@ func spanID(id string) []byte { h := sha256.Sum256([]byte(id)); return h[:8] }
 func Request(workspace string, calls []service.LLMCall, content bool) *collector.ExportTraceServiceRequest {
 	spans := make([]*trace.Span, 0, len(calls))
 	for _, c := range calls {
-		end, err := time.Parse(time.RFC3339Nano, c.CreatedAt)
+		end, err := time.Parse(time.RFC3339Nano, c.EndedAt)
 		if err != nil {
-			end = time.Now()
+			if end, err = time.Parse(time.RFC3339Nano, c.CreatedAt); err != nil {
+				end = time.Now()
+			}
 		}
-		start := end.Add(-time.Duration(max(c.LatencyMs, 0)) * time.Millisecond)
+		start, err := time.Parse(time.RFC3339Nano, c.StartedAt)
+		if err != nil || start.After(end) {
+			start = end.Add(-time.Duration(max(c.LatencyMs, 0)) * time.Millisecond)
+		}
 		name := c.Name
 		if name == "" {
 			name = "chat " + c.Model
@@ -81,7 +86,8 @@ func Request(workspace string, calls []service.LLMCall, content bool) *collector
 		}
 		s.Attributes = []*common.KeyValue{
 			stringAttr("at.trace_id", c.TraceID), stringAttr("at.observation_id", c.ID), stringAttr("at.workspace_id", workspace), stringAttr("at.source", c.Source),
-			stringAttr("langfuse.session.id", c.SessionID), stringAttr("langfuse.user.id", c.UserField),
+			stringAttr("langfuse.session.id", c.SessionID), stringAttr("langfuse.user.id", firstNonEmpty(c.UserField, c.UserID)),
+			stringAttr("langfuse.environment", c.Environment), stringAttr("langfuse.release", c.Release),
 			stringAttr("at.token_id", c.TokenID), stringAttr("at.agent_id", c.AgentID), stringAttr("at.task_id", c.TaskID), stringAttr("at.run_id", c.RunID), stringAttr("at.organization_id", c.OrganizationID),
 		}
 		kind := "span"
@@ -92,6 +98,16 @@ func Request(workspace string, calls []service.LLMCall, content bool) *collector
 			s.Attributes = append(s.Attributes, stringAttr("gen_ai.operation.name", "execute_tool"), stringAttr("gen_ai.tool.name", c.Name))
 		case service.ObservationEvent:
 			kind = "event"
+		case service.ObservationSpan:
+			kind = "span"
+		case service.ObservationAgent:
+			kind = "agent"
+			s.Attributes = append(s.Attributes, stringAttr("gen_ai.operation.name", "invoke_agent"), stringAttr("gen_ai.agent.name", c.Name))
+		case service.ObservationEmbedding:
+			kind = "embedding"
+			s.Kind = trace.Span_SPAN_KIND_CLIENT
+			input, output = c.RequestBody, c.ResponseBody
+			s.Attributes = append(s.Attributes, stringAttr("gen_ai.operation.name", "embeddings"), stringAttr("gen_ai.provider.name", c.Provider), stringAttr("gen_ai.request.model", c.RequestedModel), stringAttr("gen_ai.response.model", c.Model), intAttr("gen_ai.usage.input_tokens", c.InputTokens))
 		default:
 			kind = "generation"
 			s.Kind = trace.Span_SPAN_KIND_CLIENT
@@ -229,4 +245,13 @@ func sendGRPC(ctx context.Context, endpoint string, headers map[string]string, d
 
 func TraceHex(workspace string, call service.LLMCall) string {
 	return hex.EncodeToString(TraceID(workspace, call))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

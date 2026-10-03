@@ -890,6 +890,33 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	recordObservation := s.recordObservationFunc()
 	generationMetadata := subagentObservationMetadata(ctx)
 
+	// The turn's root span: generations nest under it, and a subagent or
+	// workflow launched by one of its tools joins this trace beneath the
+	// tool call. It is recorded when the turn returns, with its duration.
+	ctx, runSpan := agentloop.StartRun(ctx, &observationContext, agent.Name)
+	runInput := agentloop.MessageText(data.Content)
+	var runOutput string
+	var runErr error
+	emit := onEvent
+	onEvent = func(ev AgenticEvent) {
+		switch {
+		case ev.Type == "content" && ev.Final:
+			runOutput = ev.Content
+		case ev.Type == "error" && runErr == nil:
+			runErr = errors.New(ev.Error)
+		}
+		emit(ev)
+	}
+	runSpan.Metadata = map[string]any{"agent_id": session.AgentID, "session_id": sessionID}
+	for key, value := range generationMetadata {
+		runSpan.Metadata[key] = value
+	}
+	if recordObservation != nil {
+		defer func() {
+			recordObservation(context.WithoutCancel(ctx), runSpan.Finish(runInput, runOutput, runErr))
+		}()
+	}
+
 	// Background subagents started during this turn are awaited before the
 	// final answer: once the turn ends, a late result has nowhere to go and the
 	// user is left looking at a run that never reports back.
@@ -999,6 +1026,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 						Context: observationContext, Messages: windowed, Tools: llmTools,
 						LatencyMs: latencyMs, Iteration: iteration, Err: err,
 						ErrorCode: classifyHTTPError(err), Metadata: generationMetadata,
+						Started: time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 					}))
 				}
 				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
@@ -1034,6 +1062,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			genObsID = recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
 				Context: observationContext, Messages: windowed, Tools: llmTools,
 				Response: resp, LatencyMs: latencyMs, Iteration: iteration, Metadata: generationMetadata,
+				Started: time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 			}))
 		}
 
@@ -1137,7 +1166,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 		// Execute tool calls.
 		var toolResults []service.ContentBlock
+		turnCtx := ctx
 		for _, tc := range resp.ToolCalls {
+			ctx = turnCtx
 			// Check if this tool requires human confirmation.
 			if slices.Contains(agent.Config.ConfirmationRequiredTools, tc.Name) {
 				// Serialize arguments for the UI.
@@ -1187,6 +1218,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			toolStarted := time.Now()
 			var result string
 			var callErr error
+			// Work started by this tool (a subagent, a workflow) nests under
+			// the tool's observation in the same trace.
+			toolObsID := ulid.Make().String()
+			ctx, _ = service.WithTraceParent(turnCtx, observationContext.TraceID, toolObsID, observationContext.SessionID)
 
 			if session.Config.OrganizationChat && isOrganizationChatTool(tc.Name) {
 				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
@@ -1317,16 +1352,20 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			// Observation: tool call, parented to this iteration's
 			// generation. Captures the input arguments and the
 			// (post-truncation) output that entered the LLM history.
+			ctx = turnCtx
 			if recordObservation != nil {
-				recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
+				toolObs := agentloop.NewToolObservation(agentloop.ToolObservationParams{
 					Context: observationContext, ParentObservationID: genObsID,
 					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
-					Iteration: iteration, Err: callErr, Metadata: toolMetadata,
-				}))
+					Iteration: iteration, Err: callErr, Metadata: toolMetadata, Started: toolStarted,
+				})
+				toolObs.ID = toolObsID
+				recordObservation(ctx, toolObs)
 			}
 
 			toolResults = append(toolResults, block)
 		}
+		ctx = turnCtx
 
 		// Persist tool results and continue loop.
 		s.persistToolResults(ctx, sessionID, toolResults)

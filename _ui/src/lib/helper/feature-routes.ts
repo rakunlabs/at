@@ -77,7 +77,7 @@ export const routeFeatures: Record<string, string> = {
   '/tasks': FEATURE_TASKS,
   '/goals': FEATURE_GOALS_PROJECTS,
   '/studio': FEATURE_STUDIO,
-  '/llm-calls': FEATURE_LLM_TRACES,
+  '/traces': FEATURE_LLM_TRACES,
 };
 
 const orderedPrefixes = Object.keys(routeFeatures).sort((a, b) => b.length - a.length);

@@ -742,7 +742,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			// Human session cookies must never reach a provider's raw
 			// passthrough endpoint. Gateway credentials are separate.
 			r.Header.Del("Cookie")
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, withTraceLabels(r))
 		})
 	})
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
@@ -760,6 +760,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.POST("/v1/moderations", s.Moderations)
 	gatewayGroup.POST("/v1/rerank", s.Rerank)
 	gatewayGroup.POST("/v1/decisions", s.Decisions)
+	gatewayGroup.POST("/v1/scores", s.GatewayScoresAPI)
 	gatewayGroup.GET("/v1/health", s.HealthOverall)
 	gatewayGroup.GET("/v1/health/{provider}", s.HealthProvider)
 	gatewayGroup.Handle("/v1/providers/{provider}/*", http.HandlerFunc(s.ProxyRequest))
@@ -1198,6 +1199,14 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/llm-calls/traces", s.ListLLMCallTracesAPI)
 	apiGroup.GET("/v1/llm-calls/conversations", s.ListLLMCallConversationsAPI)
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
+	apiGroup.GET("/v1/traces", s.ListTracesAPI)
+	apiGroup.GET("/v1/traces/facets", s.GetTraceFacetsAPI)
+	apiGroup.GET("/v1/traces/sessions", s.ListTraceSessionsAPI)
+	apiGroup.GET("/v1/traces/sessions/{id}", s.GetTraceSessionAPI)
+	apiGroup.DELETE("/v1/traces/scores/{id}", s.DeleteTraceScoreAPI)
+	apiGroup.GET("/v1/traces/{id}", s.GetTraceAPI)
+	apiGroup.POST("/v1/traces/{id}/scores", s.CreateTraceScoreAPI)
+	apiGroup.PUT("/v1/traces/{id}/bookmark", s.SetTraceBookmarkAPI)
 
 	// Chat session management
 	s.registerChatSessionRoutes(apiGroup)
@@ -1766,8 +1775,20 @@ func (s *Server) recordObservationFunc() workflow.RecordObservationFunc {
 			taskID:       obs.TaskID,
 			runID:        obs.RunID,
 			orgID:        obs.OrganizationID,
+			id:           obs.ID,
+			startedAt:    parseObservationTime(obs.StartedAt),
+			endedAt:      parseObservationTime(obs.EndedAt),
+			trace:        obs.Trace,
 		})
 	}
+}
+
+func parseObservationTime(v string) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // goalAncestryFunc returns a workflow.GoalAncestryFunc that retrieves the

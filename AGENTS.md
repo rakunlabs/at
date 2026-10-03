@@ -246,6 +246,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `POST /gateway/v1/moderations` | OpenAI omni-moderation shape. Backed by `service.ModerationProvider`. |
 | `POST /gateway/v1/rerank` | Cohere-shape rerank: `query`, `documents`, `top_n?`, `return_documents?`. Backed by `service.RerankProvider` (Cohere today). |
 | `POST /gateway/v1/decisions` | System 1 typed decisions: `{model, state, questions}` plus any `/v1/systemone` control (`max_len`, `lang`, `min_confidence`, …), forwarded unchanged. Backed by `service.DecisionProvider` (`systemone` providers). The upstream body is returned verbatim (`answers`, `usage`, `routing`). See *System 1 decision services* below. |
+| `POST /gateway/v1/scores` | Attach a quality score to a trace the same API token produced: `{trace_id, observation_id?, name, data_type?, value? \| bool_value? \| string_value?, comment?}`. See *Trace explorer*. |
 | `GET /gateway/v1/health` | Liveness — returns `{status, providers{}, version}`. No auth required. |
 | `GET /gateway/v1/health/{provider}` | Per-provider readiness check (without dialing upstream). |
 | `GET /gateway/v1/models` | OpenAI-shape model list (chat + embedding models). |
@@ -1923,18 +1924,115 @@ Langfuse-style trace → observation tracing covering the gateway **and** all th
 - **Hooks**: gateway `ChatCompletions` / `Responses` / admin chat (as before, byte-faithful bodies, streaming reconstruction via `streamAuditResponseBody`); org-delegation loop (`org-delegation.go` — generations incl. provider errors, all six tool classes, lifecycle events); chat-session loop (`chat-sessions.go`); workflow `agent_call` node (`nodes/agent-call.go`). Loop generations store the **post-loopgov-windowing** request in AT's canonical shape (not provider wire format).
 - **Hybrid OTEL export**: `emitLLMSpan` emits gen-ai spans for generations (`gen_ai.*`, `langfuse.trace.id`/`session.id`) and tool spans (`gen_ai.tool.name`, `gen_ai.operation.name=execute_tool`); events are DB-only. No-op when telemetry is off.
 - **Retention (two-phase)**: `startLLMAuditJanitor` (`internal/server/llm-audit-janitor.go`) hourly — phase 1 nulls bodies (`ExpireLLMCallBodiesBefore`) after `LLMCallRetention` (7d) and sweeps spill dirs; phase 2 deletes rows after `ObservationRetention` (90d). Skeletons stay queryable between the two windows.
-- **API/UI**: `GET /api/v1/llm-calls` (list, newest-first, filters incl. `observation_type`/`trace_id`/`task_id`/`session_id`), `GET /api/v1/llm-calls/traces` (GROUP BY trace aggregate: counts, token/cost sums, duration, error count), `GET /api/v1/llm-calls/{id}` (full record, spill-rehydrated). UI: `_ui/src/pages/LLMCalls.svelte` (route `/llm-calls`, "Traces" sidebar link) — trace list → nested observation tree with child-trace cross-links + detail drawer; the TaskDetail "Events" tab is the same data filtered by the task tree's `task_id`s (live-polled during delegation).
+- **API**: `GET /api/v1/llm-calls` (observation list, generic `query.Parse` filters), `GET /api/v1/llm-calls/traces` and `/conversations` (legacy aggregates, still used by the `llm_trace_*` built-ins), `GET /api/v1/llm-calls/{id}` (full record, spill-rehydrated). The trace explorer uses `/api/v1/traces*` below.
 
-The Traces page defaults to **Conversations** (`GET /api/v1/llm-calls/conversations`):
-server-paginated grouping by explicit session ID, token ID and source family.
-`gateway`, `gateway_stream` and `responses` share a source family; requests without
-a session ID remain separate traces, and different API tokens never share a group.
-Totals include model calls, input/output tokens, cache read/write, errors and cost;
-drilldown retains the conversation's token/session/source filters. Gateway correlation
-recognizes `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, then string
-`metadata.session_id` / `metadata.conversation_id`. Cache keys and the `user` field
-are not conversation identities. Existing rows with session IDs group immediately;
-missing historical IDs are not guessed or rewritten.
+### Trace explorer (Session → Trace → Observation)
+
+Migration 89 turned the observation log into a Langfuse-style model. The
+explorer is `_ui/src/pages/Traces.svelte` (routes `/traces`, `/traces/:id`,
+`/traces/sessions/:session`; `/llm-calls` redirects) with components under
+`_ui/src/lib/components/traces/` and pure logic in
+`_ui/src/lib/helper/trace-view.ts` (tree, waterfall geometry, chat-message
+extraction, filter ↔ URL mapping; `_ui/tests/trace-view.test.mjs`).
+
+**Real timing.** `created_at` was second-precision text stamped when the work
+*ended*, so every start was guessed from latency. Observations now carry
+`started_at` / `ended_at` (`TIMESTAMPTZ`, backfilled from `created_at -
+latency_ms`). Recorders pass the measured start (`llmAuditParams.startedAt`,
+`GenerationObservationParams.Started`, `ToolObservationParams.Started`); a
+missing start is still derived from latency, so older callers stay correct.
+`metadata` became `JSONB` (read back as text, so a NULL scans as empty). Every
+trace query is workspace-scoped and now has `(workspace_id, started_at)` /
+`(workspace_id, trace_id, started_at)` indexes.
+
+**Observation types** add `agent` (root span of one agent-loop run), `span`
+(workflow run / node) and `embedding` to `generation` / `tool` / `event`.
+
+**Root spans.** `agentloop.StartRun` mints the run span's ID *before* the run so
+generations nest under it while it is still running; the row is written when
+the run returns (`RunSpan.Finish`) with its measured duration, the request as
+input and the final answer as output. Used by the Sessions turn, org delegation
+(output read from the task's final result; blocked → `warning`) and workflow
+`agent_call`. A run span with no parent also sets the trace's name/input/output.
+Spans are written at the end, not start-then-update: one write per observation,
+at the cost of a still-running trace showing its children without their root
+(the tree promotes orphans to roots rather than dropping them).
+
+**Trace context.** `service.TraceParent` (`internal/service/trace-context.go`)
+rides the context. Every tool call in the three loops installs one with a
+pre-minted tool observation ID, so work started *by* a tool joins the caller's
+trace beneath that tool: a workflow run by `workflow_run`/`wf_*`, an
+`agent_call` node, an embedding node. The recorder adopts the parent's trace,
+session and parent ID when the observation names no trace (or the same one).
+Org delegation children and `agent_run` subagents keep their own traces,
+cross-linked through `metadata.child_trace_id` / `parent_trace_id` as before.
+
+**Workflow spans are lazy.** `startWorkflowRunSpan` / `startNodeSpan`
+(`internal/service/workflow/trace-spans.go`) record a run or node span only
+when something was recorded beneath it (`TraceParent.MarkUsed` propagates up),
+because cron and webhook workflows run constantly and most nodes do no
+traceable work. Runs are named after the workflow through
+`workflow.ContextWithWorkflowTrace`, set in `registerRun`, the workflow tool and
+durable execution. Regression: `TestWorkflowTraceSpansAreLazy`.
+
+**Trace attributes** live in `llm_traces` (`workspace_id, trace_id` key): name,
+end user, tags, input/output preview. Aggregates (tokens, cost, duration,
+counts, errors) are still computed from observations at read time so they
+cannot drift. Writes ride an observation (`LLMCall.Trace`, upserted by
+`RecordLLMCall`): first non-empty name/end-user/input win, last non-empty output
+wins, tags accumulate (≤20, ≤64 chars). Input/output are prompt content: the
+recorder keeps them only while `llm_audit` body capture is on, and
+`ExpireLLMCallBodiesBefore` blanks them with bodies. Gateway root generations
+derive input/output from the request/response (`traceIOFromBodies`: OpenAI
+chat, Anthropic Messages, Responses).
+
+**Gateway labels** (optional, client-asserted, `trace-labels.go`):
+`x-at-trace-name`, `x-at-tags` (comma separated), `x-at-environment`,
+`x-at-release`, `x-at-user`. They label and filter only. `x-at-user` (like the
+OpenAI `user` field) is stored as the display-only **end user**; the
+**user** column (`llm_calls.user_id`) is server-stamped from the execution
+identity, browser principal or personal token owner (`observationUserID`) and is
+never taken from a request.
+
+**API** (`internal/server/traces.go`, `traces.read`, feature `llm_traces`):
+
+| Route | Notes |
+|---|---|
+| `GET /api/v1/traces` | Typed filters: `from`/`to`, `q` (ID, session, name, input), `name`, `model`, `source`, `tag`, `environment`, `release`, `user_id`, `end_user`, `session_id`, `token_id`, `task_id`, `agent_id` (repeat or comma-separate), `status=ok|error`, `min_/max_latency_ms`, `min_/max_cost_cents`, `min_/max_tokens`, `score_name` + `min_/max_score`, `bookmarked=true`, `sort` (`started_at`, `duration`, `latency`, `cost`, `tokens`, `errors`, `observations`), `order`, `offset`, `limit` (≤500). Unknown parameters are 400, so a typo cannot silently widen a filter. Attribute filters select a trace when **any** observation matches; numeric bounds apply to the trace aggregate. |
+| `GET /api/v1/traces/{id}` | Summary + all observations (bodies clipped; full payload via `/llm-calls/{id}`), bounded at 5000 with `truncated`, plus scores. |
+| `GET /api/v1/traces/sessions[/{id}?token_id=]` | Sessions are keyed by session ID **and** API token, so two clients using `session-1` are never merged. Detail returns traces chronologically with full input/output for replay. Gateway session IDs come from `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, then string `metadata.session_id` / `metadata.conversation_id`; cache keys and the `user` field are not conversation identities, and requests without one stay separate traces. |
+| `GET /api/v1/traces/facets?from=` | Distinct values for filter pickers (≤200 each). |
+| `POST /api/v1/traces/{id}/scores`, `DELETE /api/v1/traces/scores/{id}` | Manual annotations. Numeric, boolean (`bool_value` or 0/1) or categorical, optionally on one observation of the trace. Deleting another account's annotation, or an API score, needs workspace admin. |
+| `PUT /api/v1/traces/{id}/bookmark` | Per-account bookmark. |
+| `POST /gateway/v1/scores` | Scores from clients. The trace must contain an observation recorded with the **same** API token, so a token cannot annotate another client's traffic. |
+
+Scores (`trace_scores`) and bookmarks (`trace_bookmarks`) are workspace records
+(deleted with the workspace; bookmarks with the account) and are swept with the
+trace's last observation by `DeleteLLMCallsBefore`. LLM-judge evaluators are not
+implemented; scores are annotations or API values.
+
+**UI.** The list is a dense table (configurable columns in localStorage,
+sortable, chip filters with facet suggestions, time presets, live refresh every
+10s while visible). All list state lives in the URL query, so filters survive
+opening a trace and can be shared. The detail view is header → tree with a
+shared-axis waterfall (or plain tree) → resizable inspector (Input/Output,
+Metadata, Model & usage, Scores, Raw JSON). Generations render as chat messages
+with tool-call cards paired to their results; unrecognized bodies fall back to a
+collapsible, searchable JSON viewer. `?obs=` deep-links an observation (its
+ancestors are expanded). Keyboard: ↑↓/j k select, ←→ collapse, Esc back, r
+refresh. The Generations tab is the per-call view (it is also where Usage
+drill-downs land: `provider` / `error_code`). TaskDetail Events links each row
+to its trace.
+
+**OTEL / trace export** use the real start/end. Per-workspace export maps
+`agent` / `span` / `embedding` to Langfuse observation types and adds
+`langfuse.environment` / `langfuse.release`; the global `emitLLMSpan` skips
+structural rows (events, spans, agent runs), as it carries no hierarchy.
+
+Regressions: `internal/store/postgres/traces_test.go`,
+`internal/server/traces_test.go`, `TestChatSessionLoop_RecordsObservations`,
+`TestAgentCall_RecordsObservations`, `TestWorkflowTraceSpansAreLazy`,
+`_ui/tests/trace-view.test.mjs`.
 
 ## Stdio MCP processes & the MCP program library
 

@@ -127,7 +127,7 @@ func PortableJSON(value any) error {
 
 // RunDurable never replays an in-flight step. The save callback must durably
 // acknowledge the pre-step marker before any external side effect is allowed.
-func (e *Engine) RunDurable(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entries []string, checkpoint service.WorkflowCheckpoint, resume bool, save func(service.WorkflowCheckpoint, string) error) (*RunResult, error) {
+func (e *Engine) RunDurable(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entries []string, checkpoint service.WorkflowCheckpoint, resume bool, save func(service.WorkflowCheckpoint, string) error) (_ *RunResult, runErr error) {
 	if save == nil {
 		return nil, fmt.Errorf("durable checkpoint store is required")
 	}
@@ -173,6 +173,9 @@ func (e *Engine) RunDurable(ctx context.Context, graph service.WorkflowGraph, in
 	engine.testPins = nil
 	engine.resumeNodes = checkpoint.Nodes
 	reg.engine = &engine
+	outerCtx := ctx
+	ctx, runSpan := startWorkflowRunSpan(ctx, reg.RecordObservation)
+	defer func() { runSpan.finish(outerCtx, runErr) }()
 	reachable := reachableNodes(entries, graph.Nodes, graph.Edges)
 	for id := range reachable {
 		if _, done := checkpoint.Nodes[id]; done {

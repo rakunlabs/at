@@ -20,7 +20,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Handle, getFlow } from 'kaykay';
-  import { ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Loader, Pin, Plus, TriangleAlert } from 'lucide-svelte';
+  import { ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Loader, Pin, TriangleAlert } from 'lucide-svelte';
   import { workflowRun } from '@/lib/store/workflow-run.svelte';
   import { getWorkflowNodeDefinition } from '@/lib/workflow/node-definitions';
   import { getWorkflowNodeAppearance, workflowKindStripe, workflowKindTile } from '@/lib/workflow/node-appearance';
@@ -57,7 +57,6 @@
   const flow = getFlow();
   const actions = getWorkflowNodeActions();
   let collapsed = $derived(actions?.isCollapsed(id) ?? false);
-  let canAdd = $derived(!!actions && !actions.readonly());
   let definition = $derived(getWorkflowNodeDefinition(type));
   let appearance = $derived(getWorkflowNodeAppearance(type));
   let Icon = $derived(appearance.icon);
@@ -159,17 +158,8 @@
               <span class={['block truncate pl-3', muted(input, 'in') ? 'text-gray-400 dark:text-dark-text-faint' : 'text-gray-700 dark:text-dark-text-secondary']}>{input.label ?? input.id}</span>
             {/if}
           </div>
-          <div class="wf-port group/port relative flex min-w-0 items-center justify-end">
+          <div class="wf-port relative min-w-0">
             {#if output}
-              {#if canAdd}
-                <button
-                  type="button"
-                  onclick={() => actions?.addAfter(id, output.id)}
-                  aria-label={`Add a step after ${output.label ?? output.id}`}
-                  title="Add a step from this output"
-                  class="mr-1 hidden size-4 shrink-0 items-center justify-center bg-blue-600 text-white group-hover/port:flex focus-visible:flex dark:bg-blue-500"
-                ><Plus size={12} strokeWidth={2.5} /></button>
-              {/if}
               <Handle id={output.id} type="output" port={output.port ?? 'data'} position="right" label={output.label ?? output.id} />
               <span class={['block truncate pr-3 text-right', muted(output, 'out') ? 'text-gray-400 dark:text-dark-text-faint' : 'text-gray-700 dark:text-dark-text-secondary']}>{output.label ?? output.id}</span>
             {/if}

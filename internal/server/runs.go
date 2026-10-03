@@ -9,6 +9,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // activeRun tracks a single in-flight workflow execution.
@@ -39,7 +40,7 @@ type activeRunsResponse struct {
 // the run ID, derived context, and a cleanup function that must be deferred.
 func (s *Server) registerRun(parent context.Context, workflowID, source string) (string, context.Context, func()) {
 	runID := "run_" + ulid.Make().String()
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(s.withWorkflowTrace(parent, workflowID))
 
 	run := &activeRun{
 		ID:         runID,
@@ -123,4 +124,15 @@ func (s *Server) CancelRunAPI(w http.ResponseWriter, r *http.Request) {
 		"message": "cancel signal sent",
 		"run_id":  runID,
 	}, http.StatusOK)
+}
+
+// withWorkflowTrace labels a workflow run's trace with the workflow's name.
+func (s *Server) withWorkflowTrace(ctx context.Context, workflowID string) context.Context {
+	name := ""
+	if s.workflowStore != nil && workflowID != "" {
+		if wf, err := s.workflowStore.GetWorkflow(ctx, workflowID); err == nil && wf != nil {
+			name = wf.Name
+		}
+	}
+	return workflow.ContextWithWorkflowTrace(ctx, workflowID, name)
 }

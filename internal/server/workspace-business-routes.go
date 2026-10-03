@@ -325,6 +325,18 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/llm-calls/traces", "traces.read", "", ""},
 		{"GET", "/llm-calls/conversations", "traces.read", "", ""},
 		{"GET", "/llm-calls/{id}", "traces.read", "", ""},
+		// Scores and bookmarks are a reader's annotations on data they can
+		// already see, so they ride the read capability. Deleting another
+		// account's annotation is refused by the store unless the caller
+		// is a workspace admin.
+		{"GET", "/traces", "traces.read", "", ""},
+		{"GET", "/traces/facets", "traces.read", "", ""},
+		{"GET", "/traces/sessions", "traces.read", "", ""},
+		{"GET", "/traces/sessions/{id}", "traces.read", "", ""},
+		{"GET", "/traces/{id}", "traces.read", "", ""},
+		{"POST", "/traces/{id}/scores", "traces.read", "", ""},
+		{"DELETE", "/traces/scores/{id}", "traces.read", "", ""},
+		{"PUT", "/traces/{id}/bookmark", "traces.read", "", ""},
 	}
 	for _, kind := range []string{"organizations", "agents", "goals", "projects", "tasks", "labels", "approvals", "workflows", "bots"} {
 		routes = append(routes, BusinessRoutePolicy{"GET", "/" + kind, kind + ".read", "", ""}, BusinessRoutePolicy{"POST", "/" + kind, kind + ".write", "", ""}, BusinessRoutePolicy{"GET", "/" + kind + "/{id}", kind + ".read", kind, "id"}, BusinessRoutePolicy{"PUT", "/" + kind + "/{id}", kind + ".write", kind, "id"})

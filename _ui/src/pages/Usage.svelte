@@ -376,13 +376,19 @@
   function fmtInt(n: number): string {
     return String(Math.round(n));
   }
+  // Drills into the Generations tab, which filters individual model calls.
   function inspectTraces(extra: Record<string, string> = {}) {
-    const params = new URLSearchParams({ view: 'calls', type: 'generation', from, to, ...extra });
-    if (providers.length === 1 && !params.has('provider')) params.set('provider', providers[0]);
-    if (models.length === 1 && !params.has('model')) params.set('model', models[0]);
-    if (sources.length === 1 && !params.has('source')) params.set('source', sources[0]);
-    if (status && !params.has('status')) params.set('status', status);
-    push(`/llm-calls?${params.toString()}`);
+    const params = new URLSearchParams({ tab: 'generations', from, to, range: 'custom' });
+    const model = extra.model ?? (models.length === 1 ? models[0] : '');
+    const provider = providers.length === 1 ? providers[0] : '';
+    const source = sources.length === 1 ? sources[0] : '';
+    const statusFilter = extra.status ?? status;
+    if (model) params.set('model', model);
+    if (provider) params.set('provider', provider);
+    if (source) params.set('source', source);
+    if (statusFilter) params.set('status', statusFilter);
+    if (extra.error_code) params.set('error_code', extra.error_code);
+    push(`/traces?${params.toString()}`);
   }
   function exportCSV() {
     const groups: Array<[string, UsageSummary[]]> = [

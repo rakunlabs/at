@@ -155,7 +155,7 @@ func (n *embeddingNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	if err != nil {
 		if reg.RecordObservation != nil {
 			reg.RecordObservation(ctx, service.LLMCall{
-				ObservationType: service.ObservationGeneration,
+				ObservationType: service.ObservationEmbedding,
 				Name:            "embeddings", Source: "workflow",
 				Provider: n.providerKey, Model: n.model, RequestedModel: requestedModel,
 				RequestBody: string(requestBody), LatencyMs: latencyMs,
@@ -168,7 +168,7 @@ func (n *embeddingNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	if reg.RecordObservation != nil {
 		responseBody, _ := json.Marshal(resp)
 		reg.RecordObservation(ctx, service.LLMCall{
-			ObservationType: service.ObservationGeneration,
+			ObservationType: service.ObservationEmbedding,
 			Name:            "embeddings", Source: "workflow",
 			Provider: n.providerKey, Model: resp.Model, RequestedModel: requestedModel,
 			RequestBody: string(requestBody), ResponseBody: string(responseBody),

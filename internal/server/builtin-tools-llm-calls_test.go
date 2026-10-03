@@ -94,7 +94,8 @@ func TestExecLLMTraceGet_CompactByDefault(t *testing.T) {
 	if got := store.callQuery.GetValue("trace_id"); got != "trace-1" {
 		t.Fatalf("trace_id filter = %q, want trace-1", got)
 	}
-	if len(store.callQuery.Sort) != 1 || store.callQuery.Sort[0].Field != "created_at" || store.callQuery.Sort[0].Desc {
+	// Chronological by measured start (created_at has second precision).
+	if len(store.callQuery.Sort) != 2 || store.callQuery.Sort[0].Field != "started_at" || store.callQuery.Sort[0].Desc {
 		t.Fatalf("unexpected observation sort: %+v", store.callQuery.Sort)
 	}
 	if strings.Contains(out, "secret tool input") || strings.Contains(out, "full prompt") {

@@ -23,7 +23,7 @@ const capabilityRoutes: Record<string, string> = {
   '/studio': 'files.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read',
   '/chats': 'models.use',
-  '/usage': 'usage.read', '/llm-calls': 'traces.read',
+  '/usage': 'usage.read', '/traces': 'traces.read',
   '/settings/trace-export': 'workspace.write',
   '/mcps': 'mcp.read', '/skills': 'skills.read',
 };

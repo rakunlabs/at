@@ -276,11 +276,6 @@
     untrack(() => { collapsedNodes = loadCollapsedNodes(workflowId); });
   });
   setWorkflowNodeActions({
-    addAfter: (nodeId, handleId) => {
-      if (viewingVersion != null) return;
-      pendingConnection = { nodeId, handleId };
-      showPalette = true;
-    },
     isCollapsed: nodeId => collapsedNodes.has(nodeId),
     toggleCollapsed: nodeId => {
       const next = new Set(collapsedNodes);
@@ -288,7 +283,6 @@
       collapsedNodes = next;
       saveCollapsedNodes(params.id, next);
     },
-    readonly: () => viewingVersion != null,
   });
 
   $effect(() => {
@@ -681,8 +675,9 @@
         addToast(targets.length ? 'Step added. Connect the input you want to use.' : 'Step added. No compatible input for this output.', 'info');
       }
     }
+    // Select without opening the details view; the canvas hint tells the
+    // reader how to open it when they want to configure the step.
     flow.selectNode(nodeOpts.id);
-    selectNodeForEditor(nodeOpts.id);
     if (!position) {
       await tick();
       const rect = canvasRef?.getContainer()?.getBoundingClientRect();

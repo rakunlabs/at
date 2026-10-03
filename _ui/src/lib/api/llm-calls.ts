@@ -7,7 +7,7 @@ const api = axios.create({ baseURL: 'api/v1' });
 // tool, or event) in the unified Langfuse-style tracing model.
 export interface LLMCall {
   id: string;
-  observation_type?: string; // 'generation' | 'tool' | 'event'
+  observation_type?: string; // 'generation' | 'tool' | 'event' | 'span' | 'agent' | 'embedding'
   parent_observation_id?: string;
   name?: string;
   input?: string;
@@ -48,6 +48,11 @@ export interface LLMCall {
   error_message: string;
   finish_reason: string;
   user_field: string;
+  user_id?: string;
+  environment?: string;
+  release?: string;
+  started_at?: string;
+  ended_at?: string;
   created_at: string;
 }
 

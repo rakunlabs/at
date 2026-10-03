@@ -391,7 +391,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureWorkspaceManagement
-	case "llm-calls":
+	case "llm-calls", "traces":
 		return service.FeatureLLMTraces
 	default:
 		return ""

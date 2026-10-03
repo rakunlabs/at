@@ -1017,6 +1017,30 @@ func TestChatSessionLoop_RecordsObservations(t *testing.T) {
 	if gens[0].TraceID == "" || gens[0].TraceID != gens[1].TraceID || tools[0].TraceID != gens[0].TraceID {
 		t.Fatalf("all observations of one turn must share a trace: %v", obsNames(obs))
 	}
+
+	// The turn's root span is recorded when the turn returns. Generations
+	// nest beneath it, and it carries the trace's name, input and output.
+	obs = waitForObservations(t, obsStore, 4)
+	var run *service.LLMCall
+	for i := range obs {
+		if obs[i].ObservationType == service.ObservationAgent {
+			run = &obs[i]
+		}
+	}
+	if run == nil || run.Name != "Alpha" || run.ParentObservationID != "" || run.TraceID != gens[0].TraceID {
+		t.Fatalf("run span: %+v", run)
+	}
+	if run.Trace == nil || run.Trace.Name != "Alpha" || run.Trace.Input != "hello there" || run.Trace.Output != "chat done" {
+		t.Fatalf("trace attributes: %+v", run.Trace)
+	}
+	for _, gen := range gens {
+		if gen.ParentObservationID != run.ID || gen.StartedAt == "" || gen.StartedAt > gen.EndedAt {
+			t.Fatalf("generation not nested/timed under the run: %+v", gen)
+		}
+	}
+	if run.StartedAt > gens[0].StartedAt || run.EndedAt < gens[1].EndedAt {
+		t.Fatalf("run span does not enclose its generations: run=%s..%s", run.StartedAt, run.EndedAt)
+	}
 }
 
 func TestLLMAuditJanitor_TwoPhaseSweep(t *testing.T) {

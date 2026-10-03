@@ -89,6 +89,9 @@ type Postgres struct {
 	tableVirtualProviderModels      exp.IdentifierExpression
 	tableVirtualProviderGrants      exp.IdentifierExpression
 	tableLLMCalls                   exp.IdentifierExpression
+	tableLLMTraces                  exp.IdentifierExpression
+	tableTraceScores                exp.IdentifierExpression
+	tableTraceBookmarks             exp.IdentifierExpression
 	tableAuthUsers                  exp.IdentifierExpression
 	tableAuthSessions               exp.IdentifierExpression
 	tableAuthCredentials            exp.IdentifierExpression
@@ -275,6 +278,9 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableVirtualProviderModels:      goqu.T(tablePrefix + "virtual_provider_models"),
 		tableVirtualProviderGrants:      goqu.T(tablePrefix + "virtual_provider_grants"),
 		tableLLMCalls:                   goqu.T(tablePrefix + "llm_calls"),
+		tableLLMTraces:                  goqu.T(tablePrefix + "llm_traces"),
+		tableTraceScores:                goqu.T(tablePrefix + "trace_scores"),
+		tableTraceBookmarks:             goqu.T(tablePrefix + "trace_bookmarks"),
 		encKey:                          encKey,
 	}, nil
 }

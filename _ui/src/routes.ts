@@ -44,7 +44,7 @@ const TaskDetail = () => import('@/pages/TaskDetail.svelte');
 const Studio = () => import('@/pages/Studio.svelte');
 const Webhooks = () => import('@/pages/Webhooks.svelte');
 const Crons = () => import('@/pages/Crons.svelte');
-const LLMCalls = () => import('@/pages/LLMCalls.svelte');
+const Traces = () => import('@/pages/Traces.svelte');
 const Usage = () => import('@/pages/Usage.svelte');
 const Pricing = () => import('@/pages/Pricing.svelte');
 const Connections = () => import('@/pages/Connections.svelte');
@@ -147,7 +147,12 @@ export default {
   '/tasks': guarded(Tasks, '/tasks'),
   '/tasks/:id': guarded(TaskDetail, '/tasks'),
   '/studio': guarded(Studio, '/studio'),
-  '/llm-calls': guarded(LLMCalls, '/llm-calls'),
+  // One page owns the list, trace detail and session replay so filters and
+  // panel state survive navigation between them; /llm-calls is the old URL.
+  '/traces': guarded(Traces, '/traces'),
+  '/traces/sessions/:session': guarded(Traces, '/traces'),
+  '/traces/:id': guarded(Traces, '/traces'),
+  '/llm-calls': redirect('/traces'),
   '/usage': guarded(Usage, '/usage'),
   '/pricing': guarded(Pricing, '/pricing'),
   '/files': guarded(Files, '/files'),

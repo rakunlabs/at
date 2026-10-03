@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oklog/ulid/v2"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -134,6 +136,108 @@ type ObservationContext struct {
 	Provider        string
 	Model           string
 	ReasoningEffort string
+	// ParentObservationID nests generations under the run's root span.
+	ParentObservationID string
+}
+
+// MessageText flattens message content (a string or content blocks) to the
+// text a reader sees, for trace input/output previews.
+func MessageText(content any) string {
+	switch v := content.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []service.ContentBlock:
+		var parts []string
+		for _, b := range v {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	case []any:
+		var parts []string
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				if text, _ := m["text"].(string); text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	b, _ := json.Marshal(content)
+	return string(b)
+}
+
+// RunSpan is the root observation of one agent-loop run (a Sessions turn, an
+// organization delegation, a workflow agent_call). Its ID is minted up front
+// so generations can nest under it while it is still running; the row itself
+// is recorded when the run ends, with the measured duration.
+type RunSpan struct {
+	ID       string
+	ParentID string
+	Name     string
+	Started  time.Time
+	Context  ObservationContext
+	Metadata map[string]any
+}
+
+// StartRun mints the run's root span, nests it under the trace parent on ctx
+// when that parent belongs to the same trace (a subagent under the tool call
+// that launched it), and returns a context whose trace parent is the run.
+// oc is updated so generations built from it nest under the run.
+func StartRun(ctx context.Context, oc *ObservationContext, name string) (context.Context, *RunSpan) {
+	span := &RunSpan{ID: ulid.Make().String(), Name: name, Started: time.Now()}
+	if parent, ok := service.TraceParentFromContext(ctx); ok && parent.TraceID == oc.TraceID {
+		span.ParentID = parent.ObservationID
+		parent.MarkUsed()
+	}
+	ctx, _ = service.WithTraceParent(ctx, oc.TraceID, span.ID, oc.SessionID)
+	oc.ParentObservationID = span.ID
+	span.Context = *oc
+	return ctx, span
+}
+
+// Finish builds the run's observation. input is the request that started the
+// run and output its final answer; both also become the trace's input and
+// output when this run is the trace root.
+func (r *RunSpan) Finish(input, output string, err error) service.LLMCall {
+	ended := time.Now()
+	metadata := cloneMetadata(r.Metadata)
+	if r.Context.Model != "" {
+		metadata["model"] = r.Context.Provider + "/" + r.Context.Model
+	}
+	obs := service.LLMCall{
+		ID:                  r.ID,
+		ObservationType:     service.ObservationAgent,
+		ParentObservationID: r.ParentID,
+		Name:                r.Name,
+		Input:               input,
+		Output:              output,
+		Level:               service.ObservationLevelDefault,
+		Metadata:            metadata,
+		TraceID:             r.Context.TraceID,
+		SessionID:           r.Context.SessionID,
+		Source:              r.Context.Source,
+		AgentID:             r.Context.AgentID,
+		TaskID:              r.Context.TaskID,
+		RunID:               r.Context.RunID,
+		OrganizationID:      r.Context.OrganizationID,
+		LatencyMs:           ended.Sub(r.Started).Milliseconds(),
+		StartedAt:           r.Started.UTC().Format(time.RFC3339Nano),
+		EndedAt:             ended.UTC().Format(time.RFC3339Nano),
+	}
+	if err != nil {
+		obs.Status = "error"
+		obs.Level = service.ObservationLevelError
+		obs.ErrorMessage = err.Error()
+	}
+	if r.ParentID == "" {
+		obs.Trace = &service.TraceUpdate{Name: r.Name, Input: input, Output: output}
+	}
+	return obs
 }
 
 // GenerationObservationParams contains the common data around one provider
@@ -148,6 +252,8 @@ type GenerationObservationParams struct {
 	Err       error
 	ErrorCode string
 	Metadata  map[string]any
+	// Started is when the provider call began; zero derives it from latency.
+	Started time.Time
 }
 
 // NewGenerationObservation builds a generation observation without applying
@@ -157,21 +263,23 @@ func NewGenerationObservation(p GenerationObservationParams) service.LLMCall {
 	metadata["iteration"] = p.Iteration
 
 	obs := service.LLMCall{
-		ObservationType: service.ObservationGeneration,
-		Source:          p.Context.Source,
-		TraceID:         p.Context.TraceID,
-		SessionID:       p.Context.SessionID,
-		AgentID:         p.Context.AgentID,
-		TaskID:          p.Context.TaskID,
-		RunID:           p.Context.RunID,
-		OrganizationID:  p.Context.OrganizationID,
-		Provider:        p.Context.Provider,
-		Model:           p.Context.Model,
-		RequestedModel:  p.Context.Provider + "/" + p.Context.Model,
-		RequestBody:     string(GenerationRequestJSON(p.Context.Model, p.Messages, p.Tools, p.Context.ReasoningEffort)),
-		LatencyMs:       p.LatencyMs,
-		Metadata:        metadata,
+		ObservationType:     service.ObservationGeneration,
+		ParentObservationID: p.Context.ParentObservationID,
+		Source:              p.Context.Source,
+		TraceID:             p.Context.TraceID,
+		SessionID:           p.Context.SessionID,
+		AgentID:             p.Context.AgentID,
+		TaskID:              p.Context.TaskID,
+		RunID:               p.Context.RunID,
+		OrganizationID:      p.Context.OrganizationID,
+		Provider:            p.Context.Provider,
+		Model:               p.Context.Model,
+		RequestedModel:      p.Context.Provider + "/" + p.Context.Model,
+		RequestBody:         string(GenerationRequestJSON(p.Context.Model, p.Messages, p.Tools, p.Context.ReasoningEffort)),
+		LatencyMs:           p.LatencyMs,
+		Metadata:            metadata,
 	}
+	stampObservationTimes(&obs, p.Started, p.LatencyMs)
 
 	if p.Err != nil {
 		obs.Status = "error"
@@ -207,6 +315,8 @@ type ToolObservationParams struct {
 	Iteration           int
 	Err                 error
 	Metadata            map[string]any
+	// Started is when the tool began; zero derives it from latency.
+	Started time.Time
 }
 
 // NewToolObservation builds a tool observation without choosing dispatch,
@@ -220,7 +330,7 @@ func NewToolObservation(p ToolObservationParams) service.LLMCall {
 		level = service.ObservationLevelError
 	}
 
-	return service.LLMCall{
+	obs := service.LLMCall{
 		ObservationType:     service.ObservationTool,
 		ParentObservationID: p.ParentObservationID,
 		Name:                p.Tool.Name,
@@ -237,6 +347,21 @@ func NewToolObservation(p ToolObservationParams) service.LLMCall {
 		OrganizationID:      p.Context.OrganizationID,
 		LatencyMs:           p.LatencyMs,
 	}
+	if p.Err != nil {
+		obs.Status = "error"
+		obs.ErrorMessage = p.Err.Error()
+	}
+	stampObservationTimes(&obs, p.Started, p.LatencyMs)
+	return obs
+}
+
+// stampObservationTimes records the measured start and end of an observation.
+func stampObservationTimes(obs *service.LLMCall, started time.Time, latencyMs int64) {
+	if started.IsZero() {
+		return
+	}
+	obs.StartedAt = started.UTC().Format(time.RFC3339Nano)
+	obs.EndedAt = started.Add(time.Duration(latencyMs) * time.Millisecond).UTC().Format(time.RFC3339Nano)
 }
 
 // ToolResult applies the global result cap and constructs the content block

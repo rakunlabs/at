@@ -416,7 +416,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	return engine.run(ctx, graph, inputs, entryNodeIDs, outputCh)
 }
 
-func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (*RunResult, error) {
+func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (_ *RunResult, runErr error) {
 	// Ensure outputCh is always signaled exactly once so callers never block.
 	var outputOnce sync.Once
 	signalOutput := func(outputs map[string]any, err error) {
@@ -445,6 +445,9 @@ func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	}
 	reg.Dependencies = ScopeDependencies(ctx, *reg.Dependencies)
 	reg.engine = e
+	outerCtx := ctx
+	ctx, runSpan := startWorkflowRunSpan(ctx, reg.RecordObservation)
+	defer func() { runSpan.finish(outerCtx, runErr) }()
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
@@ -598,8 +601,16 @@ func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, 
 	logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
 
 	startTime := time.Now()
-	result, attempts, err := e.executeAttempts(ctx, st, reg, mappedInputs, executionID, policy)
+	var record RecordObservationFunc
+	if reg.Dependencies != nil {
+		record = reg.RecordObservation
+	}
+	nodeCtx, nodeSpan := startNodeSpan(ctx, record, st)
+	result, attempts, err := e.executeAttempts(nodeCtx, st, reg, mappedInputs, executionID, policy)
 	durationMs := time.Since(startTime).Milliseconds()
+	if !errors.Is(err, ErrStopBranch) {
+		nodeSpan.finish(ctx, err)
+	}
 	if err != nil {
 		if errors.Is(err, ErrStopBranch) {
 			e.emitEvent(NodeEvent{

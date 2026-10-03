@@ -123,6 +123,20 @@ type llmAuditParams struct {
 	taskID  string
 	runID   string
 	orgID   string
+
+	// id is a pre-minted observation ID (root spans mint theirs before
+	// their children are recorded). Empty mints a fresh one.
+	id string
+	// startedAt is when the observed work began; zero derives it from
+	// latency. endedAt defaults to the recording time.
+	startedAt time.Time
+	endedAt   time.Time
+	// environment / release are optional client labels.
+	environment string
+	release     string
+	// trace carries trace-level attributes (name, tags, input, output).
+	// Input/output are kept only while body capture is on.
+	trace *service.TraceUpdate
 }
 
 // llmAuditEnabled reports whether the LLM call audit feature is on, using a
@@ -172,6 +186,16 @@ func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) strin
 		reqBody, respBody = p.requestBody, p.responseBody
 	}
 
+	if call.Trace != nil {
+		trace := *call.Trace
+		if !bodies {
+			// Trace input/output are prompt content: captured only under
+			// the same switch as request/response bodies.
+			trace.Input, trace.Output = "", ""
+		}
+		call.Trace = &trace
+	}
+
 	go func() {
 		bg := context.WithoutCancel(ctx)
 		if bodies {
@@ -212,31 +236,65 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 		tokenID = p.auth.token.ID
 	}
 
+	obsType := p.obsType
+	if obsType == "" {
+		obsType = service.ObservationGeneration
+	}
+
 	costCents := p.costCents
 	if costCents == 0 && (p.usage.PromptTokens > 0 || p.usage.CompletionTokens > 0) {
 		costCents = s.estimateGatewayUsageCostCents(context.WithoutCancel(ctx), provider, model, p.fullModel, p.usage)
 	}
 
 	traceID := p.traceID
+	parentID := p.parentObservationID
+	// Observations recorded under a run span (a workflow started by a tool,
+	// an embedding node inside a workflow run) join the surrounding trace.
+	if tp, ok := service.TraceParentFromContext(ctx); ok && (traceID == "" || traceID == tp.TraceID) {
+		if traceID == "" {
+			traceID = tp.TraceID
+		}
+		if parentID == "" && p.id != tp.ObservationID {
+			parentID = tp.ObservationID
+			tp.MarkUsed()
+		}
+		if p.sessionID == "" {
+			p.sessionID = tp.SessionID
+		}
+	}
 	if traceID == "" {
 		traceID = ulid.Make().String()
 	}
-
-	obsType := p.obsType
-	if obsType == "" {
-		obsType = service.ObservationGeneration
+	id := p.id
+	if id == "" {
+		id = ulid.Make().String()
+	}
+	ended := p.endedAt
+	if ended.IsZero() {
+		ended = time.Now()
+	}
+	started := p.startedAt
+	if started.IsZero() || started.After(ended) {
+		started = ended.Add(-time.Duration(max(p.latencyMs, 0)) * time.Millisecond)
+	}
+	latencyMs := p.latencyMs
+	if latencyMs == 0 && obsType != service.ObservationEvent {
+		latencyMs = ended.Sub(started).Milliseconds()
 	}
 
 	level := p.level
 	if level == "" {
 		level = service.ObservationLevelDefault
 	}
+	labels := traceLabelsFromContext(ctx)
+	environment := firstNonEmpty(p.environment, labels.environment)
+	release := firstNonEmpty(p.release, labels.release)
 
 	return service.LLMCall{
-		ID:                  ulid.Make().String(),
+		ID:                  id,
 		WorkspaceID:         traceExportWorkspace(ctx, p.auth),
 		ObservationType:     obsType,
-		ParentObservationID: p.parentObservationID,
+		ParentObservationID: parentID,
 		Name:                p.name,
 		Input:               service.TruncateObservationIO(p.input),
 		Output:              service.TruncateObservationIO(p.output),
@@ -264,15 +322,40 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 		CacheWriteTokens:   int64(p.usage.CacheWriteTokens),
 		ReasoningTokens:    int64(p.usage.ReasoningTokens),
 		CostCents:          costCents,
-		LatencyMs:          p.latencyMs,
+		LatencyMs:          latencyMs,
 		TimeToFirstTokenMs: p.ttftMs,
 		Status:             status,
 		ErrorCode:          p.errCode,
 		ErrorMessage:       p.errMsg,
 		FinishReason:       p.finishReason,
 		UserField:          p.userField,
-		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
+		UserID:             observationUserID(ctx, p.auth),
+		Environment:        environment,
+		Release:            release,
+		StartedAt:          started.UTC().Format(time.RFC3339Nano),
+		EndedAt:            ended.UTC().Format(time.RFC3339Nano),
+		Trace:              rootTraceUpdate(ctx, p, obsType, parentID),
+		CreatedAt:          ended.UTC().Format(time.RFC3339),
 	}
+}
+
+// observationUserID is the authenticated account an observation ran as: the
+// execution identity, the browser principal, or a personal token's owner.
+// Request fields (`user`, metadata) are never an identity.
+func observationUserID(ctx context.Context, auth *authResult) string {
+	if p, _, ok := service.ExecutionFromContext(ctx); ok && p.UserID != "" {
+		return p.UserID
+	}
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok && a.UserID != "" {
+		return a.UserID
+	}
+	if actor, ok := ctx.Value(userUsageKey{}).(userUsageAttribution); ok && actor.userID != "" {
+		return actor.userID
+	}
+	if auth != nil && auth.token != nil {
+		return auth.token.OwnerUserID
+	}
+	return ""
 }
 
 // spillLLMCallBodies clips oversized bodies inline and writes the full
@@ -359,14 +442,23 @@ func (s *Server) llmAuditRoot() string {
 // system of record). When no tracer provider is configured (telemetry off)
 // the global tracer is a no-op, so this is safe and cheap.
 func (s *Server) emitLLMSpan(call service.LLMCall, reqBody, respBody []byte) {
-	if call.ObservationType == service.ObservationEvent {
+	switch call.ObservationType {
+	case service.ObservationEvent, service.ObservationSpan, service.ObservationAgent:
+		// Structural rows: the database (and per-workspace trace export,
+		// which carries the hierarchy) is the system of record.
 		return
 	}
 
 	tracer := otel.Tracer("github.com/rakunlabs/at/gateway")
 
-	end := time.Now()
-	start := end.Add(-time.Duration(call.LatencyMs) * time.Millisecond)
+	end := parseObservationTime(call.EndedAt)
+	if end.IsZero() {
+		end = time.Now()
+	}
+	start := parseObservationTime(call.StartedAt)
+	if start.IsZero() || start.After(end) {
+		start = end.Add(-time.Duration(call.LatencyMs) * time.Millisecond)
+	}
 
 	if call.ObservationType == service.ObservationTool {
 		_, span := tracer.Start(context.Background(), "tool "+call.Name,

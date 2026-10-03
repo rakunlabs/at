@@ -23,7 +23,35 @@ const (
 	ObservationTool = "tool"
 	// ObservationEvent is a point-in-time occurrence (task lifecycle).
 	ObservationEvent = "event"
+	// ObservationSpan is a timed unit of work grouping its children (a
+	// workflow run or one workflow node).
+	ObservationSpan = "span"
+	// ObservationAgent is the root span of one agentic-loop run: a Sessions
+	// turn, an organization delegation or a workflow agent_call.
+	ObservationAgent = "agent"
+	// ObservationEmbedding is an embedding request.
+	ObservationEmbedding = "embedding"
 )
+
+// TraceUpdate carries trace-level attributes that no single observation owns.
+// It rides an observation into the store, which upserts it into llm_traces:
+// the first non-empty name and input win, the last non-empty output wins and
+// tags accumulate.
+type TraceUpdate struct {
+	Name    string
+	EndUser string
+	Tags    []string
+	Input   string
+	Output  string
+}
+
+// Empty reports whether the update carries nothing to store.
+func (u *TraceUpdate) Empty() bool {
+	return u == nil || u.Name == "" && u.EndUser == "" && len(u.Tags) == 0 && u.Input == "" && u.Output == ""
+}
+
+// TracePreviewBytes caps trace-level input/output previews.
+const TracePreviewBytes = 8192
 
 // Observation levels.
 const (
@@ -149,8 +177,24 @@ type LLMCall struct {
 	FinishReason string `json:"finish_reason,omitempty"`
 
 	// UserField carries the OpenAI `user` request parameter for
-	// end-user attribution, mirroring Langfuse's user dimension.
+	// end-user attribution, mirroring Langfuse's user dimension. It is
+	// client-asserted display data, never an identity.
 	UserField string `json:"user_field,omitempty"`
+	// UserID is the authenticated account the call ran as (browser principal,
+	// execution identity or personal token owner). Server-stamped.
+	UserID string `json:"user_id,omitempty"`
+	// Environment and Release are optional client labels (gateway headers).
+	Environment string `json:"environment,omitempty"`
+	Release     string `json:"release,omitempty"`
+
+	// StartedAt / EndedAt are RFC3339Nano timestamps of the observed work.
+	// Recorders fill them from the measured start; the store derives a
+	// missing start from EndedAt - LatencyMs.
+	StartedAt string `json:"started_at,omitempty"`
+	EndedAt   string `json:"ended_at,omitempty"`
+
+	// Trace carries trace-level attributes upserted alongside this row.
+	Trace *TraceUpdate `json:"-"`
 
 	CreatedAt string `json:"created_at"`
 }

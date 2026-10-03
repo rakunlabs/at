@@ -64,7 +64,7 @@ func (s *Server) taskWorkspaceBase() string {
 // assigned to an agent in an organization and runs an LLM-driven agentic loop
 // where the agent can delegate work to its direct reports. Each delegation
 // creates a child Task and recursively invokes the same function.
-func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization, task *service.Task, agentID string, depth int) error {
+func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization, task *service.Task, agentID string, depth int) (runErr error) {
 	var bindErr error
 	ctx, bindErr = s.bindRuntimePrincipal(ctx, "task")
 	if bindErr != nil {
@@ -464,6 +464,35 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	recordObservation := s.recordObservationFunc()
 
+	// The run's root span. Every observation of this run nests under it; a
+	// delegated child runs as its own trace, cross-linked from the
+	// delegate_to_* tool observation.
+	ctx, runSpan := agentloop.StartRun(ctx, &observationContext, agent.Name)
+	runSpan.Metadata = map[string]any{"task_title": task.Title, "depth": depth}
+	runInput := task.Title
+	if task.Description != "" {
+		runInput += "\n\n" + task.Description
+	}
+	if recordObservation != nil {
+		defer func() {
+			bg := context.WithoutCancel(ctx)
+			output, outcomeErr := "", runErr
+			if s.taskStore != nil {
+				if final, err := s.taskStore.GetTask(bg, task.ID); err == nil && final != nil {
+					output = final.Result
+					if outcomeErr == nil && final.Status == service.TaskStatusBlocked {
+						outcomeErr = fmt.Errorf("task ended blocked")
+					}
+				}
+			}
+			obs := runSpan.Finish(runInput, output, outcomeErr)
+			if runErr == nil && outcomeErr != nil {
+				obs.Status, obs.Level, obs.ErrorMessage = "ok", service.ObservationLevelWarning, outcomeErr.Error()
+			}
+			recordObservation(bg, obs)
+		}()
+	}
+
 	// Observation: task started processing.
 	s.recordLLMCallAsync(ctx, llmAuditParams{
 		source:    "agent",
@@ -807,6 +836,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Context: observationContext, Messages: windowed, Tools: llmTools,
 					LatencyMs: latencyMs, Iteration: iteration, Err: chatErr,
 					ErrorCode: classifyHTTPError(chatErr),
+					Started:   time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 				}))
 			}
 			slog.Error("org-delegation: chat failed",
@@ -848,6 +878,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			genObsID = recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
 				Context: observationContext, Messages: windowed, Tools: llmTools,
 				Response: resp, LatencyMs: latencyMs, Iteration: iteration,
+				Started: time.Now().Add(-time.Duration(latencyMs) * time.Millisecond),
 			}))
 		}
 		lastFinishReason = resp.FinishReason
@@ -909,15 +940,25 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// recordToolObs records a tool observation parented to this
 		// iteration's generation (skill / builtin / MCP / unknown tools;
 		// delegation tools record inline to attach child-trace links).
-		recordToolObs := func(tool service.ToolCall, output string, callErr error, latencyMs int64) {
+		// toolSpan pre-mints a tool observation ID and returns a context
+		// under which work started by the tool (a workflow, a subagent)
+		// nests beneath that tool in this trace.
+		toolSpan := func() (context.Context, string) {
+			id := ulid.Make().String()
+			toolCtx, _ := service.WithTraceParent(ctx, observationContext.TraceID, id, observationContext.SessionID)
+			return toolCtx, id
+		}
+		recordToolObs := func(id string, tool service.ToolCall, output string, callErr error, started time.Time) {
 			if recordObservation == nil {
 				return
 			}
-			recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
+			obs := agentloop.NewToolObservation(agentloop.ToolObservationParams{
 				Context: observationContext, ParentObservationID: genObsID,
-				Tool: tool, Output: output, LatencyMs: latencyMs,
-				Iteration: iteration, Err: callErr,
-			}))
+				Tool: tool, Output: output, LatencyMs: time.Since(started).Milliseconds(),
+				Iteration: iteration, Err: callErr, Started: started,
+			})
+			obs.ID = id
+			recordObservation(ctx, obs)
 		}
 
 		for i, tc := range resp.ToolCalls {
@@ -942,7 +983,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					result = fmt.Sprintf("Error: %v", callErr)
 				}
 				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+				recordToolObs(ulid.Make().String(), tc, result, callErr, toolStarted)
 			} else if tc.Name == consultAgentTool && consultTool != nil {
 				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
 				result, callErr := s.consultOrgAgent(toolCtx, org, task, agentID, tc.Arguments, observationContext, genObsID)
@@ -951,7 +992,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					result = fmt.Sprintf("Error: consultation failed: %v", callErr)
 				}
 				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+				recordToolObs(ulid.Make().String(), tc, result, callErr, toolStarted)
 			} else if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
 				delegatedAgents[reportAgentID] = true
 				wg.Add(1)
@@ -1024,7 +1065,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
 							Context: observationContext, ParentObservationID: genObsID,
 							Tool: toolCall, Output: result, LatencyMs: time.Since(started).Milliseconds(),
-							Iteration: iteration, Err: delegErr,
+							Iteration: iteration, Err: delegErr, Started: started,
 							Metadata: map[string]any{
 								"child_task_id":  childTask.ID,
 								"child_trace_id": childTraceID,
@@ -1037,7 +1078,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				var result string
 				var callErr error
 
-				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				spanCtx, toolObsID := toolSpan()
+				toolCtx, cancel := context.WithTimeout(spanCtx, toolTimeout)
 				result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
 				cancel()
 
@@ -1070,21 +1112,22 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// Observation: builtin tool call (task_create /
 				// bash_execute / mem_save ...) with structured input and
 				// the (truncated) output that got fed back into the LLM.
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+				recordToolObs(toolObsID, tc, result, callErr, toolStarted)
 			} else if mcpTools.Owns(tc.Name) {
 				// MCP-set tools resolve server-side (workflows exposed as wf_*
 				// tools, skill/builtin/HTTP tools declared via mcp_sets);
 				// the rest are served by connected clients such as the
 				// ElevenLabs stdio MCP.
 				setName, _ := mcpTools.SetName(tc.Name)
-				result, callErr := mcpTools.Call(ctx, tc.Name, tc.Arguments, toolTimeout)
+				spanCtx, toolObsID := toolSpan()
+				result, callErr := mcpTools.Call(spanCtx, tc.Name, tc.Arguments, toolTimeout)
 				if callErr != nil {
 					slog.Error("org-delegation: mcp tool call failed",
 						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)
 					result = fmt.Sprintf("Error: %v", callErr)
 				}
 				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
-				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+				recordToolObs(toolObsID, tc, result, callErr, toolStarted)
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
 				unknownErr := fmt.Errorf("unknown tool %q", tc.Name)
@@ -1094,7 +1137,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// Observation: unknown tool call. The output is the
 				// synthetic error message we fed back to the LLM — useful
 				// for spotting agents calling tools they don't have.
-				recordToolObs(tc, result, unknownErr, time.Since(toolStarted).Milliseconds())
+				recordToolObs(ulid.Make().String(), tc, result, unknownErr, toolStarted)
 			}
 		}
 

@@ -80,12 +80,16 @@ func TestExecAgentRunForegroundIsolated(t *testing.T) {
 		}
 	}
 
-	obs := waitForObservations(t, observations, 1)
-	if obs[0].TraceID != payload.TraceID || obs[0].SessionID == "" || obs[0].AgentID != "child" {
-		t.Fatalf("unexpected child observation identity: %+v", obs[0])
-	}
-	if obs[0].Metadata["subagent"] != true || obs[0].Metadata["parent_trace_id"] != "parent-trace" {
-		t.Fatalf("missing subagent trace metadata: %#v", obs[0].Metadata)
+	// One generation plus the child run's root span; both identify the
+	// child trace and carry the subagent link to the parent trace.
+	obs := waitForObservations(t, observations, 2)
+	for _, o := range obs {
+		if o.TraceID != payload.TraceID || o.SessionID == "" || o.AgentID != "child" {
+			t.Fatalf("unexpected child observation identity: %+v", o)
+		}
+		if o.Metadata["subagent"] != true || o.Metadata["parent_trace_id"] != "parent-trace" {
+			t.Fatalf("missing subagent trace metadata: %#v", o.Metadata)
+		}
 	}
 }
 

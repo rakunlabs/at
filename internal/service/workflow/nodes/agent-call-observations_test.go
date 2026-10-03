@@ -65,7 +65,7 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	var gens, tools []service.LLMCall
+	var gens, tools, runs []service.LLMCall
 	for _, o := range recorded {
 		if o.Source != "workflow" {
 			t.Fatalf("expected source workflow, got %q", o.Source)
@@ -75,6 +75,18 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 			gens = append(gens, o)
 		case service.ObservationTool:
 			tools = append(tools, o)
+		case service.ObservationAgent:
+			runs = append(runs, o)
+		}
+	}
+	// The run's root span carries the trace input/output; generations nest
+	// beneath it and record their measured start.
+	if len(runs) != 1 || runs[0].ParentObservationID != "" || runs[0].Trace == nil || runs[0].Trace.Output != "wf done" || !strings.Contains(runs[0].Input, "do the work") {
+		t.Fatalf("run span: %+v", runs)
+	}
+	for _, gen := range gens {
+		if gen.ParentObservationID != runs[0].ID || gen.StartedAt == "" {
+			t.Fatalf("generation not nested under run span: %+v", gen)
 		}
 	}
 	if len(gens) != 2 || len(tools) != 1 {
@@ -122,8 +134,9 @@ func TestAgentCall_NoPresetReasoningEffort(t *testing.T) {
 	if _, err := node.Run(executiontest.Context(t), reg, map[string]any{"prompt": "hello"}); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || len(observations) != 1 {
-		t.Fatalf("calls=%d observations=%d", calls, len(observations))
+	// One generation plus the run's root span.
+	if calls != 1 || len(observations) != 2 || observations[1].ObservationType != service.ObservationAgent {
+		t.Fatalf("calls=%d observations=%+v", calls, observations)
 	}
 	if strings.Contains(observations[0].RequestBody, "reasoning_effort") {
 		t.Fatalf("unexpected effort: %s", observations[0].RequestBody)

@@ -24,7 +24,7 @@ var workspaceDeletionTables = []string{
 	"chat_messages", "chat_sessions", "token_usage", "tokens",
 	"workflow_versions", "triggers", "workflows", "task_labels", "issue_comments", "organization_agents",
 	"agent_budgets", "agent_usage", "agent_heartbeats", "heartbeat_runs", "wakeup_requests", "agent_runtime_state",
-	"agent_task_sessions", "agent_config_revisions", "cost_events", "llm_calls", "approvals", "tasks", "projects", "goals", "labels",
+	"agent_task_sessions", "agent_config_revisions", "cost_events", "trace_bookmarks", "trace_scores", "llm_traces", "llm_calls", "approvals", "tasks", "projects", "goals", "labels",
 	"agents", "organizations", "bot_configs", "providers", "skills", "skill_servers", "variables", "node_configs",
 	"mcp_servers", "mcp_sets", "marketplaces", "marketplace_sources", "pack_sources", "guides", "connections", "connectors",
 	"virtual_providers", "routing_profiles", "workspace_chat_presets", "trace_export_settings",

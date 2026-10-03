@@ -81,7 +81,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/connections":              {"POST", "/connections"},
 	"/mcp-servers":              {"GET", "/mcp/servers"},
 	"/usage":                    {"GET", "/usage/summary"},
-	"/llm-calls":                {"GET", "/llm-calls"},
+	"/traces":                   {"GET", "/traces"},
 }
 
 func uiNavigationSource(t *testing.T) string {

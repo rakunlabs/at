@@ -281,7 +281,7 @@ func (s *Server) runDurableWorkflow(maintenance context.Context, store service.W
 	if err == nil {
 		runCtx = logi.WithContext(runCtx, logi.Ctx(runCtx).With("execution_id", job.ID, "workflow_id", job.WorkflowID))
 		engine := s.buildWorkflowEngine(runCtx)
-		_, err = engine.RunDurable(runCtx, job.Payload.Graph, job.Payload.Inputs, job.Payload.EntryNodeIDs, job.Checkpoint, job.ResumeRequested, func(checkpoint service.WorkflowCheckpoint, status string) error {
+		_, err = engine.RunDurable(s.withWorkflowTrace(runCtx, job.WorkflowID), job.Payload.Graph, job.Payload.Inputs, job.Payload.EntryNodeIDs, job.Checkpoint, job.ResumeRequested, func(checkpoint service.WorkflowCheckpoint, status string) error {
 			next, err := store.SaveWorkflowExecutionCheckpoint(maintenance, job.ID, worker, revision, status, checkpoint, "")
 			if err != nil {
 				return err

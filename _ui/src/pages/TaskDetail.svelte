@@ -41,7 +41,7 @@
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
     Layers, ChevronRight, ChevronDown, Building2, Play,
     RotateCcw, RefreshCw, Send, Square, Loader2, Activity,
-    Receipt,
+    Receipt, ExternalLink,
   } from 'lucide-svelte';
   import {
     listChatMessages,
@@ -127,8 +127,8 @@
   // reads ?task_ids=A,B,C from the hash querystring and passes it through
   // to the backend as task_id[in]=A,B,C.
   let costEventsUrl = $derived.by(() => {
-    if (!costRollup || !costRollup.task_ids?.length) return '#/llm-calls';
-    return `#/llm-calls?task_ids=${encodeURIComponent(costRollup.task_ids.join(','))}`;
+    if (!costRollup || !costRollup.task_ids?.length) return '#/traces';
+    return `#/traces?task_id=${encodeURIComponent(costRollup.task_ids.join(','))}&range=all`;
   });
 
   // Active tab
@@ -182,6 +182,9 @@
     if (type === 'generation') {
       return e.model ? `LLM call (${e.model})` : 'LLM call';
     }
+    if (type === 'agent') return `ran ${e.name || 'agent'}`;
+    if (type === 'span') return e.name || 'span';
+    if (type === 'embedding') return e.model ? `embeddings (${e.model})` : 'embeddings';
     if (type === 'tool') {
       const tool = e.name || 'tool';
       // Pretty-print delegate_to_<agent> as "delegated to <Agent>".
@@ -1450,8 +1453,11 @@
                           {#if eventStats(e)}
                             <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0">{eventStats(e)}</span>
                           {/if}
+                          {#if e.trace_id}
+                            <a href={`#/traces/${encodeURIComponent(e.trace_id)}?obs=${encodeURIComponent(e.id)}`} class="{eventStats(e) ? '' : 'ml-auto'} shrink-0 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary" title="Open in trace explorer"><ExternalLink size={11} /></a>
+                          {/if}
                           {#if isLive}
-                            <span class="{eventStats(e) ? '' : 'ml-auto'} relative flex w-1.5 h-1.5 shrink-0 mt-1" title="In flight">
+                            <span class="relative flex w-1.5 h-1.5 shrink-0 mt-1" title="In flight">
                               <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
                               <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
                             </span>

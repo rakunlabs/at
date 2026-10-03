@@ -465,7 +465,7 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 	}
 
 	if syncMode && hasOutputNode {
-		result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
+		result, err := engine.Run(s.withWorkflowTrace(ctx, id), graphToRun, inputs, entryNodeIDs, nil)
 		if err != nil {
 			return "", fmt.Errorf("workflow execution failed: %w", err)
 		}
@@ -965,7 +965,7 @@ func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, 
 		}
 	}
 
-	result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
+	result, err := engine.Run(workflow.ContextWithWorkflowTrace(ctx, wf.ID, wf.Name), graphToRun, inputs, entryNodeIDs, nil)
 	if err != nil {
 		return "", fmt.Errorf("workflow execution failed: %w", err)
 	}
