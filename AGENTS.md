@@ -1874,7 +1874,9 @@ token. Failed saves retain the new credentials for an idempotent, previous-token
 checked retry. Both gateway and scoped runtime providers wire the coordinator;
 discovery uses the workspace+provider-ID cache, never a key-only global lookup.
 The Codex model catalog uses `openai.CodexClientVersion`, independent of AT's
-release version. Standard OpenAI preset URLs are normalized to the Codex Responses
+release version. The catalog hides every model whose `minimal_client_version`
+exceeds it, so a stale value silently drops the newest models from discovery;
+keep it aligned with the latest `openai/codex` release. Standard OpenAI preset URLs are normalized to the Codex Responses
 endpoint for ChatGPT auth; custom relay URLs remain explicit overrides. Empty
 Codex catalogs are reported as errors rather than silently returning no models.
 ChatGPT/Codex auth does not support embeddings: embedding discovery returns an

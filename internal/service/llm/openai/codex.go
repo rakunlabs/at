@@ -23,7 +23,7 @@ const CodexDefaultResponsesURL = "https://chatgpt.com/backend-api/codex/response
 
 // The model catalog filters by Codex protocol client version, not AT's release
 // number. Keep this aligned with the supported upstream Codex contract.
-const CodexClientVersion = "0.154.0"
+const CodexClientVersion = "0.160.0"
 
 // Selecting ChatGPT auth on the ordinary OpenAI preset must not send Codex
 // credentials to the API-key /v1/chat/completions endpoint. Custom relays remain

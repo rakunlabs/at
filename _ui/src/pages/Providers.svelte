@@ -180,8 +180,8 @@
         type: 'openai',
         auth_type: 'chatgpt',
         base_url: 'https://chatgpt.com/backend-api/codex/responses',
-        model: 'gpt-5.3-codex',
-        models: ['gpt-5.3-codex'],
+        model: 'gpt-6.1-sol',
+        models: ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
       },
       setupSteps: [
         'You need an active ChatGPT Plus or Pro subscription',
@@ -197,7 +197,7 @@
       notes: [
         'Uses your ChatGPT Plus or Pro subscription, not a standard OpenAI Platform API account or API billing balance',
         'The chatgpt.com backend endpoint is not a stable public API and may change or stop working without notice',
-        'Model discovery is not assumed; gpt-5.3-codex is configured as the single safe default',
+        'After authorizing, use "Fetch" to load the exact model list for your ChatGPT plan (the list below is only a starting point)',
         'Authorization is completed in your browser and the stored token is managed by the backend',
       ],
     },
