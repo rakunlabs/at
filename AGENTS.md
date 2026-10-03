@@ -2238,6 +2238,48 @@ delegation, workflow nodes and the gateway have no browser.
 
 Regression: `_ui/tests/extension-bridge.test.mjs`.
 
+### Trace privacy
+
+Settings → Trace privacy (`/settings/trace-privacy`) keeps chosen users, API
+tokens, providers, models or sources out of traces. Migration 90 adds
+`trace_privacy_rules` (NULL `workspace_id` = installation rule) and the
+single-row `trace_privacy_settings`. A rule's set fields are ANDed; empty
+fields match everything; `model` is a case-insensitive glob (`*`, `?`), and a
+pattern with `/` matches `provider/model`. Actions: `skip` (default — nothing
+is written, spilled, exported or emitted as an OTEL span) and `redact` (the
+skeleton is kept; bodies, input/output, error text and trace input/output are
+cleared and `metadata.redacted` is set). The strictest matching action wins.
+
+Matching uses only server-stamped attributes (`user_id` from
+`observationUserID`, the token ID, provider/model, source), never request
+content. The decision runs in `recordLLMCallAsync`
+(`internal/server/trace-privacy.go`) before anything touches disk, so all
+recorders are covered. Rules are cached for 10s per replica and invalidated on
+local writes. **The trace is the unit**: tool, agent and span rows carry no
+model, so the first matching observation puts its trace in an in-memory
+suppression map (30 min TTL, renewed on each matching observation, bounded at 20k), later
+observations inherit the action, and rows already written are cleaned up
+asynchronously (`ApplyTracePrivacyToTrace`) after a 2s delay. The map is per
+replica; agent loops run on one replica, so this is sufficient in practice.
+**Cost events, budgets and Usage are never affected** — suppressing traces is
+not a way around spending limits.
+
+Workspace rules need `workspace.write` in the selected workspace; installation
+rules and settings need a platform administrator (enforced in the store;
+foreign rules answer 404). `POST /api/v1/trace-privacy/rules/{id}/apply`
+applies a rule to stored traces (`?dry_run=true` only counts): `skip` deletes
+every matching trace with its observations, attributes, scores, bookmarks and
+spill files in batches; `redact` clears the content of every observation of
+matching traces. It is irreversible and logged with actor and counts.
+
+Personal opt-out: with `allow_user_opt_out` on, Account security shows "Do not
+record traces of my activity", stored as the non-secret preference
+`trace_opt_out` (`GET/PUT /api/v1/trace-privacy/opt-out`, owner = signed-in
+subject). It is ignored while the installation setting is off. Regressions:
+`internal/service/types-trace-privacy_test.go`,
+`internal/server/trace-privacy_test.go`,
+`internal/store/postgres/trace-privacy_test.go`.
+
 ### Workspace trace export
 
 Settings → Trace export (`/settings/trace-export`) configures a separate OTLP

@@ -25,6 +25,7 @@ const capabilityRoutes: Record<string, string> = {
   '/chats': 'models.use',
   '/usage': 'usage.read', '/traces': 'traces.read',
   '/settings/trace-export': 'workspace.write',
+  '/settings/trace-privacy': 'workspace.write',
   '/mcps': 'mcp.read', '/skills': 'skills.read',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are
@@ -80,6 +81,7 @@ export const configurationLinks = [
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
   { path: '/settings/storage', label: 'Storage', description: 'Durable backend for media, files, assets and space snapshots' },
   { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
+  { path: '/settings/trace-privacy', label: 'Trace privacy', description: 'Keep users, keys, providers or models out of traces' },
   { path: '/settings/git-credentials', label: 'Git credentials', description: 'Deploy keys for private skill repositories' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/virtual-providers', label: 'Provider governance', description: 'Provider budgets and account allowances' },

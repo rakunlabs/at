@@ -72,6 +72,18 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/trace-export", "workspace.write", "", ""},
 		{"PUT", "/trace-export", "workspace.write", "", ""},
 		{"POST", "/trace-export/test", "workspace.write", "", ""},
+		// Trace privacy: workspace rules need workspace.write; installation
+		// rules and settings additionally need a platform administrator,
+		// enforced by the store. Opt-out is per account.
+		{"GET", "/trace-privacy/rules", "workspace.write", "", ""},
+		{"POST", "/trace-privacy/rules", "workspace.write", "", ""},
+		{"PUT", "/trace-privacy/rules/{id}", "workspace.write", "", ""},
+		{"DELETE", "/trace-privacy/rules/{id}", "workspace.write", "", ""},
+		{"POST", "/trace-privacy/rules/{id}/apply", "workspace.write", "", ""},
+		{"GET", "/trace-privacy/settings", "workspace.write", "", ""},
+		{"PUT", "/trace-privacy/settings", "platform.manage", "", ""},
+		{"GET", "/trace-privacy/opt-out", "workspace.read", "", ""},
+		{"PUT", "/trace-privacy/opt-out", "workspace.read", "", ""},
 		{"GET", "/bots/video-templates", "platform.manage", "", ""},
 		{"POST", "/bots/{id}/start", "bots.write", "bots", "id"},
 		{"POST", "/bots/{id}/stop", "bots.write", "bots", "id"},

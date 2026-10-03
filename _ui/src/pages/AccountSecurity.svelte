@@ -9,7 +9,16 @@
   import { storeAuth, returnToLogin, securityCodes } from '../lib/store/auth.svelte';
   import { storeNavbar } from '../lib/store/store.svelte';
   import { Copy } from 'lucide-svelte';
+  import { getTraceOptOut, setTraceOptOut, type TracePrivacyOptOut } from '../lib/api/trace-privacy';
   storeNavbar.title = 'Account security';
+  let traceOptOut = $state<TracePrivacyOptOut | null>(null); let traceBusy = $state(false);
+  async function loadTraceOptOut() { try { traceOptOut = await getTraceOptOut(); } catch { traceOptOut = null; } }
+  async function toggleTraceOptOut(value: boolean) {
+    traceBusy = true; error = notice = '';
+    try { traceOptOut = await setTraceOptOut(value); notice = value ? 'Your new activity will not be traced.' : 'Tracing is on again for your activity.'; }
+    catch (e: any) { error = e?.response?.data?.message || 'Could not change the tracing preference.'; await loadTraceOptOut(); }
+    finally { traceBusy = false; }
+  }
   let status = $state<{enabled: boolean; backup_codes_remaining: number} | null>(null);
   let keys = $state<AuthPasskey[]>([]); let links = $state<IdentityLink[]>([]); let providers = $state<{id: string; label: string}[]>([]);
   let error = $state(''); let busy = $state(false); let loaded = $state(false); let notice = $state('');
@@ -23,7 +32,7 @@
     const [s, l, p, k] = await Promise.all([identityAPI.get('totp/status'), identityAPI.get('identities'), identityAPI.get('login-providers'), storeAuth.passkeys ? listAuthPasskeys() : Promise.resolve({items: []})]);
     status = s.data; links = l.data || []; providers = p.data || []; keys = k.items || []; loaded = true;
   } catch { error = 'Cannot load account security. Check your connection and reload.'; } finally { busy = false; } }
-  onMount(() => { void load(); return () => { controller.abort(); password = confirm = code = linkProof = factorProof = qr = ''; enrollment = null; }; });
+  onMount(() => { void load(); void loadTraceOptOut(); return () => { controller.abort(); password = confirm = code = linkProof = factorProof = qr = ''; enrollment = null; }; });
   function authorize(p: string, fn: (proof: string) => Promise<void>) { purpose = p; action = fn; error = notice = ''; }
   async function authorized(proof: string) { await action?.(proof); purpose = ''; action = undefined; }
   function holdBackup(codes: string[]) { securityCodes.values = codes; enrollment = null; qr = code = ''; storeAuth.securityHold = true; }
@@ -65,6 +74,15 @@
         <button type="button" class="settings-button inline-flex items-center gap-2" onclick={copyUserID}><Copy size={16} />Copy ID</button>
       </div>
       <p class="settings-note">Use this ID when requesting workspace access or contacting your administrator.</p>
+    </section>
+  {/if}
+  {#if traceOptOut?.allowed || traceOptOut?.opted_out}
+    <section class="settings-section" aria-labelledby="account-tracing-title">
+      <h2 id="account-tracing-title" class="settings-section-title">Tracing</h2>
+      <label class="flex items-start gap-2 text-sm">
+        <input type="checkbox" class="mt-0.5" checked={traceOptOut.opted_out} disabled={traceBusy || (!traceOptOut.allowed && !traceOptOut.opted_out)} onchange={e => toggleTraceOptOut(e.currentTarget.checked)} />
+        <span>Do not record traces of my activity<span class="settings-note block mt-1">Covers your browser use, Sessions and personal API tokens. Usage and cost are still recorded. Existing traces are kept.{#if !traceOptOut.allowed} Your administrator has turned this option off, so it currently has no effect.{/if}</span></span>
+      </label>
     </section>
   {/if}
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}{#if notice}<p role="status" class="settings-note">{notice}</p>{/if}

@@ -181,6 +181,17 @@ func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) strin
 	// Snapshot everything we need off the request goroutine.
 	call := s.buildLLMCall(ctx, p)
 
+	// Trace privacy runs before anything is written, spilled or exported.
+	privacy := s.tracePrivacyDecision(ctx, call)
+	if privacy == service.TracePrivacySkip {
+		return call.ID
+	}
+	if privacy == service.TracePrivacyRedact {
+		bodies = false
+		p.input, p.output = "", ""
+		redactLLMCall(&call)
+	}
+
 	var reqBody, respBody []byte
 	if bodies {
 		reqBody, respBody = p.requestBody, p.responseBody

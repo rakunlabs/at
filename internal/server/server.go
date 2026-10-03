@@ -318,6 +318,10 @@ type Server struct {
 	// path avoids a DB read on every gateway request.
 	llmAudit llmAuditCache
 
+	// tracePrivacy caches trace privacy rules and the traces suppressed by
+	// them on this replica.
+	tracePrivacy tracePrivacyRuntime
+
 	// builtinConnectors holds the embedded connector definitions loaded at
 	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
 	builtinConnectors []service.Connector
@@ -1196,6 +1200,15 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/trace-export", s.TraceExportSettingsAPI)
 	apiGroup.PUT("/v1/trace-export", s.TraceExportSettingsAPI)
 	apiGroup.POST("/v1/trace-export/test", s.TraceExportSettingsAPI)
+	apiGroup.GET("/v1/trace-privacy/rules", s.ListTracePrivacyRulesAPI)
+	apiGroup.POST("/v1/trace-privacy/rules", s.CreateTracePrivacyRuleAPI)
+	apiGroup.PUT("/v1/trace-privacy/rules/{id}", s.UpdateTracePrivacyRuleAPI)
+	apiGroup.DELETE("/v1/trace-privacy/rules/{id}", s.DeleteTracePrivacyRuleAPI)
+	apiGroup.POST("/v1/trace-privacy/rules/{id}/apply", s.ApplyTracePrivacyRuleAPI)
+	apiGroup.GET("/v1/trace-privacy/settings", s.TracePrivacySettingsAPI)
+	apiGroup.PUT("/v1/trace-privacy/settings", s.TracePrivacySettingsAPI)
+	apiGroup.GET("/v1/trace-privacy/opt-out", s.TracePrivacyOptOutAPI)
+	apiGroup.PUT("/v1/trace-privacy/opt-out", s.TracePrivacyOptOutAPI)
 	apiGroup.GET("/v1/llm-calls/traces", s.ListLLMCallTracesAPI)
 	apiGroup.GET("/v1/llm-calls/conversations", s.ListLLMCallConversationsAPI)
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
