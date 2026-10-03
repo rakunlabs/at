@@ -1925,7 +1925,9 @@
       },
       builtin: async (_, args) => {
         const res = await callBuiltinTool(tc.function.name, args, '', turn.traceId, turn.sessionId, turn.controller.signal);
+        turnLifecycle.assert(turn);
         if (res.error) return `Error: ${res.error}`;
+        noteTurnArtifacts(res.result);
         return res.result;
       },
       local: (source, args) => executeLocalTool(source, tc.function.name, args, turn),

@@ -58,6 +58,8 @@ type ImageGenerateRequest struct {
 	Size    string `json:"size,omitempty"`    // e.g. "1024x1024", "1792x1024"
 	Quality string `json:"quality,omitempty"` // e.g. "standard", "hd"
 	Style   string `json:"style,omitempty"`   // e.g. "vivid", "natural"
+	// Background is "transparent", "opaque" or "auto" on GPT Image models.
+	Background string `json:"background,omitempty"`
 }
 
 // ImageResponse is the result of an image generation or edit operation.

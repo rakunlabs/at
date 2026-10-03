@@ -146,6 +146,7 @@ type imagesRequest struct {
 	Size           string `json:"size,omitempty"`
 	Quality        string `json:"quality,omitempty"`
 	Style          string `json:"style,omitempty"`
+	Background     string `json:"background,omitempty"`
 	ResponseFormat string `json:"response_format,omitempty"`
 }
 
@@ -163,22 +164,26 @@ func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateR
 	url := p.apiURL("/images/generations")
 
 	apiReq := imagesRequest{
-		Prompt:         req.Prompt,
-		Model:          req.Model,
-		N:              req.N,
-		Size:           req.Size,
-		Quality:        req.Quality,
-		Style:          req.Style,
-		ResponseFormat: "url", // default to URL
+		Prompt:     req.Prompt,
+		Model:      req.Model,
+		N:          req.N,
+		Size:       req.Size,
+		Quality:    req.Quality,
+		Style:      req.Style,
+		Background: req.Background,
 	}
 
 	if apiReq.Model == "" {
 		apiReq.Model = "dall-e-3"
 	}
+	// GPT Image models always return base64 and reject response_format.
+	if strings.HasPrefix(apiReq.Model, "dall-e") {
+		apiReq.ResponseFormat = "url"
+	}
 	if apiReq.N == 0 {
 		apiReq.N = 1
 	}
-	if apiReq.Size == "" {
+	if apiReq.Size == "" && strings.HasPrefix(apiReq.Model, "dall-e") {
 		apiReq.Size = "1024x1024"
 	}
 

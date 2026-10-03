@@ -168,6 +168,17 @@ var builtinToolSchemas = []builtinToolDef{
 		"min_confidence": map[string]any{"type": "number", "description": "Optional 0–1 threshold; answers below it are listed in low_confidence"},
 	}, "required": []string{"provider", "state", "questions"}}},
 
+	// ─── Image Tools ───
+	{Name: "generate_image", Description: "Generate images from a text description with a provider that supports image generation: an OpenAI provider (API key, or ChatGPT/Codex subscription auth — billed to the subscription), or MiniMax. Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). The images are saved and delivered to the user automatically; the result lists the saved files. Never paste image data into your answer.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"provider":   map[string]any{"type": "string", "description": "Key of the image-capable provider, optionally provider/model (e.g. openai-codex or openai/gpt-image-1.5)"},
+		"prompt":     map[string]any{"type": "string", "description": "Detailed description of the image to create"},
+		"model":      map[string]any{"type": "string", "description": "Image model. Defaults to gpt-image-2 (ChatGPT/Codex); use gpt-image-1.5 or dall-e-3 for API keys, image-01 for MiniMax"},
+		"size":       map[string]any{"type": "string", "description": "e.g. 1024x1024, 1536x1024 (landscape), 1024x1536 (portrait) or auto"},
+		"quality":    map[string]any{"type": "string", "description": "low, medium, high or auto"},
+		"background": map[string]any{"type": "string", "enum": []string{"auto", "opaque", "transparent"}, "description": "transparent for cutouts, logos and stickers"},
+		"n":          map[string]any{"type": "integer", "minimum": 1, "maximum": generateImageMaxCount, "description": "Number of images (default 1)"},
+	}, "required": []string{"provider", "prompt"}}},
+
 	// ─── User Preference Tools ───
 	{Name: "current_time", Description: "Get the current date and time from the server clock, in UTC and an optional IANA timezone (for example Europe/Istanbul). Defaults to UTC; does not automatically read saved user preferences. Returns RFC3339 timestamps, Unix seconds and UTC offset seconds. Requires no host execution.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"timezone": map[string]any{"type": "string", "description": "IANA timezone name, e.g. Europe/Istanbul or America/New_York. Defaults to UTC."}}}},
 	{Name: "whoami", Description: "Identify the signed-in user this conversation runs as: account ID, username, full name, verified email, current workspace and role, plus linked sign-in identities. Takes no arguments; the answer comes from the authenticated session and cannot be changed by the conversation.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},

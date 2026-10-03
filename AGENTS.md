@@ -2452,6 +2452,34 @@ store's resource scope; guide mutations and unreviewed management tools stay hos
 Regressions: `builtin-tools-non-host_test.go`, `builtin-tools-whoami_test.go`,
 `internal/store/postgres/user-preferences_test.go`.
 
+## Image generation from any model
+
+ChatGPT's web app generates images by having the chat model call a hosted
+image tool; a bare model reached through the API does not. AT exposes the same
+capability as the built-in `generate_image` tool (non-host, "Other" family), so
+an agent on any provider — Claude included — can create images through a
+provider that implements `service.ImageProvider`:
+
+- `openai` with an API key → `/v1/images/generations` (`gpt-image-*`, `dall-e-*`;
+  `response_format` is sent only to DALL-E, which GPT Image models reject).
+- `openai` with `auth_type: chatgpt` → `CodexProvider.GenerateImage`, which posts
+  to `<codex root>/images/generations` — the endpoint the Codex CLI's
+  `image_gen.imagegen` tool uses — with model `gpt-image-2` by default. Usage is
+  billed to the ChatGPT subscription and unavailable on Free plans; this is an
+  unofficial endpoint and may change. The same method serves
+  `/gateway/v1/images/generations` for Codex providers.
+- `minimax`.
+
+Image bytes never enter the conversation. With a run work directory (Chats
+skill runs, org delegation, Telegram tasks) files are written there and
+delivered by the existing artifact collector; otherwise (Chats calling the tool
+directly) they are stored as media owned by the caller and returned as
+`artifacts`, which the Chats page attaches to the answer. Only PNG/JPEG/GIF/WebP
+(sniffed from the bytes) are accepted, and URL results must be HTTPS.
+Anthropic has no image-generation model; Claude uses this tool with another
+provider. Regressions: `internal/server/builtin-tools-image_test.go`,
+`internal/service/llm/openai/codex-images_test.go`.
+
 ## Built-in "get" tools take one identifier or a list
 
 Every record-fetching built-in (`agent_get`, `task_get`, `org_get`,
