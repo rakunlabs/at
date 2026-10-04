@@ -1216,6 +1216,13 @@ func (s *Server) handleStreamingChat(
 			ttftMs         int64
 		)
 
+		// OpenAI clients accumulate tool-call deltas by index, so every call
+		// needs a stream-wide index. Several adapters (Codex, Anthropic) emit
+		// one complete call per chunk; a per-chunk index made them all 0 and
+		// clients concatenated their arguments into one invalid call.
+		toolCallIndex := map[string]int{}
+		nextToolCallIndex := 0
+
 		heartbeat := time.NewTicker(15 * time.Second)
 		defer heartbeat.Stop()
 	streamLoop:
@@ -1296,8 +1303,15 @@ func (s *Server) handleStreamingChat(
 				// Cache thought_signatures for later restoration.
 				s.cacheThoughtSignatures(chunk.ToolCalls)
 
-				for i, tc := range chunk.ToolCalls {
-					idx := i
+				for _, tc := range chunk.ToolCalls {
+					idx, seen := toolCallIndex[tc.ID]
+					if !seen || tc.ID == "" {
+						idx = nextToolCallIndex
+						nextToolCallIndex++
+						if tc.ID != "" {
+							toolCallIndex[tc.ID] = idx
+						}
+					}
 					argsJSON, _ := json.Marshal(tc.Arguments)
 					cc.Choices[0].Delta.ToolCalls = append(cc.Choices[0].Delta.ToolCalls, wire.OpenAIToolCall{
 						Index:            &idx,

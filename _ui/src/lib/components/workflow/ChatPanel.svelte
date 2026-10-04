@@ -639,13 +639,14 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
 
         // Execute each tool call and add tool result messages
         for (const tc of pendingToolCalls) {
-          let args: Record<string, any> = {};
+          let args: Record<string, any> | null = null;
           try {
-            args = JSON.parse(tc.function.arguments);
-          } catch {
-            // If args don't parse, pass empty
-          }
-          const result = executeToolCall(tc.function.name, args);
+            const parsed = JSON.parse(tc.function.arguments || '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed;
+          } catch {}
+          const result = args
+            ? executeToolCall(tc.function.name, args)
+            : JSON.stringify({ error: `Arguments for ${tc.function.name} are not a single JSON object. Call the tool again with one valid JSON object per call.` });
 
           messages = [
             ...messages,

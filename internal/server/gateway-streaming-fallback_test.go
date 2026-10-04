@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -276,5 +277,62 @@ func TestAnthropicStreamingFallsBack(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "message_stop") {
 		t.Fatalf("stream did not terminate cleanly: %s", w.Body)
+	}
+}
+
+// Adapters such as Codex and Anthropic emit each complete tool call in its own
+// chunk. Indices must be stream-wide, or OpenAI clients merge the calls into
+// one call whose arguments are several concatenated JSON objects.
+func TestStreamingToolCallIndicesAreStreamWide(t *testing.T) {
+	only := &countingStreamProvider{name: "only", chunks: []service.StreamChunk{
+		{ToolCalls: []service.ToolCall{{ID: "call_a", Name: "add_node", Arguments: map[string]any{"id": "a"}}}},
+		{ToolCalls: []service.ToolCall{{ID: "call_b", Name: "add_node", Arguments: map[string]any{"id": "b"}}}},
+		{ToolCalls: []service.ToolCall{{ID: "call_c", Name: "add_edge", Arguments: map[string]any{"id": "c"}}}},
+		{FinishReason: "tool_calls"},
+	}}
+
+	s, p, ctx := anthropicEndpointServer(t, map[string]ProviderInfo{
+		"alpha": {provider: only, providerType: "openai", defaultModel: "m", models: []string{"m"}},
+	})
+	token := gatewayRoutingToken(t, ctx, p, "at_stream_toolidx_tokn", service.APIToken{})
+
+	w := postChatStream(t, s, token, `{"model":"alpha/m","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+
+	indices := map[string]int{}
+	for _, line := range strings.Split(w.Body.String(), "\n") {
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					ToolCalls []struct {
+						Index *int   `json:"index"`
+						ID    string `json:"id"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			t.Fatalf("chunk %q: %v", data, err)
+		}
+		for _, c := range chunk.Choices {
+			for _, tc := range c.Delta.ToolCalls {
+				if tc.Index == nil {
+					t.Fatalf("tool call %s has no index", tc.ID)
+				}
+				indices[tc.ID] = *tc.Index
+			}
+		}
+	}
+	want := map[string]int{"call_a": 0, "call_b": 1, "call_c": 2}
+	for id, idx := range want {
+		if got, ok := indices[id]; !ok || got != idx {
+			t.Fatalf("indices = %v want %v", indices, want)
+		}
 	}
 }
