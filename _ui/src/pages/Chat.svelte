@@ -608,7 +608,7 @@
           signal: AbortSignal.timeout(15000),
         });
       } catch (e) {
-        throw describeLocalProviderError(e, p.name);
+        throw describeLocalProviderError(e, p.name, p.base_url);
       }
       if (!res.ok) throw new Error(`${p.name}: GET /models answered HTTP ${res.status}`);
       const ids = parseModelList(await res.json());
@@ -2617,7 +2617,7 @@
         );
       } catch (e) {
         if ((e as Error)?.name === 'AbortError') throw e;
-        throw describeLocalProviderError(e, provider.name);
+        throw describeLocalProviderError(e, provider.name, provider.base_url);
       }
     } catch (e) {
       if ((e as Error)?.name !== 'AbortError') failure = (e as Error)?.message || 'Local provider request failed';

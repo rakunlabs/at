@@ -86,6 +86,8 @@
     </label>
     <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
       OpenAI-compatible API root. Your browser calls <code>/models</code> and <code>/chat/completions</code> under it directly; plain http only for local addresses.
+      Another AT server: <code>https://&lt;host&gt;/gateway/v1</code> with one of its API tokens.
+      The browser cannot skip certificate checks; for an untrusted certificate add it on the Providers page with <em>Insecure skip verify</em> instead.
     </div>
     <label class="contents">
       <span class="text-xs text-gray-600 dark:text-dark-text-secondary">API key</span>

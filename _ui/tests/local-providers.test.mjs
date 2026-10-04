@@ -57,6 +57,14 @@ test('a network failure names CORS as a possible cause', () => {
   assert.equal(helper.describeLocalProviderError(plain, 'x'), plain);
 });
 
+test('an https failure names the certificate and the server-side alternative', () => {
+  const https = helper.describeLocalProviderError(new TypeError('Failed to fetch'), 'at2', 'https://at2.lan/gateway/v1');
+  assert.match(https.message, /certificate/);
+  assert.match(https.message, /Insecure skip verify/);
+  const http = helper.describeLocalProviderError(new TypeError('Failed to fetch'), 'ollama', 'http://127.0.0.1:11434/v1');
+  assert.doesNotMatch(http.message, /Insecure skip verify/);
+});
+
 test('enabling is per device', () => {
   const store = new Map();
   const storage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };

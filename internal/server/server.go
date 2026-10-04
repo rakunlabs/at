@@ -27,7 +27,6 @@ import (
 	"github.com/rakunlabs/at/internal/service/workflow"
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
-	mcors "github.com/rakunlabs/ada/middleware/cors"
 	mlog "github.com/rakunlabs/ada/middleware/log"
 	mrecover "github.com/rakunlabs/ada/middleware/recover"
 	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
@@ -505,7 +504,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	mux.Use(
 		mrecover.Middleware(),
 		mserver.Middleware(config.Service),
-		mcors.Middleware(),
+		corsMiddleware(cfg.BasePath),
 		mrequestid.Middleware(),
 		mlog.Middleware(),
 		mtelemetry.Middleware(),

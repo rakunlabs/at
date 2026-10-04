@@ -80,15 +80,28 @@ export const LOCAL_PROVIDER_CORS_HINT =
   'Access-Control-Allow-Origin for this origin and Access-Control-Allow-Headers including ' +
   'authorization and content-type. For a local address reached from a page that is not local, ' +
   'Chrome also requires Access-Control-Allow-Private-Network: true on the preflight. ' +
-  'Ollama: set OLLAMA_ORIGINS; LM Studio: enable CORS in the server settings.';
+  'Ollama: set OLLAMA_ORIGINS; LM Studio: enable CORS in the server settings. ' +
+  'Another AT server works as-is: use <its address>/gateway/v1 with one of its API tokens.';
 
 /**
- * A browser reports a refused connection and a refused cross-origin request
- * identically (`TypeError: Failed to fetch`), so the message names both.
+ * A browser cannot skip certificate verification, so an untrusted certificate
+ * has only two fixes: trust it on this device, or let the AT server make the
+ * call instead.
  */
-export function describeLocalProviderError(e: unknown, name: string): Error {
+export const LOCAL_PROVIDER_CERT_HINT =
+  'If it uses a self-signed or otherwise untrusted certificate, the browser refuses the connection and cannot be told to ignore it: ' +
+  'trust the certificate on this device, or add the endpoint on the Providers page (server-side) with "Insecure skip verify" enabled.';
+
+/**
+ * A browser reports a refused connection, a refused cross-origin request and
+ * an untrusted certificate identically (`TypeError: Failed to fetch`), so the
+ * message names every cause that applies to the URL.
+ */
+export function describeLocalProviderError(e: unknown, name: string, baseUrl = ''): Error {
   if (e instanceof TypeError) {
-    return new Error(`Could not reach local provider "${name}": the server is not running or it does not allow this page. ${LOCAL_PROVIDER_CORS_HINT}`);
+    const cert = baseUrl.trim().toLowerCase().startsWith('https:') ? ` ${LOCAL_PROVIDER_CERT_HINT}` : '';
+
+    return new Error(`Could not reach local provider "${name}": the server is not running, it does not allow this page, or its certificate is not trusted. ${LOCAL_PROVIDER_CORS_HINT}${cert}`);
   }
 
   return e instanceof Error ? e : new Error(String(e));

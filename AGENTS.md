@@ -318,6 +318,22 @@ as `[]`, never `null` — clients iterate it without a nil check — sorted by m
 ID, since Go map iteration order previously reshuffled pickers between restarts.
 Regression: `internal/server/gateway-routing_test.go`.
 
+### Gateway CORS
+
+`/gateway/v1/*` answers cross-origin browser calls from any origin
+(`internal/server/gateway-cors.go`), so another AT installation can use this one
+as a Chats local provider (`https://<host>/gateway/v1` + an API token) with no
+configuration. Opening it is safe because admission is a header token, never
+ambient state: credentials are not allowed and the gateway group strips
+`Cookie`. Preflights reflect the requested header names (`*` never covers
+`Authorization`), answer Chrome's Private Network Access preflight, and responses
+expose `x-at-*` / `retry-after`. The gateway MCP endpoints (public servers admit
+anonymous requests) and plugin downloads keep the default ada policy, as does the
+rest of the application. Browsers cannot skip certificate verification, so
+local providers have no insecure option; the UI points untrusted-certificate
+endpoints at a server-side provider with `insecure_skip_verify`. Regression:
+`TestGatewayCORS`.
+
 ### Deployment sub-path (`server.base_path`)
 
 `config.NormalizeBasePath` canonicalizes the value once at load: either `""`

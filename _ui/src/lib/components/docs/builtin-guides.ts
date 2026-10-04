@@ -68,7 +68,23 @@ OLLAMA_ORIGINS="https://at.example.com" ollama serve
 # LM Studio: Developer → Server settings → Enable CORS
 \`\`\`
 
-A browser reports "server not running" and "CORS refused" the same way (*Failed to fetch*), so the error message names both causes.
+A browser reports "server not running", "CORS refused" and "certificate not trusted" the same way (*Failed to fetch*), so the error message names every cause.
+
+### Another AT server as a local provider
+
+AT's gateway already allows browser calls from any page, so another AT installation needs no configuration:
+
+- **Base URL:** \`https://<other-at>/gateway/v1\` (include its sub-path, e.g. \`https://host/at/gateway/v1\`)
+- **API key:** an API token created on that server (\`at_…\`)
+
+Its models and routing profiles appear in the picker. Budgets, token limits and traces apply on that server.
+
+### Self-signed or untrusted certificates
+
+A browser cannot be told to skip certificate verification, so there is no "insecure" option for local providers. Either:
+
+- trust the certificate on this device (for example \`mkcert -install\`, or import the CA into the operating system's trust store), or
+- add the endpoint on the **Providers** page as an \`openai\` provider with **Insecure skip verify** enabled. The AT server then makes the call, and server-side budgets, fallbacks and usage apply.
 
 Hosted APIs differ: OpenAI-compatible services that allow browser requests work directly; ones that refuse cross-origin requests cannot be used this way. Add those as a normal (server-side) provider on the **Providers** page instead. Anthropic's native API is not supported here.
 
