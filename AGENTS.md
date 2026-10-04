@@ -21,7 +21,7 @@ internal/service/workflow/nodes/ → node types registered via init()
 internal/service/llm/       → provider adapters: openai/, antropic/, gemini/, vertex/
 internal/store/             → store factory → postgres (the only backend; required)
 internal/crypto/            → AES-256-GCM credential encryption, key rotation
-_ui/                        → Svelte 5 + Vite 6 + TailwindCSS 4 SPA
+_ui/                        → Svelte 5 + Vite 8 + TailwindCSS 4 SPA
 ```
 
 ## Build, Test, Lint
@@ -2914,7 +2914,7 @@ modal dialog; the shell uses dynamic viewport height and safe-area padding.
 See `_ui/README.md` for install, deployment and device verification instructions.
 
 ### Stack
-- **Svelte 5** (runes mode), **Vite 6**, **TailwindCSS 4** (CSS-based config), **TypeScript**
+- **Svelte 5** (runes mode), **Vite 8**, **TailwindCSS 4** (CSS-based config), **TypeScript**
 - **Router**: `svelte-spa-router` (hash-based, `#/path`), eager imports
 - **HTTP**: `axios` per-domain files, each with `axios.create({ baseURL: 'api/v1' })` (relative, same-origin)
 - **Icons**: `lucide-svelte`

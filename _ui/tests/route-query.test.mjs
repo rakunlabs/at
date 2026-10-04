@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { fromStore, writable } from 'svelte/store';
 import ts from 'typescript';
 
 async function load(path, replacements = []) {
@@ -14,10 +13,9 @@ async function load(path, replacements = []) {
 }
 
 const { updateRouteQuery } = await load('../src/lib/helper/route-query.ts');
-globalThis.routeQueryTest = { fromStore, querystring: writable(''), updateRouteQuery };
+globalThis.routeQueryTest = { router: { querystring: '' }, updateRouteQuery };
 const { routeChoice } = await load('../src/lib/helper/route-choice.svelte.ts', [
-  ["import { fromStore } from 'svelte/store';", 'const { fromStore } = globalThis.routeQueryTest;'],
-  ["import { querystring } from 'svelte-spa-router';", 'const { querystring } = globalThis.routeQueryTest;'],
+  ["import { router } from 'svelte-spa-router';", 'const { router } = globalThis.routeQueryTest;'],
   ["import { updateRouteQuery } from './route-query';", 'const { updateRouteQuery } = globalThis.routeQueryTest;'],
 ]);
 
@@ -28,7 +26,7 @@ function browser(initial) {
   let notifications = 0;
   function notify() {
     notifications++;
-    globalThis.routeQueryTest.querystring.set(history[index].split('?')[1] || '');
+    globalThis.routeQueryTest.router.querystring = history[index].split('?')[1] || '';
   }
   globalThis.window = {
     location: {

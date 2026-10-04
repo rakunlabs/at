@@ -4,7 +4,7 @@
   // URL scheme. This page is the shell — data loading, selection state and
   // layout. Rendering lives in lib/components/docs/.
   import { untrack, tick } from 'svelte';
-  import { push, querystring } from 'svelte-spa-router';
+  import { push, router } from 'svelte-spa-router';
   import { Menu, X, RefreshCw, BookOpen } from 'lucide-svelte';
 
   import { storeNavbar, storeInfo } from '@/lib/store/store.svelte';
@@ -152,7 +152,7 @@
   }
 
   $effect(() => {
-    const resolved = resolveSelection(parseDocsQuery($querystring || ''));
+    const resolved = resolveSelection(parseDocsQuery(router.querystring || ''));
     if (!sameSelection(resolved, untrack(() => selection))) {
       selection = resolved;
       // Back/forward navigation must abandon a half-written draft rather than

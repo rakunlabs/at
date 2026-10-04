@@ -6,13 +6,13 @@ Single-page admin UI for managing providers, workflows, tokens, skills, and chat
 
 ## Stack
 
-- **Framework**: Svelte 5 (`^5.46.1`)
-- **Bundler**: Vite 6
-- **Router**: svelte-spa-router (client-side hash routing)
+- **Framework**: Svelte 5 (`^5.57.1`)
+- **Bundler**: Vite 8 (Rolldown; chunk groups use `build.rolldownOptions.output.codeSplitting`)
+- **Router**: svelte-spa-router 5 (client-side hash routing; read `router.location` / `router.querystring`, not the removed v4 stores)
 - **Styling**: TailwindCSS 4, lucide-svelte icons
 - **HTTP**: axios with `baseURL: 'api/v1'` (relative, same-origin)
 - **State**: kaykay `$state()` macro for reactive global stores
-- **Package manager**: pnpm
+- **Package manager**: pnpm 12 (pinned via `packageManager` in package.json)
 
 ## Directory Layout
 

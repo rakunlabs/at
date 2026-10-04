@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack, onDestroy } from 'svelte';
-  import { querystring, push, replace } from 'svelte-spa-router';
+  import { router, push, replace } from 'svelte-spa-router';
   import { Activity, RefreshCw, Search, MessagesSquare, ListTree, Sparkles } from 'lucide-svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import FilterBar from '@/lib/components/traces/FilterBar.svelte';
@@ -22,7 +22,7 @@
   let { params = {} }: { params?: { id?: string | null; session?: string | null } } = $props();
 
   type Tab = 'traces' | 'sessions' | 'generations';
-  const query = $derived(new URLSearchParams($querystring || ''));
+  const query = $derived(new URLSearchParams(router.querystring || ''));
   const traceID = $derived(params.id || '');
   const sessionID = $derived(params.session || '');
   const tab = $derived<Tab>((query.get('tab') as Tab) || 'traces');
@@ -55,7 +55,7 @@
   }
 
   function setQuery(values: Record<string, string | null>, replaceEntry = false) {
-    const next = new URLSearchParams($querystring || '');
+    const next = new URLSearchParams(router.querystring || '');
     for (const [k, v] of Object.entries(values)) {
       if (v === null || v === '') next.delete(k);
       else next.set(k, v);
@@ -120,7 +120,7 @@
 
   // Reload whenever the URL-held state changes.
   $effect(() => {
-    void [tab, $querystring, traceID, sessionID, limit];
+    void [tab, router.querystring, traceID, sessionID, limit];
     untrack(() => {
       search = filters.q;
       void load();
@@ -167,7 +167,7 @@
   }
 
   function listQuery(): string {
-    const keep = new URLSearchParams($querystring || '');
+    const keep = new URLSearchParams(router.querystring || '');
     keep.delete('obs');
     const s = keep.toString();
     return s ? `?${s}` : '';

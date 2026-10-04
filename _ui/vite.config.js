@@ -16,12 +16,14 @@ export default defineConfig({
     }
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          'highlight': ['highlight.js'],
-          'katex': ['katex'],
-          'marked': ['marked'],
+        codeSplitting: {
+          groups: [
+            { name: 'highlight', test: /node_modules[\\/](\.pnpm[\\/])?highlight\.js/ },
+            { name: 'katex', test: /node_modules[\\/](\.pnpm[\\/])?katex/ },
+            { name: 'marked', test: /node_modules[\\/](\.pnpm[\\/])?marked/ },
+          ]
         }
       }
     }

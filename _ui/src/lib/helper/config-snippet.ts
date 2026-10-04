@@ -1,4 +1,4 @@
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import type { LLMConfig } from '@/lib/api/providers';
 import type { APIToken } from '@/lib/api/tokens';
 
@@ -89,7 +89,7 @@ export function generateYamlSnippet(key: string, config: LLMConfig): string {
   return yaml.dump(obj, {
     indent: 2,
     lineWidth: -1,
-    quotingType: '"',
+    quoteStyle: 'double',
     forceQuotes: false,
     noRefs: true,
   }).trimEnd();
@@ -178,7 +178,7 @@ export function generateAuthTokenYamlSnippet(token: APIToken): string {
   return yaml.dump(obj, {
     indent: 2,
     lineWidth: -1,
-    quotingType: '"',
+    quoteStyle: 'double',
     forceQuotes: false,
     noRefs: true,
   }).trimEnd();

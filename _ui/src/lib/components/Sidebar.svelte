@@ -1,7 +1,7 @@
 <script lang="ts">
   import BrandLogo from './BrandLogo.svelte';
   import { storeInfo } from '../store/store.svelte';
-  import { location } from 'svelte-spa-router';
+  import { router } from 'svelte-spa-router';
   import { routeAllowed, inSettingsArea } from '../helper/navigation';
   import { onMount } from 'svelte';
   import { loadFeatures } from '../store/features.svelte';
@@ -36,8 +36,8 @@
   // same rule as the styling; it used to match only the exact path, so assistive
   // technology was told nothing was current on every detail route.
   function navActive(path: string) {
-    if (path === '/settings') return inSettingsArea($location);
-    return $location === path || (path !== '/' && $location.startsWith(path + '/'));
+    if (path === '/settings') return inSettingsArea(router.location);
+    return router.location === path || (path !== '/' && router.location.startsWith(path + '/'));
   }
   const navClass = (active: boolean) => [
     'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',

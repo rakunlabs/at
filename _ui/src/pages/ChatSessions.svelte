@@ -2,7 +2,7 @@
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import { createSessionTurnController, emptySessionTurn, sessionTurnBusy } from '@/lib/helper/session-turn';
   import { onMount, tick, untrack } from 'svelte';
-  import { querystring } from 'svelte-spa-router';
+  import { router } from 'svelte-spa-router';
   import { updateRouteQuery } from '@/lib/helper/route-query';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -851,7 +851,7 @@
     messageError = '';
   }
 
-  const routeSession = $derived(new URLSearchParams($querystring).get('session'));
+  const routeSession = $derived(new URLSearchParams(router.querystring).get('session'));
   $effect(() => {
     const id = routeSession;
     untrack(() => {

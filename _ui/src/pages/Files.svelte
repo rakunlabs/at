@@ -1,7 +1,7 @@
 <script lang="ts">
   import { authFetch as fetch } from '@/lib/api/transport';
   import { onMount, untrack } from 'svelte';
-  import { querystring } from 'svelte-spa-router';
+  import { router } from 'svelte-spa-router';
   import { updateRouteQuery } from '@/lib/helper/route-query';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -92,7 +92,7 @@
   let previewError = $state('');
   let previewTruncated = $state(false);
 
-  const routePath = $derived(new URLSearchParams($querystring).get('path') || '.');
+  const routePath = $derived(new URLSearchParams(router.querystring).get('path') || '.');
 
   $effect(() => {
     const path = routePath;

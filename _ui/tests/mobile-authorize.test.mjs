@@ -104,9 +104,9 @@ test('401 returns to login; conflict and uncertain decisions never retry or expo
 
 test('App handles the exact consent route after login and before workspace authorization', async () => {
   const app = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
-  assert.match(app, /\$location === '\/mobile-authorize'/);
-  assert.ok(app.indexOf("authState === 'login'}") < app.indexOf("$location === '/mobile-authorize'}"));
-  const branch = app.slice(app.indexOf('{:else if $location'), app.indexOf('<div class={[', app.indexOf('{:else if $location')));
+  assert.match(app, /router\.location === '\/mobile-authorize'/);
+  assert.ok(app.indexOf("authState === 'login'}") < app.indexOf("router.location === '/mobile-authorize'}"));
+  const branch = app.slice(app.indexOf('{:else if router.location'), app.indexOf('<div class={[', app.indexOf('{:else if router.location')));
   assert.ok(branch.includes('<MobileAuthorize'));
   assert.ok(!branch.includes('<Router'));
   const login = await readFile(new URL('../src/lib/components/NativeLogin.svelte', import.meta.url), 'utf8');
