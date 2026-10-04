@@ -4,7 +4,18 @@
   let { data, providers = [] }: { data: Record<string, any>; providers?: any[] } = $props();
 
   let agents = $state<Agent[]>([]);
-  let selectedProvider = $derived(providers.find(p => p.key === data.provider));
+  let agentsLoaded = $state(false);
+  let selectedAgent = $derived(agents.find(a => a.id === data.agent_id));
+  let groupedAgents = $derived.by(() => {
+    const groups = new Map<string, Agent[]>();
+    for (const a of [...agents].sort((x, y) => x.name.localeCompare(y.name))) {
+      const group = a.config?.group || '';
+      groups.set(group, [...(groups.get(group) ?? []), a]);
+    }
+    return [...groups.entries()].sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)));
+  });
+  let effectiveProvider = $derived(data.provider || selectedAgent?.config?.provider || '');
+  let selectedProvider = $derived(providers.find(p => p.key === effectiveProvider));
   let availableModels = $derived(
     selectedProvider?.config?.models?.length
       ? selectedProvider.config.models
@@ -12,23 +23,76 @@
         ? [selectedProvider.config.model]
         : []
   );
+  let agentResources = $derived.by(() => {
+    const c = selectedAgent?.config;
+    if (!c) return [];
+    return [
+      { label: 'Skills', count: c.skills?.length ?? 0 },
+      { label: 'MCP sets', count: c.mcp_sets?.length ?? 0 },
+      { label: 'MCP URLs', count: c.mcp_urls?.length ?? 0 },
+      { label: 'Built-in tools', count: c.builtin_tools?.length ?? 0 },
+      { label: 'Workflows', count: c.workflows?.length ?? 0 },
+    ].filter(r => r.count > 0);
+  });
 
-  listAgents().then(res => agents = res.data).catch(() => {});
+  listAgents({ _limit: 500 })
+    .then(res => agents = res.data ?? [])
+    .catch(() => {})
+    .finally(() => agentsLoaded = true);
+
+  function selectAgent(id: string) {
+    data.agent_id = id;
+    // A stored agent supplies its own provider/model; drop stale inline
+    // values so they do not silently override it.
+    if (id) {
+      data.provider = '';
+      data.model = '';
+    }
+  }
 </script>
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Agent Preset</span>
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Agent</span>
   <select
-    bind:value={data.agent_id}
+    value={data.agent_id ?? ''}
+    onchange={(e) => selectAgent((e.currentTarget as HTMLSelectElement).value)}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
   >
-    <option value="">Custom (No Preset)</option>
-    {#each agents as a}
-      <option value={a.id}>{a.name}</option>
+    <option value="">Custom (configure inline)</option>
+    {#each groupedAgents as [group, items] (group)}
+      {#if group}
+        <optgroup label={group}>
+          {#each items as a (a.id)}
+            <option value={a.id}>{a.name}</option>
+          {/each}
+        </optgroup>
+      {:else}
+        {#each items as a (a.id)}
+          <option value={a.id}>{a.name}</option>
+        {/each}
+      {/if}
     {/each}
+    {#if data.agent_id && agentsLoaded && !selectedAgent}
+      <option value={data.agent_id}>Unavailable agent ({data.agent_id})</option>
+    {/if}
   </select></label>
-  <div class="mt-0.5 text-[10px] text-gray-400">Select a pre-configured agent or leave empty to configure manually.</div>
+  {#if selectedAgent}
+    <div class="mt-1 border border-gray-200 bg-gray-50 px-2 py-1.5 text-[10px] text-gray-600 space-y-0.5">
+      {#if selectedAgent.config?.description}
+        <div class="text-gray-700">{selectedAgent.config.description}</div>
+      {/if}
+      <div class="font-mono">{selectedAgent.config?.provider || '—'}{selectedAgent.config?.model ? ' / ' + selectedAgent.config.model : ''}</div>
+      {#if agentResources.length}
+        <div>{agentResources.map(r => `${r.count} ${r.label}`).join(' · ')}</div>
+      {/if}
+      <div class="text-gray-400">The agent's system prompt, skills, MCP sets, built-in tools and workflows are used.</div>
+    </div>
+  {:else if data.agent_id && agentsLoaded}
+    <div class="mt-0.5 text-[10px] text-red-500">This agent no longer exists or is not visible to you.</div>
+  {:else}
+    <div class="mt-0.5 text-[10px] text-gray-400">Pick an agent to reuse its prompt, skills and MCP tools, or configure a provider inline.</div>
+  {/if}
 </div>
 
 <div class="h-px bg-gray-200 my-2"></div>
@@ -40,7 +104,7 @@
     bind:value={data.provider}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
   >
-    <option value="">Select provider</option>
+    <option value="">{data.agent_id ? 'Agent default' : 'Select provider'}</option>
     {#each providers as p}
       <option value={p.key}>{p.key}</option>
     {/each}
@@ -53,7 +117,7 @@
     bind:value={data.model}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
   >
-    <option value="">Select model</option>
+    <option value="">{data.agent_id ? 'Agent default' : 'Select model'}</option>
     {#each availableModels as m}
       <option value={m}>{m}</option>
     {/each}

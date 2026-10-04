@@ -2155,6 +2155,41 @@ Sessions, org delegation, workflow nodes and the gateway have no browser.
 Regressions: `internal/service/types-local-mcp_test.go`,
 `internal/server/chat-local-mcp_test.go`, `_ui/tests/local-mcp.test.mjs`.
 
+### Local providers in Chats
+
+A **local provider** (`service.LocalChatProvider`) is a per-account
+OpenAI-compatible endpoint the browser calls directly from Chats: a model
+server on the user's machine or a hosted API with their own key. Same position
+as local MCP: the server stores it and **never sends a request to one**. Stored
+in `user_preferences` under `local_chat_providers` (`Secret: true`, no
+migration); managed at `GET`/`PUT /api/v1/chats/local-providers` plus
+`POST .../{id}/reveal` (returns `api_key` + `headers`), owner-scoped through
+`playgroundAccess`, admitted on `models.use`, feature key
+`chat_local_providers` (sibling of `chat_local_mcp`). The API key and header
+values are redacted to `***` on reads; the sentinel preserves on write. Plain
+`http` is accepted only for local hosts (`LocalMCPHostAllowed`); public
+endpoints must be `https`. Names are lowercase `[a-z0-9._-]{1,32}` because
+they form the model reference `local:<name>/<model>`.
+
+The browser lists `<base>/models` and adds the models to the picker under
+`<name> · This device`; enabling is per device (`at.local-providers.enabled`
+in `localStorage`). A turn on a `local:` model calls `<base>/chat/completions`
+with `streamChatCompletion` and dispatches tools unchanged. Saved messages are
+sent inline (the provider cannot resolve `at_message_id`); a partially loaded
+conversation is refused rather than sent with a shortened context. Missing tool
+call IDs are minted client-side. No reasoning effort is sent (capabilities are
+unknown).
+
+Each call is reported to `POST /api/v1/chats/generation-observations` as a
+`generation` with `origin: browser_local`, `client_asserted: true` and
+`noCostEstimate`, so installation pricing is never applied. Nothing is written
+to `cost_events`: provider budgets, per-user allowances, API-token limits,
+Usage and the loop governor do not apply. No resumable stream. Chats-only. The
+user-facing explanation is the built-in guide `local-providers` (Documentation).
+Regressions: `internal/server/chat-local-providers_test.go`,
+`_ui/tests/local-providers.test.mjs`, the local cases in
+`_ui/tests/chat-runtime.test.mjs`.
+
 ### Browser extensions in Chats
 
 The Chat tools panel has a per-page **Web connection** switch (off on initial

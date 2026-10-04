@@ -133,6 +133,14 @@ var featureDefinitions = []featureDefinition{
 		Parent: service.FeatureChatWorkbench,
 	},
 	{
+		Key:  service.FeatureChatLocalProviders,
+		Name: "Local providers in Chats",
+		Description: "Let a person add an OpenAI-compatible endpoint — a model server on their own machine or a hosted API with their own key — that their browser calls directly from Chats. " +
+			"The server stores the endpoint and never sends a request to it, so provider budgets, pricing and the loop governor do not apply to these calls.",
+		Group:  "workspace",
+		Parent: service.FeatureChatWorkbench,
+	},
+	{
 		Key:  service.FeatureChatExtensions,
 		Name: "Browser extensions in Chats",
 		Description: "Let Chats discover browser extensions the person installed and call the tools they expose — browser automation, page capture, anything an extension can do that a server cannot reach. " +

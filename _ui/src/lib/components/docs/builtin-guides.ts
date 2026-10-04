@@ -25,6 +25,75 @@ function builtin(
 /** Built-in guides ship with the app and cannot be edited or deleted. */
 export const builtinGuides: DisplayGuide[] = [
   builtin(
+    'local-providers',
+    'Local providers',
+    'Use your own OpenAI-compatible model server or API key from Chats',
+    'Cpu',
+    `
+## Local providers
+
+A **local provider** is an OpenAI-compatible endpoint that **your browser calls directly** from Chats. It can be a model server on your own computer (Ollama, LM Studio, llama.cpp, vLLM) or a hosted API with your own key.
+
+AT stores the provider's address and credentials and **never sends a request to it**. That is what makes \`localhost\` mean *your* computer rather than the AT server.
+
+Only OpenAI-compatible APIs are supported: the browser calls \`<base URL>/models\` and \`<base URL>/chat/completions\`.
+
+### Adding one
+
+1. Open **Chats → Workbench → Local providers** and choose **Add provider**.
+2. Enter a **name** (lowercase, used in the model reference \`local:<name>/<model>\`) and the **base URL**, for example \`http://127.0.0.1:11434/v1\`.
+3. Optionally enter an **API key** (sent as \`Authorization: Bearer …\`) and extra headers. They are stored encrypted and fetched only when your browser is about to call the provider.
+4. Choose **Enable here**. The browser lists the models and adds them to the model picker under *<name> · This device*.
+
+Plain \`http\` is accepted only for local addresses (loopback, private networks, \`.local\`). Public endpoints must use \`https\`.
+
+### Enabling is per device
+
+The provider record follows your account, but **Enable here** is stored in this browser only. \`http://127.0.0.1:11434\` is a different program on your laptop and on your desktop, so a provider must be enabled again on each device before your conversation is sent to it.
+
+### CORS: the provider must allow this page
+
+Because the request comes from the browser, the provider must answer cross-origin requests from AT's address:
+
+- \`Access-Control-Allow-Origin\` for AT's origin
+- \`Access-Control-Allow-Headers\` including \`authorization\` and \`content-type\`
+- When AT is on a public address and the provider is on a local one, current Chrome also requires \`Access-Control-Allow-Private-Network: true\` on the preflight.
+
+Examples:
+
+\`\`\`bash
+# Ollama
+OLLAMA_ORIGINS="https://at.example.com" ollama serve
+
+# LM Studio: Developer → Server settings → Enable CORS
+\`\`\`
+
+A browser reports "server not running" and "CORS refused" the same way (*Failed to fetch*), so the error message names both causes.
+
+Hosted APIs differ: OpenAI-compatible services that allow browser requests work directly; ones that refuse cross-origin requests cannot be used this way. Add those as a normal (server-side) provider on the **Providers** page instead. Anthropic's native API is not supported here.
+
+### What does not apply
+
+The call never passes through the AT server, so:
+
+- **Provider budgets, per-user allowances, API-token limits and pricing do not apply.** You pay the provider directly with your own key.
+- **The loop governor does not apply** (no input windowing or tool-result spill files); the context window is the model's own.
+- **Usage and Cost** are not updated. Each call is recorded in **Traces** as a generation marked \`origin: browser_local\` and \`client_asserted: true\`, with the token counts the provider reported and no cost. Prompt content is included only while LLM body capture is on.
+- A workspace administrator can turn the whole feature off under **Settings → Features → Local providers in Chats**.
+
+### Conversation history
+
+Saved messages are normally sent to the server by reference. A local provider needs the whole conversation in the request, so the browser sends every message inline, including attachments loaded from media storage. If a long conversation has older messages that are not loaded yet, choose **Load older messages** first; AT refuses to send a shortened context silently.
+
+### Other limitations
+
+- **Chats only.** Sessions, organization tasks, workflows and bots run on the server and cannot reach a provider that only your browser can.
+- **No reconnect.** Server completions can resume after a dropped connection; a local provider call cannot. If the connection drops, retry the turn.
+- **Tools still work.** Built-in, MCP set, skill, local MCP and extension tools are dispatched exactly as with server providers. Some local servers send tool calls without IDs; the browser assigns them.
+- **No reasoning-effort control.** AT does not know a local model's capabilities, so the reasoning picker is hidden and no \`reasoning_effort\` is sent.
+`,
+  ),
+  builtin(
     'whisper',
     'Speech-to-Text (Whisper)',
     'Voice message transcription for Telegram bots and agents',

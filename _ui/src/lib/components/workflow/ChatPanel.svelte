@@ -11,6 +11,7 @@
   } from '@/lib/helper/chat';
   import { type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
   import { listSkills } from '@/lib/api/skills';
+  import { listAgents } from '@/lib/api/agents';
   import { listVariables } from '@/lib/api/secrets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
@@ -222,6 +223,17 @@
 
   loadNodeTypes();
 
+  let agentsInfo = $state<{ id: string; name: string; description: string }[]>([]);
+
+  async function loadAgents() {
+    try {
+      const res = await listAgents({ _limit: 500 });
+      agentsInfo = (res.data ?? []).map(a => ({ id: a.id, name: a.name, description: a.config?.description || '' }));
+    } catch {}
+  }
+
+  loadAgents();
+
   let skillsInfo = $state<{ name: string; description: string }[]>([]);
   let variablesInfo = $state<{ key: string; description: string }[]>([]);
   let nodeConfigsInfo = $state<{ id: string; name: string; type: string }[]>([]);
@@ -352,7 +364,12 @@ ${buildNodeTypesDoc()}
 ## Available Providers
 ${providersInfo.length > 0 ? providersInfo.map(p => `- "${p.key}": models [${p.models.map(m => `"${m}"`).join(', ')}]`).join('\n') : '- No providers configured yet'}
 
-When creating llm_call, agent_call, or media nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+When creating media nodes, or an agent_call node without an agent, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+
+## Available Agents
+${agentsInfo.length > 0 ? agentsInfo.map(a => `- id="${a.id}" name="${a.name}"${a.description ? ': ' + a.description : ''}`).join('\n') : '- No agents configured yet'}
+
+For LLM steps use an agent_call node (llm_call is legacy; do not create new ones). Prefer setting "agent_id" to one of the agents above: the agent's system prompt, model, skills, MCP sets, built-in tools and workflows are used, so leave "provider"/"model" empty unless you need to override them.
 
 ## Available Skills
 ${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}

@@ -52,16 +52,18 @@ export const workflowNodeDefinitions = [
   {
     type: 'llm_call',
     label: 'LLM Call',
-    description: 'Call an LLM provider',
-    paletteGroup: 'Processing',
+    description: 'Call an LLM provider (legacy; use Agent Call)',
+    // Retired from the palette in favour of Agent Call; saved graphs still
+    // render and run it.
+    paletteGroup: null,
     createDefaultData: () => ({ label: 'LLM Call', provider: '', model: '', system_prompt: '', output_format: 'text' }),
   },
   {
     type: 'agent_call',
     label: 'Agent Call',
-    description: 'Agentic loop with tools',
+    description: 'Run a stored agent or an inline agentic loop',
     paletteGroup: 'Processing',
-    createDefaultData: () => ({ label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 }),
+    createDefaultData: () => ({ label: 'Agent Call', agent_id: '', provider: '', model: '', system_prompt: '' }),
   },
   {
     type: 'template',

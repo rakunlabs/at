@@ -275,6 +275,11 @@ func featureKeyForRoute(path, method, basePath string) string {
 		if seg(1) == "local-mcp-servers" {
 			return service.FeatureChatLocalMCP
 		}
+		// Local providers: the registry and the generations reported from
+		// them. Turning it off leaves Chats on server-side providers only.
+		if seg(1) == "local-providers" || seg(1) == "generation-observations" {
+			return service.FeatureChatLocalProviders
+		}
 		if seg(1) == "shares" || seg(2) == "shares" || seg(2) == "share" {
 			return service.FeatureChatSharing
 		}

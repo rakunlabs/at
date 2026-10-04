@@ -118,15 +118,19 @@ type llmAuditParams struct {
 	requestedModel string // full "provider/model" the client asked for
 	fullModel      string // full "provider/model" that served the call
 
-	usage        service.Usage
-	costCents    float64 // when 0 and usage>0, recomputed from pricing
-	latencyMs    int64
-	ttftMs       int64
-	streamed     bool
-	status       string
-	errCode      string
-	errMsg       string
-	finishReason string
+	usage     service.Usage
+	costCents float64 // when 0 and usage>0, recomputed from pricing
+	// noCostEstimate keeps costCents at zero: the call was not paid through
+	// AT (a browser-called local provider), so installation pricing must not
+	// assign it a price.
+	noCostEstimate bool
+	latencyMs      int64
+	ttftMs         int64
+	streamed       bool
+	status         string
+	errCode        string
+	errMsg         string
+	finishReason   string
 
 	// attribution overrides (agent/workflow callers set these; gateway
 	// leaves them empty and attribution comes from the token).
@@ -264,7 +268,7 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 	}
 
 	costCents := p.costCents
-	if costCents == 0 && (p.usage.PromptTokens > 0 || p.usage.CompletionTokens > 0) {
+	if costCents == 0 && !p.noCostEstimate && (p.usage.PromptTokens > 0 || p.usage.CompletionTokens > 0) {
 		costCents = s.estimateGatewayUsageCostCents(context.WithoutCancel(ctx), provider, model, p.fullModel, p.usage)
 	}
 

@@ -113,10 +113,18 @@ export function mergeDeltaContent(
 export interface StreamCallbacks {
   /** Form-editing callers must not execute calls from failed/truncated streams. */
   requireComplete?: boolean;
+  /**
+   * Mint IDs for tool calls the server sent without one. Several
+   * OpenAI-compatible servers omit them; the ID is only used to pair the call
+   * with its result in the next request, so a client-minted one is sufficient.
+   */
+  mintMissingToolCallIds?: boolean;
   onDelta: (deltaContent: string | ContentPart[]) => void;
   onToolCalls: (toolCalls: ToolCall[]) => void;
   onError: (error: string) => void;
   onUsage?: (usage: ChatUsage) => void;
+  /** The stream's final finish_reason, reported before completeness checks. */
+  onFinish?: (finishReason: string) => void;
 }
 
 /**
@@ -243,6 +251,12 @@ export async function streamChatCompletion(
   // the diagnostic can be persisted as if the model authored it.
   if (streamError) throw new Error(streamError);
   const toolCalls = [...accumulatedToolCalls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call);
+  if (callbacks.mintMissingToolCallIds) {
+    for (const call of toolCalls) {
+      if (!call.id) call.id = `call_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
+    }
+  }
+  callbacks.onFinish?.(finishReason);
 
   if (callbacks.requireComplete) {
     if (!['stop', 'tool_calls', 'function_call'].includes(finishReason)) {

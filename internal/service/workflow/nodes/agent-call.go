@@ -21,7 +21,9 @@ import (
 //
 // Config (node.Data):
 //
-//	"agent_id":       string   — ID of a stored Agent preset (optional)
+//	"agent_id":       string   — ID of a stored Agent (optional); its system
+//	                             prompt, model, skills, MCP sets, built-in tools
+//	                             and workflows are loaded
 //	"provider":       string   — provider key for registry lookup (required if agent_id empty)
 //	"model":          string   — model override (optional, empty = provider default)
 //	"system_prompt":  string   — system message prepended to conversation (optional)
@@ -194,7 +196,7 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 		Type:        "agent_call",
 		Label:       "Agent Call",
 		Category:    "processing",
-		Description: "Agentic loop with documentation skills and independently configured tools",
+		Description: "Run an agent: a stored agent brings its system prompt, model, skills, MCP sets, built-in tools and workflows; or configure provider/model inline",
 		Inputs: []workflow.PortMeta{
 			{Name: "prompt", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Prompt", Position: "left"},
 			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
@@ -210,9 +212,10 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 		},
 		Fields: []workflow.FieldMeta{
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
-			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
-			{Name: "model", Type: "string", Description: "Model name"},
-			{Name: "system_prompt", Type: "string", Description: "System prompt"},
+			{Name: "agent_id", Type: "string", Description: "Stored agent ID; its system prompt, model, skills, MCP sets, built-in tools and workflows are used"},
+			{Name: "provider", Type: "string", Description: "Provider key (required without agent_id; overrides the agent's provider)"},
+			{Name: "model", Type: "string", Description: "Model name (overrides the agent's model)"},
+			{Name: "system_prompt", Type: "string", Description: "System prompt (appended to the agent's system prompt)"},
 			{Name: "max_iterations", Type: "number", Default: 10, Description: "Max tool call iterations (>= 1; clamped to platform ceiling)"},
 		},
 		Color: "purple",
@@ -401,10 +404,14 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	logi.Ctx(ctx).Info("agent_call: skill catalog ready",
 		"count", len(skillRuntime.Catalog()))
 	if reg.MCPSetToolLister != nil && reg.MCPSetToolCaller != nil {
-		for _, setName := range skillRuntime.ToolSetNames() {
+		setNames := skillRuntime.ToolSetNames()
+		if preset != nil {
+			setNames = append(append([]string{}, preset.Config.MCPSets...), setNames...)
+		}
+		for _, setName := range uniqueStrings(setNames) {
 			tools, listErr := reg.MCPSetToolLister(ctx, setName)
 			if listErr != nil {
-				logi.Ctx(ctx).Warn("agent_call: failed to load migrated skill tool set", "set", setName, "error", listErr)
+				logi.Ctx(ctx).Warn("agent_call: failed to load MCP set tools", "set", setName, "error", listErr)
 				continue
 			}
 			for _, tool := range tools {

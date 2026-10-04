@@ -17,8 +17,8 @@ Built-in node types. Each file defines one node type and registers it via `init(
 |---|---|---|
 | `input.go` | `input` | Passes workflow trigger inputs downstream |
 | `output.go` | `output` | Collects final results into Registry outputs |
-| `llm-call.go` | `llm_call` | Sends prompt to LLM provider via ProviderLookup |
-| `agent-call.go` | `agent_call` | Agentic loop with MCP servers, skills, inline tools |
+| `llm-call.go` | `llm_call` | Legacy: sends prompt to LLM provider via ProviderLookup. Hidden from the palette; saved graphs still run |
+| `agent-call.go` | `agent_call` | Runs a stored agent (`agent_id`: system prompt, model, skills, MCP sets, built-in tools, workflows, connections) or an inline agentic loop; node provider/model override, node system prompt is appended |
 | `conditional.go` | `conditional` | JS expression → NodeResultSelection (port routing) |
 | `loop.go` | `loop` | JS expression → NodeResultFanOut (parallel branches) |
 | `script.go` | `script` | Arbitrary JS execution, 3-port output routing |

@@ -60,12 +60,21 @@ export function fixture() {
   const executeFrontendTool = async (name, args) => { tools.push([name, args]); return 'Tool result'; };
   const executeSkillTool = async () => '', callMCPSetTool = async () => ({}), callBuiltinTool = async () => ({ result: '' });
   const executeLocalTool = async () => '', executeExtensionTool = async () => '', collectSkillRuns = async () => '';
+  const isLocalModelRef = ref => ref.startsWith('local:');
+  const localProviderFor = ref => ({ provider: { id: 'lp', name: ref.slice(6).split('/')[0], base_url: 'http://127.0.0.1:11434/v1' }, model: ref.slice(6).split('/').slice(1).join('/') });
+  const runLocalProviderCompletion = async (turn, target, reqMessages, callbacks) => {
+    streams.push({ local: target, body: { messages: reqMessages }, signal: turn.controller.signal });
+    assertStrict(callbacks.requireComplete && callbacks.mintMissingToolCallIds);
+    callbacks.onDelta('Local answer');
+  };
   ${writer}
   ${functions.join('\n')}
   return {
     sendMessage, persistPending,
     setCreate(value) { createImpl = value; }, setStream(value) { streamImpl = value; }, setUpload(value) { uploadImpl = value; },
     type(text) { userInput = text; },
+    select(model) { selectedModel = model; },
+    truncateHistory() { historyTruncated = true; },
     navigate(id) { resetBuffer(); conversationId = id; messages = [{ role: 'user', content: 'Other chat' }]; meta = [{ sequence: 1, created_at: 'other', imageNames: [] }]; },
     snapshot() { return { streaming, messages, meta, conversationId, creates, appends, streams, tools, toasts, routes }; },
   };
@@ -161,4 +170,31 @@ test('tool follow-ups retain the turn trace and malformed arguments execute no t
     assert.equal(snapshot.tools.length, args === '{}' ? 1 : 0);
     assert.equal(snapshot.messages.at(-1).content, 'Final answer');
   }
+});
+
+test('a local model goes to the browser-called provider with history inline, never by reference', async () => {
+  const chat = fixture();
+  chat.navigate('saved');
+  chat.select('local:ollama/llama3:8b');
+  chat.type('Local question');
+  await chat.sendMessage();
+  const snapshot = chat.snapshot();
+  assert.equal(snapshot.streams.length, 1);
+  assert.deepEqual(snapshot.streams[0].local.model, 'llama3:8b');
+  assert.equal(snapshot.streams[0].local.provider.name, 'ollama');
+  // Saved rows are sent as content: the provider cannot resolve at_message_id.
+  assert.equal(snapshot.streams[0].body.messages.some(m => 'at_message_id' in m), false);
+  assert.deepEqual(snapshot.streams[0].body.messages.map(m => m.content), ['Other chat', 'Local question']);
+  assert.equal(snapshot.messages.at(-1).content, 'Local answer');
+});
+
+test('a local model refuses to run on a partially loaded conversation', async () => {
+  const chat = fixture();
+  chat.navigate('saved');
+  chat.truncateHistory();
+  chat.select('local:ollama/llama3');
+  await chat.sendMessage();
+  const snapshot = chat.snapshot();
+  assert.equal(snapshot.streams.length, 0);
+  assert.match(snapshot.toasts.at(-1), /Load older messages/);
 });

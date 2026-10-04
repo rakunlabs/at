@@ -242,6 +242,12 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"PUT", "/chats/local-mcp-servers", "models.use", "", ""},
 		{"POST", "/chats/local-mcp-servers/{id}/reveal", "models.use", "", ""},
 		{"POST", "/chats/tool-observations", "models.use", "", ""},
+		// The personal local-provider registry and the generations the
+		// browser reports after calling one; same ownership model.
+		{"GET", "/chats/local-providers", "models.use", "", ""},
+		{"PUT", "/chats/local-providers", "models.use", "", ""},
+		{"POST", "/chats/local-providers/{id}/reveal", "models.use", "", ""},
+		{"POST", "/chats/generation-observations", "models.use", "", ""},
 		// Agent-bound (context: fork) skills run their agent server-side for
 		// the browser loop. Entry rides Chats; the skill and agent are each
 		// re-checked by the execution policy (skills.use, agents.run).

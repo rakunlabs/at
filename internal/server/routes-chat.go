@@ -60,6 +60,11 @@ func (s *Server) registerChatWorkbenchRoutes(api *ada.Mux) {
 	api.PUT("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)
 	api.POST("/v1/chats/local-mcp-servers/{id}/reveal", s.LocalMCPServerRevealAPI)
 	api.POST("/v1/chats/tool-observations", s.ChatToolObservationAPI)
+	// Stored here, but local providers are called only by the browser.
+	api.GET("/v1/chats/local-providers", s.LocalChatProvidersAPI)
+	api.PUT("/v1/chats/local-providers", s.LocalChatProvidersAPI)
+	api.POST("/v1/chats/local-providers/{id}/reveal", s.LocalChatProviderRevealAPI)
+	api.POST("/v1/chats/generation-observations", s.ChatGenerationObservationAPI)
 	api.POST("/v1/chats/skill-runs", s.ChatSkillRunAPI)
 	api.GET("/v1/chats/skill-runs/{id}", s.ChatSkillRunStatusAPI)
 }

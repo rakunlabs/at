@@ -10,6 +10,7 @@
     type ToolCall,
     type ToolDefinition,
     type ChatUsage,
+    type StreamCallbacks,
     getTextContent,
     mergeDeltaContent,
     streamChatCompletion,
@@ -45,6 +46,28 @@
   } from '@/lib/helper/local-mcp';
   import { LocalMCPClient, type LocalMCPTool } from '@/lib/helper/local-mcp-client';
   import LocalMCPServerEditor from '@/lib/components/playground/LocalMCPServerEditor.svelte';
+  import LocalProviderEditor from '@/lib/components/playground/LocalProviderEditor.svelte';
+  import {
+    listLocalChatProviders,
+    saveLocalChatProviders,
+    revealLocalChatProvider,
+    reportLocalGeneration,
+    type LocalChatProvider,
+    type LocalChatProviderSecrets,
+  } from '@/lib/api/local-providers';
+  import {
+    describeLocalProviderError,
+    disableLocalProvider,
+    enableLocalProvider,
+    isLocalModelRef,
+    localModelRef,
+    localProviderEnabled,
+    localProviderEndpoint,
+    localProviderHeaders,
+    parseLocalModelRef,
+    parseModelList,
+    LOCAL_PROVIDER_CORS_HINT,
+  } from '@/lib/helper/local-providers';
   import {
     CAPABILITY_TOOLS,
     ExtensionBridge,
@@ -54,7 +77,7 @@
     type ExtensionDescriptor,
     type ExtensionTool,
   } from '@/lib/helper/extension-bridge';
-  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_SHARING } from '@/lib/api/features';
+  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_LOCAL_PROVIDERS, FEATURE_CHAT_SHARING } from '@/lib/api/features';
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
@@ -159,7 +182,7 @@
     resolve: (answer: string) => void;
   }
 
-  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat';
+  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat' | 'providers';
 
   /**
    * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
@@ -266,6 +289,9 @@
 
   let models = $state<string[]>([]);
   let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
+  /** Server-side providers from /info; local providers are merged in by rebuildModelOptions. */
+  let serverModels: string[] = [];
+  let serverModelGroups: Array<{ label: string; models: string[] }> = [];
   let selectedModel = $state('');
   /** '' leaves the provider's default reasoning behaviour untouched. */
   let reasoningEffort = $state('');
@@ -362,12 +388,14 @@
   let workbenchPanel: HTMLDivElement | undefined = $state();
   let workbenchTab = $state<WorkbenchTab>('prompt');
   let workbenchBackdropPressStarted = false;
-  const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
+  const allWorkbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
     { id: 'prompt', label: 'System prompt' },
     { id: 'skills', label: 'Skills' },
     { id: 'tools', label: 'Server tools' },
     { id: 'chat', label: 'Chat tools' },
+    { id: 'providers', label: 'Local providers' },
   ];
+  let workbenchTabs = $derived(allWorkbenchTabs.filter(tab => tab.id !== 'providers' || localProvidersAvailable));
 
   function handleWorkbenchBackdropPointerDown(e: PointerEvent) {
     workbenchBackdropPressStarted = e.target === e.currentTarget;
@@ -513,6 +541,152 @@
     for (const key of [...localHeaderCache.keys()]) {
       if (key.startsWith(`${server.id}|`)) localHeaderCache.delete(key);
     }
+  }
+
+  // ─── Local providers ───
+  //
+  // OpenAI-compatible endpoints this browser calls directly. The server stores
+  // the record and never sends a request to it; a turn on a local model goes
+  // from this page to the provider, with tools still dispatched as usual.
+
+  let localProviders = $state<LocalChatProvider[]>([]);
+  let localProvidersAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_LOCAL_PROVIDERS));
+  /** Enabled on this device (localStorage), by record id. */
+  let localProviderEnabledIds = $state<string[]>([]);
+  /** Discovered models and last error per record id. */
+  let localProviderStatus = $state<Record<string, { models: string[]; error: string; busy: boolean }>>({});
+  let localProviderEditorOpen = $state(false);
+  let localProviderEditing = $state<LocalChatProvider | undefined>(undefined);
+  let localProviderEditorKey = $state(0);
+  /** Credentials per id|base_url, revealed when first needed. */
+  const localProviderSecrets = new Map<string, LocalChatProviderSecrets>();
+
+  function rebuildModelOptions() {
+    const localGroups: Array<{ label: string; models: string[] }> = [];
+    if (localProvidersAvailable) {
+      for (const p of localProviders) {
+        if (!localProviderEnabledIds.includes(p.id)) continue;
+        const ids = localProviderStatus[p.id]?.models ?? [];
+        if (ids.length === 0) continue;
+        localGroups.push({ label: `${p.name} · This device`, models: ids.map(m => localModelRef(p.name, m)) });
+      }
+    }
+    modelGroups = [...serverModelGroups, ...localGroups];
+    models = [...serverModels, ...localGroups.flatMap(g => g.models)];
+  }
+
+  function refreshLocalProviderEnabled() {
+    localProviderEnabledIds = localProviders.filter(p => localProviderEnabled(p.id, localStorageSafe())).map(p => p.id);
+  }
+
+  async function localProviderSecretsFor(p: LocalChatProvider): Promise<LocalChatProviderSecrets> {
+    const key = `${p.id}|${p.base_url}`;
+    const cached = localProviderSecrets.get(key);
+    if (cached) return cached;
+    const hasSecret = !!p.api_key || Object.keys(p.headers ?? {}).length > 0;
+    const secrets = hasSecret ? await revealLocalChatProvider(p.id) : { api_key: '', headers: {} };
+    localProviderSecrets.set(key, secrets);
+
+    return secrets;
+  }
+
+  function forgetLocalProviderSecrets(id: string) {
+    for (const key of [...localProviderSecrets.keys()]) {
+      if (key.startsWith(`${id}|`)) localProviderSecrets.delete(key);
+    }
+  }
+
+  /** Lists the provider's models from <base>/models, directly from this browser. */
+  async function discoverLocalProviderModels(p: LocalChatProvider): Promise<void> {
+    localProviderStatus = { ...localProviderStatus, [p.id]: { models: localProviderStatus[p.id]?.models ?? [], error: '', busy: true } };
+    try {
+      const secrets = await localProviderSecretsFor(p);
+      let res: Response;
+      try {
+        res = await fetch(localProviderEndpoint(p.base_url, 'models'), {
+          headers: localProviderHeaders(secrets),
+          signal: AbortSignal.timeout(15000),
+        });
+      } catch (e) {
+        throw describeLocalProviderError(e, p.name);
+      }
+      if (!res.ok) throw new Error(`${p.name}: GET /models answered HTTP ${res.status}`);
+      const ids = parseModelList(await res.json());
+      if (ids.length === 0) throw new Error(`${p.name} reported no models`);
+      localProviderStatus = { ...localProviderStatus, [p.id]: { models: ids, error: '', busy: false } };
+    } catch (e: any) {
+      localProviderStatus = { ...localProviderStatus, [p.id]: { models: [], error: e?.message || 'Could not list models', busy: false } };
+    }
+    rebuildModelOptions();
+  }
+
+  async function loadLocalProviders() {
+    if (!localProvidersAvailable) return;
+    try {
+      localProviders = await listLocalChatProviders();
+      refreshLocalProviderEnabled();
+      await Promise.all(localProviders.filter(p => localProviderEnabledIds.includes(p.id)).map(discoverLocalProviderModels));
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load local providers', 'alert');
+    }
+  }
+
+  function editLocalProvider(p?: LocalChatProvider) {
+    localProviderEditing = p;
+    localProviderEditorKey++;
+    localProviderEditorOpen = true;
+  }
+
+  function closeLocalProviderEditor() {
+    localProviderEditing = undefined;
+    localProviderEditorOpen = false;
+  }
+
+  function localProviderSaved(stored: LocalChatProvider[], edited?: LocalChatProvider) {
+    localProviders = stored;
+    if (edited) {
+      forgetLocalProviderSecrets(edited.id);
+      if (localProviderEnabledIds.includes(edited.id)) void discoverLocalProviderModels(edited);
+    }
+    refreshLocalProviderEnabled();
+    closeLocalProviderEditor();
+    rebuildModelOptions();
+  }
+
+  async function removeLocalProvider(p: LocalChatProvider) {
+    try {
+      localProviders = await saveLocalChatProviders(localProviders.filter(x => x.id !== p.id));
+      disableLocalProvider(p.id, localStorageSafe());
+      forgetLocalProviderSecrets(p.id);
+      refreshLocalProviderEnabled();
+      if (localProviderEditing?.id === p.id) closeLocalProviderEditor();
+      rebuildModelOptions();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to remove', 'alert');
+    }
+  }
+
+  function toggleLocalProvider(p: LocalChatProvider) {
+    if (localProviderEnabledIds.includes(p.id)) {
+      disableLocalProvider(p.id, localStorageSafe());
+      refreshLocalProviderEnabled();
+      rebuildModelOptions();
+      return;
+    }
+    enableLocalProvider(p.id, localStorageSafe());
+    refreshLocalProviderEnabled();
+    void discoverLocalProviderModels(p);
+  }
+
+  /** The record a `local:<name>/<model>` reference resolves to, enabled on this device. */
+  function localProviderFor(ref: string): { provider: LocalChatProvider; model: string } {
+    const parsed = parseLocalModelRef(ref);
+    const provider = parsed && localProviders.find(p => p.name === parsed.provider);
+    if (!parsed || !provider) throw new Error(`Local provider for ${ref} is not configured on this account.`);
+    if (!localProvidersAvailable) throw new Error('Local providers are disabled in this installation.');
+    if (!localProviderEnabledIds.includes(provider.id)) throw new Error(`Local provider "${provider.name}" is not enabled on this device.`);
+
+    return { provider, model: parsed.model };
   }
 
   // ─── Browser extensions ───
@@ -1282,11 +1456,12 @@
         }
       }
       allModels.sort((a, b) => a.localeCompare(b));
-      modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
-      models = allModels;
+      serverModelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
+      serverModels = allModels;
+      rebuildModelOptions();
       providerReasoning = reasoning;
-      if (allModels.length > 0 && !selectedModel) {
-        selectedModel = allModels[0];
+      if (models.length > 0 && !selectedModel) {
+        selectedModel = models[0];
       }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load provider info', 'alert');
@@ -1515,6 +1690,7 @@
   // against what this deployment actually offers.
   const initialSetupRevision = setupRevision;
   loadInfo().then(() => loadDefaults(initialSetupRevision));
+  loadLocalProviders();
   loadPresets();
   const catalogsReady = Promise.all([loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
@@ -2395,6 +2571,76 @@
     }
   }
 
+  /**
+   * One model call to a local provider, made by this browser. The stream is
+   * parsed by the same reader as server completions; the call is reported to
+   * Traces as a client-asserted, unpriced generation.
+   */
+  async function runLocalProviderCompletion(
+    turn: TurnContext,
+    target: { provider: LocalChatProvider; model: string },
+    reqMessages: Array<Record<string, any>>,
+    callbacks: StreamCallbacks,
+  ): Promise<void> {
+    const { provider, model } = target;
+    const started = performance.now();
+    let usage: ChatUsage | null = null;
+    let finish = '';
+    let output = '';
+    let failure = '';
+    try {
+      const secrets = await localProviderSecretsFor(provider);
+      turnLifecycle.assert(turn);
+      const body: Record<string, unknown> = {
+        model,
+        messages: reqMessages,
+        stream: true,
+        stream_options: { include_usage: true },
+      };
+      if (turn.tools.length > 0) body.tools = turn.tools;
+      if (turn.reasoning) body.reasoning_effort = turn.reasoning;
+      try {
+        await streamChatCompletion(
+          localProviderEndpoint(provider.base_url, 'chat/completions'),
+          body as any,
+          {
+            ...callbacks,
+            onDelta: (delta) => {
+              if (typeof delta === 'string') output += delta;
+              callbacks.onDelta(delta);
+            },
+            onUsage: (u) => { usage = u; callbacks.onUsage?.(u); },
+            onFinish: (reason) => { finish = reason; },
+          },
+          turn.controller.signal,
+          localProviderHeaders(secrets),
+        );
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') throw e;
+        throw describeLocalProviderError(e, provider.name);
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== 'AbortError') failure = (e as Error)?.message || 'Local provider request failed';
+      throw e;
+    } finally {
+      const u = usage as ChatUsage | null;
+      void reportLocalGeneration({
+        trace_id: turn.traceId,
+        session_id: turn.sessionId,
+        provider: provider.name,
+        model,
+        status: failure ? 'error' : 'ok',
+        latency_ms: Math.round(performance.now() - started),
+        finish_reason: finish || undefined,
+        error: failure || undefined,
+        input_tokens: u?.prompt_tokens ?? 0,
+        output_tokens: u?.completion_tokens ?? 0,
+        input: JSON.stringify(reqMessages.slice(-4)),
+        output,
+      });
+    }
+  }
+
   async function runCompletionStep(turn: TurnContext): Promise<boolean> {
     turnLifecycle.assert(turn);
     const turnPair = splitModel(turn.model);
@@ -2414,6 +2660,14 @@
     let pendingToolCalls: ToolCall[] = [];
 
     try {
+      // A local model is called by this browser, so the server cannot fill in
+      // history by reference: every message goes inline, and an unloaded
+      // prefix is loaded first rather than silently dropped from context.
+      const localTarget = isLocalModelRef(turn.model) ? localProviderFor(turn.model) : null;
+      if (localTarget && historyTruncated) {
+        throw new Error('Load older messages first: a local provider needs the whole conversation in this page.');
+      }
+
       // Build request messages
       const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string } | { at_message_id: string }> = [];
 
@@ -2424,7 +2678,7 @@
       }
 
       for (const [index, m] of history.entries()) {
-        if (conversationId && meta[index]?.id) {
+        if (conversationId && meta[index]?.id && !localTarget) {
           reqMessages.push({ at_message_id: meta[index].id! });
           continue;
         }
@@ -2435,48 +2689,55 @@
         reqMessages.push(msg);
       }
 
-      await streamChatCompletion(
-        'api/v1/chats/completions',
-        {
-          model: turn.model,
-          at_conversation_id: conversationId || undefined,
-          at_history_before: historyTruncated ? (meta[0]?.id || historyCursor) : undefined,
-          metadata: { session_id: sessionId },
-          messages: reqMessages,
-          tools: turn.tools.length > 0 ? turn.tools : undefined,
-          reasoning_effort: turn.reasoning || undefined,
-          stream: true,
-          stream_options: { include_usage: true },
+      const callbacks: StreamCallbacks = {
+        requireComplete: true,
+        mintMissingToolCallIds: !!localTarget,
+        onDelta: (deltaContent) => {
+          turnLifecycle.assert(turn);
+          const lastIdx = messages.length - 1;
+          const prev = messages[lastIdx];
+          messages[lastIdx] = {
+            ...prev,
+            content: mergeDeltaContent(prev.content, deltaContent),
+          };
+          scrollToBottom();
         },
-        {
-          requireComplete: true,
-          onDelta: (deltaContent) => {
-            turnLifecycle.assert(turn);
-            const lastIdx = messages.length - 1;
-            const prev = messages[lastIdx];
-            messages[lastIdx] = {
-              ...prev,
-              content: mergeDeltaContent(prev.content, deltaContent),
-            };
-            scrollToBottom();
-          },
-          onToolCalls: (toolCalls) => {
-            turnLifecycle.assert(turn);
-            pendingToolCalls = toolCalls;
-          },
-          onError: (error) => {
-            addToast(error, 'alert');
-          },
-          onUsage: (usage) => {
-            turnLifecycle.assert(turn);
-            contextTokens = usage.prompt_tokens;
-            completionTokens += usage.completion_tokens;
-            totalTokens = contextTokens + completionTokens;
-          },
+        onToolCalls: (toolCalls) => {
+          turnLifecycle.assert(turn);
+          pendingToolCalls = toolCalls;
         },
-        controller.signal,
-        { 'x-at-trace-id': turn.traceId },
-      );
+        onError: (error) => {
+          addToast(error, 'alert');
+        },
+        onUsage: (usage) => {
+          turnLifecycle.assert(turn);
+          contextTokens = usage.prompt_tokens;
+          completionTokens += usage.completion_tokens;
+          totalTokens = contextTokens + completionTokens;
+        },
+      };
+
+      if (localTarget) {
+        await runLocalProviderCompletion(turn, localTarget, reqMessages, callbacks);
+      } else {
+        await streamChatCompletion(
+          'api/v1/chats/completions',
+          {
+            model: turn.model,
+            at_conversation_id: conversationId || undefined,
+            at_history_before: historyTruncated ? (meta[0]?.id || historyCursor) : undefined,
+            metadata: { session_id: sessionId },
+            messages: reqMessages,
+            tools: turn.tools.length > 0 ? turn.tools : undefined,
+            reasoning_effort: turn.reasoning || undefined,
+            stream: true,
+            stream_options: { include_usage: true },
+          },
+          callbacks,
+          controller.signal,
+          { 'x-at-trace-id': turn.traceId },
+        );
+      }
       turnLifecycle.assert(turn);
 
       // The response is complete — stamp it. A turn that goes on to call tools
@@ -3100,6 +3361,76 @@
           </p>
           {/if}
 
+          {#if workbenchTab === 'providers' && localProvidersAvailable}
+          <!-- Local providers: OpenAI-compatible endpoints this browser calls
+               directly. The server stores the record and never sends a
+               request to it. -->
+          <div role="group" aria-label="Local providers" class="block max-w-3xl">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Called by this browser</span>
+              <button
+                onclick={() => editLocalProvider()}
+                class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
+              >
+                Add provider
+              </button>
+            </div>
+            <p class="mb-2 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              An OpenAI-compatible endpoint — a model server on your computer or an API with your own key. Your browser calls it directly, so it must allow this page (CORS). Provider budgets and pricing do not apply; see <a href="#/docs?g=local-providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text">Documentation → Local providers</a>.
+            </p>
+
+            <div class="space-y-1.5">
+              {#each localProviders as provider (provider.id)}
+                {@const enabled = localProviderEnabledIds.includes(provider.id)}
+                {@const status = localProviderStatus[provider.id]}
+                <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{provider.name}</span>
+                    <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{provider.base_url}</code>
+                    {#if enabled}
+                      <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                        Enabled here{status?.busy ? ' · listing models…' : status?.models?.length ? ` · ${status.models.length} models` : ''}
+                      </span>
+                    {:else}
+                      <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                        Not enabled on this device
+                      </span>
+                    {/if}
+                    <div class="ml-auto flex items-center gap-1">
+                      {#if enabled}
+                        <button onclick={() => discoverLocalProviderModels(provider)} disabled={status?.busy} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-40">Refresh models</button>
+                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                      {:else}
+                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable here</button>
+                      {/if}
+                      <button onclick={() => editLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
+                      <button onclick={() => removeLocalProvider(provider)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${provider.name}`}><X size={12} /></button>
+                    </div>
+                  </div>
+                  {#if status?.error}
+                    <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+
+            {#if localProviders.length === 0 && !localProviderEditorOpen}
+              <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">No local providers yet. {LOCAL_PROVIDER_CORS_HINT}</p>
+            {/if}
+
+            {#if localProviderEditorOpen}
+              {#key localProviderEditorKey}
+                <LocalProviderEditor
+                  provider={localProviderEditing}
+                  providers={localProviders}
+                  onsaved={localProviderSaved}
+                  oncancel={closeLocalProviderEditor}
+                />
+              {/key}
+            {/if}
+          </div>
+          {/if}
+
           {#if workbenchTab === 'tools'}
           <!-- MCP Sets (Internal MCPs) -->
           {#if availableMCPSets.length > 0}
@@ -3482,6 +3813,9 @@
         <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers configured</div>
         <div class="text-xs text-gray-400 dark:text-dark-text-muted">
           Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text ">Providers</a> page first.
+          {#if localProvidersAvailable}
+            Or <button onclick={() => { workbenchTab = 'providers'; showWorkbench = true; }} class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text">add a local provider</button> that this browser calls directly.
+          {/if}
         </div>
       </div>
     {:else if messages.length === 0}

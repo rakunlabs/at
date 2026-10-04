@@ -35,6 +35,10 @@ const (
 	// FeatureChatLocalMCP gates the personal registry of MCP servers running
 	// on an account holder's own machine, which their browser dials directly.
 	FeatureChatLocalMCP = "chat_local_mcp"
+	// FeatureChatLocalProviders gates personal OpenAI-compatible endpoints
+	// that the account's browser calls directly from Chats. The server stores
+	// them and never sends a request to one.
+	FeatureChatLocalProviders = "chat_local_providers"
 	// FeatureChatExtensions gates the browser-extension bridge in Chats: the
 	// page discovers extensions the person installed and calls their tools
 	// through the browser. Nothing is dialled by the server.
