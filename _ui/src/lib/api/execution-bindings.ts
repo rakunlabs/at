@@ -14,10 +14,12 @@ export interface ExecutionBinding {
 export interface BindingCandidate { user_id: string; name: string; role: string }
 export interface BindingDetails { binding: ExecutionBinding | null; binding_valid: boolean; candidates: BindingCandidate[] }
 
-const path = (kind: 'bot' | 'mcp', id: string) => `${kind === 'bot' ? 'bots' : 'mcp/servers'}/${encodeURIComponent(id)}/execution-binding`;
-export const getExecutionBinding = async (kind: 'bot' | 'mcp', id: string) =>
+export type BindingKind = 'bot' | 'mcp' | 'trigger';
+const bindingCollections: Record<BindingKind, string> = { bot: 'bots', mcp: 'mcp/servers', trigger: 'triggers' };
+const path = (kind: BindingKind, id: string) => `${bindingCollections[kind]}/${encodeURIComponent(id)}/execution-binding`;
+export const getExecutionBinding = async (kind: BindingKind, id: string) =>
   (await api.get<BindingDetails>(path(kind, id))).data;
-export const saveExecutionBinding = async (kind: 'bot' | 'mcp', id: string, user: string) =>
+export const saveExecutionBinding = async (kind: BindingKind, id: string, user: string) =>
   (await api.post<ExecutionBinding>(path(kind, id), { run_as_user_id: user })).data;
-export const revokeExecutionBinding = async (kind: 'bot' | 'mcp', id: string) =>
+export const revokeExecutionBinding = async (kind: BindingKind, id: string) =>
   (await api.delete<ExecutionBinding>(path(kind, id))).data;

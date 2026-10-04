@@ -283,6 +283,10 @@ func (s *Server) afterFeatureChange(ctx context.Context) {
 		}
 	}
 
+	if s.webhookListeners != nil {
+		s.webhookListeners.Reload(ctx)
+	}
+
 	enabled, err := s.isFeatureEnabled(ctx, service.FeatureBots)
 	switch {
 	case err != nil:

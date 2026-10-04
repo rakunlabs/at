@@ -607,6 +607,48 @@ the upstream open — the event carries no upstream information, so deferring it
 costs nothing and is what makes the failure recoverable.
 
 
+## Webhook servers (dedicated webhook ports)
+
+Migration 92. A **webhook server** (`service.WebhookServer`, Webhooks → Servers)
+is an extra listener, e.g. `:5050`, whose whole surface is `GET /healthz` plus
+the webhooks bound to it — no UI, `/api`, `/auth` or `/gateway`
+(`internal/server/webhook-listeners.go`). Servers are installation
+administration (store checks `PlatformAdmin`); `all_workspaces` or
+`webhook_server_workspaces` decides whose webhooks may be published on it.
+Members list only servers open to their workspace, without TLS material, CIDRs
+or other workspaces. Narrowing the audience deletes the excluded workspaces'
+routes in the same transaction. TLS key and other settings live in an
+encrypted `config` blob that rotates with the installation key; ports below
+1024 and the main port are refused. Feature key `webhook_servers` (child of
+`automation`); toggling it reloads listeners via `afterFeatureChange`.
+
+A trigger's `webhook_routes` (`trigger_webhook_routes`) bind it to any number
+of servers, each with an optional custom path (unique per server; empty means
+"by alias or ID"). `hide_from_main` makes `/webhooks/{id}` answer 404 and
+requires at least one route. On trigger update, nil `webhook_routes` /
+`signature` preserve the stored values, so older clients cannot erase them.
+`config.methods` selects accepted methods on servers (default POST).
+
+Both entry points resolve routing metadata without a principal
+(`ResolveMainWebhookRoute` / `ResolveWebhookRoute`, the gateway-MCP pattern)
+and share `serveWebhook`: body bound → optional HMAC signature (`github`,
+`stripe` with 5-minute tolerance, or custom `hmac_sha256`; secret encrypted in
+`triggers.webhook_secret`, write-only `***`) → token check, where a token from
+another workspace is now refused → the trigger's execution binding → the
+trigger re-read under that identity. Note the main route previously failed
+with 500 before reaching the binding because `GetTrigger` had no principal.
+Triggers need an execution identity to run, now bindable from the webhook
+editor (`GET/POST/DELETE /api/v1/triggers/{id}/execution-binding`).
+
+Every request reaching a trigger is logged to `webhook_deliveries` (latest
+100 per trigger, `GET /api/v1/triggers/{id}/deliveries`). Listeners are per
+replica like the main port; a bind failure is reported as status `error` and
+never stops the process (`POST /api/v1/webhook-servers/reload` retries). The
+CIDR allowlist and per-client rate limit use the trusted-proxy client address.
+Regressions: `internal/store/postgres/webhook-servers_test.go`,
+`internal/server/webhook-servers_test.go` (binds a real port),
+`_ui/tests/webhook-servers.test.mjs`.
+
 ## Runtime configuration
 
 ### Empty collections and independent page loading

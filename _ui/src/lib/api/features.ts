@@ -35,6 +35,7 @@ export const FEATURE_VARIABLES = 'variables';
 export const FEATURE_WORKFLOW_BUILDER = 'workflow_builder';
 export const FEATURE_WORKFLOW_RUNS = 'workflow_runs';
 export const FEATURE_WEBHOOK_TRIGGERS = 'webhook_triggers';
+export const FEATURE_WEBHOOK_SERVERS = 'webhook_servers';
 export const FEATURE_CRON_TRIGGERS = 'cron_triggers';
 export const FEATURE_MCP_SERVERS = 'mcp_servers';
 export const FEATURE_MCP_TOOLS = 'mcp_tools';

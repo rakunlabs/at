@@ -256,6 +256,8 @@ func featureKeyForRoute(path, method, basePath string) string {
 		return service.FeatureWorkflowBuilder
 	case "workflow-node-types", "node-configs", "triggers":
 		return service.FeatureWorkflowBuilder
+	case "webhook-servers":
+		return service.FeatureWebhookServers
 	case "runs":
 		return service.FeatureWorkflowRuns
 

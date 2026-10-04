@@ -78,6 +78,7 @@ func (s *Server) registerRuntimeRoutes(mux *ada.Server, base string) {
 		{"POST", "/api/v1/triggers/{id}/execution-binding", s.RuntimeTriggerBindingAPI},
 		{"POST", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
 		{"DELETE", "/api/v1/triggers/{id}/execution-binding", s.RuntimeTriggerBindingAPI},
+		{"GET", "/api/v1/triggers/{id}/execution-binding", s.RuntimeTriggerBindingAPI},
 		{"DELETE", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
 		{"GET", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
 		{"GET", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},

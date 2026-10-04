@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getExecutionBinding, saveExecutionBinding, revokeExecutionBinding, type ExecutionBinding, type BindingCandidate } from '@/lib/api/execution-bindings';
+  import { getExecutionBinding, saveExecutionBinding, revokeExecutionBinding, type BindingKind, type ExecutionBinding, type BindingCandidate } from '@/lib/api/execution-bindings';
   import { startBot } from '@/lib/api/bots';
   import { routeAllowed } from '@/lib/helper/navigation';
 
-  interface Props { kind: 'bot' | 'mcp'; subjectId: string; onchange?: () => void }
+  interface Props { kind: BindingKind; subjectId: string; onchange?: () => void }
   let { kind, subjectId, onchange }: Props = $props();
   let binding = $state<ExecutionBinding | null>(null);
   let bindingValid = $state(false);
@@ -21,7 +21,7 @@
     return () => { generation++; };
   });
 
-  async function load(currentKind: 'bot' | 'mcp', id: string) {
+  async function load(currentKind: BindingKind, id: string) {
     const request = ++generation;
     loading = true;
     error = notice = '';
@@ -70,7 +70,7 @@
     try {
       binding = await revokeExecutionBinding(kind, subjectId);
       bindingValid = false;
-      notice = kind === 'bot' ? 'Execution identity revoked. Bot stopped.' : 'Execution identity revoked. New MCP requests will be rejected.';
+      notice = kind === 'bot' ? 'Execution identity revoked. Bot stopped.' : kind === 'trigger' ? 'Execution identity revoked. New webhook requests will be rejected.' : 'Execution identity revoked. New MCP requests will be rejected.';
       onchange?.();
     } catch (e: any) {
       error = e?.response?.data?.message || 'Could not revoke execution identity. Retry.';
@@ -83,7 +83,7 @@
 <section class="space-y-3 border-b border-gray-200 dark:border-dark-border pb-4" aria-label="Execution identity" aria-busy={loading || busy}>
   <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Execution identity</h3>
   <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
-    {kind === 'bot' ? 'Bot messages' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
+    {kind === 'bot' ? 'Bot messages' : kind === 'trigger' ? 'Webhook-triggered workflow runs' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
     After changing permissions or execution policy, renew this binding.
   </p>
   {#if routeAllowed('/settings/execution')}

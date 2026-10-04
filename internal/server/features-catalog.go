@@ -249,7 +249,14 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureWebhookTriggers,
 		Name:        "Webhook Triggers",
-		Description: "The public /webhooks/{id} endpoint. Disabling answers 404 without touching the trigger records.",
+		Description: "The public /webhooks/{id} endpoint and webhooks published on dedicated webhook servers. Disabling answers 404 without touching the trigger records.",
+		Group:       "automation",
+		Parent:      service.FeatureAutomation,
+	},
+	{
+		Key:         service.FeatureWebhookServers,
+		Name:        "Webhook Servers",
+		Description: "Dedicated listener ports (for example :5050) that serve only the webhooks bound to them. Disabling closes the ports; servers and bindings are preserved.",
 		Group:       "automation",
 		Parent:      service.FeatureAutomation,
 	},

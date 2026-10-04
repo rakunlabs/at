@@ -252,6 +252,10 @@ func (s *Server) RuntimeTriggerBindingAPI(w http.ResponseWriter, r *http.Request
 		httpResponse(w, "trigger unavailable", http.StatusNotFound)
 		return
 	}
+	if r.Method == http.MethodGet {
+		s.runtimeBindingDetails(w, r, "trigger", "triggers.use")
+		return
+	}
 	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID}); err != nil {
 		httpResponse(w, "workflow execution denied", http.StatusForbidden)
 		return
@@ -299,30 +303,7 @@ func (s *Server) runtimeServiceBindingAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if r.Method == http.MethodGet {
-		store, ok := s.store.(service.ExecutionServiceStorer)
-		if !ok {
-			httpResponse(w, "execution binding store unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		binding, err := store.GetExecutionServiceBinding(r.Context(), kind, r.PathValue("id"))
-		if err != nil {
-			httpResponse(w, "failed to load execution binding", http.StatusInternalServerError)
-			return
-		}
-		bindingValid := false
-		if binding != nil && !binding.Revoked {
-			bound, resumeErr := s.ResumeRuntimeSubject(r.Context(), kind, r.PathValue("id"), nil)
-			if resumeErr == nil {
-				resumeErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: action, ResourceID: r.PathValue("id")})
-			}
-			bindingValid = resumeErr == nil
-		}
-		candidates, err := s.runtimeBindingCandidates(r.Context())
-		if err != nil {
-			httpResponse(w, "Could not load workspace members for execution identity selection", http.StatusForbidden)
-			return
-		}
-		httpResponseJSON(w, map[string]any{"binding": binding, "binding_valid": bindingValid, "candidates": candidates}, http.StatusOK)
+		s.runtimeBindingDetails(w, r, kind, action)
 		return
 	}
 	if r.Method == http.MethodDelete {
@@ -353,6 +334,35 @@ func (s *Server) runtimeServiceBindingAPI(w http.ResponseWriter, r *http.Request
 		s.stopBot(binding.SubjectID)
 	}
 	httpResponseJSON(w, binding, http.StatusOK)
+}
+
+// runtimeBindingDetails reports a subject's execution identity, whether it can
+// still resume, and the accounts that may be bound.
+func (s *Server) runtimeBindingDetails(w http.ResponseWriter, r *http.Request, kind, action string) {
+	store, ok := s.store.(service.ExecutionServiceStorer)
+	if !ok {
+		httpResponse(w, "execution binding store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	binding, err := store.GetExecutionServiceBinding(r.Context(), kind, r.PathValue("id"))
+	if err != nil {
+		httpResponse(w, "failed to load execution binding", http.StatusInternalServerError)
+		return
+	}
+	bindingValid := false
+	if binding != nil && !binding.Revoked {
+		bound, resumeErr := s.ResumeRuntimeSubject(r.Context(), kind, r.PathValue("id"), nil)
+		if resumeErr == nil {
+			resumeErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: action, ResourceID: r.PathValue("id")})
+		}
+		bindingValid = resumeErr == nil
+	}
+	candidates, err := s.runtimeBindingCandidates(r.Context())
+	if err != nil {
+		httpResponse(w, "Could not load workspace members for execution identity selection", http.StatusForbidden)
+		return
+	}
+	httpResponseJSON(w, map[string]any{"binding": binding, "binding_valid": bindingValid, "candidates": candidates}, http.StatusOK)
 }
 
 type runtimeBindingCandidate struct {

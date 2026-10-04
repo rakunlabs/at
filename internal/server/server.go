@@ -18,6 +18,7 @@ import (
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
+	"github.com/rakunlabs/at/internal/clientip"
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/nativeauth"
@@ -300,6 +301,11 @@ type Server struct {
 	// featureStore is the persistent store for runtime feature toggles.
 	featureStore service.FeatureSettingStorer
 
+	// webhookListeners runs the dedicated webhook server ports.
+	webhookListeners *webhookListenerManager
+	// clientIPs resolves caller addresses behind configured trusted proxies.
+	clientIPs clientip.Resolver
+
 	// features caches the whole feature catalog's persisted state. Every gated
 	// request and every built-in tool dispatch resolves through it, and a child
 	// key additionally walks its ancestors, so a per-key SELECT would turn one
@@ -581,6 +587,12 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	if native != nil {
 		native.OnUserDeleted = s.removeDeveloperHome
 	}
+	// Validated at config load; an error here leaves the zero resolver, which
+	// trusts no proxy.
+	if resolver, err := clientip.New(cfg); err == nil {
+		s.clientIPs = resolver
+	}
+	s.webhookListeners = newWebhookListenerManager(s)
 
 	// Wire the OAuth refresh persistence callback on every initially-loaded
 	// provider. This is a no-op for providers that don't use an OAuth
@@ -929,6 +941,15 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/triggers/{id}", s.GetTriggerAPI)
 	apiGroup.PUT("/v1/triggers/{id}", s.UpdateTriggerAPI)
 	apiGroup.DELETE("/v1/triggers/{id}", s.DeleteTriggerAPI)
+	apiGroup.GET("/v1/triggers/{id}/deliveries", s.ListWebhookDeliveriesAPI)
+
+	// Dedicated webhook listeners (installation administration).
+	apiGroup.GET("/v1/webhook-servers", s.ListWebhookServersAPI)
+	apiGroup.POST("/v1/webhook-servers", s.CreateWebhookServerAPI)
+	apiGroup.POST("/v1/webhook-servers/reload", s.ReloadWebhookServersAPI)
+	apiGroup.GET("/v1/webhook-servers/{id}", s.GetWebhookServerAPI)
+	apiGroup.PUT("/v1/webhook-servers/{id}", s.UpdateWebhookServerAPI)
+	apiGroup.DELETE("/v1/webhook-servers/{id}", s.DeleteWebhookServerAPI)
 
 	// Skill management
 	apiGroup.GET("/v1/skills", s.ListSkillsAPI)
@@ -1477,6 +1498,10 @@ func (s *Server) Start(ctx context.Context) error {
 	// bash_execute fails with `chdir: no such file or directory` until the LLM
 	// burns its iteration budget. Catch that here, loudly, at startup.
 	ensureTaskWorkspaceBase(s.taskWorkspaceBase())
+
+	// Dedicated webhook ports open alongside the main one and close with it.
+	s.webhookListeners.Reload(ctx)
+	context.AfterFunc(ctx, s.webhookListeners.Close)
 
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
 }

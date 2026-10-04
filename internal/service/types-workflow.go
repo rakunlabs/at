@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/rakunlabs/query"
 )
@@ -110,6 +112,49 @@ type Trigger struct {
 	UpdatedAt   string         `json:"updated_at"`
 	CreatedBy   string         `json:"created_by"`
 	UpdatedBy   string         `json:"updated_by"`
+
+	// WebhookRoutes publishes an HTTP trigger on dedicated webhook servers.
+	// On update, nil preserves the stored routes (and HideFromMain); an empty
+	// list removes them.
+	WebhookRoutes []WebhookRoute `json:"webhook_routes"`
+	// HideFromMain makes the trigger unreachable on the main /webhooks route.
+	HideFromMain bool `json:"hide_from_main"`
+	// Signature enables HMAC verification. On update, nil preserves the stored
+	// setting, an empty scheme removes it and a "***" secret keeps the secret.
+	Signature *WebhookSignature `json:"signature,omitempty"`
+}
+
+// TriggerMethods returns the HTTP methods a webhook accepts on dedicated
+// servers (config.methods), defaulting to POST.
+func (t Trigger) TriggerMethods() []string {
+	return WebhookMethodsFromConfig(t.Config)
+}
+
+// WebhookMethodsFromConfig reads config.methods, defaulting to POST.
+func WebhookMethodsFromConfig(cfg map[string]any) []string {
+	var out []string
+	if raw, ok := cfg["methods"].([]any); ok {
+		for _, v := range raw {
+			if m, ok := v.(string); ok {
+				m = strings.ToUpper(strings.TrimSpace(m))
+				if webhookMethodAllowed(m) && !slices.Contains(out, m) {
+					out = append(out, m)
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return []string{"POST"}
+	}
+	return out
+}
+
+func webhookMethodAllowed(m string) bool {
+	switch m {
+	case "GET", "POST", "PUT", "PATCH", "DELETE":
+		return true
+	}
+	return false
 }
 
 const (

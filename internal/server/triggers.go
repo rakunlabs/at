@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/logi"
@@ -161,6 +163,9 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
 	if err != nil {
+		if triggerWriteError(w, err) {
+			return
+		}
 		slog.Error("create trigger failed", "workflow_id", wfID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create trigger: %v", err), http.StatusInternalServerError)
 		return
@@ -238,6 +243,9 @@ func (s *Server) CreateTriggerGenericAPI(w http.ResponseWriter, r *http.Request)
 
 	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
 	if err != nil {
+		if triggerWriteError(w, err) {
+			return
+		}
 		slog.Error("create trigger failed", "target_type", req.TargetType, "target_id", req.TargetID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create trigger: %v", err), http.StatusInternalServerError)
 		return
@@ -324,6 +332,9 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 	req.UpdatedBy = userEmail
 	record, err := s.triggerStore.UpdateTrigger(r.Context(), id, req)
 	if err != nil {
+		if triggerWriteError(w, err) {
+			return
+		}
 		slog.Error("update trigger failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update trigger: %v", err), http.StatusInternalServerError)
 		return
@@ -376,15 +387,29 @@ func (s *Server) DeleteTriggerAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponse(w, "deleted", http.StatusOK)
 }
 
+// triggerWriteError maps webhook routing validation failures to client errors.
+func triggerWriteError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, service.ErrWebhookRouteConflict):
+		httpResponse(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, service.ErrAccessResourceNotFound):
+		httpResponse(w, "workflow, entry node or webhook server not found (the server may not be open to this workspace)", http.StatusNotFound)
+	case errors.Is(err, service.ErrWorkspaceConflict):
+		httpResponse(w, strings.TrimPrefix(err.Error(), service.ErrWorkspaceConflict.Error()+": "), http.StatusBadRequest)
+	default:
+		return false
+	}
+	return true
+}
+
 // ─── Webhook Handler ───
 
-// WebhookAPI handles POST /webhooks/:trigger_id_or_alias.
-// It looks up the HTTP trigger by ID or alias, verifies it is enabled,
-// enforces authentication for non-public triggers, loads the associated
-// workflow, and starts execution. By default runs asynchronously (202).
-// Pass ?sync=true to block until the workflow completes and return outputs.
+// WebhookAPI handles POST /webhooks/:trigger_id_or_alias on the main server.
+// Triggers hidden from the main route (published only on dedicated webhook
+// servers) answer 404 here exactly like unknown ones.
 func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
-	if s.triggerStore == nil || s.workflowStore == nil {
+	routes, ok := s.store.(service.WebhookServerStorer)
+	if s.triggerStore == nil || s.workflowStore == nil || !ok {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -395,49 +420,100 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try by ID first, then by alias.
-	trigger, err := s.triggerStore.GetTrigger(r.Context(), idOrAlias)
+	match, err := routes.ResolveMainWebhookRoute(r.Context(), idOrAlias)
 	if err != nil {
-		slog.Error("webhook: get trigger failed", "id_or_alias", idOrAlias, "error", err)
+		slog.Error("webhook: resolve route failed", "id_or_alias", idOrAlias, "error", err)
 		httpResponse(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	if trigger == nil {
-		trigger, err = s.triggerStore.GetTriggerByAlias(r.Context(), idOrAlias)
-		if err != nil {
-			slog.Error("webhook: get trigger by alias failed", "alias", idOrAlias, "error", err)
-			httpResponse(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if trigger == nil {
+	if match == nil || match.HideFromMain {
 		httpResponse(w, "webhook not found", http.StatusNotFound)
 		return
 	}
+	s.serveWebhook(w, r, match, nil)
+}
 
-	if trigger.Type != "http" {
+// serveWebhook runs a resolved webhook for the main route (srv == nil) or a
+// dedicated webhook server. It verifies the trigger, the optional signature
+// and token, resumes the trigger's execution identity and starts the workflow.
+// By default runs asynchronously (202); ?sync=true waits for the first output.
+func (s *Server) serveWebhook(w http.ResponseWriter, r *http.Request, match *service.WebhookRouteMatch, srv *service.WebhookServer) {
+	started := time.Now()
+	rec := &webhookStatusWriter{ResponseWriter: w}
+	w = rec
+	delivery := service.WebhookDelivery{
+		WorkspaceID: match.WorkspaceID, TriggerID: match.TriggerID, WorkflowID: match.WorkflowID,
+		Method: r.Method, Path: r.URL.Path, ClientIP: s.webhookClientIP(r),
+	}
+	if srv != nil {
+		delivery.ServerID = srv.ID
+	}
+	defer func() {
+		delivery.Status = rec.statusCode()
+		delivery.DurationMS = time.Since(started).Milliseconds()
+		if delivery.Status >= 400 && delivery.Error == "" {
+			delivery.Error = rec.message()
+		}
+		s.recordWebhookDelivery(delivery)
+	}()
+
+	if match.Type != "http" {
 		httpResponse(w, "trigger is not an HTTP trigger", http.StatusBadRequest)
 		return
 	}
 
-	if !trigger.Enabled {
+	if !match.Enabled {
 		httpResponse(w, "trigger is disabled", http.StatusForbidden)
 		return
 	}
 
+	// Buffer the request body before returning the response, since r.Body
+	// will be closed once the handler returns. The bound protects the process:
+	// a webhook payload is held in memory for the workflow.
+	limit := int64(service.WebhookMaxBodyBytesCeiling)
+	if srv != nil {
+		limit = srv.EffectiveMaxBodyBytes()
+	}
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			httpResponse(w, fmt.Sprintf("request body exceeds %d bytes", limit), http.StatusRequestEntityTooLarge)
+			return
+		}
+		slog.Error("webhook: read body failed", "trigger_id", match.TriggerID, "error", err)
+		httpResponse(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	delivery.BodyBytes = int64(len(bodyBytes))
+
+	// The signature is checked before anything else about the caller: it is
+	// the trigger's own proof of origin and needs no token.
+	if match.Signature != nil {
+		if err := verifyWebhookSignature(*match.Signature, r.Header, bodyBytes, time.Now()); err != nil {
+			delivery.Error = err.Error()
+			httpResponse(w, "invalid webhook signature", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	// Enforce authentication for non-public triggers.
-	if !trigger.Public {
+	if !match.Public {
 		auth, reason := s.authenticateRequest(r)
 		if auth == nil {
 			httpResponse(w, "unauthorized: "+reason, http.StatusUnauthorized)
 			return
 		}
 
-		// Check webhook scoping: if the token restricts webhooks,
-		// verify this trigger's ID or alias is in the allowed list.
 		if auth.token != nil {
+			// A gateway token belongs to one workspace and must not start
+			// another workspace's workflows.
+			if auth.token.WorkspaceID != "" && auth.token.WorkspaceID != match.WorkspaceID {
+				httpResponse(w, "token does not have access to this webhook", http.StatusForbidden)
+				return
+			}
+			// Check webhook scoping: if the token restricts webhooks,
+			// verify this trigger's ID or alias is in the allowed list.
 			webhookMode := service.ResolveAccessMode(auth.token.AllowedWebhooksMode, auth.token.AllowedWebhooks)
 			if webhookMode == service.AccessModeNone {
 				httpResponse(w, "token does not have access to any webhooks", http.StatusForbidden)
@@ -446,7 +522,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 			if webhookMode == service.AccessModeList {
 				allowed := false
 				for _, w := range auth.token.AllowedWebhooks {
-					if w == trigger.ID || (trigger.Alias != "" && w == trigger.Alias) {
+					if w == match.TriggerID || (match.Alias != "" && w == match.Alias) {
 						allowed = true
 						break
 					}
@@ -459,19 +535,33 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Load the workflow.
-	bound, bindErr := s.ResumeRuntimeSubject(r.Context(), "trigger", trigger.ID, nil)
+	bound, bindErr := s.ResumeRuntimeSubject(r.Context(), "trigger", match.TriggerID, nil)
 	if bindErr == nil {
-		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "triggers.use", ResourceID: trigger.ID})
+		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "triggers.use", ResourceID: match.TriggerID})
 	}
 	if bindErr == nil {
-		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID})
+		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: match.WorkflowID})
 	}
 	if bindErr != nil {
 		httpResponse(w, "trigger execution identity unavailable", http.StatusForbidden)
 		return
 	}
 	r = r.WithContext(bound)
+
+	// Re-read the trigger under its own execution identity, which scopes the
+	// lookup to the trigger's workspace.
+	trigger, err := s.triggerStore.GetTrigger(r.Context(), match.TriggerID)
+	if err != nil {
+		slog.Error("webhook: get trigger failed", "trigger_id", match.TriggerID, "error", err)
+		httpResponse(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if trigger == nil || trigger.WorkflowID != match.WorkflowID {
+		httpResponse(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+
+	// Load the workflow.
 	wf, err := s.workflowStore.GetWorkflow(r.Context(), trigger.WorkflowID)
 	if err != nil {
 		slog.Error("webhook: get workflow failed",
@@ -503,15 +593,6 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Buffer the request body before returning the response, since r.Body
-	// will be closed once the handler returns.
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		slog.Error("webhook: read body failed", "trigger_id", trigger.ID, "error", err)
-		httpResponse(w, "failed to read request body", http.StatusBadRequest)
-		return
-	}
-
 	// Build structured input data from the HTTP request.
 	inputs := map[string]any{
 		"method":       r.Method,
@@ -519,6 +600,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		"trigger_type": "http",
 		"trigger_id":   trigger.ID,
 		"triggered_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	if srv != nil {
+		inputs["webhook_server"] = map[string]any{"id": srv.ID, "name": srv.Name}
 	}
 
 	// Query parameters (first value per key).
@@ -661,6 +745,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		job, err := s.enqueueDurableWorkflow(ctx, wf.ID, graphToRun, inputs, entryNodeIDs, "webhook")
 		cleanup()
+		if job != nil {
+			delivery.RunID = job.ID
+		}
 		if err != nil {
 			httpResponse(w, err.Error(), http.StatusBadRequest)
 			return
@@ -669,6 +756,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	delivery.RunID = runID
 	if syncMode && hasOutputNode {
 		// Synchronous with output node: run the engine in a goroutine and
 		// wait for the first output node to fire. The rest of the graph

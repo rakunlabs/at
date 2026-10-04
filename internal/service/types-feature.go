@@ -58,6 +58,7 @@ const (
 	FeatureWorkflowBuilder = "workflow_builder"
 	FeatureWorkflowRuns    = "workflow_runs"
 	FeatureWebhookTriggers = "webhook_triggers"
+	FeatureWebhookServers  = "webhook_servers"
 	FeatureCronTriggers    = "cron_triggers"
 
 	// Tools & execution.

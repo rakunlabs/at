@@ -21,6 +21,43 @@ export interface Trigger {
   updated_at: string;
   created_by?: string;
   updated_by?: string;
+  /** Dedicated webhook servers this webhook is published on. Omit on update to keep them. */
+  webhook_routes?: WebhookRoute[];
+  /** Unreachable on the main /webhooks route (requires at least one server). */
+  hide_from_main?: boolean;
+  /** HMAC verification. Omit on update to keep it; secret '***' keeps the stored secret. */
+  signature?: WebhookSignature | null;
+}
+
+export interface WebhookRoute {
+  server_id: string;
+  /** Empty: reachable by alias or ID. Otherwise replaces both on that server. */
+  path: string;
+}
+
+export type WebhookSignatureScheme = '' | 'github' | 'stripe' | 'hmac_sha256';
+
+export interface WebhookSignature {
+  scheme: WebhookSignatureScheme;
+  secret?: string;
+  header?: string;
+  prefix?: string;
+  encoding?: 'hex' | 'base64';
+}
+
+export interface WebhookDelivery {
+  id: string;
+  trigger_id: string;
+  server_id: string;
+  method: string;
+  path: string;
+  status: number;
+  run_id: string;
+  error: string;
+  client_ip: string;
+  body_bytes: number;
+  duration_ms: number;
+  created_at: string;
 }
 
 interface TriggersResponse {
@@ -68,4 +105,9 @@ export async function updateTrigger(id: string, trigger: Partial<Trigger>): Prom
 
 export async function deleteTrigger(id: string): Promise<void> {
   await api.delete(`/triggers/${id}`);
+}
+
+export async function listWebhookDeliveries(id: string, limit = 50): Promise<WebhookDelivery[]> {
+  const res = await api.get<{ deliveries: WebhookDelivery[] }>(`/triggers/${encodeURIComponent(id)}/deliveries`, { params: { limit } });
+  return res.data.deliveries ?? [];
 }
