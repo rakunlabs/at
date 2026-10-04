@@ -7,10 +7,12 @@
     call: ToolCall;
     result?: ChatMessage;
     source?: string;
+    /** One-line, human-readable description of what the call did. */
+    summary?: string;
     running?: boolean;
     queued?: boolean;
   }
-  let { call, result, source = '', running = false, queued = false }: Props = $props();
+  let { call, result, source = '', summary = '', running = false, queued = false }: Props = $props();
   let open = $state(false);
   let output = $derived(result ? getTextContent(result.content) : '');
   let failed = $derived(result !== undefined && toolResultFailed(output));
@@ -27,6 +29,7 @@
       {#if failed}<CircleAlert size={13} />{:else if result !== undefined}<Check size={13} />{:else if running}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}
       {status}
     </span>
+    {#if summary}<span class="basis-full pl-6 break-words text-gray-700 dark:text-dark-text-secondary">{summary}</span>{/if}
     <span class="basis-full pl-6 text-[11px] text-gray-500 dark:text-dark-text-muted">{open ? 'Click to collapse' : 'Click to expand · arguments and result'}</span>
   </summary>
   {#if open}

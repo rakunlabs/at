@@ -337,7 +337,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		mcpURLs = append(mcpURLs, preset.Config.MCPs...)
 	}
 
-	mcpURLs = append(mcpURLs, inputStrings(inputs["mcp"])...)
+	inputMCPSets, inputMCPURLs := mcpConfigInput(inputs["mcp"])
+	mcpURLs = append(mcpURLs, inputMCPURLs...)
 	uniqueMCPs := uniqueStrings(mcpURLs)
 
 	// 1. MCP tools
@@ -408,6 +409,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		if preset != nil {
 			setNames = append(append([]string{}, preset.Config.MCPSets...), setNames...)
 		}
+		setNames = append(setNames, inputMCPSets...)
 		for _, setName := range uniqueStrings(setNames) {
 			tools, listErr := reg.MCPSetToolLister(ctx, setName)
 			if listErr != nil {
@@ -419,6 +421,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				allTools = append(allTools, tool)
 			}
 		}
+	}
+	if len(inputMCPSets) > 0 && (reg.MCPSetToolLister == nil || reg.MCPSetToolCaller == nil) {
+		logi.Ctx(ctx).Warn("agent_call: MCP sets connected but MCP set runtime is unavailable",
+			"sets", inputMCPSets)
 	}
 
 	// 3. Builtin tools (from agent preset config).
@@ -1052,6 +1058,26 @@ func inputStrings(v any) []string {
 		}
 	}
 	return out
+}
+
+// mcpConfigInput splits what arrived on agent_call's "mcp" port into MCP set
+// names and raw URLs. mcp_config emits {mcp_sets, urls}; edges from older
+// graphs or other nodes may still deliver a URL string or list, which is kept
+// as URLs.
+func mcpConfigInput(v any) (sets, urls []string) {
+	switch val := v.(type) {
+	case map[string]any:
+		return inputStrings(val["mcp_sets"]), inputStrings(val["urls"])
+	case []any:
+		for _, item := range val {
+			s, u := mcpConfigInput(item)
+			sets = append(sets, s...)
+			urls = append(urls, u...)
+		}
+		return sets, urls
+	default:
+		return nil, inputStrings(v)
+	}
 }
 
 // uniqueStrings drops empty and repeated entries, keeping first-seen order.

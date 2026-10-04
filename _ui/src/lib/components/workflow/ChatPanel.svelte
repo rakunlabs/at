@@ -13,12 +13,17 @@
   import { listSkills } from '@/lib/api/skills';
   import { listAgents } from '@/lib/api/agents';
   import { listVariables } from '@/lib/api/secrets';
+  import { listMCPSets } from '@/lib/api/mcp-sets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
   import { createDefaultWorkflowNodeData, getWorkflowNodeDimensions, isWorkflowNodeType, workflowNodeDefinitions, workflowNodeTypes } from '@/lib/workflow/node-definitions';
   import { canvasInputHandle } from '@/lib/workflow/ports';
-  import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
-  import Markdown from '@/lib/components/Markdown.svelte';
+  import { summarizeWorkflowToolCall } from '@/lib/workflow/chat-tool-summary';
+  import { toolResultsByMessage } from '@/lib/helper/tool-activity';
+  import { workspaceTransport } from '@/lib/api/transport';
+  import { Send, Square, X, ChevronDown, Bot, Trash2 } from 'lucide-svelte';
+  import ToolActivity from '@/lib/components/ToolActivity.svelte';
+  import MessageContent from '@/lib/components/playground/MessageContent.svelte';
 
   // ─── Props ───
   let { onclose, flow }: { onclose: () => void; flow: FlowState } = $props();
@@ -32,6 +37,22 @@
   let abortController: AbortController | null = null;
   let chatContainer: HTMLDivElement | undefined = $state();
   let loadingModels = $state(true);
+  let toolResults = $derived(toolResultsByMessage(messages));
+
+  function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function growComposer(node: HTMLTextAreaElement, _value: string) {
+    const resize = () => {
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`;
+    };
+    queueMicrotask(resize);
+    return { update(_value: string) { queueMicrotask(resize); } };
+  }
 
   // ─── Constants ───
   const MAX_TOOL_ITERATIONS = 20;
@@ -183,6 +204,14 @@
       {
         type: 'function',
         function: {
+          name: 'fit_view',
+          description: 'Zoom and pan the canvas so the whole workflow is visible. Call once after adding or moving several nodes.',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
+      },
+      {
+        type: 'function',
+        function: {
           name: 'remove_edge',
           description: 'Remove an edge by its ID',
           parameters: {
@@ -259,7 +288,17 @@
     } catch {}
   }
 
+  let mcpSetsInfo = $state<{ name: string; description: string }[]>([]);
+
+  async function loadMCPSets() {
+    try {
+      const res = await listMCPSets({ _limit: 500 });
+      mcpSetsInfo = (res.data ?? []).map(s => ({ name: s.name, description: s.description }));
+    } catch {}
+  }
+
   loadSkills();
+  loadMCPSets();
   loadVariables();
   loadNodeConfigs();
 
@@ -270,7 +309,11 @@
       const nodes = json.nodes || [];
       const edges = json.edges || [];
       if (nodes.length === 0) return 'The workflow is currently empty.';
-      const nodeList = nodes.map((n: any) => `- ${n.id} (${n.type}): "${n.data?.label || n.data?.text || ''}"`)
+      const nodeList = nodes.map((n: any) => {
+        const x = Math.round(n.position?.x ?? 0);
+        const y = Math.round(n.position?.y ?? 0);
+        return `- ${n.id} (${n.type}) at (${x}, ${y}): "${n.data?.label || n.data?.text || ''}"`;
+      });
       return `Current workflow has ${nodes.length} nodes and ${edges.length} edges:\n${nodeList.join('\n')}`;
     } catch {
       return 'Unable to read current workflow state.';
@@ -376,6 +419,11 @@ ${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`)
 
 When creating skill_config nodes, use skill names from this list in the "skills" array.
 
+## Available MCP Sets
+${mcpSetsInfo.length > 0 ? mcpSetsInfo.map(s => `- "${s.name}"${s.description ? ': ' + s.description : ''}`).join('\n') : '- No MCP sets registered yet'}
+
+When creating mcp_config nodes, put MCP set names from this list in the "mcp_sets" array and connect its "mcp_urls" output to the agent_call "mcp" input. Never put raw MCP server URLs in a workflow; if the needed MCP is not listed, tell the user to register it on the MCP Sets page first.
+
 ## Available Variables
 ${variablesInfo.length > 0 ? variablesInfo.map(v => `- "${v.key}"${v.description ? ': ' + v.description : ''}`).join('\n') : '- No variables configured yet'}
 
@@ -387,11 +435,17 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
 - The source_handle and target_handle values must be the handle "id" (not the port or label)
 - Edge IDs should be formatted as "source_id-source_handle-target_id-target_handle"
 
-## Positioning Guidelines
-- Place nodes with ~200px horizontal spacing and ~150px vertical spacing
-- Keep related nodes close together
-- Flow generally goes left-to-right or top-to-bottom
-- Resource config nodes (skill_config, mcp_config) should be placed BELOW the agent_call node they connect to
+## Canvas and Layout
+The canvas is an infinite, pannable and zoomable surface — it is NOT limited to the visible screen. The user zooms out to see large workflows, so never cram nodes together to make them fit a small area. Prefer a wide, tidy, readable layout over a compact one.
+
+- Step cards are about 288px wide and 120–220px tall (agent_call and nodes with many fields are taller). Treat each card as roughly 300x220 when planning.
+- Main flow goes left-to-right: put each successive step in its own column, ~400px apart horizontally (x = 0, 400, 800, 1200, …). Long flows may extend thousands of pixels to the right — that is fine.
+- Parallel branches (conditional true/false, fan-out) go in separate rows ~300px apart vertically, aligned in the same columns as their siblings.
+- Resource config nodes (skill_config, mcp_config, agent_config) go directly BELOW the agent_call node they connect to, ~280px lower, spreading sideways if there are several.
+- Align nodes on a grid: share x within a column and y within a row. Never overlap cards; check existing positions from get_flow before placing new ones, and place new nodes in free space (usually right of or below the existing content).
+- When the user asks to tidy or reorganize, move existing nodes with update_node_position to this grid instead of recreating them.
+- Coordinates may be negative or large; there is no edge of the canvas.
+- After adding or moving several nodes, call fit_view once so the user sees the whole result.
 
 ## Important
 - Always use get_flow first to understand the current state before making changes
@@ -403,6 +457,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
   // ─── Tool Execution ───
 
   let nodeIdCounter = 0;
+  const MCP_URL_REFUSAL = 'mcp_config does not accept raw MCP URLs. Use "mcp_sets" with names of registered MCP sets; if none fits, ask the user to register the MCP on the MCP Sets page.';
 
   function executeToolCall(name: string, args: Record<string, any>): string {
     try {
@@ -416,6 +471,9 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
           const { type, position, data, id } = args;
           if (!isWorkflowNodeType(type)) {
             return JSON.stringify({ error: `Unsupported node type "${String(type)}"` });
+          }
+          if (type === 'mcp_config' && data?.mcp_urls?.length) {
+            return JSON.stringify({ error: MCP_URL_REFUSAL });
           }
           nodeIdCounter++;
           const nodeId = id || `${type}_ai_${nodeIdCounter}`;
@@ -448,6 +506,9 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
           const { id, data } = args;
           const node = flow.getNode(id);
           if (!node) return JSON.stringify({ error: `Node "${id}" not found` });
+          if (node.type === 'mcp_config' && data?.mcp_urls?.length) {
+            return JSON.stringify({ error: MCP_URL_REFUSAL });
+          }
           flow.updateNodeData(id, data);
           return JSON.stringify({ success: true });
         }
@@ -474,6 +535,11 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
             return JSON.stringify({ error: `Failed to add edge. Verify that source node "${source}" has output handle "${source_handle}" and target node "${target}" has input handle "${target_handle}". Check handle IDs match exactly.` });
           }
           return JSON.stringify({ success: true, id: edgeId });
+        }
+
+        case 'fit_view': {
+          flow.fitView(80);
+          return JSON.stringify({ success: true, zoom: Number(flow.viewport.zoom.toFixed(2)) });
         }
 
         case 'remove_edge': {
@@ -635,32 +701,23 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="w-80 h-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col"
+  class="w-[26rem] max-w-full h-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col"
   onmousedown={(e) => e.stopPropagation()}
   onwheel={(e) => e.stopPropagation()}
   onkeydown={(e) => e.stopPropagation()}
 >
-  <!-- Header -->
-  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
-    <div class="flex items-center gap-1.5">
-      <Bot size={14} class="text-gray-500 dark:text-dark-text-muted" />
-      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">AI Assistant</span>
-    </div>
-    <button onclick={onclose} class="text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text">
-      <X size={14} />
-    </button>
-  </div>
-
-  <!-- Model selector -->
-  <div class="px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
-    <div class="relative">
+  <!-- Toolbar: same controls and sizing as Chats -->
+  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-1 flex items-center gap-1.5 shrink-0">
+    <Bot size={14} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
+    <div class="relative min-w-0 flex-1">
       <select
         bind:value={selectedModel}
-        disabled={loadingModels || models.length === 0}
-        class="w-full appearance-none px-2 py-1 pr-6 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/50 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-dark-base"
+        aria-label="Model"
+        disabled={loadingModels || models.length === 0 || streaming}
+        class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted"
       >
         {#if loadingModels}
-          <option value="">Loading...</option>
+          <option value="">Loading…</option>
         {:else if models.length === 0}
           <option value="">No models available</option>
         {:else}
@@ -669,90 +726,110 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
           {/each}
         {/if}
       </select>
-      <ChevronDown size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted pointer-events-none" />
+      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
     </div>
+    <button
+      onclick={clearChat}
+      disabled={messages.length === 0 || streaming}
+      aria-label="Clear conversation"
+      title="Clear conversation"
+      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      <Trash2 size={14} />
+    </button>
+    <button
+      onclick={onclose}
+      aria-label="Close AI assistant"
+      title="Close"
+      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      <X size={14} />
+    </button>
   </div>
 
   <!-- Messages -->
-  <div bind:this={chatContainer} class="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
+  <div bind:this={chatContainer} class="flex-1 overflow-y-auto min-h-0 px-3 py-4 space-y-4">
     {#if messages.length === 0}
-      <div class="text-center text-[11px] text-gray-400 dark:text-dark-text-muted mt-8">
-        <Bot size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />
-        <p>Describe what you want to build or change in the workflow.</p>
-        <p class="mt-1">The AI can add, remove, update, and connect nodes.</p>
+      <div class="text-center py-12">
+        <div class="text-sm text-gray-400 dark:text-dark-text-muted mb-1.5">Describe what to build or change</div>
+        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+          The assistant can add, update, move and connect steps.
+          {#if selectedModel}
+            <br />Using <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-600 dark:text-dark-text-secondary">{selectedModel}</code>
+          {/if}
+        </div>
       </div>
     {/if}
 
     {#each messages as msg, i}
       {#if msg.role === 'user'}
         <div class="flex justify-end">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-900 dark:bg-accent/80 text-white text-[11px] whitespace-pre-wrap">
-            {getTextContent(msg.content)}
+          <div class="max-w-[85%] px-3 py-2 text-sm leading-relaxed bg-gray-900 dark:bg-[#2B2D42] text-white">
+            <MessageContent message={msg} workspace={workspaceTransport.selected} {formatSize} />
           </div>
         </div>
       {:else if msg.role === 'assistant'}
-        <div class="flex justify-start">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle text-[11px]">
-            {#if getTextContent(msg.content)}
-              <Markdown source={getTextContent(msg.content)} class="text-gray-700 dark:text-dark-text" />
-            {:else if streaming && i === messages.length - 1}
-              <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
-            {/if}
-            {#if msg.tool_calls && msg.tool_calls.length > 0}
-              <div class="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-dark-border-subtle">
-                {#each msg.tool_calls as tc}
-                  <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted">
-                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 dark:bg-accent"></span>
-                    <span class="font-mono">{tc.function.name}</span>
-                  </div>
-                {/each}
-              </div>
-            {/if}
+        {@const hasText = !!getTextContent(msg.content).trim()}
+        {@const thinking = streaming && i === messages.length - 1}
+        {#if hasText || thinking || msg.tool_calls?.length}
+          <div class="flex justify-start">
+            <div class="min-w-0 w-full px-3 py-2 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
+              {#if hasText || (thinking && !msg.tool_calls?.length)}
+                <MessageContent message={msg} workspace={workspaceTransport.selected} {thinking} {formatSize} />
+              {/if}
+              {#if msg.tool_calls && msg.tool_calls.length > 0}
+                <div class={['space-y-1', hasText ? 'mt-2 pt-2 border-t border-gray-200 dark:border-dark-border' : '']}>
+                  {#each msg.tool_calls as tc (tc.id)}
+                    <ToolActivity
+                      call={tc}
+                      result={toolResults.get(i)?.get(tc.id)}
+                      source="Canvas"
+                      summary={summarizeWorkflowToolCall(tc.function.name, tc.function.arguments)}
+                    />
+                  {/each}
+                </div>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/if}
       {/if}
-      <!-- tool messages are hidden (internal) -->
+      <!-- Tool results are shown inside the originating call's card. -->
     {/each}
   </div>
 
-  <!-- Input area -->
-  <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
-    <div class="flex items-end gap-1.5">
+  <!-- Composer -->
+  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-3 py-3 shrink-0">
+    <div class="flex items-end gap-2">
       <textarea
         bind:value={userInput}
+        use:growComposer={userInput}
         onkeydown={handleKeydown}
         rows={1}
-        class="flex-1 px-2 py-1.5 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded resize-none bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/50 placeholder:text-gray-400 dark:placeholder:text-dark-text-muted"
-        placeholder="Describe changes..."
+        aria-label="Message"
+        placeholder={models.length === 0 ? 'No models available' : 'Describe changes…'}
         disabled={!selectedModel || streaming}
+        class="min-w-0 min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-2 text-sm leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted"
       ></textarea>
       {#if streaming}
         <button
           onclick={stopStreaming}
-          class="p-1.5 rounded bg-red-500 text-white hover:bg-red-600 shrink-0"
+          title="Stop"
+          aria-label="Stop response"
+          class="inline-flex size-10 shrink-0 items-center justify-center bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent"
         >
-          <Square size={12} />
+          <Square size={18} />
         </button>
       {:else}
         <button
           onclick={sendMessage}
           disabled={!userInput.trim() || !selectedModel}
-          class="p-1.5 rounded bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          title="Send (Enter) — Shift+Enter for a new line"
+          aria-label="Send message"
+          class="inline-flex size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
         >
-          <Send size={12} />
+          <Send size={18} />
         </button>
       {/if}
     </div>
-    {#if messages.length > 0 && !streaming}
-      <button
-        onclick={clearChat}
-        class="mt-1.5 w-full text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text "
-      >
-        Clear conversation
-      </button>
-    {/if}
   </div>
 </div>
-
-<!-- Markdown typography is provided globally via `.markdown-body` rules in
-     src/style/global.css. No component-local overrides needed. -->

@@ -257,9 +257,9 @@ export const workflowNodeDefinitions = [
   {
     type: 'mcp_config',
     label: 'MCP Config',
-    description: 'MCP servers for agents',
+    description: 'Registered MCP sets for agents',
     paletteGroup: 'Resources',
-    createDefaultData: () => ({ label: 'MCP Config', mcp_urls: [] }),
+    createDefaultData: () => ({ label: 'MCP Config', mcp_sets: [] }),
   },
   {
     type: 'output',

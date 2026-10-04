@@ -30,7 +30,7 @@ Built-in node types. Each file defines one node type and registers it via `init(
 | `template.go` | `template` | Go text/template rendering with mustache conversion |
 | `log.go` | `log` | Log data at configurable level, pass through unchanged |
 | `skill-config.go` | `skill_config` | Resource node: outputs skill names for agent_call |
-| `mcp-config.go` | `mcp_config` | Resource node: outputs MCP server URLs for agent_call |
+| `mcp-config.go` | `mcp_config` | Resource node: selects registered MCP sets (`mcp_sets`) for agent_call; emits `{mcp_sets, urls}` on the historical `mcp_urls` port. Raw `mcp_urls` are honoured for saved graphs but no longer editable |
 | `edit-fields.go` | `edit_fields` | Project/set top-level fields on one object or each object in an array |
 | `filter.go` | `filter` | Typed AND/OR predicates over items; always emits an array |
 | `switch.go` | `switch` | First/all matching rules; stable `case_<id>` handles + fallback |
