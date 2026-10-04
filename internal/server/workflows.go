@@ -554,12 +554,12 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		httpResponseJSON(w, runWorkflowResponse{
+		writeWorkflowSyncResponse(w, runWorkflowResponse{
 			RunID:      runID,
 			WorkflowID: id,
 			Status:     "completed",
 			Outputs:    early.Outputs,
-		}, http.StatusOK)
+		}, early.Response)
 	} else {
 		// Asynchronous (or sync without output node): run in goroutine,
 		// return immediately. Nothing to wait for.

@@ -272,8 +272,8 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 		if err != nil {
 			return nil, fmt.Errorf("http_request: save response: %w", err)
 		}
-		outData["file"] = file.toMap()
-		outData["response"] = file.toMap()
+		outData["file"] = file.ToMap()
+		outData["response"] = file.ToMap()
 	} else {
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {

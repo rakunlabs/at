@@ -628,7 +628,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				out["files"] = runFileRefsToAny(files)
 				for _, f := range files {
 					if strings.HasPrefix(f.ContentType, "image/") {
-						out["image"] = f.toMap()
+						out["image"] = f.ToMap()
 						break
 					}
 				}

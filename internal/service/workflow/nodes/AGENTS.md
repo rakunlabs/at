@@ -16,7 +16,7 @@ Built-in node types. Each file defines one node type and registers it via `init(
 | File | Type Name | Purpose |
 |---|---|---|
 | `input.go` | `input` | Passes workflow trigger inputs downstream |
-| `output.go` | `output` | Collects final results into Registry outputs |
+| `output.go` | `output` | Collects final results into Registry outputs; named field ports; sync HTTP response as JSON, file or multipart |
 | `llm-call.go` | `llm_call` | Legacy: sends prompt to LLM provider via ProviderLookup. Hidden from the palette; saved graphs still run |
 | `agent-call.go` | `agent_call` | Runs a stored agent (`agent_id`: system prompt, model, skills, MCP sets, built-in tools, workflows, connections) or an inline agentic loop; node provider/model override, node system prompt is appended |
 | `conditional.go` | `conditional` | JS expression → NodeResultSelection (port routing) |
@@ -95,6 +95,50 @@ not normalised, when absolute or containing `..`.
   (`retiredExecutionNodes`). The gateway's `/images/generations` and the
   `ImageProvider` adapters are unaffected.
   Regression: `media-files_test.go`.
+
+### Files in and out of a workflow (webhooks, sync runs, Workflow Call)
+
+The run-file primitives (`RunFile`, `WriteRunFile`, `CleanRunPath`,
+`FileContentType`, `SafeFileName`) live in `workflow/run-files.go` so the HTTP
+layer shares them; `nodes/run-files.go` keeps short aliases.
+
+- **Inbound** (`server/workflow-files.go: storeWebhookUploads`): a webhook's
+  `multipart/form-data` parts are stored under `uploads/` in the run workspace
+  and handed on as `files` (refs, with `field`), `file` (first) and `form`
+  (text fields). Any other non-text body (PDF, image, octet-stream) becomes
+  `file`, named by `Content-Disposition` / `X-File-Name`, else `upload`.
+  Duplicate names get a `2-` prefix. JSON/text/urlencoded bodies are untouched
+  and the raw `body` input is always kept, so existing workflows are
+  unchanged. A storage failure (e.g. no `files.write`) is logged and exposed as
+  `upload_error`; it does not fail the delivery. Durable (Wait) webhooks
+  enqueue before this step and keep their text body.
+- **Outbound**: Output `response_mode` = `json` (default) | `file` |
+  `multipart`, with `file_path` (JSON Pointer into the Output's inputs; empty =
+  every file ref found, ≤20) and `disposition` (`attachment`/`inline`). The
+  Output node resolves and stats the files, so a missing file fails the step,
+  then records an `OutputResponse` in a slot shared with fan-out branches
+  (first wins, like the early output). `EarlyOutput.Response` /
+  `RunResult.Response` carry it to `writeWorkflowSyncResponse`, used by
+  webhooks and `POST /api/v1/workflows/run/{id}?sync=true`. File mode streams
+  the first file with its own type, `Content-Disposition`, `CSP: sandbox` and
+  `nosniff`; multipart mode sends `multipart/mixed` with a `result` JSON part
+  (the normal envelope) then one part per file. Both add `X-AT-Run-ID`. Files
+  are opened before headers are written, so a vanished file is a 500, not a
+  truncated 200. Stored files are opened through the execution root of the
+  Output node's context (detached from run cancellation, since the response
+  streams after the node returns).
+- **Named Output fields**: `fields` (strings or `{name}`) add input ports to
+  Output; each connected port is a top-level workflow output. Names must be
+  identifiers other than `input`/`output`/`files`; older graphs stored free
+  display tags here, which now simply get no port.
+- **Workflow Call** adds a `files` port (every file ref in the child's
+  outputs) and one port per `output_fields` entry (copied by the editor from
+  the child's Output fields), carrying that key alone — so one call returns
+  text and a file on separate wires. Children inherit the parent's execution
+  context and run workspace, so the refs resolve in the parent unchanged.
+
+Regressions: `output-response_test.go`, server `workflow-files_test.go`,
+`_ui/tests/workflow-output-fields.test.mjs`.
 
 `gate` differs from `wait`: it never persists or sleeps, so it needs no durable
 launch and works inside Loop. Topological execution means both inputs have

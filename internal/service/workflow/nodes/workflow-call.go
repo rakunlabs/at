@@ -21,10 +21,18 @@ import (
 //
 // Output ports:
 //
-//	index 0 = "output" — returns the outputs of the called workflow
+//	"output" — the outputs of the called workflow (whole map)
+//	"files"  — every file reference found in those outputs ([] when none)
+//	<field>  — one port per name in "output_fields" (the child Output node's
+//	           named fields), carrying that output key alone, so text and a
+//	           file can be wired to different steps
+//
+// Child steps share the parent's run workspace, so file references a child
+// returns stay valid in the parent.
 type workflowCallNode struct {
-	workflowID string
-	inputs     map[string]any
+	workflowID   string
+	inputs       map[string]any
+	outputFields []string
 }
 
 func init() {
@@ -41,8 +49,9 @@ func newWorkflowCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 	}
 
 	return &workflowCallNode{
-		workflowID: workflowID,
-		inputs:     inputs,
+		workflowID:   workflowID,
+		inputs:       inputs,
+		outputFields: outputFieldNames(node.Data["output_fields"]),
 	}, nil
 }
 
@@ -57,17 +66,27 @@ func (n *workflowCallNode) Meta() workflow.NodeMeta {
 		Inputs: []workflow.PortMeta{
 			{Name: "inputs", Type: workflow.PortTypeData, Label: "Inputs", Position: "left"},
 		},
-		Outputs: []workflow.PortMeta{
-			{Name: "output", Type: workflow.PortTypeData, Label: "Output", Position: "right"},
-		},
+		Outputs: n.outputPorts(),
 		Fields: []workflow.FieldMeta{
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
 			{Name: "workflow_id", Type: "string", Required: true, Description: "Child workflow ID"},
 			{Name: "workflow_name", Type: "string", Description: "Display name of the child workflow"},
 			{Name: "inputs", Type: "object", Description: "Static inputs for child workflow"},
+			{Name: "output_fields", Type: "array", Description: "Child output fields exposed as separate output ports (copied from the child's Output node)"},
 		},
 		Color: "fuchsia",
 	}
+}
+
+func (n *workflowCallNode) outputPorts() []workflow.PortMeta {
+	ports := []workflow.PortMeta{
+		{Name: "output", Type: workflow.PortTypeData, Label: "Output", Position: "right"},
+		{Name: "files", Type: workflow.PortTypeData, Label: "Files", Position: "right"},
+	}
+	for _, field := range n.outputFields {
+		ports = append(ports, workflow.PortMeta{Name: field, Type: workflow.PortTypeData, Label: field, Position: "right"})
+	}
+	return ports
 }
 
 func (n *workflowCallNode) Validate(_ context.Context, reg *workflow.Registry) error {
@@ -141,5 +160,18 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		return nil, fmt.Errorf("workflow_call: execution failed: %w", err)
 	}
 
-	return workflow.NewResult(map[string]any{"output": result.Outputs}), nil
+	out := map[string]any{"output": result.Outputs}
+	refs := workflow.CollectFileRefs(result.Outputs, maxRunOutputFiles)
+	files := make([]any, len(refs))
+	for i := range refs {
+		files[i] = refs[i]
+	}
+	out["files"] = files
+	for _, field := range n.outputFields {
+		// A field the child did not produce stays absent rather than null.
+		if value, ok := result.Outputs[field]; ok {
+			out[field] = value
+		}
+	}
+	return workflow.NewResult(out), nil
 }

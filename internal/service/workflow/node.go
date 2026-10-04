@@ -402,6 +402,10 @@ type Registry struct {
 	// handled collects failures the run survived through on_error.
 	handled      []service.WorkflowRunHandledError
 	handledCount int
+
+	// response is the HTTP response shape chosen by the first Output node;
+	// shared with fan-out branches.
+	response *responseSlot
 }
 
 // ProviderLookup returns a provider, its default model, and an error.
@@ -570,6 +574,7 @@ func NewRegistryWithDependencies(deps *Dependencies, inputs map[string]any) *Reg
 		Dependencies: deps,
 		RunInputs:    inputs,
 		outputs:      make(map[string]any),
+		response:     &responseSlot{},
 	}
 }
 
@@ -588,6 +593,7 @@ func (r *Registry) NewChildEngine() *Engine {
 func (r *Registry) newBranch() *Registry {
 	branch := NewRegistryWithDependencies(r.Dependencies, r.RunInputs)
 	branch.engine = r.engine
+	branch.response = r.response
 	return branch
 }
 

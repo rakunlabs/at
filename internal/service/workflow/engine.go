@@ -20,6 +20,9 @@ import (
 // RunResult is the output of a workflow execution.
 type RunResult struct {
 	Outputs map[string]any `json:"outputs"`
+	// Response is the HTTP response shape the first Output node requested
+	// (file download or multipart); nil means the JSON envelope.
+	Response *OutputResponse `json:"-"`
 	// HandledErrors are node failures the run survived via on_error
 	// (at most maxHandledErrors); HandledErrorCount is the full count.
 	HandledErrors     []service.WorkflowRunHandledError `json:"-"`
@@ -31,8 +34,9 @@ type RunResult struct {
 // Callers waiting for a sync response can read from the channel without
 // waiting for the entire graph to finish.
 type EarlyOutput struct {
-	Outputs map[string]any
-	Err     error
+	Outputs  map[string]any
+	Response *OutputResponse
+	Err      error
 }
 
 // NodeEvent is emitted during workflow execution to provide real-time
@@ -419,12 +423,19 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (_ *RunResult, runErr error) {
 	// Ensure outputCh is always signaled exactly once so callers never block.
 	var outputOnce sync.Once
+	responses := &responseSlot{}
 	signalOutput := func(outputs map[string]any, err error) {
 		if outputCh == nil {
 			return
 		}
 		outputOnce.Do(func() {
-			outputCh <- EarlyOutput{Outputs: outputs, Err: err}
+			early := EarlyOutput{Outputs: outputs, Err: err}
+			if err == nil {
+				responses.mu.Lock()
+				early.Response = responses.response
+				responses.mu.Unlock()
+			}
+			outputCh <- early
 		})
 	}
 	defer func() {
@@ -439,6 +450,7 @@ func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	}
 
 	reg := NewRegistryWithDependencies(e.ensureDependencies(), inputs)
+	reg.response = responses
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "execution.run"}); err != nil {
 		signalOutput(nil, err)
 		return nil, err
@@ -547,7 +559,7 @@ func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	signalOutput(outputs, nil)
 
 	handled, handledCount := reg.HandledErrors()
-	return &RunResult{Outputs: outputs, HandledErrors: handled, HandledErrorCount: handledCount}, nil
+	return &RunResult{Outputs: outputs, Response: reg.Response(), HandledErrors: handled, HandledErrorCount: handledCount}, nil
 }
 
 type fanOutExecution struct {

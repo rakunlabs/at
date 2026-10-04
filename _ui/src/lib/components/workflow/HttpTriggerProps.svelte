@@ -54,6 +54,12 @@
     <div><span class="text-gray-400">data.</span>query <span class="text-gray-400 font-sans">— query params (map)</span></div>
     <div><span class="text-gray-400">data.</span>headers <span class="text-gray-400 font-sans">— request headers (map)</span></div>
     <div><span class="text-gray-400">data.</span>body <span class="text-gray-400 font-sans">— raw body (reader)</span></div>
+    <div><span class="text-gray-400">data.</span>file <span class="text-gray-400 font-sans">— uploaded file (first), stored in the run workspace</span></div>
+    <div><span class="text-gray-400">data.</span>files <span class="text-gray-400 font-sans">— every uploaded file</span></div>
+    <div><span class="text-gray-400">data.</span>form <span class="text-gray-400 font-sans">— multipart text fields</span></div>
+  </div>
+  <div class="mt-1 text-[10px] text-gray-400">
+    multipart/form-data uploads and binary bodies (PDF, images…) become file references you can wire into Email attachments, Agent Call attachments or an Output. Add <span class="font-mono">?sync=true</span> to wait for the result; the Output node decides whether it is JSON, a file or multipart.
   </div>
   <div class="mt-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[10px] text-gray-500">
     <div class="font-medium text-gray-600 mb-0.5">Body methods:</div>

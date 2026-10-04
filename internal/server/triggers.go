@@ -621,6 +621,18 @@ func (s *Server) serveWebhook(w http.ResponseWriter, r *http.Request, match *ser
 	}
 	inputs["headers"] = headers
 
+	// File content (multipart uploads, PDFs, images) is stored in the run
+	// workspace and handed on as file references next to the raw body. A
+	// trigger identity without file access keeps the previous behaviour.
+	if uploads, err := storeWebhookUploads(r.Context(), r.Header, bodyBytes); err != nil {
+		slog.Warn("webhook: store uploaded files failed", "trigger_id", trigger.ID, "error", err)
+		inputs["upload_error"] = err.Error()
+	} else {
+		for k, v := range uploads {
+			inputs[k] = v
+		}
+	}
+
 	// Pass buffered body as an io.ReadCloser so downstream BodyWrapper works.
 	inputs["body"] = io.NopCloser(bytes.NewReader(bodyBytes))
 
@@ -800,12 +812,12 @@ func (s *Server) serveWebhook(w http.ResponseWriter, r *http.Request, match *ser
 			return
 		}
 
-		httpResponseJSON(w, runWorkflowResponse{
+		writeWorkflowSyncResponse(w, runWorkflowResponse{
 			RunID:      runID,
 			WorkflowID: trigger.WorkflowID,
 			Status:     "completed",
 			Outputs:    early.Outputs,
-		}, http.StatusOK)
+		}, early.Response)
 	} else {
 		// Asynchronous (or sync without output node): run in goroutine,
 		// return immediately. Nothing to wait for.

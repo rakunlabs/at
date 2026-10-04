@@ -77,7 +77,7 @@ export const workflowNodeDefinitions = [
     label: 'Workflow Call',
     description: 'Call another workflow',
     paletteGroup: 'Processing',
-    createDefaultData: () => ({ label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} }),
+    createDefaultData: () => ({ label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {}, output_fields: [] }),
   },
   {
     type: 'http_request',
@@ -266,7 +266,7 @@ export const workflowNodeDefinitions = [
     label: 'Output',
     description: 'Workflow output data',
     paletteGroup: 'Output',
-    createDefaultData: () => ({ label: 'Output', fields: [] }),
+    createDefaultData: () => ({ label: 'Output', fields: [], response_mode: 'json' }),
   },
   {
     type: 'group',

@@ -197,7 +197,7 @@ func dataURIMimeType(raw string) string {
 func runFileRefsToAny(refs []runFileRef) []any {
 	out := make([]any, len(refs))
 	for i, ref := range refs {
-		out[i] = ref.toMap()
+		out[i] = ref.ToMap()
 	}
 	return out
 }

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { RefreshCw } from 'lucide-svelte';
+  import { outputFieldNames, workflowOutputFields } from '@/lib/workflow/output-fields';
+
   let {
     data,
     allWorkflows = [],
@@ -8,6 +11,15 @@
     allWorkflows?: any[];
     workflow?: any;
   } = $props();
+
+  let exposed = $derived(outputFieldNames(data.output_fields));
+  let target = $derived(allWorkflows.find(w => w.id === data.workflow_id));
+  let available = $derived(workflowOutputFields(target?.graph));
+  let stale = $derived(!!target && (available.length !== exposed.length || available.some((f, i) => f !== exposed[i])));
+
+  function syncFields() {
+    data.output_fields = [...available];
+  }
 </script>
 
 <div>
@@ -21,6 +33,8 @@
       if (wf) {
         data.workflow_name = wf.name;
       }
+      // Each named field of the child's Output node becomes an output port.
+      data.output_fields = workflowOutputFields(wf?.graph);
     }}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
   >
@@ -29,6 +43,20 @@
       <option value={w.id}>{w.name}</option>
     {/each}
   </select></label>
+</div>
+<div>
+  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output fields</span>
+  <div class="mt-0.5 flex flex-wrap items-center gap-1">
+    {#each exposed as field}
+      <span class="px-1.5 py-0.5 text-[10px] font-mono border border-gray-200 bg-gray-50 text-gray-700">{field}</span>
+    {:else}
+      <span class="text-[10px] text-gray-400 italic">None — the child's Output node has no named fields</span>
+    {/each}
+    {#if stale}
+      <button type="button" onclick={syncFields} class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] border border-amber-300 text-amber-700 hover:bg-amber-50"><RefreshCw size={10} />Update from child</button>
+    {/if}
+  </div>
+  <div class="mt-0.5 text-[10px] text-gray-400">Each field is a separate output port. Add named fields (e.g. <span class="font-mono">text</span>, <span class="font-mono">file</span>) on the child workflow's Output node.</div>
 </div>
 <div>
   <label class="block">
@@ -61,6 +89,15 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">output</span>
         <span class="text-[10px] text-gray-400 ml-1">— Outputs from the called workflow</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">map — shape defined by child workflow</div>
+      </div>
+      <div>
+        <span class="text-[11px] font-mono font-medium text-gray-700">files</span>
+        <span class="text-[10px] text-gray-400 ml-1">— Every file reference in the child's outputs</span>
+        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">list — connect to Email attachments, Agent Call attachments, Output</div>
+      </div>
+      <div>
+        <span class="text-[11px] font-mono font-medium text-gray-700">&lt;field&gt;</span>
+        <span class="text-[10px] text-gray-400 ml-1">— One port per output field above</span>
       </div>
     </div>
   </div>

@@ -213,7 +213,7 @@ func (n *llmCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs ma
 			return nil, fmt.Errorf("llm_call: save generated images: %w", err)
 		}
 		out["files"] = runFileRefsToAny(files)
-		out["image"] = files[0].toMap()
+		out["image"] = files[0].ToMap()
 	}
 
 	return workflow.NewResult(out), nil

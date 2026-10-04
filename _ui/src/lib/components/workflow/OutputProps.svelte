@@ -1,6 +1,96 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { Plus, X } from 'lucide-svelte';
+  import { outputFieldProblem } from '@/lib/workflow/output-fields';
+
   let { data }: { data: Record<string, any> } = $props();
+
+  // Older graphs stored plain strings here; keep them editable as names.
+  untrack(() => {
+    if (!Array.isArray(data.fields)) data.fields = [];
+    data.fields = data.fields.map((f: any) => (typeof f === 'string' ? f : typeof f?.name === 'string' ? f.name : '')).filter((f: string) => f !== '');
+  });
+
+  let mode = $derived(data.response_mode || 'json');
+
+  function addField() {
+    data.fields = [...data.fields, ''];
+  }
+  function removeField(index: number) {
+    data.fields = data.fields.filter((_: string, i: number) => i !== index);
+  }
 </script>
+
+<div>
+  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Named fields</span>
+  <div class="mt-0.5 space-y-1">
+    {#each data.fields as _, i}
+      <div class="flex items-center gap-1">
+        <input
+          type="text"
+          bind:value={data.fields[i]}
+          class="w-full px-2 py-1 text-xs border border-gray-300 font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+          placeholder="e.g. text, file"
+          aria-label="Field name"
+        />
+        <button type="button" onclick={() => removeField(i)} class="p-1 text-gray-400 hover:text-gray-700" aria-label="Remove field"><X size={12} /></button>
+      </div>
+      {#if outputFieldProblem(data.fields[i])}
+        <div class="text-[10px] text-amber-600">{outputFieldProblem(data.fields[i])} — no port is added</div>
+      {/if}
+    {/each}
+    <button type="button" onclick={addField} class="flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-300 text-gray-600 hover:bg-gray-50"><Plus size={12} />Add field</button>
+  </div>
+  <div class="mt-0.5 text-[10px] text-gray-400">Each field adds an input port and becomes its own key in the workflow outputs, so a Workflow Call can wire <span class="font-mono">text</span> and <span class="font-mono">file</span> to different steps.</div>
+</div>
+
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">HTTP response (sync runs)</span>
+    <select
+      bind:value={data.response_mode}
+      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-400"
+    >
+      <option value="json">JSON envelope</option>
+      <option value="file">File download</option>
+      <option value="multipart">Multipart: JSON + files</option>
+    </select>
+  </label>
+  <div class="mt-0.5 text-[10px] text-gray-400">
+    Applies to webhooks and <span class="font-mono">POST /api/v1/workflows/run/&lt;id&gt;</span> called with <span class="font-mono">?sync=true</span>.
+    {#if mode === 'file'}The first file is returned as the body with its own Content-Type.{/if}
+    {#if mode === 'multipart'}The response is <span class="font-mono">multipart/mixed</span>: a <span class="font-mono">result</span> JSON part, then one part per file.{/if}
+  </div>
+</div>
+
+{#if mode !== 'json'}
+  <div>
+    <label class="block">
+      <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">File path (JSON Pointer)</span>
+      <input
+        type="text"
+        bind:value={data.file_path}
+        class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+        placeholder="/file  or  /input/file"
+      />
+    </label>
+    <div class="mt-0.5 text-[10px] text-gray-400">Empty: every file reference found in the inputs (HTTP Request <span class="font-mono">file</span>, Agent Call <span class="font-mono">files</span>, Script <span class="font-mono">{'{name, content_base64}'}</span>).</div>
+  </div>
+  {#if mode === 'file'}
+    <div>
+      <label class="block">
+        <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Disposition</span>
+        <select
+          bind:value={data.disposition}
+          class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-400"
+        >
+          <option value="attachment">attachment (download)</option>
+          <option value="inline">inline (display)</option>
+        </select>
+      </label>
+    </div>
+  {/if}
+{/if}
 
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
@@ -11,6 +101,10 @@
         <span class="text-[11px] font-mono font-medium text-gray-700">input</span>
         <span class="text-[10px] text-gray-400 ml-1">— All upstream data merged (workflow result)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">map — all upstream keys pass through to workflow result</div>
+      </div>
+      <div>
+        <span class="text-[11px] font-mono font-medium text-gray-700">&lt;field&gt;</span>
+        <span class="text-[10px] text-gray-400 ml-1">— One port per named field; stored under that name</span>
       </div>
     </div>
   </div>
