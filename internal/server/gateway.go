@@ -144,6 +144,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// Trace/session correlation for the audit log.
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
+	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 
 	// B3: mock_response short-circuit. No provider lookup, no auth model
 	// access checks beyond the basic token guard — the whole point of

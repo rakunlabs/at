@@ -203,3 +203,44 @@ func TestMediaObjectWorkspaceOwnerScoping(t *testing.T) {
 		t.Fatalf("after delete: %v", err)
 	}
 }
+
+func TestGatewayMediaObjectTokenScoping(t *testing.T) {
+	p := newTestStore(t, nil)
+	ctx := t.Context()
+
+	create := func(tokenID string) *service.MediaObject {
+		t.Helper()
+		created, err := p.CreateMediaObject(ctx, service.MediaObject{
+			WorkspaceID: service.DefaultWorkspaceID, OwnerUserID: "user-a", TokenID: tokenID,
+			Backend: service.MediaBackendFilesystem, StorageKey: "k-" + tokenID, ContentType: "image/png", SizeBytes: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created
+	}
+	gateway := create("tok-1")
+	browser := create("")
+
+	got, err := p.GetGatewayMediaObject(ctx, service.DefaultWorkspaceID, "tok-1", gateway.ID)
+	if err != nil || got.TokenID != "tok-1" || got.StorageKey != "k-tok-1" {
+		t.Fatalf("own token: %+v %v", got, err)
+	}
+	// The ordinary owner lookup still sees gateway media.
+	if _, err := p.GetMediaObject(ctx, service.DefaultWorkspaceID, "user-a", gateway.ID); err != nil {
+		t.Fatalf("owner lookup: %v", err)
+	}
+	for name, args := range map[string][3]string{
+		"other token":     {service.DefaultWorkspaceID, "tok-2", gateway.ID},
+		"other workspace": {"other", "tok-1", gateway.ID},
+		"browser object":  {service.DefaultWorkspaceID, "tok-1", browser.ID},
+		"empty token":     {service.DefaultWorkspaceID, "", browser.ID},
+		"unknown":         {service.DefaultWorkspaceID, "tok-1", "nope"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := p.GetGatewayMediaObject(ctx, args[0], args[1], args[2]); !errors.Is(err, service.ErrMediaNotFound) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+}

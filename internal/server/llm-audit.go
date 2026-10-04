@@ -39,6 +39,7 @@ func auditTraceInfo(r *http.Request, metadata ...map[string]any) (traceID, sessi
 		r.Header.Get("x-at-session-id"),
 		r.Header.Get("x-session-id"),
 		r.Header.Get("x-opencode-session"),
+		r.Header.Get("x-claude-code-session-id"),
 	)
 	if sessionID == "" && len(metadata) > 0 {
 		for _, key := range []string{"session_id", "conversation_id"} {
@@ -49,6 +50,16 @@ func auditTraceInfo(r *http.Request, metadata ...map[string]any) (traceID, sessi
 		}
 	}
 	return traceID, sessionID
+}
+
+// gatewayTurnTrace returns the client's trace ID, or, when the client sent
+// only a session ID, one derived from the conversational turn so that every
+// model call of an agentic turn lands in one trace.
+func gatewayTurnTrace(traceID, sessionID string, auth *authResult, body []byte) string {
+	if traceID != "" {
+		return traceID
+	}
+	return conversationTurnTraceID(gatewayTraceScope(auth), sessionID, body)
 }
 
 func auditCorrelationID(values ...string) string {

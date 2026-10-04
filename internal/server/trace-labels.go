@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/gateway/wire"
@@ -104,6 +107,103 @@ func lastUserText(body []byte) string {
 		}
 	}
 	return ""
+}
+
+// conversationTurnTraceID derives a stable trace ID for one conversational
+// turn of a gateway client that sends a session ID but no trace ID (OpenCode,
+// Claude Code, most coding CLIs). An agentic client calls the model once per
+// tool step, re-sending the whole history each time; without this every step
+// became its own trace. The turn is identified by the number of real user
+// messages and the text of the last one: tool results never count as user
+// messages, so every step of one turn maps to the same trace, and the next
+// prompt starts a new one. The scope (workspace, token) and session are part
+// of the hash, so two clients reusing a session ID never share a trace.
+// Returns "" when the body carries no user message.
+func conversationTurnTraceID(scope, sessionID string, body []byte) string {
+	if sessionID == "" {
+		return ""
+	}
+	count, last := userTurns(body)
+	if count == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(scope + "\x00" + sessionID + "\x00" + strconv.Itoa(count) + "\x00" + last))
+	return "turn-" + hex.EncodeToString(sum[:16])
+}
+
+// userTurns counts the user-authored messages in an OpenAI chat, Anthropic
+// Messages or Responses request and returns the text of the last one.
+// Messages carrying tool results (Anthropic tool_result blocks) are not
+// user turns, even when they also contain text.
+func userTurns(body []byte) (int, string) {
+	if len(body) == 0 {
+		return 0, ""
+	}
+	var req struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+		Input json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(body, &req) != nil {
+		return 0, ""
+	}
+	count, last := 0, ""
+	add := func(role string, content json.RawMessage) {
+		if role != "user" || hasToolResult(content) {
+			return
+		}
+		if text := contentText(content); text != "" {
+			count++
+			last = text
+		}
+	}
+	for _, m := range req.Messages {
+		add(m.Role, m.Content)
+	}
+	if count == 0 && len(req.Input) > 0 {
+		var s string
+		if json.Unmarshal(req.Input, &s) == nil {
+			if s != "" {
+				return 1, s
+			}
+			return 0, ""
+		}
+		var items []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(req.Input, &items) == nil {
+			for _, item := range items {
+				add(item.Role, item.Content)
+			}
+		}
+	}
+	return count, last
+}
+
+func hasToolResult(raw json.RawMessage) bool {
+	var blocks []struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return false
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_result" || b.Type == "function_call_output" {
+			return true
+		}
+	}
+	return false
+}
+
+// gatewayTraceScope namespaces derived trace IDs by workspace and API token.
+func gatewayTraceScope(auth *authResult) string {
+	if auth == nil || auth.token == nil {
+		return ""
+	}
+	return auth.token.WorkspaceID + "\x00" + auth.token.ID
 }
 
 // contentText flattens string or block-array content to its text parts.

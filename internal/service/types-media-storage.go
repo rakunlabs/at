@@ -71,6 +71,9 @@ type MediaObject struct {
 	ID          string `json:"id" db:"id"`
 	WorkspaceID string `json:"workspace_id" db:"workspace_id"`
 	OwnerUserID string `json:"owner_user_id" db:"owner_user_id"`
+	// TokenID is set for media produced through the gateway; that API token
+	// may download it from /gateway/v1/media/{id}.
+	TokenID     string `json:"token_id,omitempty" db:"token_id"`
 	Backend     string `json:"backend" db:"backend"`
 	StorageKey  string `json:"storage_key" db:"storage_key"`
 	ContentType string `json:"content_type" db:"content_type"`
@@ -188,4 +191,9 @@ type MediaStorer interface {
 	// DeleteMediaObject returns the row it removed so the caller can delete
 	// the matching blob from the backend that row names.
 	DeleteMediaObject(ctx context.Context, workspace, owner, id string) (*MediaObject, error)
+}
+
+// GatewayMediaStorer resolves media for the API token that produced it.
+type GatewayMediaStorer interface {
+	GetGatewayMediaObject(ctx context.Context, workspace, tokenID, id string) (*MediaObject, error)
 }

@@ -89,3 +89,29 @@
     >/gateway/v1/mcp/&lt;name&gt;</code
   > URL — point opencode at any of them.
 </p>
+
+<h4 class="pt-2 text-sm font-semibold text-gray-900 dark:text-dark-text">Generating images from opencode</h4>
+<ol class="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+  <li>
+    On the <a href="#/mcp-servers" class={linkClass}>MCP Servers</a> page, add the
+    <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary">generate_image</code>
+    built-in tool to a server and bind its execution identity.
+  </li>
+  <li>
+    Make sure an image-capable provider exists: an OpenAI provider with an API key, an OpenAI provider with
+    <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary">chatgpt</code>
+    auth (billed to the ChatGPT subscription), or MiniMax. Media storage must be enabled in storage settings.
+  </li>
+  <li>Add the server to opencode with the config above, using a workspace API token.</li>
+</ol>
+<p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+  The tool result carries the image itself, so the model sees what it generated, plus a
+  <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary">download_url</code>.
+  The file can be saved into the project with the same token; only the token that generated an image can download it:
+</p>
+<DocsCodeBlock
+  code={`curl -fsSL -H "Authorization: Bearer at_xxxxx" -o fox.png ${baseUrl}/gateway/v1/media/<media_id>`}
+  lang="bash"
+  label="Download a generated image"
+  copyLabel="Copy command"
+/>

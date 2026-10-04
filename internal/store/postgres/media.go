@@ -19,12 +19,13 @@ import (
 var _ service.MediaStorer = (*Postgres)(nil)
 var _ service.StorageSettingsStorer = (*Postgres)(nil)
 
-var mediaObjectColumns = []any{"id", "workspace_id", "owner_user_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
+var mediaObjectColumns = []any{"id", "workspace_id", "owner_user_id", "token_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
 
 type mediaObjectRow struct {
 	ID          string    `db:"id"`
 	WorkspaceID string    `db:"workspace_id"`
 	OwnerUserID string    `db:"owner_user_id"`
+	TokenID     string    `db:"token_id"`
 	Backend     string    `db:"backend"`
 	StorageKey  string    `db:"storage_key"`
 	ContentType string    `db:"content_type"`
@@ -38,6 +39,7 @@ func mediaObjectRowToRecord(row mediaObjectRow) service.MediaObject {
 		ID:          row.ID,
 		WorkspaceID: row.WorkspaceID,
 		OwnerUserID: row.OwnerUserID,
+		TokenID:     row.TokenID,
 		Backend:     row.Backend,
 		StorageKey:  row.StorageKey,
 		ContentType: row.ContentType,
@@ -202,6 +204,7 @@ func (p *Postgres) CreateMediaObject(ctx context.Context, object service.MediaOb
 		"id":            id,
 		"workspace_id":  object.WorkspaceID,
 		"owner_user_id": object.OwnerUserID,
+		"token_id":      object.TokenID,
 		"namespace":     service.StorageNamespaceMedia,
 		"path":          id,
 		"backend":       object.Backend,
@@ -229,6 +232,26 @@ func (p *Postgres) GetMediaObject(ctx context.Context, workspace, owner, id stri
 	var row mediaObjectRow
 	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{
 		"id": id, "workspace_id": workspace, "owner_user_id": owner, "namespace": service.StorageNamespaceMedia,
+	}).ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, mediaError(err)
+	}
+	if !found {
+		return nil, service.ErrMediaNotFound
+	}
+	out := mediaObjectRowToRecord(row)
+	return &out, nil
+}
+
+// GetGatewayMediaObject returns an object only to the API token that produced
+// it. Browser and agent media carry no token ID and are never reachable here.
+func (p *Postgres) GetGatewayMediaObject(ctx context.Context, workspace, tokenID, id string) (*service.MediaObject, error) {
+	if workspace == "" || tokenID == "" || id == "" {
+		return nil, service.ErrMediaNotFound
+	}
+	var row mediaObjectRow
+	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{
+		"id": id, "workspace_id": workspace, "token_id": tokenID, "namespace": service.StorageNamespaceMedia,
 	}).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)

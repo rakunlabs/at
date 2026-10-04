@@ -158,6 +158,9 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 		}
 		return s.bindGatewayMCPServer(w, r, mcpSrv, machineStore)
 	}
+	if auth.token != nil {
+		*r = *r.WithContext(contextWithGatewayToken(r.Context(), auth.token))
+	}
 
 	if mcpSrv == nil {
 		httpResponse(w, fmt.Sprintf("MCP server %q not found", name), http.StatusNotFound)
@@ -297,7 +300,9 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 	defer closeMCPRuntime(r.Context(), runtime)
-	result, err := runtime.CallTool(r.Context(), params.Name, params.Arguments)
+	ctx, collector := service.ContextWithToolContentCollector(r.Context())
+	ctx = contextWithGatewayBaseURL(ctx, s.publicBaseURL(r))
+	result, err := runtime.CallTool(ctx, params.Name, params.Arguments)
 	if err != nil {
 		var notFound *mcpToolNotFoundError
 		if errors.As(err, &notFound) {
@@ -307,11 +312,9 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		mcpError(w, req.ID, -32000, err.Error())
 		return
 	}
-	mcpResult(w, req.ID, map[string]any{
-		"content": []map[string]any{
-			{"type": "text", "text": result},
-		},
-	})
+	content := []service.ToolContent{{Type: "text", Text: result}}
+	content = append(content, collector.Content()...)
+	mcpResult(w, req.ID, map[string]any{"content": content})
 }
 
 // newMCPClient creates an MCPClient for the given upstream, dispatching to

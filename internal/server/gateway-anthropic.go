@@ -81,6 +81,7 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
+	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 	opts := wire.BuildAnthropicChatOptions(&req)
 
 	callCtx, cancel := withRequestTimeout(r.Context(), req.TimeoutMs)

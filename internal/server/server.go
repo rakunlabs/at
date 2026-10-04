@@ -765,6 +765,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.POST("/v1/rerank", s.Rerank)
 	gatewayGroup.POST("/v1/decisions", s.Decisions)
 	gatewayGroup.POST("/v1/scores", s.GatewayScoresAPI)
+	gatewayGroup.GET("/v1/media/{id}", s.GatewayMediaAPI)
 	gatewayGroup.GET("/v1/health", s.HealthOverall)
 	gatewayGroup.GET("/v1/health/{provider}", s.HealthProvider)
 	gatewayGroup.Handle("/v1/providers/{provider}/*", http.HandlerFunc(s.ProxyRequest))

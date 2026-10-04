@@ -201,6 +201,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
+	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 
 	if req.PreviousResponseID != "" {
 		httpResponseJSON(w, map[string]any{

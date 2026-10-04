@@ -96,11 +96,17 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 		if err != nil {
 			return "", err
 		}
-		out["artifacts"] = delivered
+		out["artifacts"] = gatewayArtifacts(ctx, delivered)
 		if note != "" {
 			out["artifacts_note"] = note
 		}
 		out["note"] = "The images are shown to the user automatically; do not repeat their content."
+		if gatewayTokenFromContext(ctx) != nil {
+			out["note"] = "Save the images into the project by downloading each artifact's download_url with the same API token (Authorization: Bearer …), e.g. curl -fsSL -H \"Authorization: Bearer $TOKEN\" -o <file> <download_url>."
+			if offerGeneratedImagesInline(ctx, images) {
+				out["note"] = "The images are attached to this result. " + out["note"].(string)
+			}
+		}
 	}
 	encoded, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -112,6 +118,44 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 type generatedImageFile struct {
 	data []byte
 	ext  string
+}
+
+// gatewayArtifact adds the token download address to a stored artifact when
+// the call came through the gateway.
+type gatewayArtifact struct {
+	chatArtifact
+	DownloadURL string `json:"download_url,omitempty"`
+}
+
+func gatewayArtifacts(ctx context.Context, delivered []chatArtifact) []gatewayArtifact {
+	out := make([]gatewayArtifact, 0, len(delivered))
+	for _, artifact := range delivered {
+		out = append(out, gatewayArtifact{chatArtifact: artifact, DownloadURL: gatewayMediaURL(ctx, artifact.MediaID)})
+	}
+	return out
+}
+
+// Inline image content is bounded so one call cannot turn into a response the
+// client refuses; larger images remain downloadable.
+const generatedImageInlineMaxBytes = 8 << 20
+
+// offerGeneratedImagesInline attaches images as MCP image content when the
+// caller can deliver it, so the calling model sees what it generated.
+func offerGeneratedImagesInline(ctx context.Context, images []generatedImageFile) bool {
+	if service.ToolContentCollectorFromContext(ctx) == nil {
+		return false
+	}
+	total := 0
+	added := false
+	for _, image := range images {
+		total += len(image.data)
+		if total > generatedImageInlineMaxBytes {
+			break
+		}
+		mimeType := http.DetectContentType(image.data)
+		added = service.AddToolContent(ctx, service.ToolContent{Type: "image", MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(image.data)}) || added
+	}
+	return added
 }
 
 // decodeGeneratedImages accepts base64 results and fetches URL results, so

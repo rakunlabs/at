@@ -247,6 +247,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `POST /gateway/v1/rerank` | Cohere-shape rerank: `query`, `documents`, `top_n?`, `return_documents?`. Backed by `service.RerankProvider` (Cohere today). |
 | `POST /gateway/v1/decisions` | System 1 typed decisions: `{model, state, questions}` plus any `/v1/systemone` control (`max_len`, `lang`, `min_confidence`, …), forwarded unchanged. Backed by `service.DecisionProvider` (`systemone` providers). The upstream body is returned verbatim (`answers`, `usage`, `routing`). See *System 1 decision services* below. |
 | `POST /gateway/v1/scores` | Attach a quality score to a trace the same API token produced: `{trace_id, observation_id?, name, data_type?, value? \| bool_value? \| string_value?, comment?}`. See *Trace explorer*. |
+| `GET /gateway/v1/media/{id}` | Download media the **same API token** produced through the gateway (e.g. `generate_image` over MCP). Workspace- and token-scoped via `storage_objects.token_id` (migration 91); browser/agent media and other tokens' media answer 404. Always `attachment` with `CSP: sandbox`. See *Image generation from any model*. |
 | `GET /gateway/v1/health` | Liveness — returns `{status, providers{}, version}`. No auth required. |
 | `GET /gateway/v1/health/{provider}` | Per-provider readiness check (without dialing upstream). |
 | `GET /gateway/v1/models` | OpenAI-shape model list (chat + embedding models). |
@@ -2002,7 +2003,7 @@ never taken from a request.
 |---|---|
 | `GET /api/v1/traces` | Typed filters: `from`/`to`, `q` (ID, session, name, input), `name`, `model`, `source`, `tag`, `environment`, `release`, `user_id`, `end_user`, `session_id`, `token_id`, `task_id`, `agent_id` (repeat or comma-separate), `status=ok|error`, `min_/max_latency_ms`, `min_/max_cost_cents`, `min_/max_tokens`, `score_name` + `min_/max_score`, `bookmarked=true`, `sort` (`started_at`, `duration`, `latency`, `cost`, `tokens`, `errors`, `observations`), `order`, `offset`, `limit` (≤500). Unknown parameters are 400, so a typo cannot silently widen a filter. Attribute filters select a trace when **any** observation matches; numeric bounds apply to the trace aggregate. |
 | `GET /api/v1/traces/{id}` | Summary + all observations (bodies clipped; full payload via `/llm-calls/{id}`), bounded at 5000 with `truncated`, plus scores. |
-| `GET /api/v1/traces/sessions[/{id}?token_id=]` | Sessions are keyed by session ID **and** API token, so two clients using `session-1` are never merged. Detail returns traces chronologically with full input/output for replay. Gateway session IDs come from `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, then string `metadata.session_id` / `metadata.conversation_id`; cache keys and the `user` field are not conversation identities, and requests without one stay separate traces. |
+| `GET /api/v1/traces/sessions[/{id}?token_id=]` | Sessions are keyed by session ID **and** API token, so two clients using `session-1` are never merged. Detail returns traces chronologically with full input/output for replay. Gateway session IDs come from `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, `x-claude-code-session-id`, then string `metadata.session_id` / `metadata.conversation_id`; cache keys and the `user` field are not conversation identities, and requests without one stay separate traces. A request with a session but no `x-at-trace-id` gets a **turn trace** (`conversationTurnTraceID`, `trace-labels.go`): a hash of workspace + token + session + the number of user messages + the last user text. Tool results (`role: tool`, Anthropic `tool_result`, Responses `function_call_output`) are not user turns, so every model call of one agentic turn (OpenCode, Claude Code) shares one trace and the next prompt opens a new one. The session view offers a Conversation and a shared-axis Timeline view. |
 | `GET /api/v1/traces/facets?from=` | Distinct values for filter pickers (≤200 each). |
 | `POST /api/v1/traces/{id}/scores`, `DELETE /api/v1/traces/scores/{id}` | Manual annotations. Numeric, boolean (`bool_value` or 0/1) or categorical, optionally on one observation of the trace. Deleting another account's annotation, or an API score, needs workspace admin. |
 | `PUT /api/v1/traces/{id}/bookmark` | Per-account bookmark. |
@@ -2479,6 +2480,21 @@ directly) they are stored as media owned by the caller and returned as
 Anthropic has no image-generation model; Claude uses this tool with another
 provider. Regressions: `internal/server/builtin-tools-image_test.go`,
 `internal/service/llm/openai/codex-images_test.go`.
+
+**Over the gateway MCP endpoint** (OpenCode, Claude Code, any MCP client) the
+tool is useful outside AT too. `gwGenMCPCallTool` installs a
+`service.ToolContentCollector` and the calling API token rides the context
+(`contextWithGatewayToken`). `generate_image` then (1) attaches the images as
+MCP `image` content blocks (≤ 8 MiB total) after the JSON text block, so the
+calling model sees what it made, and (2) records `storage_objects.token_id` on
+the stored media and returns a `download_url` for `GET /gateway/v1/media/{id}`,
+which only that token can read — so the client agent can `curl` the file into
+its project. The collector is generic: upstream MCP servers' `image`/`audio`
+blocks are forwarded through it as well, and both MCP clients now join all text
+blocks instead of returning only the first one. Agent loops have no collector
+and keep their text-only behaviour. Regressions:
+`internal/server/gateway-media-download_test.go`,
+`internal/service/tool-content_test.go`, `TestGatewayMediaObjectTokenScoping`.
 
 ## Built-in "get" tools take one identifier or a list
 

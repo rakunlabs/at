@@ -1,10 +1,10 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { ArrowLeft, Copy, ExternalLink, RefreshCw } from 'lucide-svelte';
+  import { ArrowLeft, Copy, ExternalLink, RefreshCw, MessagesSquare, ChartGantt } from 'lucide-svelte';
   import ChatMessages from './ChatMessages.svelte';
   import { getTraceSession, type TraceSessionDetail } from '@/lib/api/traces';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { formatDurationMs, formatTokens, formatCost, formatTraceTime } from '@/lib/helper/trace-view';
+  import { formatDurationMs, formatTokens, formatCost, formatTraceTime, barGeometry, timelineTicks, type Timeline } from '@/lib/helper/trace-view';
 
   interface Props {
     sessionID: string;
@@ -18,6 +18,11 @@
   let loading = $state(true);
   let failed = $state('');
   let request = 0;
+  let view = $state<'conversation' | 'timeline'>((localStorage.getItem('at.traces.session-view') as 'timeline') || 'conversation');
+  function setView(next: 'conversation' | 'timeline') {
+    view = next;
+    localStorage.setItem('at.traces.session-view', next);
+  }
 
   $effect(() => {
     const id = sessionID;
@@ -41,6 +46,15 @@
 
   const s = $derived(detail?.session);
   const duration = $derived(s ? Date.parse(s.ended_at) - Date.parse(s.started_at) : 0);
+  // Shared time axis across every trace of the session.
+  const timeline = $derived.by<Timeline>(() => {
+    const ts = detail?.traces || [];
+    if (!ts.length) return { start: 0, end: 0, duration: 0 };
+    const start = Math.min(...ts.map((t) => Date.parse(t.started_at)));
+    const end = Math.max(...ts.map((t) => Math.max(Date.parse(t.ended_at), Date.parse(t.started_at) + (t.duration_ms || 0))));
+    return { start, end, duration: Math.max(end - start, 0) };
+  });
+  const ticks = $derived(timelineTicks(timeline.duration));
   const missingIO = $derived(detail ? detail.traces.every((t) => !t.input && !t.output) : false);
 
   async function copy(text: string) {
@@ -61,7 +75,12 @@
       <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Session</span>
       <h2 class="min-w-0 truncate font-mono text-sm font-semibold text-gray-900 dark:text-dark-text">{sessionID}</h2>
       <button onclick={() => copy(sessionID)} class="p-1 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted" title="Copy session ID"><Copy size={12} /></button>
-      <button onclick={() => load(sessionID, tokenID)} class="ml-auto p-1 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted" title="Refresh"><RefreshCw size={14} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
+      <div class="ml-auto flex border border-gray-200 dark:border-dark-border" role="tablist">
+        {#each [['conversation', 'Conversation', MessagesSquare], ['timeline', 'Timeline', ChartGantt]] as const as [key, label, Icon] (key)}
+          <button role="tab" aria-selected={view === key} onclick={() => setView(key)} class={['inline-flex items-center gap-1 px-2.5 py-1 text-xs', view === key ? 'bg-gray-900 text-white dark:bg-dark-text dark:text-dark-base' : 'text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Icon size={12} />{label}</button>
+        {/each}
+      </div>
+      <button onclick={() => load(sessionID, tokenID)} class="p-1 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted" title="Refresh"><RefreshCw size={14} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
     </div>
     {#if s}
       <dl class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
@@ -87,6 +106,32 @@
     {:else if !detail}
       <p class="text-center text-xs text-gray-400 dark:text-dark-text-muted">Loading session…</p>
     {:else}
+      {#if view === 'timeline'}
+        <div class="border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
+          <div class="flex border-b border-gray-200 bg-gray-50 text-[10px] text-gray-400 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-muted">
+            <div class="w-72 shrink-0 px-2.5 py-1 font-medium uppercase tracking-wider">Turn</div>
+            <div class="relative min-w-0 flex-1">
+              {#each ticks as tick}
+                <span class="absolute top-1 font-mono" style:left="{barGeometry(timeline, timeline.start + tick, timeline.start + tick, 0).left}%">{formatDurationMs(tick)}</span>
+              {/each}
+            </div>
+          </div>
+          {#each detail.traces as t, i (t.trace_id)}
+            {@const start = Date.parse(t.started_at)}
+            {@const g = barGeometry(timeline, start, Math.max(Date.parse(t.ended_at), start + (t.duration_ms || 0)))}
+            <button class="flex w-full items-center border-b border-gray-100 text-left text-xs hover:bg-gray-50 dark:border-dark-border/60 dark:hover:bg-dark-elevated/60" onclick={() => onopentrace(t.trace_id)} title={t.input || t.name || t.trace_id}>
+              <div class="w-72 shrink-0 px-2.5 py-1.5">
+                <div class="truncate text-gray-900 dark:text-dark-text"><span class="mr-1 font-mono text-gray-400 dark:text-dark-text-muted">#{i + 1}</span>{t.input || t.name || t.trace_id}</div>
+                <div class="truncate font-mono text-[10px] text-gray-500 dark:text-dark-text-muted">{formatTraceTime(t.started_at)} · {t.generation_count} calls · {formatTokens(t.total_tokens)} tok · {formatCost(t.cost_cents)}</div>
+              </div>
+              <div class="relative h-6 min-w-0 flex-1 px-1">
+                <div class={['absolute top-1.5 h-3', t.error_count ? 'bg-red-400 dark:bg-red-500/70' : 'bg-blue-400 dark:bg-blue-500/70']} style:left="{g.left}%" style:width="{g.width}%"></div>
+                <span class="absolute top-1 font-mono text-[10px] text-gray-500 dark:text-dark-text-muted" style:left="min(calc({g.left + g.width}% + 4px), calc(100% - 3.5rem))">{formatDurationMs(t.duration_ms)}</span>
+              </div>
+            </button>
+          {/each}
+        </div>
+      {:else}
       {#if missingIO}
         <p class="mb-3 border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700 dark:border-amber-900/30 dark:bg-amber-900/10 dark:text-amber-400">Conversation text is captured only while trace body capture is on and is removed with bodies after the retention window. The traces below remain available.</p>
       {/if}
@@ -111,6 +156,7 @@
           </li>
         {/each}
       </ol>
+      {/if}
       {#if s && s.trace_count > detail.traces.length}
         <p class="mt-4 text-center text-[11px] text-gray-400 dark:text-dark-text-muted">Showing the first {detail.traces.length} of {s.trace_count} traces.</p>
       {/if}

@@ -227,11 +227,7 @@ func (c *StdioMCPClient) CallTool(ctx context.Context, name string, arguments ma
 		return "", fmt.Errorf("parse tool result: %w", err)
 	}
 
-	if len(result.Content) > 0 {
-		return result.Content[0].Text, nil
-	}
-
-	return "", nil
+	return toolResultText(ctx, result), nil
 }
 
 func (c *StdioMCPClient) Close() error {

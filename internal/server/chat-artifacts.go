@@ -311,9 +311,14 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 			continue
 		}
 		file.Close()
+		tokenID := ""
+		if token := gatewayTokenFromContext(ctx); token != nil && token.WorkspaceID == provenance.WorkspaceID {
+			tokenID = token.ID
+		}
 		created, err := store.CreateMediaObject(ctx, service.MediaObject{
 			WorkspaceID: provenance.WorkspaceID,
 			OwnerUserID: provenance.UserID,
+			TokenID:     tokenID,
 			Backend:     settings.Backend,
 			StorageKey:  key,
 			ContentType: contentType,

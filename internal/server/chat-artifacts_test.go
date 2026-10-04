@@ -56,6 +56,15 @@ func (m *memoryMediaStore) DeleteMediaObject(_ context.Context, _, _, id string)
 	delete(m.objects, id)
 	return &o, nil
 }
+func (m *memoryMediaStore) GetGatewayMediaObject(_ context.Context, workspace, tokenID, id string) (*service.MediaObject, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.objects[id]
+	if !ok || tokenID == "" || o.TokenID != tokenID || o.WorkspaceID != workspace {
+		return nil, service.ErrMediaNotFound
+	}
+	return &o, nil
+}
 
 // fileWritingProvider stands in for a skill agent whose tool writes files:
 // on its call it writes into the run's AT_WORK_DIR, then answers.

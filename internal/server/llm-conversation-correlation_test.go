@@ -37,6 +37,48 @@ func TestGatewayConversationCorrelation(t *testing.T) {
 	}
 }
 
+func TestConversationTurnTraceID(t *testing.T) {
+	turn1 := `{"messages":[{"role":"system","content":"sys"},{"role":"user","content":"fix the bug"}]}`
+	turn1Step2 := `{"messages":[{"role":"system","content":"sys"},{"role":"user","content":"fix the bug"},
+		{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},
+		{"role":"tool","tool_call_id":"c1","content":"file"}]}`
+	turn2 := `{"messages":[{"role":"user","content":"fix the bug"},{"role":"assistant","content":"done"},{"role":"user","content":"thanks"}]}`
+	anthropicStep := `{"messages":[{"role":"user","content":[{"type":"text","text":"fix the bug"}]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"read","input":{}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"file"}]}]}`
+	anthropicTurn1 := `{"messages":[{"role":"user","content":[{"type":"text","text":"fix the bug"}]}]}`
+	responsesStep := `{"input":[{"role":"user","content":[{"type":"input_text","text":"fix the bug"}]},{"type":"function_call_output","call_id":"c1","output":"x"}]}`
+
+	id := conversationTurnTraceID("ws\x00tok", "ses-1", []byte(turn1))
+	if id == "" {
+		t.Fatal("expected a derived trace ID")
+	}
+	if got := conversationTurnTraceID("ws\x00tok", "ses-1", []byte(turn1Step2)); got != id {
+		t.Fatalf("tool step of the same turn got %q, want %q", got, id)
+	}
+	if got := conversationTurnTraceID("ws\x00tok", "ses-1", []byte(turn2)); got == id || got == "" {
+		t.Fatalf("next user turn must start a new trace, got %q", got)
+	}
+	if got := conversationTurnTraceID("ws\x00tok", "ses-2", []byte(turn1)); got == id {
+		t.Fatal("another session must not share the trace")
+	}
+	if got := conversationTurnTraceID("ws\x00other", "ses-1", []byte(turn1)); got == id {
+		t.Fatal("another token must not share the trace")
+	}
+	if got := conversationTurnTraceID("ws\x00tok", "", []byte(turn1)); got != "" {
+		t.Fatalf("no session must not derive a trace, got %q", got)
+	}
+	if a, b := conversationTurnTraceID("s", "x", []byte(anthropicTurn1)), conversationTurnTraceID("s", "x", []byte(anthropicStep)); a == "" || a != b {
+		t.Fatalf("anthropic tool_result must not open a turn: %q vs %q", a, b)
+	}
+	if a, b := conversationTurnTraceID("s", "x", []byte(`{"input":"fix the bug"}`)), conversationTurnTraceID("s", "x", []byte(responsesStep)); a == "" || a != b {
+		t.Fatalf("responses function_call_output must not open a turn: %q vs %q", a, b)
+	}
+	if got := gatewayTurnTrace("client-trace", "ses-1", nil, []byte(turn1)); got != "client-trace" {
+		t.Fatalf("explicit trace ID must win, got %q", got)
+	}
+}
+
 func TestAdminChatConversationCorrelation(t *testing.T) {
 	s, costs, calls := meteredProxyServer(t, &countingStreamProvider{name: "reply"}, "")
 	seenTraces := map[string]bool{}

@@ -78,7 +78,10 @@ type CallToolResult struct {
 
 type ToolContent struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+	Text string `json:"text,omitempty"`
+	// Data and MimeType carry MCP image/audio blocks (base64 payload).
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 // HTTPMCPClient handles communication with an MCP server over Streamable
@@ -430,11 +433,7 @@ func (c *HTTPMCPClient) CallTool(ctx context.Context, name string, arguments map
 		return "", fmt.Errorf("failed to parse tool result: %w", err)
 	}
 
-	if len(result.Content) > 0 {
-		return result.Content[0].Text, nil
-	}
-
-	return "", nil
+	return toolResultText(ctx, result), nil
 }
 
 const httpMCPClientCloseTimeout = time.Second
