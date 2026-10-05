@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -42,6 +43,10 @@ type chatArtifact struct {
 	Name        string `json:"name"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
+
+	// downloadKey is the plaintext gateway download key, only ever placed in
+	// the download_url returned to the producing call.
+	downloadKey string
 }
 
 // chatArtifactCollection is the outcome of one sweep. Note explains files that
@@ -312,18 +317,24 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 		}
 		file.Close()
 		tokenID := ""
+		var downloadKey, downloadKeyHash string
+		var downloadExpires time.Time
 		if token := gatewayTokenFromContext(ctx); token != nil && token.WorkspaceID == provenance.WorkspaceID {
 			tokenID = token.ID
+			downloadKey, downloadKeyHash = newGatewayMediaKey()
+			downloadExpires = time.Now().Add(gatewayMediaKeyTTL)
 		}
 		created, err := store.CreateMediaObject(ctx, service.MediaObject{
-			WorkspaceID: provenance.WorkspaceID,
-			OwnerUserID: provenance.UserID,
-			TokenID:     tokenID,
-			Backend:     settings.Backend,
-			StorageKey:  key,
-			ContentType: contentType,
-			SizeBytes:   info.Size(),
-			Checksum:    checksum,
+			WorkspaceID:       provenance.WorkspaceID,
+			OwnerUserID:       provenance.UserID,
+			TokenID:           tokenID,
+			DownloadKeyHash:   downloadKeyHash,
+			DownloadExpiresAt: downloadExpires,
+			Backend:           settings.Backend,
+			StorageKey:        key,
+			ContentType:       contentType,
+			SizeBytes:         info.Size(),
+			Checksum:          checksum,
 		})
 		if err != nil {
 			if deleteErr := target.Delete(ctx, key); deleteErr != nil && !errors.Is(deleteErr, os.ErrNotExist) {
@@ -332,7 +343,7 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 			failed = append(failed, f.name)
 			continue
 		}
-		delivered = append(delivered, chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes})
+		delivered = append(delivered, chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey})
 	}
 	if len(failed) > 0 {
 		return delivered, "Some produced files could not be stored: " + strings.Join(failed, ", ") + "."

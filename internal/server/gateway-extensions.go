@@ -336,6 +336,18 @@ func (s *Server) resolveModel(ctx context.Context, auth *authResult, fullModel s
 				return providerKey, actualModel, pInfo, nil
 			}
 		}
+		// A personal token reaches its owner's providers (personal and
+		// non-default workspace) that the bare-key registry does not hold.
+		if !s.providerDisabled(providerKey) && auth != nil && auth.token != nil && auth.token.OwnerUserID != "" {
+			scoped, scopedErr := s.gatewayTokenProviderInfo(ctx, auth, providerKey, actualModel)
+			if scopedErr == nil {
+				return providerKey, actualModel, scoped, nil
+			}
+			if !errors.Is(scopedErr, service.ErrAccessDenied) {
+				return "", "", ProviderInfo{}, scopedErr
+			}
+			return "", "", ProviderInfo{}, gatewayTokenProviderError(providerKey, scopedErr)
+		}
 		return "", "", ProviderInfo{}, s.providerUnavailableError(providerKey)
 	}
 	if len(pInfo.models) > 0 && !pInfo.hasModel(actualModel) {

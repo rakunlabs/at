@@ -449,7 +449,16 @@ func (b *mcpRuntimeBuilder) addBuiltins(ctx context.Context, runtime *mcpRuntime
 				continue
 			}
 			builtin := builtin
-			runtime.addTool(service.Tool{Name: builtin.Name, Description: builtin.Description, InputSchema: builtin.InputSchema}, "builtin", func(ctx context.Context, args map[string]any) (string, error) {
+			tool := service.Tool{Name: builtin.Name, Description: builtin.Description, InputSchema: builtin.InputSchema}
+			imageConfig := (*service.ImageGenerationConfig)(nil)
+			if builtin.Name == "generate_image" {
+				imageConfig = config.ImageGeneration
+				tool = generateImageToolForConfig(tool, imageConfig)
+			}
+			runtime.addTool(tool, "builtin", func(ctx context.Context, args map[string]any) (string, error) {
+				if imageConfig != nil {
+					args = applyImageGenerationConfig(args, imageConfig)
+				}
 				result, err := b.server.dispatchBuiltinTool(ctx, builtin.Name, args)
 				if err != nil {
 					return "", fmt.Errorf("builtin tool execution failed: %w", err)

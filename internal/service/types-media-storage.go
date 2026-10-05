@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Media storage backends. The empty string is "disabled" so a zero-value
@@ -73,13 +74,17 @@ type MediaObject struct {
 	OwnerUserID string `json:"owner_user_id" db:"owner_user_id"`
 	// TokenID is set for media produced through the gateway; that API token
 	// may download it from /gateway/v1/media/{id}.
-	TokenID     string `json:"token_id,omitempty" db:"token_id"`
-	Backend     string `json:"backend" db:"backend"`
-	StorageKey  string `json:"storage_key" db:"storage_key"`
-	ContentType string `json:"content_type" db:"content_type"`
-	SizeBytes   int64  `json:"size_bytes" db:"size_bytes"`
-	Checksum    string `json:"checksum" db:"checksum"`
-	CreatedAt   string `json:"created_at" db:"created_at"`
+	TokenID string `json:"token_id,omitempty" db:"token_id"`
+	// DownloadKeyHash / DownloadExpiresAt are write-only: set on creation for
+	// gateway media so its download link works without the API token.
+	DownloadKeyHash   string    `json:"-" db:"-"`
+	DownloadExpiresAt time.Time `json:"-" db:"-"`
+	Backend           string    `json:"backend" db:"backend"`
+	StorageKey        string    `json:"storage_key" db:"storage_key"`
+	ContentType       string    `json:"content_type" db:"content_type"`
+	SizeBytes         int64     `json:"size_bytes" db:"size_bytes"`
+	Checksum          string    `json:"checksum" db:"checksum"`
+	CreatedAt         string    `json:"created_at" db:"created_at"`
 }
 
 // DefaultMediaSettings is the state of an installation that never configured
@@ -196,4 +201,7 @@ type MediaStorer interface {
 // GatewayMediaStorer resolves media for the API token that produced it.
 type GatewayMediaStorer interface {
 	GetGatewayMediaObject(ctx context.Context, workspace, tokenID, id string) (*MediaObject, error)
+	// GetGatewayMediaObjectByKey resolves gateway media by the hash of its
+	// unexpired download key; a wrong, expired or absent key is not found.
+	GetGatewayMediaObjectByKey(ctx context.Context, id, keyHash string) (*MediaObject, error)
 }

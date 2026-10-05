@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
@@ -239,6 +240,44 @@ func TestGatewayMediaObjectTokenScoping(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := p.GetGatewayMediaObject(ctx, args[0], args[1], args[2]); !errors.Is(err, service.ErrMediaNotFound) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+}
+
+func TestGatewayMediaObjectDownloadKey(t *testing.T) {
+	p := newTestStore(t, nil)
+	ctx := t.Context()
+
+	create := func(tokenID, hash string, expires time.Time) *service.MediaObject {
+		t.Helper()
+		created, err := p.CreateMediaObject(ctx, service.MediaObject{
+			WorkspaceID: service.DefaultWorkspaceID, OwnerUserID: "user-a", TokenID: tokenID,
+			DownloadKeyHash: hash, DownloadExpiresAt: expires,
+			Backend: service.MediaBackendFilesystem, StorageKey: "k-" + hash, ContentType: "image/png", SizeBytes: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created
+	}
+	live := create("tok-1", "hash-live", time.Now().Add(time.Hour))
+	expired := create("tok-1", "hash-expired", time.Now().Add(-time.Minute))
+	browser := create("", "hash-browser", time.Now().Add(time.Hour))
+
+	if got, err := p.GetGatewayMediaObjectByKey(ctx, live.ID, "hash-live"); err != nil || got.ID != live.ID {
+		t.Fatalf("live key: %+v %v", got, err)
+	}
+	for name, args := range map[string][2]string{
+		"wrong key":      {live.ID, "hash-expired"},
+		"empty key":      {live.ID, ""},
+		"expired":        {expired.ID, "hash-expired"},
+		"browser object": {browser.ID, "hash-browser"},
+		"unknown":        {"nope", "hash-live"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := p.GetGatewayMediaObjectByKey(ctx, args[0], args[1]); !errors.Is(err, service.ErrMediaNotFound) {
 				t.Fatalf("got %v", err)
 			}
 		})

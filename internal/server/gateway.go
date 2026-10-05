@@ -795,6 +795,11 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []wire.Mod
 		}
 	}
 	s.providerMu.RUnlock()
+	listed := make(map[string]bool, len(models))
+	for _, m := range models {
+		listed[m.ID] = true
+	}
+	models = append(models, s.gatewayTokenCatalogModels(ctx, auth, listed)...)
 	if routes, ok := s.store.(service.ProviderRouteStorer); ok && auth != nil && auth.token != nil {
 		catalog, err := routes.ListGatewayVirtualProviderCatalog(ctx, auth.token.WorkspaceID, auth.token.OwnerUserID)
 		if err != nil {
@@ -828,7 +833,12 @@ func (s *Server) gatewayModels(ctx context.Context, auth *authResult) []wire.Mod
 // an attachment locally unless its modality is declared, so an input modality
 // that is absent here is one the client will never send.
 func applyGatewayModelCapabilities(model *wire.ModelData, info ProviderInfo, modelID string) {
-	caps := info.resolvedCapabilities(modelID)
+	applyResolvedModelCapabilities(model, info.resolvedCapabilities(modelID))
+}
+
+// applyResolvedModelCapabilities advertises already-resolved capabilities, for
+// catalog entries that carry them precomputed instead of a ProviderInfo.
+func applyResolvedModelCapabilities(model *wire.ModelData, caps service.ModelCapabilities) {
 	if !caps.Known() {
 		return
 	}

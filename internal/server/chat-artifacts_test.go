@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -61,6 +62,15 @@ func (m *memoryMediaStore) GetGatewayMediaObject(_ context.Context, workspace, t
 	defer m.mu.Unlock()
 	o, ok := m.objects[id]
 	if !ok || tokenID == "" || o.TokenID != tokenID || o.WorkspaceID != workspace {
+		return nil, service.ErrMediaNotFound
+	}
+	return &o, nil
+}
+func (m *memoryMediaStore) GetGatewayMediaObjectByKey(_ context.Context, id, keyHash string) (*service.MediaObject, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.objects[id]
+	if !ok || keyHash == "" || o.TokenID == "" || o.DownloadKeyHash != keyHash || !time.Now().Before(o.DownloadExpiresAt) {
 		return nil, service.ErrMediaNotFound
 	}
 	return &o, nil

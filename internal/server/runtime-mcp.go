@@ -73,9 +73,18 @@ func (s *Server) gatewayMCPRuntime(ctx context.Context, srv *service.MCPServer) 
 		}
 		runtime.children = append(runtime.children, child)
 		for _, tool := range child.ListTools(ctx) {
+			imageConfig := (*service.ImageGenerationConfig)(nil)
+			if tool.Name == "generate_image" && srv.Config.ImageGeneration != nil {
+				// The endpoint's pin wins over whatever the set advertises.
+				imageConfig = srv.Config.ImageGeneration
+				tool = generateImageToolForConfig(tool, imageConfig)
+			}
 			runtime.addTool(tool, "scoped MCP set", func(ctx context.Context, args map[string]any) (string, error) {
 				if err := workflow.AuthorizeMCPSetTool(ctx, name, tool.Name); err != nil {
 					return "", err
+				}
+				if imageConfig != nil {
+					args = applyImageGenerationConfig(args, imageConfig)
 				}
 				return child.CallTool(ctx, tool.Name, args)
 			})

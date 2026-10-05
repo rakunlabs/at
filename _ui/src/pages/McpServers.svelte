@@ -14,6 +14,7 @@
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
+  import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { deploymentUrl, deploymentWsUrl } from '@/lib/helper/deployment-url';
   import {
     Server,
@@ -29,6 +30,7 @@
     GitBranch,
     Download,
     Upload,
+    Image as ImageIcon,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -54,11 +56,20 @@
   let formWSHeaders = $state<Array<{ key: string; value: string }>>([]);
   let formWSPassQueryParams = $state('');
   let formWSPassHeaders = $state('');
+  let formImageProvider = $state('');
+  let formImageModel = $state('');
+  let formImageSize = $state('');
+  let formImageQuality = $state('');
+  let formImageBackground = $state('');
 
   // Helpers
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let availableMCPSets = $state<MCPSet[]>([]);
   let availableWorkflows = $state<Workflow[]>([]);
+  let imageProviders = $state<InfoProvider[]>([]);
+  const imageModelOptions = $derived(imageProviders.find((p) => (p.reference || p.key) === formImageProvider)?.type === 'minimax'
+    ? ['image-01']
+    : ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'dall-e-3']);
 
   // ─── Load Data ───
 
@@ -103,6 +114,15 @@
 
   loadWorkflows();
 
+  async function loadImageProviders() {
+    try {
+      const info = await getInfo();
+      imageProviders = (info.providers || []).filter((p) => p.type === 'openai' || p.type === 'minimax');
+    } catch {}
+  }
+
+  loadImageProviders();
+
   // ─── Form Logic ───
 
   function resetForm() {
@@ -116,6 +136,11 @@
     formWSHeaders = [];
     formWSPassQueryParams = '';
     formWSPassHeaders = '';
+    formImageProvider = '';
+    formImageModel = '';
+    formImageSize = '';
+    formImageQuality = '';
+    formImageBackground = '';
     editingId = null;
     showForm = false;
   }
@@ -170,6 +195,11 @@
     formWSHeaders = recordToKVList(s.config.ws_upstream?.headers);
     formWSPassQueryParams = (s.config.ws_upstream?.pass_query_params || []).join(', ');
     formWSPassHeaders = (s.config.ws_upstream?.pass_headers || []).join(', ');
+    formImageProvider = s.config.image_generation?.provider || '';
+    formImageModel = s.config.image_generation?.model || '';
+    formImageSize = s.config.image_generation?.size || '';
+    formImageQuality = s.config.image_generation?.quality || '';
+    formImageBackground = s.config.image_generation?.background || '';
     showForm = true;
   }
 
@@ -206,6 +236,19 @@
         }
       } else {
         delete config.ws_upstream;
+      }
+
+      const imageGeneration = {
+        provider: formImageProvider.trim(),
+        model: formImageModel.trim(),
+        size: formImageSize.trim(),
+        quality: formImageQuality.trim(),
+        background: formImageBackground.trim(),
+      };
+      if (formBuiltinTools.includes('generate_image') && Object.values(imageGeneration).some(Boolean)) {
+        config.image_generation = Object.fromEntries(Object.entries(imageGeneration).filter(([, v]) => v));
+      } else {
+        delete config.image_generation;
       }
 
       const payload = {
@@ -584,6 +627,71 @@
           </div>
         </div>
 
+        {#if formBuiltinTools.includes('generate_image')}
+          {@const field = 'w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted'}
+          <!-- Image generation -->
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+              <div class="flex items-center gap-1.5">
+                <ImageIcon size={14} />
+                Image generation
+              </div>
+            </span>
+            <div class="col-span-3 space-y-2">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label class="block">
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Provider</span>
+                  <select bind:value={formImageProvider} class={field}>
+                    <option value="">Caller chooses (auto when only one exists)</option>
+                    {#each imageProviders as p (p.reference || p.key)}
+                      <option value={p.reference || p.key}>{p.key} · {p.type}</option>
+                    {/each}
+                    {#if formImageProvider && !imageProviders.some((p) => (p.reference || p.key) === formImageProvider)}
+                      <option value={formImageProvider}>{formImageProvider} (unavailable)</option>
+                    {/if}
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Model</span>
+                  <input bind:value={formImageModel} list="mcp-image-models" placeholder={formImageProvider ? 'Provider default' : 'Caller chooses'} class={field} />
+                  <datalist id="mcp-image-models">
+                    {#each imageModelOptions as m}<option value={m}></option>{/each}
+                  </datalist>
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default size</span>
+                  <select bind:value={formImageSize} class={field}>
+                    <option value="">Provider default</option>
+                    <option value="1024x1024">1024x1024 (square)</option>
+                    <option value="1536x1024">1536x1024 (landscape)</option>
+                    <option value="1024x1536">1024x1536 (portrait)</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default quality</span>
+                  <select bind:value={formImageQuality} class={field}>
+                    <option value="">Provider default</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </label>
+                <label class="block">
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default background</span>
+                  <select bind:value={formImageBackground} class={field}>
+                    <option value="">Provider default</option>
+                    <option value="auto">auto</option>
+                    <option value="opaque">opaque</option>
+                    <option value="transparent">transparent</option>
+                  </select>
+                </label>
+              </div>
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted">A pinned provider and model are removed from the tool's arguments, so clients such as OpenCode never have to guess them. Size, quality and background are defaults the caller may still override.</p>
+            </div>
+          </div>
+        {/if}
         <!-- Workflows -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">

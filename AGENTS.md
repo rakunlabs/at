@@ -247,7 +247,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `POST /gateway/v1/rerank` | Cohere-shape rerank: `query`, `documents`, `top_n?`, `return_documents?`. Backed by `service.RerankProvider` (Cohere today). |
 | `POST /gateway/v1/decisions` | System 1 typed decisions: `{model, state, questions}` plus any `/v1/systemone` control (`max_len`, `lang`, `min_confidence`, …), forwarded unchanged. Backed by `service.DecisionProvider` (`systemone` providers). The upstream body is returned verbatim (`answers`, `usage`, `routing`). See *System 1 decision services* below. |
 | `POST /gateway/v1/scores` | Attach a quality score to a trace the same API token produced: `{trace_id, observation_id?, name, data_type?, value? \| bool_value? \| string_value?, comment?}`. See *Trace explorer*. |
-| `GET /gateway/v1/media/{id}` | Download media the **same API token** produced through the gateway (e.g. `generate_image` over MCP). Workspace- and token-scoped via `storage_objects.token_id` (migration 91); browser/agent media and other tokens' media answer 404. Always `attachment` with `CSP: sandbox`. See *Image generation from any model*. |
+| `GET /gateway/v1/media/{id}` | Download media the **same API token** produced through the gateway (e.g. `generate_image` over MCP), either with that token in `Authorization` or with the per-object `?key=` embedded in the returned `download_url` (expires after 24h, migration 93). Workspace- and token-scoped via `storage_objects.token_id` (migration 91); browser/agent media, other tokens' media and expired keys answer 404. Always `attachment` with `CSP: sandbox`. See *Image generation from any model*. |
 | `GET /gateway/v1/health` | Liveness — returns `{status, providers{}, version}`. No auth required. |
 | `GET /gateway/v1/health/{provider}` | Per-provider readiness check (without dialing upstream). |
 | `GET /gateway/v1/models` | OpenAI-shape model list (chat + embedding models). |
@@ -403,6 +403,20 @@ fixed model picker is the reason they exist). Managed at
 `/api/v1/routing-profiles` under the `providers.read`/`.write` capability —
 deliberately reusing it rather than introducing a kind no existing permission
 bundle would carry. Migration `55`; feature key `routing_profiles`.
+
+### Personal tokens reach their owner's providers
+
+The gateway registry (`s.providers`) holds only Default-workspace providers by
+bare key. A **personal** API token (`owner_user_id` set) additionally resolves
+its owner as a live workspace principal (`gatewayTokenPrincipal`,
+`internal/server/gateway-token-providers.go`): `/gateway/v1/models` (and
+`/model/info`) list the owner's workspace catalog — personal providers as
+`provider:<id>/<model>`, plus the token workspace's own providers — and
+`resolveModel` falls back to `ResolveWorkspaceProviderRoute` for a key the
+registry lacks. Previously such a token saw none of them, although Chats
+offered them to the same account. Token allowlists, model grants, disabled
+state and personal grants still apply; shared workspace tokens (no owner) keep
+the registry-only behaviour. Regression: `TestGatewayPersonalTokenReachesOwnerProviders`.
 
 ### Provider governance: budgets and virtual providers
 
@@ -2577,17 +2591,39 @@ provider. Regressions: `internal/server/builtin-tools-image_test.go`,
 **Over the gateway MCP endpoint** (OpenCode, Claude Code, any MCP client) the
 tool is useful outside AT too. `gwGenMCPCallTool` installs a
 `service.ToolContentCollector` and the calling API token rides the context
-(`contextWithGatewayToken`). `generate_image` then (1) attaches the images as
-MCP `image` content blocks (≤ 8 MiB total) after the JSON text block, so the
-calling model sees what it made, and (2) records `storage_objects.token_id` on
-the stored media and returns a `download_url` for `GET /gateway/v1/media/{id}`,
-which only that token can read — so the client agent can `curl` the file into
-its project. The collector is generic: upstream MCP servers' `image`/`audio`
-blocks are forwarded through it as well, and both MCP clients now join all text
-blocks instead of returning only the first one. Agent loops have no collector
-and keep their text-only behaviour. Regressions:
+(`contextWithGatewayToken`). `generate_image` then (1) attaches a **preview**
+of each image as MCP `image` content (`imagePreview`, stdlib only: longest side
+768 px, JPEG unless the image has transparency, ≤ 8 MiB total), so the calling
+model sees what it made without a ~1 MB full-resolution base64 PNG riding in
+its context on every later turn, and (2) records `storage_objects.token_id`
+on the stored media and returns a `download_url` for
+`GET /gateway/v1/media/{id}?key=…`. The key exists because the agent's shell
+never sees the API token configured in its MCP client, so the earlier
+Authorization-only link was unusable to exactly the agent that asked for the
+image. It is 256 random bits per object, only its SHA-256 is stored
+(migration 93: `download_key_hash`, `download_expires_at`), and it expires
+after 24h; the producing token may still download with `Authorization`.
+Responses carry `Referrer-Policy: no-referrer`. The collector is generic:
+upstream MCP servers' `image`/`audio` blocks are forwarded through it as well,
+and both MCP clients now join all text blocks instead of returning only the
+first one. Agent loops have no collector and keep their text-only behaviour.
+
+**Choosing the provider.** `provider` is optional. When omitted, the tool uses
+the only image-capable provider (`openai`/`minimax` type) in the caller's
+workspace catalog; with several it fails with an error listing the valid keys
+rather than leaving the model to guess one. The default model follows the
+provider type (`gpt-image-2`, or `image-01` for MiniMax). A gateway MCP server
+or MCP set can pin it: `config.image_generation` (`service.ImageGenerationConfig`,
+MCP Servers editor → *Image generation*, shown once `generate_image` is
+enabled) with `provider`, `model` and default `size`/`quality`/`background`.
+Pinned provider/model are removed from the advertised schema
+(`generateImageToolForConfig`) and enforced on every call
+(`applyImageGenerationConfig`); the defaults fill only empty arguments. It
+lives in the config JSON, so no migration. Regressions:
 `internal/server/gateway-media-download_test.go`,
-`internal/service/tool-content_test.go`, `TestGatewayMediaObjectTokenScoping`.
+`internal/server/builtin-tools-image_test.go`,
+`internal/service/tool-content_test.go`, `TestGatewayMediaObjectTokenScoping`,
+`TestGatewayMediaObjectDownloadKey`.
 
 ## Built-in "get" tools take one identifier or a list
 

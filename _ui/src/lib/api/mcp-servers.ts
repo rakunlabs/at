@@ -39,8 +39,18 @@ export interface MCPServerConfig {
   enabled_builtin_tools?: string[];
   // Workflow tools
   workflow_ids?: string[];
+  // Pins the provider/model (and defaults) generate_image uses on this endpoint
+  image_generation?: ImageGenerationConfig;
   // Raw WebSocket passthrough — exposes GET /gateway/v1/mcp/{name}/ws
   ws_upstream?: WSUpstream;
+}
+
+export interface ImageGenerationConfig {
+  provider?: string;
+  model?: string;
+  size?: string;
+  quality?: string;
+  background?: string;
 }
 
 export interface WSUpstream {

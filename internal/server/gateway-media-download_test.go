@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -47,19 +49,21 @@ func TestGenerateImageOverGatewayReturnsImageAndDownloadURL(t *testing.T) {
 		t.Fatalf("artifacts = %s", raw)
 	}
 	artifact := out.Artifacts[0]
-	if artifact.DownloadURL != "https://at.example/at/gateway/v1/media/"+artifact.MediaID {
+	prefix := "https://at.example/at/gateway/v1/media/" + artifact.MediaID + "?key="
+	if !strings.HasPrefix(artifact.DownloadURL, prefix) || len(artifact.DownloadURL) != len(prefix)+64 {
 		t.Fatalf("download_url = %q", artifact.DownloadURL)
 	}
-	if stored := media.objects[artifact.MediaID]; stored.TokenID != "tok-1" || stored.OwnerUserID != "u1" {
+	if stored := media.objects[artifact.MediaID]; stored.TokenID != "tok-1" || stored.OwnerUserID != "u1" || stored.DownloadKeyHash == "" || strings.Contains(artifact.DownloadURL, stored.DownloadKeyHash) {
 		t.Fatalf("stored object = %+v", stored)
 	}
-	if !strings.Contains(out.Note, "curl") {
+	if !strings.Contains(out.Note, "curl") || strings.Contains(out.Note, "Authorization") {
 		t.Fatalf("note does not explain how to save the file: %q", out.Note)
 	}
 	content := collector.Content()
 	if len(content) != 1 || content[0].Type != "image" || content[0].MimeType != "image/png" {
 		t.Fatalf("image content = %+v", content)
 	}
+	// A 1x1 image is already smaller than any preview, so it is sent as is.
 	if decoded, _ := base64.StdEncoding.DecodeString(content[0].Data); string(decoded) != string(generateImageTestPNG) {
 		t.Fatal("inline image differs from the generated one")
 	}
@@ -89,19 +93,29 @@ func TestGatewayMediaDownload(t *testing.T) {
 	}
 	_ = json.Unmarshal([]byte(raw), &out)
 	id := out.Artifacts[0].MediaID
+	link, _ := url.Parse(out.Artifacts[0].DownloadURL)
+	key := link.Query().Get("key")
 
 	// A browser object in the same workspace has no token and is unreachable.
 	browser := media.objects[id]
 	browser.ID, browser.TokenID = "browser-object", ""
 	media.objects[browser.ID] = browser
+	expired := media.objects[id]
+	expired.ID, expired.DownloadExpiresAt = "expired-object", time.Now().Add(-time.Minute)
+	media.objects[expired.ID] = expired
 
 	tests := []struct {
 		name   string
 		token  string
+		key    string
 		id     string
 		status int
 	}{
 		{name: "owner_token", token: "at_good", id: id, status: http.StatusOK},
+		{name: "link_key", key: key, id: id, status: http.StatusOK},
+		{name: "wrong_key", key: strings.Repeat("0", 64), id: id, status: http.StatusNotFound},
+		{name: "key_for_other_object", key: key, id: "browser-object", status: http.StatusNotFound},
+		{name: "expired_key", key: key, id: "expired-object", status: http.StatusNotFound},
 		{name: "missing_token", token: "", id: id, status: http.StatusUnauthorized},
 		{name: "wrong_token", token: "at_bad", id: id, status: http.StatusUnauthorized},
 		{name: "unknown_object", token: "at_good", id: "nope", status: http.StatusNotFound},
@@ -109,7 +123,11 @@ func TestGatewayMediaDownload(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/gateway/v1/media/"+tt.id, nil)
+			target := "/gateway/v1/media/" + tt.id
+			if tt.key != "" {
+				target += "?key=" + tt.key
+			}
+			r := httptest.NewRequest(http.MethodGet, target, nil)
 			r.SetPathValue("id", tt.id)
 			if tt.token != "" {
 				r.Header.Set("Authorization", "Bearer "+tt.token)

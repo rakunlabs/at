@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/oklog/ulid/v2"
@@ -21,20 +22,145 @@ import (
 
 const generateImageMaxCount = 4
 
+// imageProviderTypes are the provider types whose adapters implement
+// service.ImageProvider.
+var imageProviderTypes = map[string]bool{"openai": true, "minimax": true}
+
+type imageProviderCandidate struct {
+	key, providerType string
+}
+
+// imageProviderCandidates lists the providers the caller could generate
+// images with, so an omitted provider can be resolved (exactly one) or the
+// error can name the valid choices instead of leaving the model to guess.
+func (s *Server) imageProviderCandidates(ctx context.Context) []imageProviderCandidate {
+	var out []imageProviderCandidate
+	if catalogStore, ok := s.store.(service.WorkspaceProviderCatalogStorer); ok {
+		catalog, err := catalogStore.ListWorkspaceProviderCatalog(ctx)
+		if err == nil {
+			for _, entry := range catalog {
+				if !imageProviderTypes[entry.Type] {
+					continue
+				}
+				key := entry.Key
+				if entry.Reference != "" {
+					key = entry.Reference
+				}
+				out = append(out, imageProviderCandidate{key: key, providerType: entry.Type})
+			}
+			slices.SortFunc(out, func(a, b imageProviderCandidate) int { return strings.Compare(a.key, b.key) })
+			return out
+		}
+	}
+	for key, info := range s.providers {
+		if _, ok := info.provider.(service.ImageProvider); ok && !info.disabled {
+			out = append(out, imageProviderCandidate{key: key, providerType: info.providerType})
+		}
+	}
+	slices.SortFunc(out, func(a, b imageProviderCandidate) int { return strings.Compare(a.key, b.key) })
+	return out
+}
+
+func missingImageProviderError(candidates []imageProviderCandidate) error {
+	if len(candidates) == 0 {
+		return fmt.Errorf("no image-capable provider is available; configure an OpenAI (API key or ChatGPT auth) or MiniMax provider, or pin one under Image generation in the MCP server settings")
+	}
+	keys := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		keys = append(keys, c.key)
+	}
+	return fmt.Errorf("provider is required; choose one of: %s (or pin one under Image generation in the MCP server settings so callers need not choose)", strings.Join(keys, ", "))
+}
+
+// defaultImageModel picks the model when the caller named none. Sending the
+// OpenAI default to MiniMax failed every call that omitted the model.
+func (s *Server) defaultImageModel(ctx context.Context, providerKey string) string {
+	for _, c := range s.imageProviderCandidates(ctx) {
+		if c.key == providerKey && c.providerType == "minimax" {
+			return "image-01"
+		}
+	}
+	return openai.CodexDefaultImageModel
+}
+
+// generateImageToolForConfig adapts the advertised generate_image definition
+// to an endpoint's pinned configuration: pinned fields leave the schema, so
+// the calling model cannot pick (or be confused by) a provider it does not
+// control.
+func generateImageToolForConfig(tool service.Tool, cfg *service.ImageGenerationConfig) service.Tool {
+	if cfg == nil || (cfg.Provider == "" && cfg.Model == "") {
+		return tool
+	}
+	schema := cloneJSONMap(tool.InputSchema)
+	props, _ := schema["properties"].(map[string]any)
+	props = cloneJSONMap(props)
+	if cfg.Provider != "" {
+		delete(props, "provider")
+	}
+	if cfg.Model != "" {
+		delete(props, "model")
+	}
+	schema["properties"] = props
+	schema["required"] = []string{"prompt"}
+	tool.InputSchema = schema
+	target := cfg.Provider
+	if cfg.Model != "" {
+		target += " (" + cfg.Model + ")"
+	}
+	tool.Description = "Generate images from a text description. Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). This endpoint generates with " + strings.TrimSpace(target) + ". The result lists the stored images with a download_url for each; a preview is attached when the client can display it. Never paste image data into your answer."
+	return tool
+}
+
+// applyImageGenerationConfig enforces pinned fields and fills defaults the
+// caller left empty. It never mutates the caller's map.
+func applyImageGenerationConfig(args map[string]any, cfg *service.ImageGenerationConfig) map[string]any {
+	if cfg == nil {
+		return args
+	}
+	out := make(map[string]any, len(args)+4)
+	for k, v := range args {
+		out[k] = v
+	}
+	if cfg.Provider != "" {
+		out["provider"] = cfg.Provider
+	}
+	if cfg.Model != "" {
+		out["model"] = cfg.Model
+	}
+	for key, value := range map[string]string{"size": cfg.Size, "quality": cfg.Quality, "background": cfg.Background} {
+		if current, _ := out[key].(string); value != "" && strings.TrimSpace(current) == "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func cloneJSONMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 // execGenerateImage lets any agent — whatever model it runs on — create images
 // through a provider that supports image generation (an OpenAI API key, a
 // ChatGPT/Codex subscription, MiniMax). Image bytes never enter the
 // conversation: they are written to the run's work directory, where the
 // artifact collector delivers them, or stored as media for the caller.
 func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (string, error) {
-	ref, _ := args["provider"].(string)
-	ref = strings.TrimSpace(ref)
-	if ref == "" {
-		return "", fmt.Errorf("provider is required (a provider that supports image generation, optionally as provider/model)")
-	}
 	prompt, _ := args["prompt"].(string)
 	if strings.TrimSpace(prompt) == "" {
 		return "", fmt.Errorf("prompt is required")
+	}
+	ref, _ := args["provider"].(string)
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		candidates := s.imageProviderCandidates(ctx)
+		if len(candidates) != 1 {
+			return "", missingImageProviderError(candidates)
+		}
+		ref = candidates[0].key
 	}
 	providerKey, model := ref, ""
 	if i := strings.Index(ref, "/"); i > 0 {
@@ -44,7 +170,7 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 		model = strings.TrimSpace(m)
 	}
 	if model == "" {
-		model = openai.CodexDefaultImageModel
+		model = s.defaultImageModel(ctx, providerKey)
 	}
 	n := 1
 	if v, ok := args["n"].(float64); ok && v >= 1 {
@@ -102,9 +228,9 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 		}
 		out["note"] = "The images are shown to the user automatically; do not repeat their content."
 		if gatewayTokenFromContext(ctx) != nil {
-			out["note"] = "Save the images into the project by downloading each artifact's download_url with the same API token (Authorization: Bearer …), e.g. curl -fsSL -H \"Authorization: Bearer $TOKEN\" -o <file> <download_url>."
+			out["note"] = fmt.Sprintf("To save an image into the project, download its download_url (no credentials needed; valid for %s), e.g. curl -fsSL -o <file> '<download_url>'.", gatewayMediaKeyTTLText)
 			if offerGeneratedImagesInline(ctx, images) {
-				out["note"] = "The images are attached to this result. " + out["note"].(string)
+				out["note"] = "A preview of each image is attached to this result; the download is the full-resolution file. " + out["note"].(string)
 			}
 		}
 	}
@@ -130,7 +256,7 @@ type gatewayArtifact struct {
 func gatewayArtifacts(ctx context.Context, delivered []chatArtifact) []gatewayArtifact {
 	out := make([]gatewayArtifact, 0, len(delivered))
 	for _, artifact := range delivered {
-		out = append(out, gatewayArtifact{chatArtifact: artifact, DownloadURL: gatewayMediaURL(ctx, artifact.MediaID)})
+		out = append(out, gatewayArtifact{chatArtifact: artifact, DownloadURL: gatewayMediaURL(ctx, artifact.MediaID, artifact.downloadKey)})
 	}
 	return out
 }
@@ -140,7 +266,10 @@ func gatewayArtifacts(ctx context.Context, delivered []chatArtifact) []gatewayAr
 const generatedImageInlineMaxBytes = 8 << 20
 
 // offerGeneratedImagesInline attaches images as MCP image content when the
-// caller can deliver it, so the calling model sees what it generated.
+// caller can deliver it, so the calling model sees what it generated. The
+// attachment is a downscaled preview: it enters the caller's context and is
+// resent on every later turn, so a full-resolution PNG (about 1 MB of base64)
+// would cost far more than seeing the result requires.
 func offerGeneratedImagesInline(ctx context.Context, images []generatedImageFile) bool {
 	if service.ToolContentCollectorFromContext(ctx) == nil {
 		return false
@@ -148,12 +277,12 @@ func offerGeneratedImagesInline(ctx context.Context, images []generatedImageFile
 	total := 0
 	added := false
 	for _, image := range images {
-		total += len(image.data)
+		data, mimeType := imagePreview(image.data)
+		total += len(data)
 		if total > generatedImageInlineMaxBytes {
 			break
 		}
-		mimeType := http.DetectContentType(image.data)
-		added = service.AddToolContent(ctx, service.ToolContent{Type: "image", MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(image.data)}) || added
+		added = service.AddToolContent(ctx, service.ToolContent{Type: "image", MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(data)}) || added
 	}
 	return added
 }

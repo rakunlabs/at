@@ -54,12 +54,27 @@ type MCPServerConfig struct {
 	// Workflow tools — IDs of workflows to expose as individual named tools.
 	WorkflowIDs []string `json:"workflow_ids,omitempty"`
 
+	// ImageGeneration configures the generate_image built-in on this endpoint.
+	ImageGeneration *ImageGenerationConfig `json:"image_generation,omitempty"`
+
 	// Raw WebSocket passthrough (optional). When set, the gateway exposes
 	// GET /gateway/v1/mcp/{name}/ws and transparently proxies WebSocket
 	// frames to the upstream URL. Useful when an installed MCP program also
 	// serves a non-MCP WebSocket (event stream, control channel, …) that
 	// external clients should reach through AT's auth layer.
 	WSUpstream *WSUpstream `json:"ws_upstream,omitempty"`
+}
+
+// ImageGenerationConfig pins the provider (and optionally the model) the
+// generate_image built-in uses, so the calling model does not have to guess a
+// provider key. Pinned fields are removed from the tool schema; Size, Quality
+// and Background are defaults the caller may still override.
+type ImageGenerationConfig struct {
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Size       string `json:"size,omitempty"`
+	Quality    string `json:"quality,omitempty"`
+	Background string `json:"background,omitempty"`
 }
 
 // WSUpstream configures raw WebSocket passthrough for a gateway MCP endpoint.

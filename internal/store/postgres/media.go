@@ -215,6 +215,10 @@ func (p *Postgres) CreateMediaObject(ctx context.Context, object service.MediaOb
 		"created_at":    goqu.L("clock_timestamp()"),
 		"updated_at":    goqu.L("clock_timestamp()"),
 	}
+	if object.DownloadKeyHash != "" && !object.DownloadExpiresAt.IsZero() {
+		record["download_key_hash"] = object.DownloadKeyHash
+		record["download_expires_at"] = object.DownloadExpiresAt.UTC()
+	}
 	var row mediaObjectRow
 	if _, err := p.goqu.Insert(p.tableMediaObjects).Rows(record).Returning(mediaObjectColumns...).Executor().ScanStructContext(ctx, &row); err != nil {
 		return nil, mediaError(err)
@@ -253,6 +257,28 @@ func (p *Postgres) GetGatewayMediaObject(ctx context.Context, workspace, tokenID
 	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{
 		"id": id, "workspace_id": workspace, "token_id": tokenID, "namespace": service.StorageNamespaceMedia,
 	}).ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, mediaError(err)
+	}
+	if !found {
+		return nil, service.ErrMediaNotFound
+	}
+	out := mediaObjectRowToRecord(row)
+	return &out, nil
+}
+
+// GetGatewayMediaObjectByKey is the credential-free download path: the key
+// hash must match and must not have expired. Only gateway media has a key.
+func (p *Postgres) GetGatewayMediaObjectByKey(ctx context.Context, id, keyHash string) (*service.MediaObject, error) {
+	if id == "" || keyHash == "" {
+		return nil, service.ErrMediaNotFound
+	}
+	var row mediaObjectRow
+	found, err := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(
+		goqu.Ex{"id": id, "download_key_hash": keyHash, "namespace": service.StorageNamespaceMedia},
+		goqu.C("token_id").Neq(""),
+		goqu.C("download_expires_at").Gt(goqu.L("clock_timestamp()")),
+	).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, mediaError(err)
 	}

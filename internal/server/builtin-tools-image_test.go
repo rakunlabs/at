@@ -1,9 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,7 +87,6 @@ func TestGenerateImageToolErrors(t *testing.T) {
 		want     string
 	}{
 		{name: "missing_prompt", provider: &imageCaptureProvider{}, args: map[string]any{"provider": "p"}, want: "prompt is required"},
-		{name: "missing_provider", provider: &imageCaptureProvider{}, args: map[string]any{"prompt": "x"}, want: "provider is required"},
 		{name: "chat_only", provider: &embeddingCaptureProvider{}, args: map[string]any{"provider": "p", "prompt": "x"}, want: "does not support image generation"},
 		{name: "not_an_image", provider: &imageCaptureProvider{images: []service.GeneratedImage{{Base64: base64.StdEncoding.EncodeToString([]byte("<svg></svg>"))}}}, args: map[string]any{"provider": "p", "prompt": "x"}, want: "unsupported image type"},
 		{name: "no_images", provider: &imageCaptureProvider{}, args: map[string]any{"provider": "p", "prompt": "x"}, want: "no images"},
@@ -97,5 +100,117 @@ func TestGenerateImageToolErrors(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestGenerateImageToolProviderSelection(t *testing.T) {
+	png := []service.GeneratedImage{{Base64: base64.StdEncoding.EncodeToString(generateImageTestPNG)}}
+	t.Run("single_provider_is_used_when_omitted", func(t *testing.T) {
+		provider := &imageCaptureProvider{images: png}
+		s := &Server{providers: map[string]ProviderInfo{
+			"openai": {provider: provider, providerType: "openai"},
+			"claude": {provider: &embeddingCaptureProvider{}, providerType: "anthropic"},
+		}}
+		ctx := workflow.ContextWithWorkDir(t.Context(), t.TempDir())
+		if _, err := s.execGenerateImage(ctx, map[string]any{"prompt": "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if provider.req.Model != "gpt-image-2" {
+			t.Fatalf("request = %#v", provider.req)
+		}
+	})
+	t.Run("several_providers_are_listed", func(t *testing.T) {
+		s := &Server{providers: map[string]ProviderInfo{
+			"openai":  {provider: &imageCaptureProvider{images: png}, providerType: "openai"},
+			"minimax": {provider: &imageCaptureProvider{images: png}, providerType: "minimax"},
+		}}
+		_, err := s.execGenerateImage(workflow.ContextWithWorkDir(t.Context(), t.TempDir()), map[string]any{"prompt": "x"})
+		if err == nil || !strings.Contains(err.Error(), "minimax, openai") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("none_available", func(t *testing.T) {
+		s := &Server{providers: map[string]ProviderInfo{"claude": {provider: &embeddingCaptureProvider{}}}}
+		_, err := s.execGenerateImage(workflow.ContextWithWorkDir(t.Context(), t.TempDir()), map[string]any{"prompt": "x"})
+		if err == nil || !strings.Contains(err.Error(), "no image-capable provider") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("minimax_default_model", func(t *testing.T) {
+		provider := &imageCaptureProvider{images: png}
+		s := &Server{providers: map[string]ProviderInfo{"mm": {provider: provider, providerType: "minimax"}}}
+		if _, err := s.execGenerateImage(workflow.ContextWithWorkDir(t.Context(), t.TempDir()), map[string]any{"provider": "mm", "prompt": "x"}); err != nil {
+			t.Fatal(err)
+		}
+		if provider.req.Model != "image-01" {
+			t.Fatalf("model = %q", provider.req.Model)
+		}
+	})
+}
+
+func TestGenerateImageMCPConfig(t *testing.T) {
+	var base service.Tool
+	for _, tool := range builtinTools {
+		if tool.Name == "generate_image" {
+			base = service.Tool{Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema}
+		}
+	}
+	cfg := &service.ImageGenerationConfig{Provider: "openai", Model: "gpt-image-1.5", Quality: "medium", Size: "1536x1024"}
+
+	tool := generateImageToolForConfig(base, cfg)
+	props := tool.InputSchema["properties"].(map[string]any)
+	if _, ok := props["provider"]; ok {
+		t.Fatal("pinned provider is still advertised")
+	}
+	if _, ok := props["model"]; ok {
+		t.Fatal("pinned model is still advertised")
+	}
+	if _, ok := base.InputSchema["properties"].(map[string]any)["provider"]; !ok {
+		t.Fatal("base schema was mutated")
+	}
+	if !strings.Contains(tool.Description, "openai (gpt-image-1.5)") {
+		t.Fatalf("description = %q", tool.Description)
+	}
+	if got := generateImageToolForConfig(base, nil); got.Description != base.Description {
+		t.Fatal("unconfigured tool changed")
+	}
+
+	args := map[string]any{"provider": "other", "model": "dall-e-3", "prompt": "x", "quality": "high"}
+	got := applyImageGenerationConfig(args, cfg)
+	if got["provider"] != "openai" || got["model"] != "gpt-image-1.5" || got["quality"] != "high" || got["size"] != "1536x1024" {
+		t.Fatalf("args = %#v", got)
+	}
+	if args["provider"] != "other" {
+		t.Fatal("caller args mutated")
+	}
+}
+
+func TestImagePreviewDownscales(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 2048, 1024))
+	rng := rand.New(rand.NewPCG(1, 2))
+	for i := range src.Pix {
+		src.Pix[i] = byte(rng.Uint32())
+		if i%4 == 3 {
+			src.Pix[i] = 0xff
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatal(err)
+	}
+	data, mimeType := imagePreview(buf.Bytes())
+	if mimeType != "image/jpeg" || len(data) >= buf.Len() {
+		t.Fatalf("preview %s %d bytes (original %d)", mimeType, len(data), buf.Len())
+	}
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width != imagePreviewMaxSide || cfg.Height != imagePreviewMaxSide/2 {
+		t.Fatalf("preview size = %dx%d, %v", cfg.Width, cfg.Height, err)
+	}
+
+	src.Pix[3] = 0 // one transparent pixel keeps PNG
+	buf.Reset()
+	_ = png.Encode(&buf, src)
+	if _, mimeType = imagePreview(buf.Bytes()); mimeType != "image/png" {
+		t.Fatalf("transparent preview = %s", mimeType)
 	}
 }

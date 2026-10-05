@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,16 +12,30 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
 
 // Media produced by a gateway caller (generate_image over MCP, used from
 // OpenCode or Claude Code) is recorded against the API token that made the
-// call. That token can download it here with its own credentials, so an agent
-// running outside AT can save the file into its project. Nothing else is
-// reachable: browser and agent media carry no token ID, and a foreign or
-// unknown object answers 404 exactly like a missing one.
+// call. It can be downloaded two ways:
+//
+//   - with that token in Authorization, exactly as before;
+//   - with the per-object key embedded in the returned download_url. The
+//     agent's shell never sees the API token configured in its MCP client, so
+//     a link that requires Authorization is unusable to the agent that asked
+//     for the image. The key is 256 random bits, only its SHA-256 is stored,
+//     it names one object, and it expires after gatewayMediaKeyTTL.
+//
+// Nothing else is reachable: browser and agent media carry no token ID or key,
+// and a foreign, unknown or expired object answers 404 exactly like a missing
+// one.
+
+const (
+	gatewayMediaKeyTTL     = 24 * time.Hour
+	gatewayMediaKeyTTLText = "24 hours"
+)
 
 type gatewayTokenContextKey struct{}
 type gatewayBaseURLContextKey struct{}
@@ -36,37 +53,69 @@ func contextWithGatewayBaseURL(ctx context.Context, base string) context.Context
 	return context.WithValue(ctx, gatewayBaseURLContextKey{}, base)
 }
 
+// newGatewayMediaKey returns a download key and the hash that is stored.
+func newGatewayMediaKey() (key, hash string) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", ""
+	}
+	key = hex.EncodeToString(raw)
+	return key, gatewayMediaKeyHash(key)
+}
+
+func gatewayMediaKeyHash(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
 // gatewayMediaURL is the download address for a token-owned object, or "" when
-// the call did not arrive through the gateway.
-func gatewayMediaURL(ctx context.Context, id string) string {
+// the call did not arrive through the gateway. A non-empty key is embedded so
+// the link works without credentials.
+func gatewayMediaURL(ctx context.Context, id, key string) string {
 	base, _ := ctx.Value(gatewayBaseURLContextKey{}).(string)
 	if base == "" || gatewayTokenFromContext(ctx) == nil {
 		return ""
 	}
-	return base + "/gateway/v1/media/" + url.PathEscape(id)
+	link := base + "/gateway/v1/media/" + url.PathEscape(id)
+	if key != "" {
+		link += "?key=" + url.QueryEscape(key)
+	}
+	return link
 }
 
 // GatewayMediaAPI handles GET /gateway/v1/media/{id}.
 func (s *Server) GatewayMediaAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	auth, errMsg := s.authenticateRequest(r)
-	if auth == nil {
-		gatewayMediaError(w, http.StatusUnauthorized, errMsg, "invalid_api_key")
-		return
-	}
-	if auth.token == nil || auth.token.WorkspaceID == "" {
-		gatewayMediaError(w, http.StatusForbidden, "media downloads require a workspace-bound API token", "permission_denied")
-		return
-	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	store, ok := s.store.(service.MediaStorer)
 	gatewayStore, gatewayOK := s.store.(service.GatewayMediaStorer)
-	if !ok || !gatewayOK {
-		gatewayMediaError(w, http.StatusServiceUnavailable, "media storage is not available", "unavailable")
-		return
+
+	var object *service.MediaObject
+	var err error
+	if key := r.URL.Query().Get("key"); key != "" {
+		if !ok || !gatewayOK {
+			gatewayMediaError(w, http.StatusServiceUnavailable, "media storage is not available", "unavailable")
+			return
+		}
+		object, err = gatewayStore.GetGatewayMediaObjectByKey(r.Context(), r.PathValue("id"), gatewayMediaKeyHash(key))
+	} else {
+		auth, errMsg := s.authenticateRequest(r)
+		if auth == nil {
+			gatewayMediaError(w, http.StatusUnauthorized, errMsg, "invalid_api_key")
+			return
+		}
+		if auth.token == nil || auth.token.WorkspaceID == "" {
+			gatewayMediaError(w, http.StatusForbidden, "media downloads require a workspace-bound API token", "permission_denied")
+			return
+		}
+		if !ok || !gatewayOK {
+			gatewayMediaError(w, http.StatusServiceUnavailable, "media storage is not available", "unavailable")
+			return
+		}
+		object, err = gatewayStore.GetGatewayMediaObject(r.Context(), auth.token.WorkspaceID, auth.token.ID, r.PathValue("id"))
 	}
-	object, err := gatewayStore.GetGatewayMediaObject(r.Context(), auth.token.WorkspaceID, auth.token.ID, r.PathValue("id"))
 	if errors.Is(err, service.ErrMediaNotFound) {
-		gatewayMediaError(w, http.StatusNotFound, "media object not found", "not_found")
+		gatewayMediaError(w, http.StatusNotFound, "media object not found or link expired", "not_found")
 		return
 	}
 	if err != nil {
