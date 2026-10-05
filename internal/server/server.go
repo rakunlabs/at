@@ -905,6 +905,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/api-tokens/{id}/rotate", s.RotateAPITokenAPI)
 	apiGroup.DELETE("/v1/api-tokens/{id}", s.DeleteAPITokenAPI)
 	apiGroup.GET("/v1/api-tokens/{id}/usage", s.GetTokenUsageAPI)
+	apiGroup.GET("/v1/api-tokens/{id}/accounts", s.GetAPITokenAccountsAPI)
 	apiGroup.POST("/v1/api-tokens/{id}/usage/reset", s.ResetTokenUsageAPI)
 
 	// Routing profile management

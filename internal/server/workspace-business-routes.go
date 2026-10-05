@@ -95,6 +95,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/api-tokens/{id}/rotate", "tokens.write", "tokens", "id"},
 		{"DELETE", "/api-tokens/{id}", "tokens.write", "tokens", "id"},
 		{"GET", "/api-tokens/{id}/usage", "tokens.read", "tokens", "id"},
+		{"GET", "/api-tokens/{id}/accounts", "tokens.read", "tokens", "id"},
 		{"POST", "/api-tokens/{id}/usage/reset", "tokens.write", "tokens", "id"},
 		// A routing profile is provider configuration, so it reuses the provider
 		// capability rather than a new kind every existing bundle would lack.

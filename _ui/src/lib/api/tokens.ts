@@ -124,3 +124,29 @@ export async function setTokenPaused(id: string, paused: boolean): Promise<{ pau
   const res = await api.put<{ paused: boolean }>(`/api-tokens/${id}/pause`, { paused });
   return res.data;
 }
+
+export interface TokenAccountIdentity {
+  provider_id: string;
+  username?: string;
+  display_name?: string;
+  email?: string;
+  email_verified: boolean;
+}
+
+/** An account a token references. `found` is false for legacy values (e.g. a user header) that name no account. */
+export interface TokenAccount {
+  id: string;
+  roles: ('owner' | 'created_by' | 'updated_by')[];
+  found: boolean;
+  username?: string;
+  disabled: boolean;
+  platform_admin: boolean;
+  workspace_role?: string;
+  workspace_status?: string;
+  identities: TokenAccountIdentity[];
+}
+
+export async function getTokenAccounts(id: string): Promise<TokenAccount[]> {
+  const res = await api.get<{ accounts: TokenAccount[] }>(`/api-tokens/${id}/accounts`);
+  return res.data.accounts || [];
+}

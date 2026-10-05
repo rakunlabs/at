@@ -93,6 +93,36 @@ func TestAPITokenOwnershipPostgres(t *testing.T) {
 	if got, err := p.GetAPITokenByHash(t.Context(), "rotated-hash"); err != nil || got.OwnerUserID != alice.ID {
 		t.Fatalf("gateway lookup: %+v %v", got, err)
 	}
+	t.Run("accounts", func(t *testing.T) {
+		described, err := p.CreateAPIToken(aliceCtx, service.APIToken{Name: "described", OwnerUserID: alice.ID, CreatedBy: alice.ID, UpdatedBy: alice.ID}, "described-hash")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.DescribeAPITokenAccounts(bobCtx, described.ID); !errors.Is(err, service.ErrAccessResourceNotFound) {
+			t.Fatalf("foreign personal token accounts: %v", err)
+		}
+		if err := p.SetAPITokenPaused(adminCtx, described.ID, false, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+		accounts, err := p.DescribeAPITokenAccounts(adminCtx, described.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]service.APITokenAccount{}
+		for _, account := range accounts {
+			found[account.ID] = account
+		}
+		owner := found[alice.ID]
+		if len(accounts) != 2 || !owner.Found || owner.Username != alice.Username || owner.WorkspaceRole != "member" || len(owner.Roles) != 2 {
+			t.Fatalf("owner account: %+v", accounts)
+		}
+		if updater := found[admin.ID]; !updater.Found || updater.WorkspaceRole != "admin" || len(updater.Roles) != 1 || updater.Roles[0] != "updated_by" {
+			t.Fatalf("updater account: %+v", accounts)
+		}
+		if err := p.DeleteAPIToken(adminCtx, described.ID); err != nil {
+			t.Fatal(err)
+		}
+	})
 	other, err := p.CreateWorkspace(ctx, "other-token-workspace", platform.ID)
 	if err != nil {
 		t.Fatal(err)

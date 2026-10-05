@@ -444,6 +444,31 @@ func (s *Server) GetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, usage, http.StatusOK)
 }
 
+// GetAPITokenAccountsAPI handles GET /api/v1/api-tokens/:id/accounts. It turns
+// the stored owner / created_by / updated_by account IDs into people.
+func (s *Server) GetAPITokenAccountsAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.tokenStore.(service.APITokenAccountStorer)
+	if !ok {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+
+	accounts, err := store.DescribeAPITokenAccounts(r.Context(), id)
+	if err != nil {
+		slog.Error("describe api token accounts failed", "id", id, "error", err)
+		workspaceError(w, err)
+		return
+	}
+
+	httpResponseJSON(w, map[string]any{"accounts": accounts}, http.StatusOK)
+}
+
 // ResetTokenUsageAPI handles POST /api/v1/api-tokens/:id/usage/reset.
 func (s *Server) ResetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 	if s.tokenUsageStore == nil {

@@ -92,6 +92,38 @@ type APITokenManagementStorer interface {
 	AuthorizeAPITokenManagement(context.Context, string, string) error
 }
 
+// APITokenAccount describes one account a token references (creator, last
+// updater, owner). Found is false when the stored value names no account,
+// e.g. a legacy created_by written from a user header. Identity provider
+// subjects are deliberately omitted: this answers "who is this", not "how do
+// they sign in".
+type APITokenAccount struct {
+	ID              string                    `json:"id"`
+	Roles           []string                  `json:"roles"`
+	Found           bool                      `json:"found"`
+	Username        string                    `json:"username,omitempty"`
+	Disabled        bool                      `json:"disabled"`
+	PlatformAdmin   bool                      `json:"platform_admin"`
+	WorkspaceRole   string                    `json:"workspace_role,omitempty"`
+	WorkspaceStatus string                    `json:"workspace_status,omitempty"`
+	Identities      []APITokenAccountIdentity `json:"identities"`
+}
+
+type APITokenAccountIdentity struct {
+	ProviderID    string `json:"provider_id"`
+	Username      string `json:"username,omitempty"`
+	DisplayName   string `json:"display_name,omitempty"`
+	Email         string `json:"email,omitempty"`
+	EmailVerified bool   `json:"email_verified"`
+}
+
+// APITokenAccountStorer resolves the accounts referenced by a token the caller
+// may manage. Only those accounts are described, so it never enumerates the
+// installation's account directory.
+type APITokenAccountStorer interface {
+	DescribeAPITokenAccounts(ctx context.Context, id string) ([]APITokenAccount, error)
+}
+
 // TokenUsage represents cumulative usage statistics for a single API token + model combination.
 type TokenUsage struct {
 	TokenID          string     `json:"token_id"`

@@ -5,7 +5,7 @@
   const references = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, rotateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
+  import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, rotateToken, getTokenUsage, resetTokenUsage, getTokenAccounts, type APIToken, type CreateTokenResponse, type TokenUsage, type TokenAccount } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
@@ -104,6 +104,14 @@
   let configViewToken = $state<APIToken | null>(null);
   let configFormat = $state<'yaml' | 'json'>('yaml');
   let configCopied = $state(false);
+
+  // Account details: created_by / owner are opaque account IDs, so the modal
+  // resolves them into people on demand.
+  let accountsToken = $state<APIToken | null>(null);
+  let accounts = $state<TokenAccount[]>([]);
+  let accountsLoading = $state(false);
+  let accountsError = $state('');
+  let accountsRequest = 0;
 
   // ─── Data Loading ───
   async function loadTokens() {
@@ -559,6 +567,41 @@
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
     return String(n);
+  }
+
+  // ─── Account Details ───
+
+  const accountRoleLabels: Record<string, string> = { owner: 'Owner', created_by: 'Created by', updated_by: 'Last updated by' };
+
+  function accountName(account: TokenAccount): string {
+    const named = account.identities.find(i => i.display_name)?.display_name;
+    if (named) return named;
+    const handle = account.identities.find(i => i.username)?.username;
+    if (handle) return handle;
+    const email = account.identities.find(i => i.email_verified && i.email)?.email || account.identities.find(i => i.email)?.email;
+    if (email) return email;
+    return account.username || account.id;
+  }
+
+  async function openAccounts(token: APIToken) {
+    const request = ++accountsRequest;
+    accountsToken = token;
+    accounts = [];
+    accountsError = '';
+    accountsLoading = true;
+    try {
+      const result = await getTokenAccounts(token.id);
+      if (request === accountsRequest) accounts = result;
+    } catch (e: any) {
+      if (request === accountsRequest) accountsError = e?.response?.data?.message || 'Failed to load account details';
+    } finally {
+      if (request === accountsRequest) accountsLoading = false;
+    }
+  }
+
+  function closeAccounts() {
+    accountsRequest++;
+    accountsToken = null;
   }
 
   // ─── Config Viewer ───
@@ -1340,8 +1383,12 @@
         <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 '}>
           <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">
             {token.name}
-            <div class="mt-1 text-xs font-normal text-gray-600 dark:text-dark-text-secondary" title={token.owner_user_id ? `Owner: ${token.owner_user_id}` : 'Workspace-owned token'}>
-              {token.owner_user_id ? 'Personal' : 'Workspace'}
+            <div class="mt-1 text-xs font-normal text-gray-600 dark:text-dark-text-secondary">
+              {#if token.owner_user_id}
+                <button type="button" onclick={() => openAccounts(token)} class="underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title="Show the owner of this personal token">Personal</button>
+              {:else}
+                <span title="Workspace-owned token">Workspace</span>
+              {/if}
             </div>
             {#if token.paused}
               <span class="mt-1 flex items-center gap-1 text-xs text-amber-800 dark:text-amber-300" title="New requests are rejected until this token is resumed.">
@@ -1428,8 +1475,19 @@
               <span class="text-gray-400 dark:text-dark-text-muted">Never</span>
             {/if}
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-[150px] truncate" title={token.created_by}>
-            {token.created_by || '-'}
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-[150px]">
+            {#if token.created_by}
+              <button
+                type="button"
+                onclick={() => openAccounts(token)}
+                class="block max-w-full truncate text-left underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
+                title="Show who {token.created_by} is"
+              >
+                {token.created_by}
+              </button>
+            {:else}
+              -
+            {/if}
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
             {formatDateTime(token.last_used_at)}
@@ -1624,6 +1682,87 @@
         {/if}
     {/snippet}
   </DataTable>
+
+  <!-- Account Details Modal -->
+  {#if accountsToken}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onkeydown={(e) => { if (e.key === 'Escape') closeAccounts(); }}
+      onclick={(e) => { if (e.target === e.currentTarget) closeAccounts(); }}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div role="dialog" aria-modal="true" aria-label="Token accounts" tabindex="-1" {@attach (node) => node.focus()} class="bg-white dark:bg-dark-surface shadow-xl dark:border dark:border-dark-border w-full max-w-lg max-h-[85dvh] flex flex-col overflow-hidden" onclick={(e) => e.stopPropagation()}>
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+            People: <span class="font-mono">{accountsToken.name}</span>
+          </span>
+          <button onclick={closeAccounts} aria-label="Close" class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div class="p-4 overflow-auto space-y-3">
+          {#if accountsLoading}
+            <p class="text-xs text-gray-500 dark:text-dark-text-muted">Loading…</p>
+          {:else if accountsError}
+            <div class="flex items-center justify-between gap-3 text-xs text-red-600 dark:text-red-400">
+              <span>{accountsError}</span>
+              <button onclick={() => accountsToken && openAccounts(accountsToken)} class="px-2.5 py-1 border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Retry</button>
+            </div>
+          {:else if accounts.length === 0}
+            <p class="text-xs text-gray-500 dark:text-dark-text-muted">This token records no account.</p>
+          {:else}
+            {#each accounts as account (account.id)}
+              <div class="border border-gray-200 dark:border-dark-border">
+                <div class="px-3 py-2 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span class="text-sm font-medium text-gray-900 dark:text-dark-text break-all">{account.found ? accountName(account) : account.id}</span>
+                  {#each account.roles as role}
+                    <span class="px-1.5 py-0.5 text-[11px] bg-gray-200 dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary">{accountRoleLabels[role] || role}</span>
+                  {/each}
+                  {#if account.disabled}
+                    <span class="px-1.5 py-0.5 text-[11px] bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">Disabled</span>
+                  {/if}
+                </div>
+                <dl class="px-3 py-2 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                  {#if !account.found}
+                    <dd class="col-span-2 text-amber-700 dark:text-amber-300">No account with this ID exists. It may have been deleted, or the value was recorded before accounts existed.</dd>
+                  {:else}
+                    <dt class="text-gray-500 dark:text-dark-text-muted">Username</dt>
+                    <dd class="text-gray-900 dark:text-dark-text break-all">{account.username}</dd>
+                    <dt class="text-gray-500 dark:text-dark-text-muted">Workspace role</dt>
+                    <dd class="text-gray-900 dark:text-dark-text">
+                      {account.workspace_role || (account.platform_admin ? '—' : 'Not a member')}{account.workspace_status && account.workspace_status !== 'active' ? ` (${account.workspace_status})` : ''}
+                    </dd>
+                    {#if account.platform_admin}
+                      <dt class="text-gray-500 dark:text-dark-text-muted">Installation</dt>
+                      <dd class="text-gray-900 dark:text-dark-text">Administrator</dd>
+                    {/if}
+                    {#each account.identities as identity, i (i)}
+                      {#if identity.display_name}
+                        <dt class="text-gray-500 dark:text-dark-text-muted">Name</dt>
+                        <dd class="text-gray-900 dark:text-dark-text break-all">{identity.display_name}</dd>
+                      {/if}
+                      {#if identity.username}
+                        <dt class="text-gray-500 dark:text-dark-text-muted">SSO username</dt>
+                        <dd class="text-gray-900 dark:text-dark-text break-all">{identity.username}</dd>
+                      {/if}
+                      {#if identity.email}
+                        <dt class="text-gray-500 dark:text-dark-text-muted">Email</dt>
+                        <dd class="text-gray-900 dark:text-dark-text break-all">{identity.email}{identity.email_verified ? '' : ' (unverified)'}</dd>
+                      {/if}
+                    {/each}
+                  {/if}
+                  <dt class="text-gray-500 dark:text-dark-text-muted">Account ID</dt>
+                  <dd class="font-mono text-gray-600 dark:text-dark-text-secondary break-all">{account.id}</dd>
+                </dl>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   <!-- Config Viewer Modal -->
   {#if configViewToken}
