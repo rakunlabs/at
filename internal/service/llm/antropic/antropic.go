@@ -194,6 +194,9 @@ type Usage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	OutputTokensDetails      struct {
+		ThinkingTokens int `json:"thinking_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 func anthropicServiceUsage(u Usage) service.Usage {
@@ -201,6 +204,7 @@ func anthropicServiceUsage(u Usage) service.Usage {
 	return service.Usage{
 		PromptTokens:     u.InputTokens,
 		CompletionTokens: u.OutputTokens,
+		ReasoningTokens:  u.OutputTokensDetails.ThinkingTokens,
 		CacheReadTokens:  u.CacheReadInputTokens,
 		CacheWriteTokens: u.CacheCreationInputTokens,
 		TotalTokens:      total,
@@ -744,6 +748,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				// Anthropic puts cumulative output usage beside delta, not inside it.
 				if event.Usage != nil {
 					usage.OutputTokens = event.Usage.OutputTokens
+					usage.OutputTokensDetails = event.Usage.OutputTokensDetails
 				}
 				if len(event.Delta) == 0 {
 					continue
@@ -1141,7 +1146,12 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 
 		// Thinking / extended thinking support.
 		// Direct thinking config takes precedence over reasoning_effort mapping.
-		if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
+		if opts.Thinking != nil && (opts.Thinking.Type == "adaptive" || opts.Thinking.Type == "disabled") {
+			reqBody["thinking"] = map[string]any{"type": opts.Thinking.Type}
+			if opts.Thinking.Type == "adaptive" && opts.ReasoningEffort != "" {
+				reqBody["output_config"] = map[string]any{"effort": opts.ReasoningEffort}
+			}
+		} else if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
 			budget := opts.Thinking.BudgetTokens
 			if budget <= 0 {
 				budget = 10000 // sensible default
@@ -1192,13 +1202,17 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	// auto-enable it with a sensible default budget.
 	if p.tokenSource != nil {
 		if _, hasThinking := reqBody["thinking"]; !hasThinking && modelRequiresThinking(model) {
-			budget := 10000
-			reqBody["thinking"] = map[string]any{
-				"type":          "enabled",
-				"budget_tokens": budget,
-			}
-			if maxTokens < budget+1024 {
-				reqBody["max_tokens"] = budget + 1024
+			if service.AnthropicThinkingMode(model) == "adaptive" {
+				reqBody["thinking"] = map[string]any{"type": "adaptive"}
+			} else {
+				budget := 10000
+				reqBody["thinking"] = map[string]any{
+					"type":          "enabled",
+					"budget_tokens": budget,
+				}
+				if maxTokens < budget+1024 {
+					reqBody["max_tokens"] = budget + 1024
+				}
 			}
 		}
 	}

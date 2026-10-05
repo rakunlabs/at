@@ -163,6 +163,12 @@ type chatRequest struct {
 	Seed           *int          `json:"seed,omitempty"`
 	ToolChoice     string        `json:"tool_choice,omitempty"`
 	ResponseFormat any           `json:"response_format,omitempty"`
+	Thinking       *chatThinking `json:"thinking,omitempty"`
+}
+
+type chatThinking struct {
+	Type        string `json:"type"`
+	TokenBudget int    `json:"token_budget,omitempty"`
 }
 
 type chatMessage struct {
@@ -211,8 +217,9 @@ type chatResponse struct {
 }
 
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 // Chat implements service.LLMProvider.
@@ -247,6 +254,12 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		body.Seed = opts.Seed
 		body.ToolChoice = translateCohereToolChoice(opts.ToolChoice)
 		body.ResponseFormat = translateCohereResponseFormat(opts.ResponseFormat)
+		if opts.Thinking != nil && (opts.Thinking.Type == "enabled" || opts.Thinking.Type == "disabled") {
+			body.Thinking = &chatThinking{Type: opts.Thinking.Type}
+			if opts.Thinking.Type == "enabled" && opts.Thinking.BudgetTokens > 0 {
+				body.Thinking.TokenBudget = opts.Thinking.BudgetTokens
+			}
+		}
 	}
 	for _, t := range tools {
 		ct := chatTool{Type: "function"}
@@ -307,6 +320,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	for _, block := range parsed.Message.Content {
 		if block.Type == "text" {
 			out.Content += block.Text
+		} else if block.Type == "thinking" {
+			out.ReasoningContent += block.Thinking
 		}
 	}
 	for _, tc := range parsed.Message.ToolCalls {
@@ -323,6 +338,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			Arguments: args,
 		})
 	}
+	common.ReconcileToolCallFinish(out)
 	return out, nil
 }
 
@@ -374,6 +390,22 @@ func translateMessagesToCohere(messages []service.Message) []chatMessage {
 		if blocks, ok := m.Content.([]service.ContentBlock); ok {
 			for _, converted := range common.ConvertContentBlocksToOpenAI(m.Role, blocks) {
 				role, _ := converted["role"].(string)
+				if role == "assistant" {
+					var content []contentBlock
+					hasThinking := false
+					for _, block := range blocks {
+						switch block.Type {
+						case "thinking":
+							content = append(content, contentBlock{Type: "thinking", Thinking: block.Thinking})
+							hasThinking = true
+						case "text":
+							content = append(content, contentBlock{Type: "text", Text: block.Text})
+						}
+					}
+					if hasThinking {
+						converted["content"] = content
+					}
+				}
 				out = append(out, translateMessagesToCohere([]service.Message{{Role: role, Content: converted}})...)
 			}
 			continue
@@ -388,6 +420,17 @@ func translateMessagesToCohere(messages []service.Message) []chatMessage {
 		case map[string]any:
 			// Gateway passthrough — OpenAI-shape.
 			cm.Content = c["content"]
+			if reasoning, _ := c["reasoning_content"].(string); cm.Role == "assistant" && reasoning != "" {
+				content := []contentBlock{{Type: "thinking", Thinking: reasoning}}
+				if text, _ := cm.Content.(string); text != "" {
+					content = append(content, contentBlock{Type: "text", Text: text})
+				}
+				// Only reshape the plain-text form; native content arrays already
+				// carry their own thinking blocks and must remain intact.
+				if _, ok := cm.Content.(string); ok || cm.Content == nil {
+					cm.Content = content
+				}
+			}
 			if tcID, ok := c["tool_call_id"].(string); ok {
 				cm.ToolCallID = tcID
 			}

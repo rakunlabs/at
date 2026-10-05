@@ -183,7 +183,7 @@ func TestThinkingToolUseRoundTripOAuth(t *testing.T) {
 
 	second := string(requestBodies[1])
 	for _, want := range []string{
-		`"thinking":{"budget_tokens":10000,"type":"enabled"}`,
+		`"thinking":{"type":"adaptive"}`,
 		`{"signature":"signed-thinking-state","thinking":"I should look this up.","type":"thinking"}`,
 		`"name":"mcp_Lookup"`,
 		`"tool_use_id":"tool-1"`,

@@ -62,3 +62,39 @@ func TestExplicitThinkingWinsOverEffort(t *testing.T) {
 		t.Fatalf("output_config added alongside explicit thinking: %+v", body)
 	}
 }
+
+func TestExplicitAdaptiveAndDisabledThinking(t *testing.T) {
+	for _, mode := range []string{"adaptive", "disabled"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &Provider{MaxTokens: 32768, tokenSource: NewStaticTokenSource("test-token")}
+			body := p.buildRequestBody("claude-opus-4-7", nil, nil, &service.ChatOptions{
+				Thinking: &service.ThinkingConfig{Type: mode, BudgetTokens: 4000}, ReasoningEffort: "high",
+			})
+			thinking, _ := body["thinking"].(map[string]any)
+			if thinking["type"] != mode || thinking["budget_tokens"] != nil {
+				t.Fatalf("thinking = %+v", thinking)
+			}
+			cfg, _ := body["output_config"].(map[string]any)
+			if mode == "adaptive" && cfg["effort"] != "high" || mode == "disabled" && cfg != nil {
+				t.Fatalf("output_config = %+v", cfg)
+			}
+		})
+	}
+}
+
+func TestOAuthDefaultThinkingUsesModelMode(t *testing.T) {
+	for _, tt := range []struct{ model, mode string }{
+		{"claude-opus-4-7", "adaptive"},
+		{"claude-sonnet-4-6", "adaptive"},
+		{"claude-sonnet-4-5", "enabled"},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			p := &Provider{MaxTokens: 32768, tokenSource: NewStaticTokenSource("test-token")}
+			body := p.buildRequestBody(tt.model, nil, nil, nil)
+			thinking, _ := body["thinking"].(map[string]any)
+			if thinking["type"] != tt.mode {
+				t.Fatalf("thinking = %+v", thinking)
+			}
+		})
+	}
+}

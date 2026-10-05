@@ -288,6 +288,14 @@ var (
 )
 
 func openAIReasoningEfforts(id string) ([]string, bool) {
+	// GPT-OSS on OpenAI-compatible hosts (including Groq and Cerebras).
+	if id == "gpt-oss-120b" || id == "gpt-oss-20b" {
+		return []string{"low", "medium", "high"}, true
+	}
+	// Published DeepSeek /models effort tables; do not infer legacy aliases.
+	if id == "deepseek-flash" || id == "deepseek-v4-pro" {
+		return []string{"low", "high", "max"}, true
+	}
 	if m := oRe.FindStringSubmatch(id); m != nil {
 		if m[1] == "1" && (strings.HasPrefix(id, "o1-mini") || strings.HasPrefix(id, "o1-preview")) {
 			return []string{}, true

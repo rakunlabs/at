@@ -465,7 +465,7 @@
       config: {
         type: 'cohere',
         model: 'command-a-03-2025',
-        models: ['command-a-03-2025', 'command-r-plus-08-2024', 'command-r-08-2024'],
+        models: ['command-a-03-2025', 'command-a-reasoning-08-2025', 'command-r-plus-08-2024', 'command-r-08-2024'],
       },
       setupSteps: [
         'Go to dashboard.cohere.com and sign in (or create an account)',
@@ -481,6 +481,7 @@
         'The only provider with first-party rerank support (/gateway/v1/rerank)',
         'Also serves embeddings (embed-v4.0 family) via /gateway/v1/embeddings',
         'Streaming is simulated (the chat response is fake-streamed)',
+        'command-a-reasoning-08-2025 supports thinking; use thinking.type and thinking.budget_tokens to control it',
       ],
     },
     {
@@ -515,13 +516,13 @@
     {
       id: 'groq',
       name: 'Groq',
-      description: 'Ultra-fast inference for Llama, Mixtral, and more',
+      description: 'Fast OpenAI-compatible inference for GPT-OSS reasoning models',
       key: 'groq',
       config: {
         type: 'openai',
         base_url: 'https://api.groq.com/openai/v1/chat/completions',
-        model: 'llama-3.3-70b-versatile',
-        models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+        model: 'openai/gpt-oss-120b',
+        models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
       },
       setupSteps: [
         'Go to console.groq.com and sign in (or create a free account)',
@@ -536,6 +537,33 @@
       notes: [
         'Groq has a generous free tier for experimentation',
         'Known for extremely fast inference speeds (LPU hardware)',
+        'Legacy Llama 3.1, Llama 3.3 and Mixtral model IDs have been retired; Fetch models for your current catalog',
+      ],
+    },
+    {
+      id: 'cerebras',
+      name: 'Cerebras',
+      description: 'Fast OpenAI-compatible inference for open-weight models',
+      key: 'cerebras',
+      config: {
+        type: 'openai',
+        base_url: 'https://api.cerebras.ai/v1/chat/completions',
+        model: 'gpt-oss-120b',
+        models: ['gpt-oss-120b'],
+      },
+      setupSteps: [
+        'Sign in to cloud.cerebras.ai and create an API key',
+        'Paste the key in the API Key field below',
+        'Use Fetch models to load the models available to your account',
+      ],
+      setupLinks: [
+        { label: 'Console', url: 'https://cloud.cerebras.ai/' },
+        { label: 'OpenAI compatibility', url: 'https://inference-docs.cerebras.ai/resources/openai' },
+      ],
+      notes: [
+        'Uses the standard openai provider type; no separate adapter is required',
+        'GPT-OSS supports low, medium and high reasoning effort',
+        'Model availability and limits depend on your account',
       ],
     },
     {
@@ -705,13 +733,13 @@
     {
       id: 'deepseek',
       name: 'DeepSeek',
-      description: 'DeepSeek-V3 and DeepSeek-R1 reasoning model',
+      description: 'DeepSeek Flash and V4 Pro with configurable thinking',
       key: 'deepseek',
       config: {
         type: 'openai',
         base_url: 'https://api.deepseek.com/chat/completions',
-        model: 'deepseek-chat',
-        models: ['deepseek-chat', 'deepseek-reasoner'],
+        model: 'deepseek-flash',
+        models: ['deepseek-flash', 'deepseek-v4-pro'],
       },
       setupSteps: [
         'Go to platform.deepseek.com and sign in',
@@ -724,8 +752,9 @@
         { label: 'Docs', url: 'https://api-docs.deepseek.com/' },
       ],
       notes: [
-        'deepseek-chat is the general purpose model (DeepSeek-V3)',
-        'deepseek-reasoner is the reasoning model (DeepSeek-R1)',
+        'Use Fetch models for the current catalog; existing saved model names are not rewritten',
+        'Flash and V4 Pro support low, high and max reasoning effort',
+        'Use extra_body.thinking with type enabled or disabled to control thinking mode',
       ],
     },
     {
