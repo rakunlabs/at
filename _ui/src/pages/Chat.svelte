@@ -2096,7 +2096,11 @@
       mcpset: async (source, args) => {
         if (!source.mcpSetName) return 'Error: MCP set is missing';
         const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args, turn.controller.signal);
+        turnLifecycle.assert(turn);
         const text = res.content?.map(c => c.text).join('\n') ?? '';
+        // generate_image (and other media tools) reached through an MCP set
+        // report stored media the same way the built-in path does.
+        noteTurnArtifacts(text);
         return text || 'Tool executed successfully (no output)';
       },
       builtin: async (_, args) => {
@@ -2170,7 +2174,10 @@
   function noteTurnArtifacts(result: string) {
     try {
       const parsed = JSON.parse(result);
-      if (Array.isArray(parsed?.artifacts)) turnArtifacts = [...turnArtifacts, ...parsed.artifacts];
+      if (Array.isArray(parsed?.artifacts)) {
+        const valid = parsed.artifacts.filter((a: any) => typeof a?.media_id === 'string' && a.media_id && typeof a?.content_type === 'string');
+        if (valid.length) turnArtifacts = [...turnArtifacts, ...valid];
+      }
     } catch { /* Plain-text results carry no artifacts. */ }
   }
 
