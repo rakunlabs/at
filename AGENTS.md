@@ -2614,8 +2614,20 @@ workspace catalog; with several it fails with an error listing the valid keys
 rather than leaving the model to guess one. The default model follows the
 provider type (`gpt-image-2`, or `image-01` for MiniMax). A gateway MCP server
 or MCP set can pin it: `config.image_generation` (`service.ImageGenerationConfig`,
-MCP Servers editor → *Image generation*, shown once `generate_image` is
-enabled) with `provider`, `model` and default `size`/`quality`/`background`.
+the *Image generation* panel in both the MCP Sets and MCP Servers editors —
+`ImageGenerationSettings.svelte` + `helper/image-generation.ts` — shown once
+`generate_image` is enabled) with `provider`, `model` and default
+`size`/`quality`/`background`. A set's setting applies wherever the set is
+used (agents, Chats, a gateway MCP server listing it); a gateway server's own
+setting overrides it for tools that server exposes.
+
+The MCP Servers editor is set-first: the **MCP sets** panel (with a per-set
+summary and an edit link to `#/mcps?edit=<id>`, which `Mcps.svelte` opens once
+and drops from the URL) is where a server's tools come from. Tools configured
+directly on a server (builtin tools, image generation, workflows) and the
+WebSocket passthrough sit under a collapsed **Advanced** section, which opens
+automatically when an existing server already uses any of them. Nothing changed
+in storage: `servers` (set names) and `config` are the same fields.
 Pinned provider/model are removed from the advertised schema
 (`generateImageToolForConfig`) and enforced on every call
 (`applyImageGenerationConfig`); the defaults fill only empty arguments. It

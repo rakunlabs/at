@@ -14,7 +14,8 @@
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { getInfo, type InfoProvider } from '@/lib/api/gateway';
+  import ImageGenerationSettings from '@/lib/components/ImageGenerationSettings.svelte';
+  import { imageGenerationConfig, imageGenerationForm, type ImageGenerationForm } from '@/lib/helper/image-generation';
   import { deploymentUrl, deploymentWsUrl } from '@/lib/helper/deployment-url';
   import {
     Server,
@@ -31,6 +32,9 @@
     Download,
     Upload,
     Image as ImageIcon,
+    ChevronDown,
+    ChevronRight,
+    Settings2,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -56,20 +60,40 @@
   let formWSHeaders = $state<Array<{ key: string; value: string }>>([]);
   let formWSPassQueryParams = $state('');
   let formWSPassHeaders = $state('');
-  let formImageProvider = $state('');
-  let formImageModel = $state('');
-  let formImageSize = $state('');
-  let formImageQuality = $state('');
-  let formImageBackground = $state('');
+  let formImageGeneration = $state<ImageGenerationForm>(imageGenerationForm());
+  let showBuiltinToolsSection = $state(false);
+  let showWorkflowsSection = $state(false);
+  let showAdvanced = $state(false);
+  const advancedSummary = $derived(
+    [
+      formBuiltinTools.length ? `${formBuiltinTools.length} builtin` : '',
+      formWorkflowIds.length ? `${formWorkflowIds.length} workflow` : '',
+      formWSURL.trim() ? 'WebSocket' : '',
+    ]
+      .filter(Boolean)
+      .join(', '),
+  );
+
+  function mcpSetSummary(set: MCPSet): string {
+    const cfg = set.config || {};
+    const parts: string[] = [];
+    const builtin = cfg.enabled_builtin_tools?.length ?? 0;
+    if (builtin) parts.push(`${builtin} builtin`);
+    if (cfg.workflow_ids?.length) parts.push(`${cfg.workflow_ids.length} workflow`);
+    const upstreams = (cfg.mcp_upstreams?.length ?? 0) + (set.urls?.length ?? 0);
+    if (upstreams) parts.push(`${upstreams} upstream`);
+    const http = (cfg.http_tools?.length ?? 0) + (cfg.inline_tools?.length ?? 0);
+    if (http) parts.push(`${http} custom`);
+    if (cfg.enabled_builtin_tools?.includes('generate_image') && cfg.image_generation?.provider) {
+      parts.push(`images: ${cfg.image_generation.provider}`);
+    }
+    return parts.join(' · ');
+  }
 
   // Helpers
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let availableMCPSets = $state<MCPSet[]>([]);
   let availableWorkflows = $state<Workflow[]>([]);
-  let imageProviders = $state<InfoProvider[]>([]);
-  const imageModelOptions = $derived(imageProviders.find((p) => (p.reference || p.key) === formImageProvider)?.type === 'minimax'
-    ? ['image-01']
-    : ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'dall-e-3']);
 
   // ─── Load Data ───
 
@@ -114,14 +138,6 @@
 
   loadWorkflows();
 
-  async function loadImageProviders() {
-    try {
-      const info = await getInfo();
-      imageProviders = (info.providers || []).filter((p) => p.type === 'openai' || p.type === 'minimax');
-    } catch {}
-  }
-
-  loadImageProviders();
 
   // ─── Form Logic ───
 
@@ -136,11 +152,10 @@
     formWSHeaders = [];
     formWSPassQueryParams = '';
     formWSPassHeaders = '';
-    formImageProvider = '';
-    formImageModel = '';
-    formImageSize = '';
-    formImageQuality = '';
-    formImageBackground = '';
+    formImageGeneration = imageGenerationForm();
+    showBuiltinToolsSection = false;
+    showWorkflowsSection = false;
+    showAdvanced = false;
     editingId = null;
     showForm = false;
   }
@@ -195,11 +210,9 @@
     formWSHeaders = recordToKVList(s.config.ws_upstream?.headers);
     formWSPassQueryParams = (s.config.ws_upstream?.pass_query_params || []).join(', ');
     formWSPassHeaders = (s.config.ws_upstream?.pass_headers || []).join(', ');
-    formImageProvider = s.config.image_generation?.provider || '';
-    formImageModel = s.config.image_generation?.model || '';
-    formImageSize = s.config.image_generation?.size || '';
-    formImageQuality = s.config.image_generation?.quality || '';
-    formImageBackground = s.config.image_generation?.background || '';
+    formImageGeneration = imageGenerationForm(s.config.image_generation);
+    // Existing servers that carry tools directly keep them visible.
+    showAdvanced = advancedSummary !== '';
     showForm = true;
   }
 
@@ -238,15 +251,9 @@
         delete config.ws_upstream;
       }
 
-      const imageGeneration = {
-        provider: formImageProvider.trim(),
-        model: formImageModel.trim(),
-        size: formImageSize.trim(),
-        quality: formImageQuality.trim(),
-        background: formImageBackground.trim(),
-      };
-      if (formBuiltinTools.includes('generate_image') && Object.values(imageGeneration).some(Boolean)) {
-        config.image_generation = Object.fromEntries(Object.entries(imageGeneration).filter(([, v]) => v));
+      const imageGeneration = imageGenerationConfig(formImageGeneration, formBuiltinTools);
+      if (imageGeneration) {
+        config.image_generation = imageGeneration;
       } else {
         delete config.image_generation;
       }
@@ -444,6 +451,205 @@
           </label>
         </div>
 
+        <!-- MCP sets: where this server's tools come from -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <div class="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border-subtle">
+            <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">
+              <Layers size={14} />
+              MCP sets
+              {#if formMCPSets.length > 0}
+                <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted">({formMCPSets.length} selected)</span>
+              {/if}
+            </div>
+            <a href="#/mcps" class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text">
+              <Plus size={12} />
+              New set
+            </a>
+          </div>
+          <div class="p-3">
+            {#if availableMCPSets.length > 0}
+              <div class="space-y-1.5">
+                {#each availableMCPSets as mcp (mcp.id)}
+                  <div class="flex items-start gap-2 p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated">
+                    <input
+                      id={`mcp-set-${mcp.id}`}
+                      type="checkbox"
+                      checked={formMCPSets.includes(mcp.name)}
+                      onchange={() => {
+                        if (formMCPSets.includes(mcp.name)) {
+                          formMCPSets = formMCPSets.filter(n => n !== mcp.name);
+                        } else {
+                          formMCPSets = [...formMCPSets, mcp.name];
+                        }
+                      }}
+                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                    />
+                    <label for={`mcp-set-${mcp.id}`} class="flex-1 min-w-0 cursor-pointer">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{mcp.name}</span>
+                        <span class="px-1 py-px text-[10px] border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted">{mcp.owner_user_id ? 'personal' : 'workspace'}</span>
+                        {#if mcpSetSummary(mcp)}
+                          <span class="text-[11px] text-gray-400 dark:text-dark-text-muted">{mcpSetSummary(mcp)}</span>
+                        {/if}
+                      </div>
+                      {#if mcp.description}
+                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{mcp.description}</div>
+                      {/if}
+                    </label>
+                    <a
+                      href={`#/mcps?tab=${mcp.owner_user_id ? 'my-mcps' : 'workspace-mcps'}&edit=${encodeURIComponent(mcp.id)}`}
+                      class="shrink-0 p-1 text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                      title="Edit this set (tools, image generation, upstreams)"
+                    >
+                      <Pencil size={12} />
+                    </a>
+                  </div>
+                {/each}
+              </div>
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-2">
+                Build tools in an MCP set — builtin tools, image generation settings, workflows, upstream MCPs — then expose one or more sets here. The same set can also be attached to agents and Chats.
+              </p>
+            {:else}
+              <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                No MCP sets yet. <a href="#/mcps" class="underline hover:text-gray-700 dark:hover:text-dark-text-secondary">Create one on the MCP page</a>, add its tools there, then select it here.
+              </p>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Advanced -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <button
+            type="button"
+            onclick={() => (showAdvanced = !showAdvanced)}
+            aria-expanded={showAdvanced}
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+          >
+            {#if showAdvanced}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+            <Settings2 size={14} />
+            Advanced
+            <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted truncate">
+              {advancedSummary || 'tools directly on this server, WebSocket passthrough'}
+            </span>
+          </button>
+          {#if showAdvanced}
+          <div class="p-3 space-y-4 border-t border-gray-200 dark:border-dark-border-subtle">
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            Tools added here exist only on this server. Prefer an MCP set above unless you need a one-off.
+          </p>
+        <!-- Builtin Tools -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <button
+            type="button"
+            onclick={() => (showBuiltinToolsSection = !showBuiltinToolsSection)}
+            aria-expanded={showBuiltinToolsSection}
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+          >
+            {#if showBuiltinToolsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+            <Wrench size={14} />
+            Builtin Tools
+            {#if formBuiltinTools.length > 0}
+              <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted truncate">({formBuiltinTools.length}: {formBuiltinTools.join(', ')})</span>
+            {/if}
+          </button>
+          {#if showBuiltinToolsSection}
+            <div class="px-3 pb-3 pt-2 border-t border-gray-200 dark:border-dark-border-subtle">
+              {#if builtinToolDefs.length > 0}
+                <div class="space-y-1.5">
+                  {#each builtinToolDefs as tool}
+                    <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated">
+                      <input
+                        type="checkbox"
+                        checked={formBuiltinTools.includes(tool.name)}
+                        onchange={() => {
+                          if (formBuiltinTools.includes(tool.name)) {
+                            formBuiltinTools = formBuiltinTools.filter(n => n !== tool.name);
+                          } else {
+                            formBuiltinTools = [...formBuiltinTools, tool.name];
+                          }
+                        }}
+                        class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{tool.name}</span>
+                        {#if tool.description}
+                          <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{tool.description}</div>
+                        {/if}
+                      </div>
+                    </label>
+                  {/each}
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Server-side builtin tools (file ops, shell, etc.) available on this endpoint.</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        {#if formBuiltinTools.includes('generate_image')}
+          <!-- Image generation -->
+          <div class="border border-gray-200 dark:border-dark-border">
+            <div class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border-subtle">
+              <ImageIcon size={14} />
+              Image generation
+              <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted">settings for generate_image</span>
+            </div>
+            <div class="p-3">
+              <ImageGenerationSettings bind:value={formImageGeneration} />
+            </div>
+          </div>
+        {/if}
+        <!-- Workflows -->
+        <div class="border border-gray-200 dark:border-dark-border">
+          <button
+            type="button"
+            onclick={() => (showWorkflowsSection = !showWorkflowsSection)}
+            aria-expanded={showWorkflowsSection}
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+          >
+            {#if showWorkflowsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+            <GitBranch size={14} />
+            Workflows
+            {#if formWorkflowIds.length > 0}
+              <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted">({formWorkflowIds.length} selected)</span>
+            {/if}
+          </button>
+          {#if showWorkflowsSection}
+            <div class="px-3 pb-3 pt-2 border-t border-gray-200 dark:border-dark-border-subtle">
+              {#if availableWorkflows.length > 0}
+                <div class="space-y-1.5">
+                  {#each availableWorkflows as wf}
+                    <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated">
+                      <input
+                        type="checkbox"
+                        checked={formWorkflowIds.includes(wf.id)}
+                        onchange={() => {
+                          if (formWorkflowIds.includes(wf.id)) {
+                            formWorkflowIds = formWorkflowIds.filter(id => id !== wf.id);
+                          } else {
+                            formWorkflowIds = [...formWorkflowIds, wf.id];
+                          }
+                        }}
+                        class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{wf.name}</span>
+                        {#if wf.description}
+                          <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{wf.description}</div>
+                        {/if}
+                      </div>
+                    </label>
+                  {/each}
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Expose selected workflows as individual MCP tools on this endpoint.</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No workflows available.</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
         <!-- WebSocket Passthrough -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
@@ -545,192 +751,8 @@
           </div>
         </div>
 
-        <!-- Internal MCPs -->
-        <div class="grid grid-cols-4 gap-3 items-start">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-            <div class="flex items-center gap-1.5">
-              <Layers size={14} />
-              Internal MCPs
-            </div>
-          </span>
-          <div class="col-span-3">
-            {#if availableMCPSets.length > 0}
-              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each availableMCPSets as mcp}
-                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated ">
-                    <input
-                      type="checkbox"
-                      checked={formMCPSets.includes(mcp.name)}
-                      onchange={() => {
-                        if (formMCPSets.includes(mcp.name)) {
-                          formMCPSets = formMCPSets.filter(n => n !== mcp.name);
-                        } else {
-                          formMCPSets = [...formMCPSets, mcp.name];
-                        }
-                      }}
-                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{mcp.name}</span>
-                      {#if mcp.description}
-                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{mcp.description}</div>
-                      {/if}
-                    </div>
-                  </label>
-                {/each}
-              </div>
-              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Select internal MCPs to aggregate and expose through this server's gateway endpoint.</p>
-            {:else}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No internal MCPs configured. Add them on the <a href="#/mcps" class="underline hover:text-gray-600 dark:hover:text-dark-text-secondary">MCP page</a>.</span>
-            {/if}
           </div>
-        </div>
-
-        <!-- Builtin Tools -->
-        <div class="grid grid-cols-4 gap-3 items-start">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-            <div class="flex items-center gap-1.5">
-              <Wrench size={14} />
-              Builtin Tools
-            </div>
-          </span>
-          <div class="col-span-3">
-            {#if builtinToolDefs.length > 0}
-              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each builtinToolDefs as tool}
-                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated ">
-                    <input
-                      type="checkbox"
-                      checked={formBuiltinTools.includes(tool.name)}
-                      onchange={() => {
-                        if (formBuiltinTools.includes(tool.name)) {
-                          formBuiltinTools = formBuiltinTools.filter(n => n !== tool.name);
-                        } else {
-                          formBuiltinTools = [...formBuiltinTools, tool.name];
-                        }
-                      }}
-                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{tool.name}</span>
-                      {#if tool.description}
-                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{tool.description}</div>
-                      {/if}
-                    </div>
-                  </label>
-                {/each}
-              </div>
-              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Server-side builtin tools (file ops, shell, etc.) available on this endpoint.</p>
-            {:else}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
-            {/if}
-          </div>
-        </div>
-
-        {#if formBuiltinTools.includes('generate_image')}
-          {@const field = 'w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted'}
-          <!-- Image generation -->
-          <div class="grid grid-cols-4 gap-3 items-start">
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-              <div class="flex items-center gap-1.5">
-                <ImageIcon size={14} />
-                Image generation
-              </div>
-            </span>
-            <div class="col-span-3 space-y-2">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label class="block">
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Provider</span>
-                  <select bind:value={formImageProvider} class={field}>
-                    <option value="">Caller chooses (auto when only one exists)</option>
-                    {#each imageProviders as p (p.reference || p.key)}
-                      <option value={p.reference || p.key}>{p.key} · {p.type}</option>
-                    {/each}
-                    {#if formImageProvider && !imageProviders.some((p) => (p.reference || p.key) === formImageProvider)}
-                      <option value={formImageProvider}>{formImageProvider} (unavailable)</option>
-                    {/if}
-                  </select>
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Model</span>
-                  <input bind:value={formImageModel} list="mcp-image-models" placeholder={formImageProvider ? 'Provider default' : 'Caller chooses'} class={field} />
-                  <datalist id="mcp-image-models">
-                    {#each imageModelOptions as m}<option value={m}></option>{/each}
-                  </datalist>
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default size</span>
-                  <select bind:value={formImageSize} class={field}>
-                    <option value="">Provider default</option>
-                    <option value="1024x1024">1024x1024 (square)</option>
-                    <option value="1536x1024">1536x1024 (landscape)</option>
-                    <option value="1024x1536">1024x1536 (portrait)</option>
-                    <option value="auto">auto</option>
-                  </select>
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default quality</span>
-                  <select bind:value={formImageQuality} class={field}>
-                    <option value="">Provider default</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                    <option value="auto">auto</option>
-                  </select>
-                </label>
-                <label class="block">
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Default background</span>
-                  <select bind:value={formImageBackground} class={field}>
-                    <option value="">Provider default</option>
-                    <option value="auto">auto</option>
-                    <option value="opaque">opaque</option>
-                    <option value="transparent">transparent</option>
-                  </select>
-                </label>
-              </div>
-              <p class="text-xs text-gray-400 dark:text-dark-text-muted">A pinned provider and model are removed from the tool's arguments, so clients such as OpenCode never have to guess them. Size, quality and background are defaults the caller may still override.</p>
-            </div>
-          </div>
-        {/if}
-        <!-- Workflows -->
-        <div class="grid grid-cols-4 gap-3 items-start">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-            <div class="flex items-center gap-1.5">
-              <GitBranch size={14} />
-              Workflows
-            </div>
-          </span>
-          <div class="col-span-3">
-            {#if availableWorkflows.length > 0}
-              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each availableWorkflows as wf}
-                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated ">
-                    <input
-                      type="checkbox"
-                      checked={formWorkflowIds.includes(wf.id)}
-                      onchange={() => {
-                        if (formWorkflowIds.includes(wf.id)) {
-                          formWorkflowIds = formWorkflowIds.filter(id => id !== wf.id);
-                        } else {
-                          formWorkflowIds = [...formWorkflowIds, wf.id];
-                        }
-                      }}
-                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{wf.name}</span>
-                      {#if wf.description}
-                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{wf.description}</div>
-                      {/if}
-                    </div>
-                  </label>
-                {/each}
-              </div>
-              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Expose selected workflows as individual MCP tools on this endpoint.</p>
-            {:else}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No workflows available.</span>
-            {/if}
-          </div>
+          {/if}
         </div>
 
         <!-- Actions -->

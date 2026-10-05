@@ -1,5 +1,7 @@
 <script lang="ts">
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
+  import { updateRouteQuery } from '@/lib/helper/route-query';
+  import { router } from 'svelte-spa-router';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { can } from '@/lib/store/workspace.svelte';
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
@@ -9,7 +11,9 @@
   import { listMCPBinaries, uploadMCPBinary, deleteMCPBinary, listStdioProcesses, type MCPBinary, type StdioProcess } from '@/lib/api/mcp-binaries';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users } from 'lucide-svelte';
+  import ImageGenerationSettings from '@/lib/components/ImageGenerationSettings.svelte';
+  import { imageGenerationConfig, imageGenerationForm, type ImageGenerationForm } from '@/lib/helper/image-generation';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users, Image as ImageIcon } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -121,6 +125,7 @@
   let formMCPUpstreams = $state<MCPUpstream[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formWorkflowIds = $state<string[]>([]);
+  let formImageGeneration = $state<ImageGenerationForm>(imageGenerationForm());
   let preservedConfig = $state<MCPServerConfig>({});
 
   function getMCPSetDraft(): MCPSetBuilderDraft {
@@ -171,6 +176,17 @@
 
   // ─── Load ───
 
+  // `?edit=<id>` (linked from the MCP Servers page) opens that set's editor
+  // once; the parameter is then dropped so Back/refresh do not reopen it.
+  function openRequestedSet() {
+    const id = new URLSearchParams(router.querystring || '').get('edit');
+    if (!id) return;
+    updateRouteQuery({ edit: null }, true);
+    const set = sets.find((s) => s.id === id);
+    if (set) openEdit(set);
+    else addToast('That MCP set is not available to you', 'warn');
+  }
+
   async function loadData() {
     loading = true;
     try {
@@ -184,6 +200,7 @@
       const sResult = await listMCPSets(params);
       sets = sResult.data || [];
       total = (sResult.data || []).length;
+      openRequestedSet();
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -237,6 +254,7 @@
     formMCPUpstreams = [];
     formBuiltinTools = [];
     formWorkflowIds = [];
+    formImageGeneration = imageGenerationForm();
     preservedConfig = {};
     editingId = null;
     showForm = false;
@@ -267,6 +285,7 @@
     formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formBuiltinTools = cfg.enabled_builtin_tools ?? [];
     formWorkflowIds = cfg.workflow_ids ?? [];
+    formImageGeneration = imageGenerationForm(cfg.image_generation);
     showHTTPSection = formHTTPTools.length > 0;
     showBuiltinToolsSection = formBuiltinTools.length > 0;
     showWorkflowsSection = formWorkflowIds.length > 0;
@@ -305,6 +324,7 @@
           enabled_builtin_tools: formBuiltinTools,
           workflow_ids: formWorkflowIds,
           inline_tools: formInlineTools,
+          image_generation: imageGenerationConfig(formImageGeneration, formBuiltinTools),
         },
       };
 
@@ -1066,6 +1086,20 @@
                 </div>
               {/if}
             </div>
+
+            {#if formBuiltinTools.includes('generate_image')}
+              <!-- ═══ Image Generation ═══ -->
+              <div class="border border-gray-200 dark:border-dark-border-subtle">
+                <div class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border-subtle">
+                  <ImageIcon size={14} />
+                  Image generation
+                  <span class="text-xs font-normal text-gray-400 dark:text-dark-text-muted">settings for generate_image</span>
+                </div>
+                <div class="px-4 py-3">
+                  <ImageGenerationSettings bind:value={formImageGeneration} />
+                </div>
+              </div>
+            {/if}
 
             <!-- ═══ Workflows Section ═══ -->
             <div class="border border-gray-200 dark:border-dark-border-subtle">
