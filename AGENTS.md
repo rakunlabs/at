@@ -2608,6 +2608,35 @@ upstream MCP servers' `image`/`audio` blocks are forwarded through it as well,
 and both MCP clients now join all text blocks instead of returning only the
 first one. Agent loops have no collector and keep their text-only behaviour.
 
+**Using the result** (modelled on fal's MCP, where the result is a durable
+URL and display is the client's job). Each gateway artifact also carries
+`width`/`height` (header-only decode; WebP parsed by hand to stay stdlib-only),
+`expires_at` and a ready `markdown` image, and images are now served
+`inline` (still `CSP: sandbox` + `nosniff`) so `![](download_url)` renders in
+Claude Desktop, Cursor and similar clients. `expires_in_seconds` sets the key
+lifetime per call (clamped to 1 minute .. 7 days, default 24h;
+`contextWithGatewayMediaTTL`). Clients that negotiated MCP `2025-06-18`
+(the `MCP-Protocol-Version` header) also get one `resource_link` per image;
+older clients do not, since an unknown content type can fail their result.
+The tool description (`generateImageUsage`) tells the model all of this,
+including that an external user does not see the image until it shows the
+markdown or saves the file. Work-directory runs keep `files` as paths and add
+`images` with dimensions.
+
+**Editing.** `reference_images` (≤5) turns the call into an edit:
+`ImageGenerateRequest.ReferenceImages` → Codex `POST <codex root>/images/edits`
+(JSON, data: URLs — the Codex CLI's contract) or the API's multipart
+`/images/edits` (`image[]` for several). MiniMax returns
+`ErrUnsupportedOperation`. References resolve in `image-references.go`: a
+media_id visible to the run's account or produced by the calling token, this
+installation's own `download_url` (resolved locally with the key check, no
+network round trip), a `data:image/…;base64` URL, or a public `https` URL
+fetched through a dialer that refuses private, loopback, link-local and CGNAT
+addresses at connect time (so redirects and DNS rebinding are covered).
+Bounded at 32 MiB per image and 64 MiB total. Regressions:
+`internal/server/image-references_test.go`,
+`internal/service/llm/openai/image-edit_test.go`.
+
 **Choosing the provider.** `provider` is optional. When omitted, the tool uses
 the only image-capable provider (`openai`/`minimax` type) in the caller's
 workspace catalog; with several it fails with an error listing the valid keys

@@ -19,12 +19,19 @@ const CodexDefaultImageModel = "gpt-image-2"
 const codexImageResponseMaxBytes = 128 << 20
 
 type codexImageRequest struct {
-	Prompt     string `json:"prompt"`
-	Model      string `json:"model"`
-	N          int    `json:"n,omitempty"`
-	Size       string `json:"size,omitempty"`
-	Quality    string `json:"quality,omitempty"`
-	Background string `json:"background,omitempty"`
+	Images     []codexImageURL `json:"images,omitempty"`
+	Prompt     string          `json:"prompt"`
+	Model      string          `json:"model"`
+	N          int             `json:"n,omitempty"`
+	Size       string          `json:"size,omitempty"`
+	Quality    string          `json:"quality,omitempty"`
+	Background string          `json:"background,omitempty"`
+}
+
+// codexImageURL is one edit input; the Codex endpoint takes data: URLs in a
+// JSON body rather than the public API's multipart upload.
+type codexImageURL struct {
+	ImageURL string `json:"image_url"`
 }
 
 type codexImageResponse struct {
@@ -41,8 +48,9 @@ type codexImageResponse struct {
 }
 
 // GenerateImage implements service.ImageProvider through the ChatGPT Codex
-// images endpoint, the same one the Codex CLI's image tool calls. Usage is
-// charged to the ChatGPT subscription rather than to API billing.
+// images endpoints, the ones the Codex CLI's image tool calls: generations,
+// or edits when reference images are supplied. Usage is charged to the
+// ChatGPT subscription rather than to API billing.
 func (p *CodexProvider) GenerateImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
 	if req.Prompt == "" {
 		return nil, fmt.Errorf("prompt is required")
@@ -51,11 +59,20 @@ func (p *CodexProvider) GenerateImage(ctx context.Context, req service.ImageGene
 	if model == "" {
 		model = CodexDefaultImageModel
 	}
-	target, err := p.proxyURL("/images/generations", "")
+	path := "/images/generations"
+	var images []codexImageURL
+	if len(req.ReferenceImages) > 0 {
+		path = "/images/edits"
+		for _, ref := range req.ReferenceImages {
+			images = append(images, codexImageURL{ImageURL: ref.DataURL()})
+		}
+	}
+	target, err := p.proxyURL(path, "")
 	if err != nil {
 		return nil, err
 	}
 	body, err := json.Marshal(codexImageRequest{
+		Images:     images,
 		Prompt:     req.Prompt,
 		Model:      model,
 		N:          req.N,

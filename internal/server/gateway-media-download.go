@@ -26,19 +26,74 @@ import (
 //     agent's shell never sees the API token configured in its MCP client, so
 //     a link that requires Authorization is unusable to the agent that asked
 //     for the image. The key is 256 random bits, only its SHA-256 is stored,
-//     it names one object, and it expires after gatewayMediaKeyTTL.
+//     it names one object, and it expires after gatewayMediaKeyTTL unless the
+//     call asked for another lifetime (bounded to one minute .. seven days).
 //
+// Images are served inline so a client can render the link as Markdown.
 // Nothing else is reachable: browser and agent media carry no token ID or key,
 // and a foreign, unknown or expired object answers 404 exactly like a missing
 // one.
 
 const (
-	gatewayMediaKeyTTL     = 24 * time.Hour
-	gatewayMediaKeyTTLText = "24 hours"
+	gatewayMediaKeyTTL    = 24 * time.Hour
+	gatewayMediaKeyMinTTL = time.Minute
+	gatewayMediaKeyMaxTTL = 7 * 24 * time.Hour
 )
 
 type gatewayTokenContextKey struct{}
 type gatewayBaseURLContextKey struct{}
+type gatewayMediaTTLContextKey struct{}
+type mcpProtocolVersionContextKey struct{}
+
+// contextWithGatewayMediaTTL sets the lifetime of download keys minted for
+// media stored under ctx. It is clamped to [gatewayMediaKeyMinTTL,
+// gatewayMediaKeyMaxTTL]; zero keeps the default.
+func contextWithGatewayMediaTTL(ctx context.Context, ttl time.Duration) context.Context {
+	if ttl <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, gatewayMediaTTLContextKey{}, min(max(ttl, gatewayMediaKeyMinTTL), gatewayMediaKeyMaxTTL))
+}
+
+func gatewayMediaTTL(ctx context.Context) time.Duration {
+	if ttl, ok := ctx.Value(gatewayMediaTTLContextKey{}).(time.Duration); ok && ttl > 0 {
+		return ttl
+	}
+	return gatewayMediaKeyTTL
+}
+
+// gatewayMediaTTLText renders a lifetime for the model ("24 hours", "15 minutes").
+func gatewayMediaTTLText(ttl time.Duration) string {
+	unit := func(n int, name string) string {
+		if n == 1 {
+			return "1 " + name
+		}
+		return strconv.Itoa(n) + " " + name + "s"
+	}
+	switch {
+	case ttl >= 24*time.Hour && ttl%(24*time.Hour) == 0:
+		return unit(int(ttl/(24*time.Hour)), "day")
+	case ttl >= time.Hour && ttl%time.Hour == 0:
+		return unit(int(ttl/time.Hour), "hour")
+	default:
+		return unit(max(1, int(ttl/time.Minute)), "minute")
+	}
+}
+
+// contextWithMCPProtocolVersion records the protocol revision the MCP client
+// negotiated (the MCP-Protocol-Version request header), so tools only emit
+// content types that revision defines.
+func contextWithMCPProtocolVersion(ctx context.Context, version string) context.Context {
+	return context.WithValue(ctx, mcpProtocolVersionContextKey{}, version)
+}
+
+// mcpSupportsResourceLinks reports whether the client negotiated 2025-06-18 or
+// later, the first revision with resource_link content. Older clients may
+// validate content strictly and fail the whole call on an unknown type.
+func mcpSupportsResourceLinks(ctx context.Context) bool {
+	version, _ := ctx.Value(mcpProtocolVersionContextKey{}).(string)
+	return version >= "2025-06-18"
+}
 
 func contextWithGatewayToken(ctx context.Context, token *service.APIToken) context.Context {
 	return context.WithValue(ctx, gatewayTokenContextKey{}, token)
@@ -143,7 +198,13 @@ func (s *Server) GatewayMediaAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	ext := mediaAllowedContentTypes[object.ContentType]
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", object.ID+ext))
+	// Images render inline so a client can show the link as Markdown
+	// (![](url)); sandbox + nosniff keep anything else a download.
+	disposition := "attachment"
+	if mediaInlineContentType(object.ContentType) {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, object.ID+ext))
 	if _, err := io.Copy(w, reader); err != nil {
 		slog.Warn("gateway media stream interrupted", "id", object.ID, "error", err.Error())
 	}

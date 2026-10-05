@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -20,7 +21,17 @@ import (
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
-const generateImageMaxCount = 4
+const (
+	generateImageMaxCount      = 4
+	generateImageMaxReferences = 5
+)
+
+// generateImageUsage is the tool description shared by the plain built-in
+// and the pinned-endpoint variant, so a calling model learns how to use the
+// result wherever it reaches the tool.
+const generateImageUsage = "Generate images from a text description, or edit/combine existing images when reference_images are given, with a provider that supports image generation: an OpenAI provider (API key, or ChatGPT/Codex subscription auth — billed to the subscription), or MiniMax (generation only). Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). " + generateImageResultUsage
+
+const generateImageResultUsage = "Image bytes never appear in the text result; it is JSON describing where the images went (with width/height), and its \"note\" field says what to do next. In an AT chat or agent run the images are delivered to the user automatically (\"artifacts\" with media_id, or \"files\" in the run's work directory): do not repeat their content. Through an external MCP client (OpenCode, Claude Code, an IDE) the user does not see them automatically: each artifact carries a \"download_url\" that needs no credentials (24 hours by default; expires_in_seconds changes it) and a \"markdown\" snippet, and a downscaled preview may be attached so you can check the result. To show an image, put its markdown in your answer; to use it in a project, save the full-resolution file, e.g. curl -fsSL -o assets/hero.png '<download_url>', and reference that path. To refine an image, call again with its media_id in reference_images. Never paste image data or base64 into your answer."
 
 // imageProviderTypes are the provider types whose adapters implement
 // service.ImageProvider.
@@ -107,7 +118,7 @@ func generateImageToolForConfig(tool service.Tool, cfg *service.ImageGenerationC
 	if cfg.Model != "" {
 		target += " (" + cfg.Model + ")"
 	}
-	tool.Description = "Generate images from a text description. Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). This endpoint generates with " + strings.TrimSpace(target) + ". The result lists the stored images with a download_url for each; a preview is attached when the client can display it. Never paste image data into your answer."
+	tool.Description = "Generate images from a text description, or edit/combine existing images when reference_images are given. Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). This endpoint generates with " + strings.TrimSpace(target) + ". " + generateImageResultUsage
 	return tool
 }
 
@@ -179,6 +190,13 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 	size, _ := args["size"].(string)
 	quality, _ := args["quality"].(string)
 	background, _ := args["background"].(string)
+	if v, ok := args["expires_in_seconds"].(float64); ok && v > 0 {
+		ctx = contextWithGatewayMediaTTL(ctx, time.Duration(v)*time.Second)
+	}
+	references, err := s.resolveReferenceImages(ctx, args["reference_images"])
+	if err != nil {
+		return "", err
+	}
 
 	info, err := s.getExecutionProviderInfo(ctx, providerKey)
 	if err != nil {
@@ -190,8 +208,12 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 	}
 	resp, err := generator.GenerateImage(ctx, service.ImageGenerateRequest{
 		Prompt: prompt, Model: model, N: n, Size: size, Quality: quality, Background: background,
+		ReferenceImages: references,
 	})
 	if errors.Is(err, service.ErrUnsupportedOperation) {
+		if len(references) > 0 {
+			return "", fmt.Errorf("provider %q cannot edit reference images; use an OpenAI provider (API key or ChatGPT auth)", providerKey)
+		}
 		return "", fmt.Errorf("provider %q does not support image generation; use an OpenAI (API key or ChatGPT auth) or MiniMax provider", providerKey)
 	}
 	if err != nil {
@@ -216,22 +238,30 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 			return "", err
 		}
 		out["files"] = files
+		described := make([]generatedImageEntry, 0, len(files))
+		for i, file := range files {
+			described = append(described, generatedImageEntry{Path: file, Width: images[i].width, Height: images[i].height})
+		}
+		out["images"] = described
 		out["note"] = "Images were saved in the run's work directory; mention them by file name in your answer."
 	} else {
 		delivered, note, err := s.storeGeneratedImages(ctx, images)
 		if err != nil {
 			return "", err
 		}
-		out["artifacts"] = gatewayArtifacts(ctx, delivered)
+		artifacts := gatewayArtifacts(ctx, delivered, images)
+		out["artifacts"] = artifacts
 		if note != "" {
 			out["artifacts_note"] = note
 		}
 		out["note"] = "The images are shown to the user automatically; do not repeat their content."
 		if gatewayTokenFromContext(ctx) != nil {
-			out["note"] = fmt.Sprintf("To save an image into the project, download its download_url (no credentials needed; valid for %s), e.g. curl -fsSL -o <file> '<download_url>'.", gatewayMediaKeyTTLText)
+			ttl := gatewayMediaTTLText(gatewayMediaTTL(ctx))
+			out["note"] = fmt.Sprintf("The user does not see these images yet. To show one, put its \"markdown\" in your answer. To save one into the project, download its download_url (no credentials needed; valid for %s), e.g. curl -fsSL -o <file> '<download_url>'. To refine one, call generate_image again with its media_id in reference_images.", ttl)
 			if offerGeneratedImagesInline(ctx, images) {
 				out["note"] = "A preview of each image is attached to this result; the download is the full-resolution file. " + out["note"].(string)
 			}
+			offerGeneratedImageLinks(ctx, artifacts, ttl)
 		}
 	}
 	encoded, err := json.MarshalIndent(out, "", "  ")
@@ -242,23 +272,76 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 }
 
 type generatedImageFile struct {
-	data []byte
-	ext  string
+	data          []byte
+	ext           string
+	contentType   string
+	width, height int
 }
 
-// gatewayArtifact adds the token download address to a stored artifact when
-// the call came through the gateway.
+// generatedImageEntry describes an image saved into a run's work directory.
+type generatedImageEntry struct {
+	Path   string `json:"path"`
+	Width  int    `json:"width,omitempty"`
+	Height int    `json:"height,omitempty"`
+}
+
+// gatewayArtifact adds dimensions and, through the gateway, the download
+// address and a ready-to-paste Markdown image to a stored artifact.
 type gatewayArtifact struct {
 	chatArtifact
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
 	DownloadURL string `json:"download_url,omitempty"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+	Markdown    string `json:"markdown,omitempty"`
 }
 
-func gatewayArtifacts(ctx context.Context, delivered []chatArtifact) []gatewayArtifact {
+func gatewayArtifacts(ctx context.Context, delivered []chatArtifact, images []generatedImageFile) []gatewayArtifact {
 	out := make([]gatewayArtifact, 0, len(delivered))
-	for _, artifact := range delivered {
-		out = append(out, gatewayArtifact{chatArtifact: artifact, DownloadURL: gatewayMediaURL(ctx, artifact.MediaID, artifact.downloadKey)})
+	for i, artifact := range delivered {
+		entry := gatewayArtifact{chatArtifact: artifact}
+		// storeChatArtifacts keeps order and only drops failures at the end
+		// of a partial batch, so the index still matches when lengths agree.
+		if len(delivered) == len(images) {
+			entry.Width, entry.Height = images[i].width, images[i].height
+		}
+		entry.DownloadURL = gatewayMediaURL(ctx, artifact.MediaID, artifact.downloadKey)
+		if entry.DownloadURL != "" {
+			if !artifact.downloadExpires.IsZero() {
+				entry.ExpiresAt = artifact.downloadExpires.UTC().Format(time.RFC3339)
+			}
+			entry.Markdown = fmt.Sprintf("![%s](%s)", markdownAltText(artifact.Name), entry.DownloadURL)
+		}
+		out = append(out, entry)
 	}
 	return out
+}
+
+func markdownAltText(name string) string {
+	return strings.NewReplacer("[", "", "]", "", "\n", " ").Replace(name)
+}
+
+// offerGeneratedImageLinks attaches each download as an MCP resource_link,
+// which clients on protocol 2025-06-18 or later can fetch or display
+// themselves. Older clients only get the JSON text, since an unknown content
+// type may fail their whole result.
+func offerGeneratedImageLinks(ctx context.Context, artifacts []gatewayArtifact, ttl string) {
+	if !mcpSupportsResourceLinks(ctx) {
+		return
+	}
+	for _, artifact := range artifacts {
+		if artifact.DownloadURL == "" {
+			continue
+		}
+		service.AddToolContent(ctx, service.ToolContent{
+			Type:        "resource_link",
+			URI:         artifact.DownloadURL,
+			Name:        artifact.Name,
+			MimeType:    artifact.ContentType,
+			Size:        artifact.SizeBytes,
+			Description: "Generated image (full resolution); the link needs no credentials and expires in " + ttl + ".",
+		})
+	}
 }
 
 // Inline image content is bounded so one call cannot turn into a response the
@@ -316,7 +399,9 @@ func decodeGeneratedImages(ctx context.Context, images []service.GeneratedImage)
 		if !ok {
 			return nil, nil, fmt.Errorf("provider returned unsupported image type %q", contentType)
 		}
-		files = append(files, generatedImageFile{data: data, ext: ext})
+		file := generatedImageFile{data: data, ext: ext, contentType: contentType}
+		file.width, file.height = imageDimensions(data)
+		files = append(files, file)
 		if image.RevisedPrompt != "" {
 			revised = append(revised, image.RevisedPrompt)
 		}

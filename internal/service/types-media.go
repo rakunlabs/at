@@ -60,6 +60,21 @@ type ImageGenerateRequest struct {
 	Style   string `json:"style,omitempty"`   // e.g. "vivid", "natural"
 	// Background is "transparent", "opaque" or "auto" on GPT Image models.
 	Background string `json:"background,omitempty"`
+	// ReferenceImages turns the request into an edit: the provider changes or
+	// combines these images according to Prompt. Empty means generate.
+	ReferenceImages []ReferenceImage `json:"-"`
+}
+
+// ReferenceImage is one input image of an edit request.
+type ReferenceImage struct {
+	Data        []byte
+	ContentType string
+	Name        string
+}
+
+// DataURL encodes the image as a data: URL.
+func (r ReferenceImage) DataURL() string {
+	return "data:" + r.ContentType + ";base64," + base64.StdEncoding.EncodeToString(r.Data)
 }
 
 // ImageResponse is the result of an image generation or edit operation.

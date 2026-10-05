@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/textproto"
+	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -161,6 +163,9 @@ type imagesResponse struct {
 
 // GenerateImage implements service.ImageProvider.
 func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
+	if len(req.ReferenceImages) > 0 {
+		return p.editImage(ctx, req)
+	}
 	url := p.apiURL("/images/generations")
 
 	apiReq := imagesRequest{
@@ -202,6 +207,110 @@ func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateR
 	}
 
 	return &service.ImageResponse{Images: images}, nil
+}
+
+// editImage calls /images/edits, which takes the reference images as a
+// multipart upload. GPT Image models accept several (image[]); a single image
+// uses the plain field so DALL-E 2 keeps working.
+func (p *Provider) editImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = "gpt-image-1"
+	}
+	var buf bytes.Buffer
+	writer := newMultipartWriter(&buf)
+	field := "image"
+	if len(req.ReferenceImages) > 1 {
+		field = "image[]"
+	}
+	for i, ref := range req.ReferenceImages {
+		name := ref.Name
+		if name == "" {
+			name = fmt.Sprintf("image-%d%s", i+1, imageExtension(ref.ContentType))
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, field, name))
+		header.Set("Content-Type", ref.ContentType)
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return nil, fmt.Errorf("create image part: %w", err)
+		}
+		if _, err := part.Write(ref.Data); err != nil {
+			return nil, fmt.Errorf("write image part: %w", err)
+		}
+	}
+	fields := map[string]string{"prompt": req.Prompt, "model": model, "size": req.Size, "quality": req.Quality, "background": req.Background}
+	if req.N > 1 {
+		fields["n"] = strconv.Itoa(req.N)
+	}
+	if strings.HasPrefix(model, "dall-e") {
+		fields["response_format"] = "b64_json"
+	}
+	for key, value := range fields {
+		if value == "" {
+			continue
+		}
+		if err := writer.WriteField(key, value); err != nil {
+			return nil, fmt.Errorf("write %s field: %w", key, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("close multipart: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiURL("/images/edits"), &buf)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
+	if p.APIKey != "" {
+		token := p.APIKey
+		if p.tokenSource != nil {
+			t, terr := p.tokenSource.Token(ctx)
+			if terr != nil {
+				return nil, fmt.Errorf("token source: %w", terr)
+			}
+			token = t
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := p.client.HTTP.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, mediaJSONResponseMaxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if len(body) > mediaJSONResponseMaxBytes {
+		return nil, fmt.Errorf("read response: body exceeds %d bytes", mediaJSONResponseMaxBytes)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, mediaAPIError(resp, body)
+	}
+	var apiResp imagesResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	images := make([]service.GeneratedImage, 0, len(apiResp.Data))
+	for _, img := range apiResp.Data {
+		images = append(images, service.GeneratedImage{URL: img.URL, Base64: img.B64JSON, RevisedPrompt: img.RevisedPrompt})
+	}
+	return &service.ImageResponse{Images: images}, nil
+}
+
+func imageExtension(contentType string) string {
+	switch contentType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ".png"
+	}
 }
 
 // ─── Text-to-Speech ───

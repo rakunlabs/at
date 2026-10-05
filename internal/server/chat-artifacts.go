@@ -46,7 +46,8 @@ type chatArtifact struct {
 
 	// downloadKey is the plaintext gateway download key, only ever placed in
 	// the download_url returned to the producing call.
-	downloadKey string
+	downloadKey     string
+	downloadExpires time.Time
 }
 
 // chatArtifactCollection is the outcome of one sweep. Note explains files that
@@ -322,7 +323,7 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 		if token := gatewayTokenFromContext(ctx); token != nil && token.WorkspaceID == provenance.WorkspaceID {
 			tokenID = token.ID
 			downloadKey, downloadKeyHash = newGatewayMediaKey()
-			downloadExpires = time.Now().Add(gatewayMediaKeyTTL)
+			downloadExpires = time.Now().Add(gatewayMediaTTL(ctx))
 		}
 		created, err := store.CreateMediaObject(ctx, service.MediaObject{
 			WorkspaceID:       provenance.WorkspaceID,
@@ -343,7 +344,7 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 			failed = append(failed, f.name)
 			continue
 		}
-		delivered = append(delivered, chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey})
+		delivered = append(delivered, chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey, downloadExpires: downloadExpires})
 	}
 	if len(failed) > 0 {
 		return delivered, "Some produced files could not be stored: " + strings.Join(failed, ", ") + "."

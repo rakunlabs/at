@@ -271,6 +271,9 @@ type imageGenResponse struct {
 // GenerateImage implements service.ImageProvider using MiniMax's native image API.
 func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
 	url := p.apiBase + "/image_generation"
+	if len(req.ReferenceImages) > 0 {
+		return nil, fmt.Errorf("MiniMax image generation does not support editing reference images: %w", service.ErrUnsupportedOperation)
+	}
 
 	// Map OpenAI-style size to MiniMax aspect ratio.
 	aspectRatio := sizeToAspectRatio(req.Size)

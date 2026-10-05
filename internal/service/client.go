@@ -82,6 +82,12 @@ type ToolContent struct {
 	// Data and MimeType carry MCP image/audio blocks (base64 payload).
 	Data     string `json:"data,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
+	// URI, Name, Description and Size carry an MCP resource_link block
+	// (protocol 2025-06-18): a file the client can fetch instead of inlining.
+	URI         string `json:"uri,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Size        int64  `json:"size,omitempty"`
 }
 
 // HTTPMCPClient handles communication with an MCP server over Streamable

@@ -169,14 +169,16 @@ var builtinToolSchemas = []builtinToolDef{
 	}, "required": []string{"provider", "state", "questions"}}},
 
 	// ─── Image Tools ───
-	{Name: "generate_image", Description: "Generate images from a text description with a provider that supports image generation: an OpenAI provider (API key, or ChatGPT/Codex subscription auth — billed to the subscription), or MiniMax. Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). The images are saved and delivered to the user automatically; the result lists the saved files. Never paste image data into your answer.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
-		"provider":   map[string]any{"type": "string", "description": "Key of the image-capable provider, optionally provider/model (e.g. openai or openai/gpt-image-1.5). May be omitted when only one image-capable provider exists; an error then lists the valid keys"},
-		"prompt":     map[string]any{"type": "string", "description": "Detailed description of the image to create"},
-		"model":      map[string]any{"type": "string", "description": "Image model. Defaults to gpt-image-2 (ChatGPT/Codex); use gpt-image-1.5 or dall-e-3 for API keys, image-01 for MiniMax"},
-		"size":       map[string]any{"type": "string", "description": "e.g. 1024x1024, 1536x1024 (landscape), 1024x1536 (portrait) or auto"},
-		"quality":    map[string]any{"type": "string", "description": "low, medium, high or auto"},
-		"background": map[string]any{"type": "string", "enum": []string{"auto", "opaque", "transparent"}, "description": "transparent for cutouts, logos and stickers"},
-		"n":          map[string]any{"type": "integer", "minimum": 1, "maximum": generateImageMaxCount, "description": "Number of images (default 1)"},
+	{Name: "generate_image", Description: generateImageUsage, InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"provider":           map[string]any{"type": "string", "description": "Key of the image-capable provider, optionally provider/model (e.g. openai or openai/gpt-image-1.5). May be omitted when only one image-capable provider exists; an error then lists the valid keys"},
+		"prompt":             map[string]any{"type": "string", "description": "Detailed description of the image to create, or of the change to make when reference images are given"},
+		"model":              map[string]any{"type": "string", "description": "Image model. Defaults to gpt-image-2 (ChatGPT/Codex); use gpt-image-1.5 or dall-e-3 for API keys, image-01 for MiniMax"},
+		"size":               map[string]any{"type": "string", "description": "e.g. 1024x1024, 1536x1024 (landscape), 1024x1536 (portrait) or auto"},
+		"quality":            map[string]any{"type": "string", "description": "low, medium, high or auto"},
+		"background":         map[string]any{"type": "string", "enum": []string{"auto", "opaque", "transparent"}, "description": "transparent for cutouts, logos and stickers"},
+		"n":                  map[string]any{"type": "integer", "minimum": 1, "maximum": generateImageMaxCount, "description": "Number of images (default 1)"},
+		"reference_images":   map[string]any{"type": "array", "maxItems": generateImageMaxReferences, "items": map[string]any{"type": "string"}, "description": "Images to edit or combine (up to 5): a media_id or download_url from an earlier generate_image result, a public https URL, or a data:image/...;base64 URL. With references the call edits them according to prompt instead of generating from scratch. OpenAI providers only."},
+		"expires_in_seconds": map[string]any{"type": "integer", "minimum": 60, "maximum": 604800, "description": "Lifetime of each download_url when called through an external MCP client (default 86400 = 24 hours, maximum 7 days)"},
 	}, "required": []string{"prompt"}}},
 
 	// ─── User Preference Tools ───

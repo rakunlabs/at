@@ -302,6 +302,7 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 	defer closeMCPRuntime(r.Context(), runtime)
 	ctx, collector := service.ContextWithToolContentCollector(r.Context())
 	ctx = contextWithGatewayBaseURL(ctx, s.publicBaseURL(r))
+	ctx = contextWithMCPProtocolVersion(ctx, r.Header.Get("MCP-Protocol-Version"))
 	result, err := runtime.CallTool(ctx, params.Name, params.Arguments)
 	if err != nil {
 		var notFound *mcpToolNotFoundError

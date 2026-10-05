@@ -141,8 +141,8 @@ func TestGatewayMediaDownload(t *testing.T) {
 				if w.Body.String() != string(generateImageTestPNG) || w.Header().Get("Content-Type") != "image/png" {
 					t.Fatalf("download differs: %q %q", w.Header().Get("Content-Type"), w.Body)
 				}
-				if !strings.Contains(w.Header().Get("Content-Disposition"), "attachment") {
-					t.Fatal("download must not render inline")
+				if !strings.HasPrefix(w.Header().Get("Content-Disposition"), "inline") || w.Header().Get("Content-Security-Policy") != "sandbox" {
+					t.Fatal("images render inline, sandboxed")
 				}
 			}
 		})
