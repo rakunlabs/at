@@ -478,6 +478,15 @@ func isFinishedTaskStatus(status string) bool {
 	return service.IsTerminalTaskStatus(status)
 }
 
+// isResumableTaskStatus reports whether /resume may restart a task that has no
+// live delegation: terminal tasks, and todo / in-progress tasks whose run was
+// interrupted (for example by a server restart).
+func isResumableTaskStatus(status string) bool {
+	return isFinishedTaskStatus(status) ||
+		status == service.TaskStatusTodo ||
+		status == service.TaskStatusInProgress
+}
+
 // isRunningTaskStatus returns true when the task is still in motion.
 func isRunningTaskStatus(status string) bool {
 	switch status {
@@ -1617,10 +1626,10 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				return
 			}
 
-			// Only terminal states make sense to resume. Open / in-progress
-			// tasks that aren't actively running indicate a server restart;
-			// allow resume in that case too by also accepting Open.
-			if !isFinishedTaskStatus(task.Status) && task.Status != service.TaskStatusTodo {
+			// Terminal states resume normally. Todo / in-progress tasks with no
+			// live delegation were interrupted (e.g. a server restart) and are
+			// resumable too; the reservation below still refuses a duplicate run.
+			if !isResumableTaskStatus(task.Status) {
 				sendTelegramText(bot, msg.Chat.ID,
 					fmt.Sprintf("Task %s status is %s — nothing to resume.",
 						sanitizeUTF8(identifier), sanitizeUTF8(task.Status)))
