@@ -2101,17 +2101,17 @@
 
 <div class="p-6 max-w-6xl mx-auto">
   <!-- Header -->
-  <div class="flex items-start justify-between mb-6">
+  <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
     <div>
-      <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Providers</h1>
-      <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+      <h1 class="text-lg font-semibold text-dark-text">Providers</h1>
+      <p class="text-sm text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
+      <span class="text-xs text-dark-text-muted">({total})</span>
     </div>
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
       {#if canManageVirtual}
       <button
         onclick={() => showVirtualProviders = true}
-        class="flex items-center gap-1.5 border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-highest"
+        class="flex items-center gap-1.5 border px-3 py-1.5 text-sm border-dark-border-subtle text-dark-text-secondary hover:bg-dark-highest"
       >
         <Boxes size={14} />
         New Virtual
@@ -2120,14 +2120,14 @@
       {#if canManagePersonal || canManageWorkspace}
       <button
         onclick={openPresets}
-        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-dark-base text-sm hover:bg-accent-hover"
       >
         <Layers size={14} />
         From Template
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary"
       >
         <Plus size={14} />
         Custom
@@ -2137,30 +2137,30 @@
   </div>
 
   {#if !showForm && !showPresets}
-    <div class="mb-4 flex border-b border-gray-200 dark:border-dark-border" role="tablist" aria-label="Provider ownership">
+    <div class="mb-4 flex border-b border-dark-border" role="tablist" aria-label="Provider ownership">
       {#if canManagePersonal}
         <button
           role="tab"
           aria-selected={providerView === 'personal'}
           onclick={() => switchProviderView('personal')}
-          class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'personal' ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted']}
+          class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'personal' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted']}
         >My providers</button>
       {/if}
       <button
         role="tab"
         aria-selected={providerView === 'workspace'}
         onclick={() => switchProviderView('workspace')}
-        class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'workspace' ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted']}
+        class={['min-h-10 border-b-2 px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent', providerView === 'workspace' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted']}
       >Workspace providers</button>
     </div>
   {/if}
 
   <!-- Preset Picker -->
   {#if showPresets}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Choose a Template</span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
+        <span class="text-sm font-medium text-dark-text">Choose a Template</span>
+        <button onclick={resetForm} class="p-1 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -2168,12 +2168,12 @@
         {#each PRESETS as preset}
           <button
             onclick={() => applyPreset(preset)}
-            class="text-left border border-gray-200 dark:border-dark-border p-3 hover:border-gray-400 dark:hover:border-dark-border-subtle hover:shadow-sm group"
+            class="text-left border border-dark-border p-3 hover:border-dark-border-subtle hover:shadow-sm group"
           >
-            <div class="font-medium text-sm text-gray-900 dark:text-dark-text group-hover:text-gray-900 dark:group-hover:text-dark-text">{preset.name}</div>
-            <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 leading-relaxed">{preset.description}</div>
+            <div class="font-medium text-sm text-dark-text group-hover:text-dark-text">{preset.name}</div>
+            <div class="text-xs text-dark-text-muted mt-1 leading-relaxed">{preset.description}</div>
             <div class="mt-2.5">
-              <span class="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{preset.config.type}</span>
+              <span class="text-xs px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary font-mono">{preset.config.type}</span>
             </div>
           </button>
         {/each}
@@ -2183,9 +2183,9 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-elevated">
+        <span class="text-sm font-medium text-dark-text">
           {#if editingKey}
             Edit: {editingKey}
           {:else if activePreset}
@@ -2194,13 +2194,13 @@
             New Provider (Custom)
           {/if}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
 
       {#if formDisabled}
-        <div class="flex items-start gap-2.5 border-b border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/20 px-4 py-3 text-xs text-amber-800 dark:text-amber-300">
+        <div class="flex items-start gap-2.5 border-b border-amber-800 bg-amber-900/20 px-4 py-3 text-xs text-amber-300">
           <PowerOff size={14} class="mt-0.5 shrink-0" />
           <span>
             This provider is disabled: its models are hidden from pickers and the gateway, requests naming it are
@@ -2212,12 +2212,12 @@
 
       <!-- Setup Guide (shown when using a preset) -->
       {#if activePreset}
-        <div class="border-b border-gray-200 dark:border-dark-border bg-blue-50/50 dark:bg-blue-900/20 px-4 py-4">
+        <div class="border-b border-dark-border bg-blue-900/20 px-4 py-4">
           <div class="flex items-start gap-2.5">
             <BookOpen size={16} class="text-blue-600 mt-0.5 shrink-0" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium text-gray-900 dark:text-dark-text mb-2">Setup Guide</div>
-              <ol class="text-xs text-gray-700 dark:text-dark-text-secondary space-y-1.5 list-decimal list-inside leading-relaxed">
+              <div class="text-sm font-medium text-dark-text mb-2">Setup Guide</div>
+              <ol class="text-xs text-dark-text-secondary space-y-1.5 list-decimal list-inside leading-relaxed">
                 {#each activePreset.setupSteps as step}
                   <li>{step}</li>
                 {/each}
@@ -2230,7 +2230,7 @@
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-border-subtle hover:text-gray-900 dark:hover:text-dark-text "
+                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-dark-elevated border border-dark-border text-dark-text-secondary hover:border-dark-border-subtle hover:text-dark-text"
                     >
                       {link.label}
                       <ExternalLink size={10} />
@@ -2240,9 +2240,9 @@
               {/if}
 
               {#if activePreset.notes && activePreset.notes.length > 0}
-                <div class="mt-3 pt-3 border-t border-blue-100 dark:border-blue-800">
+                <div class="mt-3 pt-3 border-t border-blue-800">
                   {#each activePreset.notes as note}
-                    <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 leading-relaxed">{note}</div>
+                    <div class="text-xs text-dark-text-muted mt-1 leading-relaxed">{note}</div>
                   {/each}
                 </div>
               {/if}
@@ -2252,22 +2252,22 @@
       {/if}
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
-        <div class="grid grid-cols-4 gap-3 items-start border-b border-gray-200 dark:border-dark-border pb-4">
-          <label for="form-scope" class="pt-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Scope</label>
+        <div class="grid grid-cols-4 gap-3 items-start border-b border-dark-border pb-4">
+          <label for="form-scope" class="pt-2 text-sm font-medium text-dark-text-secondary">Scope</label>
           <div class="col-span-3">
             <div class="relative">
               <select
                 id="form-scope"
                 bind:value={formScope}
-                class="h-9 w-full appearance-none border border-gray-300 bg-white px-3 pr-8 text-sm text-gray-700 focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 disabled:text-gray-500 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:disabled:bg-dark-base"
+                class="h-9 w-full appearance-none border px-3 pr-8 text-sm focus-visible:outline-2 focus-visible:outline-accent disabled:text-dark-text-muted border-dark-border-subtle bg-dark-elevated text-dark-text disabled:bg-dark-base"
               >
                 {#if canManagePersonal || editingPersonalId}<option value="personal">Personal — only you</option>{/if}
                 {#if canManageWorkspace || formScope === 'workspace'}<option value="workspace">Workspace — members can use it</option>{/if}
                 {#if canManageGlobal || formScope === 'global'}<option value="global">Global — every workspace</option>{/if}
               </select>
-              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-dark-text-muted" />
             </div>
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <p class="mt-1.5 text-xs text-dark-text-muted">
               {#if formScope === 'personal'}Stored for your account and available to you in workspaces you can access.
               {:else if editingPersonalId && formScope === 'workspace'}Saving moves this provider into the selected workspace: it leaves your personal list, workspace provider managers can edit it, and this workspace's agents and workflows that used it are updated. A workspace provider with the same key must not already exist.
               {:else if editingPersonalId}Your credential stays account-owned; this publishes model use without exposing the secret.
@@ -2278,39 +2278,39 @@
         </div>
         <!-- Key -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-key" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Key</label>
+          <label for="form-key" class="text-sm font-medium text-dark-text-secondary">Key</label>
           <input
             id="form-key"
             type="text"
             bind:value={formKey}
             disabled={!!editingKey}
             placeholder="e.g., anthropic, groq, ollama"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-dark-surface dark:disabled:text-dark-text-muted dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle disabled:bg-dark-surface disabled:text-dark-text-muted bg-dark-elevated text-dark-text placeholder-dark-text-muted"
           />
         </div>
 
         <!-- Type -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-type" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Type</label>
+          <label for="form-type" class="text-sm font-medium text-dark-text-secondary">Type</label>
           <div class="col-span-3 relative">
             <select
               id="form-type"
               bind:value={formType}
               onchange={() => { formAuthType = ''; }}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-dark-elevated text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
             >
               {#each PROVIDER_TYPES as t}
                 <option value={t}>{t}</option>
               {/each}
             </select>
-            <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-faint" />
+            <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-dark-text-faint" />
           </div>
         </div>
 
         <!-- Auth Type (for openai and anthropic) -->
         {#if formType === 'openai' || formType === 'anthropic'}
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-authtype" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Auth Type</label>
+            <label for="form-authtype" class="text-sm font-medium text-dark-text-secondary">Auth Type</label>
             <div class="col-span-3 relative">
               <select
                 id="form-authtype"
@@ -2320,7 +2320,7 @@
                     formBaseUrl = 'https://chatgpt.com/backend-api/codex/responses';
                   }
                 }}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
+                class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-dark-elevated text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
               >
                 <option value="">(none)</option>
                 {#if formType === 'openai'}
@@ -2331,7 +2331,7 @@
                   <option value="claude-code">claude-code</option>
                 {/if}
               </select>
-              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-faint" />
+              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-dark-text-faint" />
             </div>
           </div>
         {/if}
@@ -2339,32 +2339,32 @@
         <!-- API Key / Device Auth -->
         {#if formAuthType === 'copilot' || formAuthType === 'chatgpt'}
           <div class="grid grid-cols-4 gap-3 items-start">
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Authorization</span>
+            <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Authorization</span>
             <div class="col-span-3">
               {#if deviceAuthPending}
                 <!-- Device flow in progress -->
-                <div class="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
-                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary">
-                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline">{deviceAuthLinkName()}</a> and enter the code:
+                <div class="border border-blue-800 bg-blue-900/20 p-4 space-y-3">
+                  <div class="text-sm text-dark-text-secondary">
+                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-400 hover:text-blue-300 underline">{deviceAuthLinkName()}</a> and enter the code:
                   </div>
                   <div class="flex items-center gap-3">
-                    <code class="text-2xl font-bold font-mono tracking-widest text-gray-900 dark:text-dark-text bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border px-4 py-2 select-all">{deviceAuthCode}</code>
+                    <code class="text-2xl font-bold font-mono tracking-widest text-dark-text bg-dark-elevated border border-dark-border px-4 py-2 select-all">{deviceAuthCode}</code>
                     <button
                       type="button"
                       onclick={() => { navigator.clipboard.writeText(deviceAuthCode); addToast('Code copied to clipboard'); }}
-                      class="px-2.5 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary "
+                      class="px-2.5 py-1.5 text-xs border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary"
                     >
                       Copy
                     </button>
                   </div>
-                  <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted">
+                  <div class="flex items-center gap-2 text-xs text-dark-text-muted">
                     <RefreshCw size={12} class="animate-spin" />
                     Waiting for authorization...
                   </div>
                   <button
                     type="button"
                     onclick={stopDeviceAuthPolling}
-                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                    class="text-xs text-dark-text-muted hover:text-dark-text-secondary"
                   >
                     Cancel
                   </button>
@@ -2372,14 +2372,14 @@
               {:else if editingKey && formHasStoredKey}
                 <!-- Already authorized -->
                 <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
+                  <span class="inline-flex items-center gap-1.5 text-sm text-green-400 bg-green-900/30 border border-green-800 px-3 py-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     Authorized via {deviceAuthProviderName()}
                   </span>
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text"
                   >
                     <LogIn size={13} />
                     Re-authorize
@@ -2391,16 +2391,16 @@
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover"
                   >
                     <LogIn size={14} />
                     Authorize with {deviceAuthProviderName()}
                   </button>
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens {deviceAuthHost()} in your browser</span>
+                  <span class="text-xs text-dark-text-muted">Opens {deviceAuthHost()} in your browser</span>
                 </div>
               {:else}
                 <!-- New provider, not yet saved -->
-                <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
+                <div class="text-sm text-dark-text-muted py-1.5">
                   Save the provider first, then click Authorize to sign in via {deviceAuthProviderName()}.
                 </div>
               {/if}
@@ -2409,27 +2409,27 @@
         {:else if formAuthType === 'claude-code'}
           <!-- Claude Code OAuth flow -->
           <div class="grid grid-cols-4 gap-3 items-start">
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Authorization</span>
+            <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Authorization</span>
             <div class="col-span-3">
               {#if claudeAuthPending}
                 <!-- Auth flow in progress -->
-                <div class="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
-                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary">
+                <div class="border border-blue-800 bg-blue-900/20 p-4 space-y-3">
+                  <div class="text-sm text-dark-text-secondary">
                     1. Open this link and sign in with your Claude account:
                   </div>
                   <div class="flex items-center gap-2">
-                    <a href={claudeAuthURL} target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline break-all">
+                    <a href={claudeAuthURL} target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-400 hover:text-blue-300 underline break-all">
                       {claudeAuthURL.length > 80 ? claudeAuthURL.substring(0, 80) + '...' : claudeAuthURL}
                     </a>
                     <button
                       type="button"
                       onclick={() => { navigator.clipboard.writeText(claudeAuthURL); addToast('URL copied to clipboard'); }}
-                      class="shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary "
+                      class="shrink-0 px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary"
                     >
                       Copy
                     </button>
                   </div>
-                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary mt-2">
+                  <div class="text-sm text-dark-text-secondary mt-2">
                     2. After authorizing, you'll see a code on the page. Paste it here:
                   </div>
                   <div class="flex items-center gap-2">
@@ -2437,13 +2437,13 @@
                       type="text"
                       bind:value={claudeAuthCode}
                       placeholder="Paste authorization code here"
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                      class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
                     <button
                       type="button"
                       onclick={handleClaudeAuthSubmit}
                       disabled={claudeAuthSubmitting || !claudeAuthCode.trim()}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed "
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {#if claudeAuthSubmitting}
                         <RefreshCw size={13} class="animate-spin" />
@@ -2457,20 +2457,20 @@
                   <button
                     type="button"
                     onclick={resetClaudeAuth}
-                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                    class="text-xs text-dark-text-muted hover:text-dark-text-secondary"
                   >
                     Cancel
                   </button>
                 </div>
               {:else if claudeTokenMode}
                 <!-- Token paste mode -->
-                <div class="border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 p-4 space-y-3">
-                  <div class="text-sm font-medium text-gray-900 dark:text-dark-text">Paste Tokens from Claude Code CLI</div>
-                  <div class="text-xs text-gray-500 dark:text-dark-text-muted leading-relaxed">
+                <div class="border border-amber-800 bg-amber-900/20 p-4 space-y-3">
+                  <div class="text-sm font-medium text-dark-text">Paste Tokens from Claude Code CLI</div>
+                  <div class="text-xs text-dark-text-muted leading-relaxed">
                     Extract tokens from Claude Code CLI. On macOS run:<br/>
-                    <code class="text-xs bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">security find-generic-password -s "Claude Code-credentials" -w | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
+                    <code class="text-xs bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">security find-generic-password -s "Claude Code-credentials" -w | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
                     <br/>On Linux:<br/>
-                    <code class="text-xs bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">cat ~/.claude/.credentials.json | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
+                    <code class="text-xs bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">cat ~/.claude/.credentials.json | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
                   </div>
                   <div class="space-y-2">
                     <input
@@ -2478,14 +2478,14 @@
                       bind:value={claudeTokenAccess}
                       placeholder="Access Token"
                       autocomplete="off"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                      class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
                     <input
                       type="password"
                       bind:value={claudeTokenRefresh}
                       placeholder="Refresh Token"
                       autocomplete="off"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                      class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
                   </div>
                   <div class="flex items-center gap-2">
@@ -2493,7 +2493,7 @@
                       type="button"
                       onclick={handleClaudeTokenSubmit}
                       disabled={claudeTokenSubmitting || !claudeTokenAccess.trim() || !claudeTokenRefresh.trim()}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed "
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {#if claudeTokenSubmitting}
                         <RefreshCw size={13} class="animate-spin" />
@@ -2506,7 +2506,7 @@
                     <button
                       type="button"
                       onclick={() => { claudeTokenMode = false; claudeTokenAccess = ''; claudeTokenRefresh = ''; }}
-                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                      class="text-xs text-dark-text-muted hover:text-dark-text-secondary"
                     >
                       Cancel
                     </button>
@@ -2515,14 +2515,14 @@
               {:else if editingKey && formHasStoredKey}
                 <!-- Already authorized -->
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
+                  <span class="inline-flex items-center gap-1.5 text-sm text-green-400 bg-green-900/30 border border-green-800 px-3 py-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     Authorized via Claude
                   </span>
                   <button
                     type="button"
                     onclick={handleClaudeAuth}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text"
                   >
                     <LogIn size={13} />
                     Re-authorize
@@ -2530,7 +2530,7 @@
                   <button
                     type="button"
                     onclick={() => { claudeTokenMode = true; }}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text"
                   >
                     <KeyRound size={13} />
                     Paste Token
@@ -2539,7 +2539,7 @@
                     type="button"
                     onclick={handleClaudeSync}
                     disabled={claudeSyncing}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 "
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text disabled:opacity-50"
                   >
                     {#if claudeSyncing}
                       <RefreshCw size={13} class="animate-spin" />
@@ -2556,7 +2556,7 @@
                   <button
                     type="button"
                     onclick={handleClaudeAuth}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover"
                   >
                     <LogIn size={14} />
                     Authorize with Claude
@@ -2564,7 +2564,7 @@
                   <button
                     type="button"
                     onclick={() => { claudeTokenMode = true; }}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text"
                   >
                     <KeyRound size={14} />
                     Paste Token
@@ -2573,7 +2573,7 @@
                     type="button"
                     onclick={handleClaudeSync}
                     disabled={claudeSyncing}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 "
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text disabled:opacity-50"
                   >
                     {#if claudeSyncing}
                       <RefreshCw size={14} class="animate-spin" />
@@ -2584,12 +2584,12 @@
                     {/if}
                   </button>
                 </div>
-                <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1.5">
+                <div class="text-xs text-dark-text-muted mt-1.5">
                   Browser login, paste tokens manually, or auto-sync from Claude Code CLI
                 </div>
               {:else}
                 <!-- New provider, not yet saved -->
-                <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
+                <div class="text-sm text-dark-text-muted py-1.5">
                   Save the provider first, then authorize via browser, paste tokens, or sync from Claude Code CLI.
                 </div>
               {/if}
@@ -2598,14 +2598,14 @@
         {:else}
           <!-- Standard API Key input -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-apikey" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">API Key</label>
+            <label for="form-apikey" class="text-sm font-medium text-dark-text-secondary">API Key</label>
             <input
               id="form-apikey"
               type="password"
               autocomplete="off"
               bind:value={formApiKey}
               placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : isVertexType ? '(not used - see Service account below)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
         {/if}
@@ -2613,19 +2613,19 @@
         <!-- Google service-account key (vertex / vertex-gemini) -->
         {#if isVertexType}
           <div class="grid grid-cols-4 gap-3 items-start">
-            <span class="pt-1.5 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Service account</span>
+            <span class="pt-1.5 text-sm font-medium text-dark-text-secondary">Service account</span>
             <div class="col-span-3 space-y-2">
               {#if formHasStoredCredentials && !formCredentialsJSON}
-                <div class="flex flex-wrap items-center gap-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-xs">
+                <div class="flex flex-wrap items-center gap-2 border border-dark-border bg-dark-base px-3 py-2 text-xs">
                   {#if clearStoredCredentials}
-                    <span class="text-amber-700 dark:text-amber-400">
+                    <span class="text-amber-400">
                       The stored key will be removed on save; this provider will use the server's Application Default Credentials.
                     </span>
                     <button type="button" onclick={() => (clearStoredCredentials = false)} class="underline">Keep it</button>
                   {:else}
-                    <KeyRound size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
-                    <span class="text-gray-600 dark:text-dark-text-secondary">A service-account key is stored and encrypted. Upload or paste another to replace it.</span>
-                    <button type="button" onclick={() => (clearStoredCredentials = true)} class="underline text-red-600 dark:text-red-400">Remove</button>
+                    <KeyRound size={13} class="shrink-0 text-dark-text-muted" />
+                    <span class="text-dark-text-secondary">A service-account key is stored and encrypted. Upload or paste another to replace it.</span>
+                    <button type="button" onclick={() => (clearStoredCredentials = true)} class="underline text-red-400">Remove</button>
                   {/if}
                 </div>
               {/if}
@@ -2641,13 +2641,13 @@
                 <button
                   type="button"
                   onclick={() => credentialsFileInput?.click()}
-                  class="inline-flex items-center gap-1.5 border border-gray-300 dark:border-dark-border-subtle px-2.5 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-highest "
+                  class="inline-flex items-center gap-1.5 border border-dark-border-subtle px-2.5 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-highest"
                 >
                   <DownloadCloud size={13} class="shrink-0" />
                   Upload key file
                 </button>
                 {#if formCredentialsJSON}
-                  <button type="button" onclick={discardCredentialsInput} class="text-xs underline text-gray-500 dark:text-dark-text-muted">
+                  <button type="button" onclick={discardCredentialsInput} class="text-xs underline text-dark-text-muted">
                     Discard
                   </button>
                 {/if}
@@ -2663,13 +2663,13 @@
                 placeholder={formHasStoredCredentials
                   ? '(stored - leave blank to keep the current key)'
                   : '{"type":"service_account","project_id":"...","private_key":"..."}'}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                class="w-full border border-dark-border-subtle px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
               ></textarea>
 
               {#if credentialsError}
-                <p class="text-xs text-red-600 dark:text-red-400">{credentialsError}</p>
+                <p class="text-xs text-red-400">{credentialsError}</p>
               {:else}
-                <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                <p class="text-xs text-dark-text-muted">
                   Optional. The key is encrypted at rest and belongs to this provider, so each workspace can use its own
                   Google identity. Leave it empty to use the server's Application Default Credentials
                   (<span class="font-mono">GOOGLE_APPLICATION_CREDENTIALS</span>, gcloud, or the GCE metadata server),
@@ -2682,7 +2682,7 @@
 
         <!-- Base URL -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-baseurl" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Base URL</label>
+          <label for="form-baseurl" class="text-sm font-medium text-dark-text-secondary">Base URL</label>
           <input
             id="form-baseurl"
             type="text"
@@ -2692,104 +2692,104 @@
               : activePreset?.id === 'google-ai'
               ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
           />
         </div>
 
         <!-- Proxy -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-proxy" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Proxy</label>
+          <label for="form-proxy" class="text-sm font-medium text-dark-text-secondary">Proxy</label>
           <input
             id="form-proxy"
             type="text"
             bind:value={formProxy}
             placeholder="e.g., http://proxy:8080 or socks5://127.0.0.1:1080"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
           />
         </div>
 
         <!-- Insecure Skip Verify -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Skip TLS Verify</span>
+          <span class="text-sm font-medium text-dark-text-secondary">Skip TLS Verify</span>
           <label class="col-span-3 flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               bind:checked={formInsecureSkipVerify}
-              class="accent-gray-900 dark:accent-accent w-4 h-4"
+              class="accent-accent w-4 h-4"
             />
-            <span class="text-sm text-gray-600 dark:text-dark-text-secondary">Disable certificate verification (insecure)</span>
+            <span class="text-sm text-dark-text-secondary">Disable certificate verification (insecure)</span>
           </label>
         </div>
 
         <!-- Rate Limit (collapsible) -->
-        <div class="border-t border-gray-200 dark:border-dark-border pt-4">
+        <div class="border-t border-dark-border pt-4">
           <button
             type="button"
             onclick={() => (showRateLimitSection = !showRateLimitSection)}
-            class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+            class="flex items-center gap-2 text-sm font-medium text-dark-text-secondary hover:text-dark-text"
           >
             <ChevronDown size={14} class={showRateLimitSection ? '' : '-rotate-90'} />
             Rate Limit (optional)
           </button>
-          <p class="text-xs text-gray-500 dark:text-dark-text-faint mt-1 ml-6">
+          <p class="text-xs text-dark-text-faint mt-1 ml-6">
             Throttles ALL traffic through this provider (agent calls and gateway proxy). Leave blank for unlimited.
             For Claude Pro/Max try: max_concurrent=1, requests_per_minute=5, input_tokens_per_minute=30000.
           </p>
           {#if showRateLimitSection}
             <div class="mt-3 ml-6 space-y-3">
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-rl-mc" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Max concurrent</label>
+                <label for="form-rl-mc" class="text-sm font-medium text-dark-text-secondary">Max concurrent</label>
                 <input
                   id="form-rl-mc"
                   type="number"
                   min="0"
                   bind:value={formRateLimitMaxConcurrent}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-rl-rpm" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Requests / min</label>
+                <label for="form-rl-rpm" class="text-sm font-medium text-dark-text-secondary">Requests / min</label>
                 <input
                   id="form-rl-rpm"
                   type="number"
                   min="0"
                   bind:value={formRateLimitRPM}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-rl-itpm" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Input tokens / min</label>
+                <label for="form-rl-itpm" class="text-sm font-medium text-dark-text-secondary">Input tokens / min</label>
                 <input
                   id="form-rl-itpm"
                   type="number"
                   min="0"
                   bind:value={formRateLimitITPM}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-rl-wto" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Wait timeout (ms)</label>
+                <label for="form-rl-wto" class="text-sm font-medium text-dark-text-secondary">Wait timeout (ms)</label>
                 <input
                   id="form-rl-wto"
                   type="number"
                   min="0"
                   bind:value={formRateLimitWaitTimeoutMs}
                   placeholder="default 60000"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-rl-rac" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Retry-After cap (ms)</label>
+                <label for="form-rl-rac" class="text-sm font-medium text-dark-text-secondary">Retry-After cap (ms)</label>
                 <input
                   id="form-rl-rac"
                   type="number"
                   min="-1"
                   bind:value={formRateLimitRetryAfterCapMs}
                   placeholder="default 60000, -1 = no cap"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
               </div>
             </div>
@@ -2798,27 +2798,27 @@
 
         <!-- Model -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-model" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Default Model</label>
+          <label for="form-model" class="text-sm font-medium text-dark-text-secondary">Default Model</label>
           <input
             id="form-model"
             type="text"
             bind:value={formModel}
             placeholder="Uses the first listed model when empty"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
           />
         </div>
 
         <!-- Models -->
         <div class="grid grid-cols-4 gap-3">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Models</span>
+          <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Models</span>
           <div class="col-span-3 space-y-2">
             {#each formModels as model, i}
               <div class="flex gap-2 items-center">
-                <span class="flex-1 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-dark-text-secondary">{model}</span>
+                <span class="flex-1 border border-dark-border bg-dark-elevated px-3 py-1.5 text-sm font-mono text-dark-text-secondary">{model}</span>
                 <button
                   type="button"
                   onclick={() => removeModel(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
+                  class="p-1.5 border border-dark-border-subtle hover:bg-red-900/30 hover:border-red-800 hover:text-red-400 text-dark-text-faint"
                 >
                   <X size={12} />
                 </button>
@@ -2830,12 +2830,12 @@
                 bind:value={newModelInput}
                 placeholder="model name"
                 onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
               />
               <button
                 type="button"
                 onclick={addModel}
-                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text shrink-0"
+                class="px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text shrink-0"
               >
                 + Add
               </button>
@@ -2843,7 +2843,7 @@
                 type="button"
                 onclick={handleDiscoverModels}
                 disabled={discoveringModels}
-                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 title="Fetch available models from the provider using the API key above"
               >
                 <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
@@ -2854,34 +2854,34 @@
         </div>
 
         <!-- Model token limits -->
-        <div class="border border-gray-200 dark:border-dark-border">
+        <div class="border border-dark-border">
           <button
             type="button"
             onclick={() => showModelLimitsSection = !showModelLimitsSection}
-            class="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-dark-base text-left"
+            class="w-full flex items-center justify-between px-3 py-2 bg-dark-base text-left"
           >
             <span>
-              <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model token limits</span>
-              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Advertised to clients through the gateway model catalog</span>
+              <span class="block text-sm font-medium text-dark-text-secondary">Model token limits</span>
+              <span class="block text-xs text-dark-text-muted">Advertised to clients through the gateway model catalog</span>
             </span>
             <ChevronDown size={15} class={showModelLimitsSection ? 'rotate-180' : ''} />
           </button>
           {#if showModelLimitsSection}
-            <div class="p-3 space-y-3 border-t border-gray-200 dark:border-dark-border">
-              <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            <div class="p-3 space-y-3 border-t border-dark-border">
+              <p class="text-xs text-dark-text-muted">
                 Set both values only when the upstream limit is known. These values guide client-side compaction; they do not create a usage quota.
               </p>
               {#if modelLimitModels.length === 0}
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
+                <p class="text-xs text-dark-text-muted">Enter a default model or add models above first.</p>
               {:else}
-                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_8rem] gap-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">
+                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_8rem] gap-2 text-xs font-medium text-dark-text-muted">
                   <span>Model</span>
                   <span>Context tokens</span>
                   <span>Max output</span>
                 </div>
                 {#each modelLimitModels as model}
                   <div class="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_8rem_8rem] gap-2 items-center">
-                    <span class="col-span-2 sm:col-span-1 truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary" title={model}>{model}</span>
+                    <span class="col-span-2 sm:col-span-1 truncate font-mono text-xs text-dark-text-secondary" title={model}>{model}</span>
                     <input
                       type="number"
                       min="1"
@@ -2890,7 +2890,7 @@
                       oninput={(e) => setModelLimit(model, 'context', e.currentTarget.value)}
                       placeholder="1000000"
                       aria-label={`${model} context tokens`}
-                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+                      class="border border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
                     <input
                       type="number"
@@ -2900,7 +2900,7 @@
                       oninput={(e) => setModelLimit(model, 'output', e.currentTarget.value)}
                       placeholder="128000"
                       aria-label={`${model} maximum output tokens`}
-                      class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+                      class="border border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
                   </div>
                 {/each}
@@ -2910,25 +2910,25 @@
         </div>
 
         <!-- Model capabilities -->
-        <div class="border border-gray-200 dark:border-dark-border">
+        <div class="border border-dark-border">
           <button
             type="button"
             onclick={() => showModelCapabilitiesSection = !showModelCapabilitiesSection}
-            class="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-dark-base text-left"
+            class="w-full flex items-center justify-between px-3 py-2 bg-dark-base text-left"
           >
             <span>
-              <span class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model capabilities</span>
-              <span class="block text-xs text-gray-400 dark:text-dark-text-muted">Accepted input, output, reasoning levels and features, per model — used by Chats, Agents, OpenCode and other gateway clients</span>
+              <span class="block text-sm font-medium text-dark-text-secondary">Model capabilities</span>
+              <span class="block text-xs text-dark-text-muted">Accepted input, output, reasoning levels and features, per model — used by Chats, Agents, OpenCode and other gateway clients</span>
             </span>
             <ChevronDown size={15} class={showModelCapabilitiesSection ? 'rotate-180' : ''} />
           </button>
           {#if showModelCapabilitiesSection}
-            <div class="p-3 space-y-3 border-t border-gray-200 dark:border-dark-border">
-              <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            <div class="p-3 space-y-3 border-t border-dark-border">
+              <p class="text-xs text-dark-text-muted">
                 Automatic uses AT's known model families and the providers' published per-model tables. Override it when a compatible endpoint serves an unrecognised model or a deployment differs from the standard model.
               </p>
               {#if modelLimitModels.length === 0}
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted">Enter a default model or add models above first.</p>
+                <p class="text-xs text-dark-text-muted">Enter a default model or add models above first.</p>
               {:else}
                 {#each modelLimitModels as model}
                   {@const open = openCapabilityModel === model}
@@ -2939,35 +2939,35 @@
                   {@const outputsManual = !!override.output_modalities}
                   {@const outputs = override.output_modalities ?? detected?.output_modalities}
                   {@const mode = reasoningMode(model)}
-                  <div class="border border-gray-200 dark:border-dark-border">
+                  <div class="border border-dark-border">
                     <button
                       type="button"
                       onclick={() => openCapabilityModel = open ? null : model}
                       aria-expanded={open}
-                      class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                      class="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-dark-elevated"
                     >
                       <span class="min-w-0 flex-1">
-                        <span class="block truncate font-mono text-xs text-gray-700 dark:text-dark-text-secondary">{model}</span>
-                        <span class="block truncate text-[11px] text-gray-400 dark:text-dark-text-muted">{capabilitySummary(model)}</span>
+                        <span class="block truncate font-mono text-xs text-dark-text-secondary">{model}</span>
+                        <span class="block truncate text-[11px] text-dark-text-muted">{capabilitySummary(model)}</span>
                       </span>
                       {#if formModelCapabilities[model]}
-                        <span class="shrink-0 border border-amber-300 dark:border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400">Overridden</span>
+                        <span class="shrink-0 border border-amber-800 px-1.5 py-0.5 text-[10px] text-amber-400">Overridden</span>
                       {:else if !detected}
-                        <span class="shrink-0 border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">Not recognised</span>
+                        <span class="shrink-0 border border-dark-border-subtle px-1.5 py-0.5 text-[10px] text-dark-text-muted">Not recognised</span>
                       {/if}
-                      <ChevronDown size={14} class={`shrink-0 text-gray-400 ${open ? 'rotate-180' : ''}`} />
+                      <ChevronDown size={14} class={`shrink-0 text-dark-text-muted ${open ? 'rotate-180' : ''}`} />
                     </button>
                     {#if open}
-                      <div class="border-t border-gray-200 dark:border-dark-border p-3 space-y-4 text-xs">
+                      <div class="border-t border-dark-border p-3 space-y-4 text-xs">
                         <!-- Inputs -->
                         <div class="space-y-1.5">
                           <div class="flex items-center justify-between gap-2">
-                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Accepted input</span>
+                            <span class="font-medium text-dark-text-secondary">Accepted input</span>
                             <select
                               value={inputsManual ? 'manual' : 'auto'}
                               onchange={(e) => setModalitiesMode(model, 'input_modalities', e.currentTarget.value === 'manual')}
                               aria-label={`${model} input mode`}
-                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                              class="border border-dark-border-subtle px-2 py-1 text-xs bg-dark-elevated text-dark-text"
                             >
                               <option value="auto">Automatic</option>
                               <option value="manual">Choose</option>
@@ -2981,11 +2981,11 @@
                                 aria-pressed={on}
                                 disabled={!inputsManual || modality === 'text'}
                                 onclick={() => toggleModality(model, 'input_modalities', modality)}
-                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-500 dark:border-dark-border-subtle dark:text-dark-text-muted', inputsManual && modality !== 'text' ? 'hover:opacity-80' : 'opacity-80']}
+                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-accent bg-accent text-dark-base' : 'border-dark-border-subtle text-dark-text-muted', inputsManual && modality !== 'text' ? 'hover:opacity-80' : 'opacity-80']}
                               >{modality}</button>
                             {/each}
                           </div>
-                          <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                          <p class="text-[11px] text-dark-text-muted">
                             {#if !inputsManual && !inputs}
                               Not recognised: every attachment is allowed and the provider decides. Choose to declare what this model reads.
                             {:else}
@@ -2997,12 +2997,12 @@
                         <!-- Outputs -->
                         <div class="space-y-1.5">
                           <div class="flex items-center justify-between gap-2">
-                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Output</span>
+                            <span class="font-medium text-dark-text-secondary">Output</span>
                             <select
                               value={outputsManual ? 'manual' : 'auto'}
                               onchange={(e) => setModalitiesMode(model, 'output_modalities', e.currentTarget.value === 'manual')}
                               aria-label={`${model} output mode`}
-                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                              class="border border-dark-border-subtle px-2 py-1 text-xs bg-dark-elevated text-dark-text"
                             >
                               <option value="auto">Automatic</option>
                               <option value="manual">Choose</option>
@@ -3016,7 +3016,7 @@
                                 aria-pressed={on}
                                 disabled={!outputsManual}
                                 onclick={() => toggleModality(model, 'output_modalities', modality)}
-                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-500 dark:border-dark-border-subtle dark:text-dark-text-muted', outputsManual ? 'hover:opacity-80' : 'opacity-80']}
+                                class={['px-2 py-1 border disabled:cursor-default', on ? 'border-accent bg-accent text-dark-base' : 'border-dark-border-subtle text-dark-text-muted', outputsManual ? 'hover:opacity-80' : 'opacity-80']}
                               >{modality}</button>
                             {/each}
                           </div>
@@ -3025,13 +3025,13 @@
                         <!-- Reasoning -->
                         <div class="space-y-1.5">
                           <div class="flex items-center justify-between gap-2">
-                            <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Reasoning</span>
+                            <span class="font-medium text-dark-text-secondary">Reasoning</span>
                             <select
                               value={mode}
                               onchange={(e) => setModelReasoningMode(model, e.currentTarget.value as 'auto' | 'none' | 'manual')}
                               disabled={reasoningLevelsForType.length === 0}
                               aria-label={`${model} reasoning mode`}
-                              class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400"
+                              class="border border-dark-border-subtle px-2 py-1 text-xs bg-dark-elevated text-dark-text disabled:bg-dark-base disabled:text-dark-text-muted"
                             >
                               <option value="auto">Automatic</option>
                               <option value="none">Not reasoning</option>
@@ -3046,12 +3046,12 @@
                                   type="button"
                                   aria-pressed={on}
                                   onclick={() => toggleModelReasoningLevel(model, effort)}
-                                  class={['px-2 py-1 border', on ? 'border-gray-900 bg-gray-900 text-white dark:border-accent dark:bg-accent dark:text-dark-base' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
+                                  class={['px-2 py-1 border', on ? 'border-accent bg-accent text-dark-base' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated']}
                                 >{effort}</button>
                               {/each}
                             </div>
                           {:else if mode === 'auto'}
-                            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                            <p class="text-[11px] text-dark-text-muted">
                               {#if reasoningLevelsForType.length === 0}
                                 This provider type has no reasoning control.
                               {:else if detected?.reasoning_efforts && detected.reasoning_efforts.length > 0}
@@ -3067,17 +3067,17 @@
 
                         <!-- Features -->
                         <div class="space-y-1.5">
-                          <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Features</span>
+                          <span class="font-medium text-dark-text-secondary">Features</span>
                           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             {#each MODEL_FEATURES as feature}
                               {@const state = featureState(model, feature.key)}
                               {@const auto = detected?.features?.[feature.key]}
-                              <label class="flex items-center justify-between gap-2 border border-gray-200 dark:border-dark-border px-2 py-1">
-                                <span class="text-gray-600 dark:text-dark-text-secondary">{feature.label}</span>
+                              <label class="flex items-center justify-between gap-2 border border-dark-border px-2 py-1">
+                                <span class="text-dark-text-secondary">{feature.label}</span>
                                 <select
                                   value={state}
                                   onchange={(e) => setFeature(model, feature.key, e.currentTarget.value as 'auto' | 'yes' | 'no')}
-                                  class="border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs dark:bg-dark-elevated dark:text-dark-text"
+                                  class="border border-dark-border-subtle px-1.5 py-0.5 text-xs bg-dark-elevated text-dark-text"
                                 >
                                   <option value="auto">Auto ({auto === undefined ? 'unknown' : auto ? 'yes' : 'no'})</option>
                                   <option value="yes">Yes</option>
@@ -3090,7 +3090,7 @@
 
                         {#if formModelCapabilities[model]}
                           <div class="flex justify-end">
-                            <button type="button" onclick={() => resetCapabilities(model)} class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 hover:bg-gray-50 dark:hover:bg-dark-elevated">Reset to automatic</button>
+                            <button type="button" onclick={() => resetCapabilities(model)} class="border border-dark-border-subtle px-2 py-1 hover:bg-dark-elevated">Reset to automatic</button>
                           </div>
                         {/if}
                       </div>
@@ -3104,20 +3104,20 @@
 
         <!-- Embedding Models -->
         <div class="grid grid-cols-4 gap-3">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Embedding Models</span>
+          <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Embedding Models</span>
           <div class="col-span-3 space-y-2">
             {#if formAuthType === 'chatgpt'}
-              <p class="text-sm text-gray-600 dark:text-dark-text-secondary leading-6">
+              <p class="text-sm text-dark-text-secondary leading-6">
                 ChatGPT/Codex does not support embeddings. Add a separate OpenAI provider with an API key to use embedding models.
               </p>
             {:else}
             {#each formEmbeddingModels as model, i}
               <div class="flex gap-2 items-center">
-                <span class="flex-1 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-dark-text-secondary">{model}</span>
+                <span class="flex-1 border border-dark-border bg-dark-elevated px-3 py-1.5 text-sm font-mono text-dark-text-secondary">{model}</span>
                 <button
                   type="button"
                   onclick={() => removeEmbeddingModel(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
+                  class="p-1.5 border border-dark-border-subtle hover:bg-red-900/30 hover:border-red-800 hover:text-red-400 text-dark-text-faint"
                 >
                   <X size={12} />
                 </button>
@@ -3129,12 +3129,12 @@
                 bind:value={newEmbeddingModelInput}
                 placeholder="e.g., text-embedding-3-small"
                 onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmbeddingModel(); } }}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
               />
               <button
                 type="button"
                 onclick={addEmbeddingModel}
-                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text shrink-0"
+                class="px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text shrink-0"
               >
                 + Add
               </button>
@@ -3142,25 +3142,25 @@
                 type="button"
                 onclick={handleDiscoverEmbeddingModels}
                 disabled={discoveringEmbeddingModels}
-                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 title="Fetch available embedding models from the provider using the API key above"
               >
                 <RefreshCw size={13} class={discoveringEmbeddingModels ? 'animate-spin' : ''} />
                 {discoveringEmbeddingModels ? 'Fetching...' : 'Fetch'}
               </button>
             </div>
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted">Served via <span class="font-mono">/gateway/v1/embeddings</span> and advertised by <span class="font-mono">/gateway/v1/models</span>.</p>
+            <p class="text-xs text-dark-text-muted">Served via <span class="font-mono">/gateway/v1/embeddings</span> and advertised by <span class="font-mono">/gateway/v1/models</span>.</p>
             <label class="block max-w-xs">
-              <span class="block text-xs font-medium text-gray-600 dark:text-dark-text-secondary mb-1">Maximum inputs per request</span>
+              <span class="block text-xs font-medium text-dark-text-secondary mb-1">Maximum inputs per request</span>
               <input
                 type="number"
                 min="1"
                 step="1"
                 bind:value={formEmbeddingMaxInputs}
                 placeholder="Unlimited"
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted"
+                class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
               />
-              <span class="mt-1 block text-xs text-gray-400 dark:text-dark-text-muted">Optional. Leave blank to apply no AT batch limit; upstream limits still apply.</span>
+              <span class="mt-1 block text-xs text-dark-text-muted">Optional. Leave blank to apply no AT batch limit; upstream limits still apply.</span>
             </label>
             {/if}
           </div>
@@ -3168,7 +3168,7 @@
 
         <!-- Extra Headers -->
         <div class="grid grid-cols-4 gap-3">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Extra Headers</span>
+          <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Extra Headers</span>
           <div class="col-span-3 space-y-2">
             {#each formExtraHeaders as header, i}
               <div class="flex gap-2">
@@ -3176,18 +3176,18 @@
                   type="text"
                   bind:value={header.key}
                   placeholder="Header-Name"
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
                 <input
                   type="text"
                   bind:value={header.value}
                   placeholder="value"
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                  class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                 />
                 <button
                   type="button"
                   onclick={() => removeHeader(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
+                  class="p-1.5 border border-dark-border-subtle hover:bg-red-900/30 hover:border-red-800 hover:text-red-400 text-dark-text-faint"
                 >
                   <X size={12} />
                 </button>
@@ -3196,7 +3196,7 @@
             <button
               type="button"
               onclick={addHeader}
-              class="text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text "
+              class="text-sm text-dark-text-muted hover:text-dark-text"
             >
               + Add header
             </button>
@@ -3204,17 +3204,17 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
+            class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover"
           >
             <Save size={14} />
             {editingKey ? 'Update' : 'Create'}
@@ -3243,9 +3243,9 @@
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
         <SortableHeader field="model" label="Model" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
-        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
       {/snippet}
 
       {#snippet row(rec)}
@@ -3257,53 +3257,53 @@
           class={[
             '',
             rec.config.disabled
-              ? 'bg-gray-100/70 dark:bg-dark-base text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-elevated/60'
-              : 'hover:bg-gray-50/50 dark:hover:bg-dark-highest/50',
+              ? 'bg-dark-base text-dark-text-faint hover:bg-dark-elevated/60'
+              : 'hover:bg-dark-highest/50',
           ]}
         >
-          <td class={['px-4 py-2.5 font-mono font-medium', rec.config.disabled ? 'text-gray-500 dark:text-dark-text-muted' : 'text-gray-900 dark:text-dark-text']}>
-            <span class={rec.config.disabled ? 'line-through decoration-gray-400' : ''}>{rec.key}</span>
+          <td class={['px-4 py-2.5 font-mono font-medium', rec.config.disabled ? 'text-dark-text-muted' : 'text-dark-text']}>
+            <span class={rec.config.disabled ? 'line-through decoration-dark-text-muted' : ''}>{rec.key}</span>
             {#if rec.config.disabled}
               <span
-                class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+                class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide border border-amber-800 bg-amber-900/20 text-amber-400"
                 title="Hidden from model lists and discovery; every request naming it is rejected"
               >
                 <PowerOff size={10} /> Disabled
               </span>
             {/if}
-            <span class="block font-sans text-xs font-normal capitalize text-gray-500 dark:text-dark-text-muted">{rec.scope || (rec.config.shared_with_all_workspaces ? 'global' : 'workspace')}</span>
+            <span class="block font-sans text-xs font-normal capitalize text-dark-text-muted">{rec.scope || (rec.config.shared_with_all_workspaces ? 'global' : 'workspace')}</span>
           </td>
           <td class="px-4 py-2.5">
-            <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
+            <span class="px-2 py-0.5 text-xs bg-dark-elevated text-dark-text-secondary font-mono">{rec.config.type}</span>
           </td>
-          <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+          <td class="px-4 py-2.5 font-mono text-xs text-dark-text-secondary">{rec.config.model}</td>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted">
             {#if chatModels.length === 0 && embeddingModels.length === 0}
               -
             {:else}
               <button
                 onclick={() => openModelsView(rec)}
-                class="inline-flex items-center gap-1.5 whitespace-nowrap border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-highest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                class="inline-flex items-center gap-1.5 whitespace-nowrap border border-dark-border-subtle px-2 py-1 text-xs text-dark-text-secondary hover:bg-dark-highest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 title="Show every model this provider advertises"
               >
                 <Layers size={12} class="shrink-0" />
                 {chatModels.length} {chatModels.length === 1 ? 'model' : 'models'}
                 {#if embeddingModels.length > 0}
-                  <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
+                  <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-900/20 text-violet-400 border border-violet-800">
                     +{embeddingModels.length} emb
                   </span>
                 {/if}
               </button>
             {/if}
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
             {rec.config.base_url || 'default'}
           </td>
           <td class="px-4 py-2.5 text-right">
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openConfigView(rec)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                class="p-1.5 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary"
                 title="View Config"
               >
                 <FileCode size={14} />
@@ -3314,8 +3314,8 @@
                 class={[
                   'p-1.5 disabled:cursor-wait disabled:opacity-50',
                   rec.config.disabled
-                    ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
-                    : 'text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-highest hover:text-gray-700 dark:hover:text-dark-text-secondary',
+                    ? 'text-amber-400 hover:bg-amber-900/30'
+                    : 'text-dark-text-faint hover:bg-dark-highest hover:text-dark-text-secondary',
                 ]}
                 aria-label={rec.config.disabled ? `Enable provider ${rec.key}` : `Disable provider ${rec.key}`}
                 title={rec.config.disabled
@@ -3331,7 +3331,7 @@
               {#if canEditRecord}
               <button
                 onclick={() => openEdit(rec)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                class="p-1.5 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary"
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -3339,20 +3339,20 @@
               {#if deleteConfirm === rowIdentity}
                 <button
                   onclick={() => handleDelete(rec)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest "
+                  class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-highest"
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = rowIdentity)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 hover:bg-red-900/30 text-dark-text-faint hover:text-red-400"
                   title="Delete"
                 >
                   <Trash2 size={14} />
@@ -3370,41 +3370,41 @@
   {#if configViewProvider}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
       onkeydown={(e) => { if (e.key === 'Escape') closeConfigView(); }}
       onclick={(e) => { if (e.target === e.currentTarget) closeConfigView(); }}
     >
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="bg-white dark:bg-dark-surface shadow-xl w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
+      <div class="bg-dark-surface shadow-xl w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
         <!-- Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-elevated">
+          <span class="text-sm font-medium text-dark-text">
             Config: <span class="font-mono">{configViewProvider.key}</span>
           </span>
-          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+          <button onclick={closeConfigView} class="p-1 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary">
             <X size={14} />
           </button>
         </div>
 
         <!-- Format Toggle + Copy -->
-        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-dark-border">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-dark-border">
           <div class="flex gap-1">
             <button
               onclick={() => { configFormat = 'yaml'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium {configFormat === 'yaml' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'yaml' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-highest'}"
             >
               YAML
             </button>
             <button
               onclick={() => { configFormat = 'json'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium {configFormat === 'json' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'json' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-highest'}"
             >
               JSON
             </button>
           </div>
           <button
             onclick={copyConfigSnippet}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-dark-border hover:bg-dark-highest text-dark-text-secondary hover:text-dark-text"
           >
             {#if configCopied}
               <Check size={12} class="text-green-600" />
@@ -3417,13 +3417,13 @@
         </div>
 
         <!-- Code Block -->
-        <div class="p-4 bg-gray-50 dark:bg-dark-elevated max-h-96 overflow-auto">
-          <pre class="text-xs font-mono text-gray-800 dark:text-dark-text-secondary whitespace-pre leading-relaxed">{getConfigSnippet()}</pre>
+        <div class="p-4 bg-dark-elevated max-h-96 overflow-auto">
+          <pre class="text-xs font-mono text-dark-text-secondary whitespace-pre leading-relaxed">{getConfigSnippet()}</pre>
         </div>
 
         <!-- Hint -->
-        <div class="px-4 py-2.5 border-t border-gray-100 dark:border-dark-border bg-white dark:bg-dark-surface">
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+        <div class="px-4 py-2.5 border-t border-dark-border bg-dark-surface">
+          <p class="text-xs text-dark-text-muted">
             Add this to your <span class="font-mono font-medium">at.yaml</span> configuration file to define this provider.
           </p>
         </div>
@@ -3435,20 +3435,20 @@
   {#if modelsViewProvider}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
       onkeydown={(e) => { if (e.key === 'Escape') closeModelsView(); }}
       onclick={(e) => { if (e.target === e.currentTarget) closeModelsView(); }}
     >
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="bg-white dark:bg-dark-surface shadow-xl w-full max-w-lg overflow-hidden" onclick={(e) => e.stopPropagation()}>
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+      <div class="bg-dark-surface shadow-xl w-full max-w-lg overflow-hidden" onclick={(e) => e.stopPropagation()}>
+        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-elevated">
+          <span class="text-sm font-medium text-dark-text">
             Models: <span class="font-mono">{modelsViewProvider.key}</span>
           </span>
           <button
             onclick={closeModelsView}
             aria-label="Close model list"
-            class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
+            class="p-1 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary"
           >
             <X size={14} />
           </button>
@@ -3457,15 +3457,15 @@
         <div class="max-h-[60vh] overflow-y-auto p-4 space-y-4">
           {#if (modelsViewProvider.config.models || []).length > 0}
             <div>
-              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-text-muted">
+              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-dark-text-muted">
                 Chat models ({(modelsViewProvider.config.models || []).length})
               </p>
-              <ul class="border border-gray-200 dark:border-dark-border divide-y divide-gray-100 dark:divide-dark-border">
+              <ul class="border border-dark-border divide-y divide-dark-border">
                 {#each modelsViewProvider.config.models || [] as model (model)}
-                  <li class="flex items-center justify-between gap-2 px-3 py-1.5 font-mono text-xs text-gray-700 dark:text-dark-text-secondary">
+                  <li class="flex items-center justify-between gap-2 px-3 py-1.5 font-mono text-xs text-dark-text-secondary">
                     <span class="break-all">{model}</span>
                     {#if model === modelsViewProvider.config.model}
-                      <span class="shrink-0 border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">
+                      <span class="shrink-0 border border-dark-border-subtle px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-dark-text-muted">
                         default
                       </span>
                     {/if}
@@ -3477,12 +3477,12 @@
 
           {#if (modelsViewProvider.config.embedding_models || []).length > 0}
             <div>
-              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400">
+              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-violet-400">
                 Embedding models ({(modelsViewProvider.config.embedding_models || []).length})
               </p>
-              <ul class="border border-violet-200 dark:border-violet-800 divide-y divide-violet-100 dark:divide-violet-900/40">
+              <ul class="border border-violet-800 divide-y divide-violet-900/40">
                 {#each modelsViewProvider.config.embedding_models || [] as model (model)}
-                  <li class="px-3 py-1.5 font-mono text-xs break-all text-gray-700 dark:text-dark-text-secondary">{model}</li>
+                  <li class="px-3 py-1.5 font-mono text-xs break-all text-dark-text-secondary">{model}</li>
                 {/each}
               </ul>
             </div>
@@ -3490,7 +3490,7 @@
 
           <!-- The list is advisory: the gateway forwards an unlisted model to the
                provider anyway, so an absent entry is not a rejection. -->
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+          <p class="text-xs text-dark-text-muted">
             This list is what the gateway advertises in <span class="font-mono">/gateway/v1/models</span>. Requests naming a model that is not listed are still forwarded to the provider.
           </p>
         </div>

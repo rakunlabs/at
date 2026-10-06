@@ -6,7 +6,6 @@
   import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language';
   import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
   import { oneDark } from '@codemirror/theme-one-dark';
-  import { storeTheme } from '@/lib/store/store.svelte';
   import { languageFor } from '@/lib/helper/developer-space';
 
   interface Props {
@@ -22,11 +21,8 @@
   let host: HTMLDivElement;
   let view: EditorView | null = null;
   const language = new Compartment();
-  const theme = new Compartment();
   const editable = new Compartment();
   let applied = '';
-
-  const dark = () => storeTheme.mode === 'dark';
 
   $effect(() => {
     if (!host || view) return;
@@ -61,7 +57,7 @@
           '.cm-gutters': { minWidth: '40px' },
         }),
         language.of([]),
-        theme.of(dark() ? oneDark : []),
+        oneDark,
         editable.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]),
       ],
     });
@@ -79,10 +75,6 @@
     return () => { cancelled = true; };
   });
 
-  $effect(() => {
-    void storeTheme.mode;
-    view?.dispatch({ effects: theme.reconfigure(dark() ? oneDark : []) });
-  });
 
   $effect(() => {
     view?.dispatch({ effects: editable.reconfigure([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]) });
@@ -100,4 +92,4 @@
   onDestroy(() => { view?.destroy(); view = null; });
 </script>
 
-<div bind:this={host} class="h-full min-h-0 overflow-hidden bg-white dark:bg-[#282c34]"></div>
+<div bind:this={host} class="h-full min-h-0 overflow-hidden bg-[#282c34]"></div>

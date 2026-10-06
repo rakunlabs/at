@@ -282,21 +282,21 @@ Never change IDs, submission/task state, or media. Production is a separate acti
   }
 </script>
 
-<section aria-label="Video brief builder" class="flex w-full min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
-  <div class="border-b border-gray-200 px-3 py-3 dark:border-dark-border">
-    <h3 class="flex items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-dark-text">
-      <Bot size={16} class="text-gray-500 dark:text-dark-text-muted" />
+<section aria-label="Video brief builder" class="flex w-full min-w-0 flex-col overflow-hidden border border-dark-border bg-dark-surface">
+  <div class="border-b px-3 py-3 border-dark-border">
+    <h3 class="flex items-center gap-1.5 text-sm font-medium text-dark-text">
+      <Bot size={16} class="text-dark-text-muted" />
       Video Brief Builder
     </h3>
-    <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-muted">Shape your topic, content, and outline. Changes appear in your draft; production never starts here.</p>
+    <p class="mt-1 text-xs text-dark-text-muted">Shape your topic, content, and outline. Changes appear in your draft; production never starts here.</p>
   </div>
 
-  <div class="border-b border-gray-200 px-3 py-2 dark:border-dark-border">
-    <label class="block text-xs text-gray-600 dark:text-dark-text-muted">
+  <div class="border-b px-3 py-2 border-dark-border">
+    <label class="block text-xs text-dark-text-muted">
       Assistant model
       <span class="relative mt-1 block">
         <select bind:value={selectedModel} disabled={disabled || streaming || loadingModels || !models.length}
-          class="w-full min-w-0 appearance-none rounded border border-gray-300 bg-white px-2 py-2 pr-7 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:focus:ring-accent">
+          class="w-full min-w-0 appearance-none border px-2 py-2 pr-7 text-xs focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 border-dark-border-subtle bg-dark-elevated text-dark-text focus:ring-accent">
           {#if loadingModels}
             <option value="">Loading models...</option>
           {:else if !models.length}
@@ -307,30 +307,30 @@ Never change IDs, submission/task state, or media. Production is a separate acti
             {/each}
           {/if}
         </select>
-        <ChevronDown size={14} class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-dark-text-muted" />
+        <ChevronDown size={14} class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-dark-text-muted" />
       </span>
     </label>
     {#if modelError}
-      <p role="alert" class="mt-2 break-words text-xs text-red-700 dark:text-red-400">Could not load models: {modelError}</p>
+      <p role="alert" class="mt-2 break-words text-xs text-red-400">Could not load models: {modelError}</p>
     {/if}
     {#if !loadingModels && (modelError || !models.length)}
-      <p class="mt-2 text-xs text-gray-600 dark:text-dark-text-muted">Configure a provider with a chat model, then reload the list.</p>
-      <button type="button" onclick={loadModels} disabled={disabled || streaming} class="mt-1 min-h-9 rounded px-2 text-xs text-gray-700 underline underline-offset-2 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">Reload models</button>
+      <p class="mt-2 text-xs text-dark-text-muted">Configure a provider with a chat model, then reload the list.</p>
+      <button type="button" onclick={loadModels} disabled={disabled || streaming} class="mt-1 min-h-9 px-2 text-xs underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 text-dark-text-secondary hover:bg-dark-elevated">Reload models</button>
     {/if}
   </div>
 
   {#if disabled}
-    <p role="status" class="border-b border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600 dark:border-dark-border dark:bg-dark-elevated dark:text-dark-text-muted">AI editing is paused while the project is loading, saving, or locked for production.</p>
+    <p role="status" class="border-b px-3 py-3 text-xs border-dark-border bg-dark-elevated text-dark-text-muted">AI editing is paused while the project is loading, saving, or locked for production.</p>
   {/if}
 
   <div bind:this={chatContainer} role="log" aria-label="Brief conversation" aria-live="polite" aria-busy={streaming} class="max-h-[32rem] min-h-56 flex-1 space-y-3 overflow-y-auto p-3">
     {#if !messages.length}
-      <div class="py-4 text-sm text-gray-600 dark:text-dark-text-muted">
-        <p class="font-medium text-gray-800 dark:text-dark-text">What should this video say?</p>
+      <div class="py-4 text-sm text-dark-text-muted">
+        <p class="font-medium text-dark-text">What should this video say?</p>
         <p class="mt-1 text-xs leading-relaxed">Start with an idea, or ask me to develop the brief you already have. Review AI edits before submitting.</p>
         <div class="mt-4 flex flex-col items-start gap-1">
           {#each suggestions as suggestion}
-            <button type="button" disabled={disabled || streaming || !selectedModel} onclick={() => { if (!disabled && !streaming) userInput = suggestion; }} class="min-h-9 rounded px-2 py-2 text-left text-xs text-gray-700 underline underline-offset-2 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">{suggestion}</button>
+            <button type="button" disabled={disabled || streaming || !selectedModel} onclick={() => { if (!disabled && !streaming) userInput = suggestion; }} class="min-h-9 px-2 py-2 text-left text-xs underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 text-dark-text-secondary hover:bg-dark-elevated">{suggestion}</button>
           {/each}
         </div>
       </div>
@@ -338,47 +338,47 @@ Never change IDs, submission/task state, or media. Production is a separate acti
     {#each messages as message, index}
       {#if message.role === 'user'}
         <div class="flex justify-end">
-          <div class="max-w-[90%] whitespace-pre-wrap break-words rounded-lg bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white dark:bg-accent">{getTextContent(message.content)}</div>
+          <div class="max-w-[90%] whitespace-pre-wrap break-words px-3 py-2 text-xs leading-relaxed text-dark-base bg-accent">{getTextContent(message.content)}</div>
         </div>
       {:else if message.role === 'assistant' && (getTextContent(message.content) || message.tool_calls?.length || (streaming && index === messages.length - 1))}
-        <div class="max-w-full space-y-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-700 dark:border-dark-border dark:bg-dark-elevated dark:text-dark-text-secondary">
+        <div class="max-w-full space-y-2 border px-3 py-2 text-xs leading-relaxed border-dark-border bg-dark-elevated text-dark-text-secondary">
           {#if getTextContent(message.content)}
             <p class="whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>
           {:else if streaming && index === messages.length - 1}
-            <p class="text-gray-600 dark:text-dark-text-muted">Thinking...</p>
+            <p class="text-dark-text-muted">Thinking...</p>
           {/if}
           {#each message.tool_calls || [] as call}
-            <p class="break-words text-gray-600 dark:text-dark-text-muted">{call.function.name === 'get_current_video_brief' ? 'Read current brief' : call.function.name === 'update_video_brief' ? 'Requested brief update' : call.function.name}</p>
+            <p class="break-words text-dark-text-muted">{call.function.name === 'get_current_video_brief' ? 'Read current brief' : call.function.name === 'update_video_brief' ? 'Requested brief update' : call.function.name}</p>
           {/each}
         </div>
       {:else if message.role === 'tool'}
         {@const result = JSON.parse(getTextContent(message.content))}
-        <p class="whitespace-pre-wrap break-words text-xs text-gray-600 dark:text-dark-text-muted">{result.error ? `Tool error: ${result.error}` : result.success ? 'Brief updated.' : 'Current brief shared with assistant.'}</p>
+        <p class="whitespace-pre-wrap break-words text-xs text-dark-text-muted">{result.error ? `Tool error: ${result.error}` : result.success ? 'Brief updated.' : 'Current brief shared with assistant.'}</p>
       {/if}
     {/each}
   </div>
 
-  <div class="border-t border-gray-200 px-3 py-3 dark:border-dark-border">
+  <div class="border-t px-3 py-3 border-dark-border">
     {#if error}
-      <p role="alert" class="mb-2 break-words text-xs text-red-700 dark:text-red-400">{error}</p>
+      <p role="alert" class="mb-2 break-words text-xs text-red-400">{error}</p>
     {/if}
     {#if status}
-      <p role="status" class="mb-2 text-xs text-gray-600 dark:text-dark-text-muted">{status}</p>
+      <p role="status" class="mb-2 text-xs text-dark-text-muted">{status}</p>
     {/if}
     <div class="flex items-end gap-2">
       <textarea bind:value={userInput} onkeydown={handleKeydown} rows={3} aria-label="Message the video brief assistant"
         placeholder="Describe your idea or the changes you want..." disabled={disabled || streaming || !selectedModel}
-        class="min-w-0 flex-1 resize-y rounded border border-gray-300 bg-white px-2 py-2 text-xs leading-relaxed text-gray-800 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted dark:focus:ring-accent"></textarea>
+        class="min-w-0 flex-1 resize-y border px-2 py-2 text-xs leading-relaxed focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted focus:ring-accent"></textarea>
       {#if streaming}
-        <button type="button" onclick={stopStreaming} aria-label="Stop response" title="Stop response" class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2"><Square size={14} /></button>
+        <button type="button" onclick={stopStreaming} aria-label="Stop response" title="Stop response" class="flex h-9 w-9 shrink-0 items-center justify-center bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2"><Square size={14} /></button>
       {:else}
-        <button type="button" onclick={sendMessage} disabled={disabled || !userInput.trim() || !selectedModel} aria-label="Send message" title="Send message" class="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-gray-900 text-white hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-accent dark:hover:bg-accent-hover"><Send size={14} /></button>
+        <button type="button" onclick={sendMessage} disabled={disabled || !userInput.trim() || !selectedModel} aria-label="Send message" title="Send message" class="flex h-9 w-9 shrink-0 items-center justify-center text-dark-base focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 bg-accent hover:bg-accent-hover"><Send size={14} /></button>
       {/if}
     </div>
     <div class="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-      <p class="text-xs text-gray-600 dark:text-dark-text-muted">Enter to send, Shift+Enter for a new line.</p>
+      <p class="text-xs text-dark-text-muted">Enter to send, Shift+Enter for a new line.</p>
       {#if messages.length}
-        <button type="button" onclick={clearChat} disabled={disabled || streaming} class="min-h-9 rounded px-2 text-xs text-gray-600 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:text-dark-text-muted dark:hover:bg-dark-elevated">Clear conversation</button>
+        <button type="button" onclick={clearChat} disabled={disabled || streaming} class="min-h-9 px-2 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 text-dark-text-muted hover:bg-dark-elevated">Clear conversation</button>
       {/if}
     </div>
   </div>

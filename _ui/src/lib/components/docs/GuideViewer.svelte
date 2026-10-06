@@ -31,14 +31,14 @@
   const content = $derived(guide.content.trim());
 
   const btn =
-    'inline-flex items-center gap-1.5 border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent';
+    'inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent';
 </script>
 
 <DocsPaneHeader title={guide.title} description={guide.description}>
   {#snippet badge()}
     {#if guide.builtin}
       <span
-        class="inline-flex items-center gap-1 border border-gray-300 bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-700 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary"
+        class="inline-flex items-center gap-1 border px-1.5 py-0.5 text-[11px] font-medium border-dark-border-subtle bg-dark-elevated text-dark-text-secondary"
       >
         <Lock size={10} aria-hidden="true" />
         Built-in
@@ -54,7 +54,7 @@
       class={[
         btn,
         viewMode === 'source'
-          ? 'border-gray-900 bg-gray-900 text-white hover:bg-gray-800 dark:border-accent dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover'
+          ? 'border-accent bg-accent text-gray-950 hover:bg-accent-hover'
           : '',
       ]}
     >
@@ -86,7 +86,7 @@
         <button
           type="button"
           onclick={() => (confirming = true)}
-          class="inline-flex items-center gap-1.5 border border-red-400 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/25 dark:focus-visible:outline-red-400"
+          class="inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-red-800 text-red-300 hover:bg-red-900/25 focus-visible:outline-red-400"
         >
           <Trash2 size={12} aria-hidden="true" />
           Delete
@@ -97,7 +97,7 @@
 </DocsPaneHeader>
 
 {#if !content}
-  <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+  <p class="text-sm leading-relaxed text-dark-text-secondary">
     This guide has no content yet.
   </p>
 {:else if viewMode === 'source'}

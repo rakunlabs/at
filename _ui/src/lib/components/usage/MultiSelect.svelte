@@ -69,11 +69,11 @@
 <div bind:this={container} class="relative">
   <button
     onclick={() => (open = !open)}
-    class="flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+    class="flex items-center gap-1.5 px-2 py-1 text-xs border border-dark-border-subtle bg-dark-surface text-dark-text-secondary hover:bg-dark-elevated"
   >
     <span>{label}</span>
     {#if selected.length > 0}
-      <span class="px-1 bg-gray-900 text-white dark:bg-accent text-[10px]">{selected.length}</span>
+      <span class="px-1 text-dark-base bg-accent text-[10px]">{selected.length}</span>
       <span
         role="button"
         tabindex="0"
@@ -89,31 +89,31 @@
 
   {#if open}
     <div
-      class="absolute z-20 mt-1 min-w-52 max-h-72 overflow-hidden bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle shadow-lg text-xs flex flex-col"
+      class="absolute z-20 mt-1 min-w-52 max-h-72 overflow-hidden bg-dark-surface border border-dark-border-subtle shadow-lg text-xs flex flex-col"
     >
       {#if normalized.length > 8}
         <input
           type="text"
           bind:value={query}
           placeholder="Filter..."
-          class="px-2 py-1 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface focus:outline-none text-gray-700 dark:text-dark-text-secondary"
+          class="px-2 py-1 border-b border-dark-border bg-dark-surface focus:outline-none text-dark-text-secondary"
         />
       {/if}
       <div class="overflow-auto">
         {#each filtered as opt}
-          <label class="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 dark:hover:bg-dark-elevated cursor-pointer">
+          <label class="flex items-center gap-2 px-2 py-1 hover:bg-dark-elevated cursor-pointer">
             <input
               type="checkbox"
               checked={selected.includes(opt.value)}
               onchange={() => toggle(opt.value)}
-              class="accent-gray-900 dark:accent-accent"
+              class="accent-accent"
             />
-            <span class="text-gray-700 dark:text-dark-text-secondary truncate" title={opt.value}>
+            <span class="text-dark-text-secondary truncate" title={opt.value}>
               {opt.label}
             </span>
           </label>
         {:else}
-          <div class="px-2 py-1 text-gray-400 dark:text-dark-text-muted">
+          <div class="px-2 py-1 text-dark-text-muted">
             {query ? 'No matches' : 'No options'}
           </div>
         {/each}

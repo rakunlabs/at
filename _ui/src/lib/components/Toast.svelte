@@ -13,7 +13,7 @@
       class={`toast-${toast.type} flex items-center gap-2 px-3 py-2 shadow-lg border text-sm max-w-sm`}
     >
       <span class="flex-1">{toast.message}</span>
-      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-black/10 dark:hover:bg-white/10 ">
+      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-white/10">
         <X size={14} />
       </button>
     </div>
@@ -21,17 +21,17 @@
 </div>
 
 <style>
-  @reference "tailwindcss";
+  @reference "../../style/global.css";
 
   .toast-alert {
-    @apply bg-red-100 text-red-900 border-red-300 dark:bg-red-900/40 dark:text-red-200 dark:border-red-800;
+    @apply bg-red-900/40 text-red-200 border-red-800;
   }
 
   .toast-info {
-    @apply bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800;
+    @apply bg-emerald-900/40 text-emerald-200 border-emerald-800;
   }
 
   .toast-warn {
-    @apply bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-800;
+    @apply bg-amber-900/40 text-amber-200 border-amber-800;
   }
 </style>

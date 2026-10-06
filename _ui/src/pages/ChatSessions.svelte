@@ -79,7 +79,7 @@
   let draggingFiles = $state(false);
   let fileInput = $state<HTMLInputElement>();
   const composerControl = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-0 shrink-0 items-center justify-center gap-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
-  const secondaryControl = `${composerControl} border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`;
+  const secondaryControl = `${composerControl} border border-dark-border text-dark-text-secondary hover:bg-dark-elevated`;
 
   async function addAttachments(files: File[]) {
     if (sending || loadingMessages || readingAttachments || !files.length) return;
@@ -890,32 +890,32 @@
     role="button"
     tabindex="0"
     class={[
-      'w-full text-left py-1.5 text-xs leading-4 border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1.5 cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
-      nested ? 'pl-7 pr-3 bg-gray-50/60 dark:bg-dark-base/40' : 'pl-5 pr-3',
+      'w-full text-left py-1.5 text-xs leading-4 border-b border-dark-border/50 group flex items-center gap-1.5 cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
+      nested ? 'pl-7 pr-3 bg-dark-base/40' : 'pl-5 pr-3',
       selectedSessionId === session.id
-        ? 'bg-gray-100 dark:bg-dark-elevated'
-        : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/50',
+        ? 'bg-dark-elevated'
+        : 'hover:bg-dark-elevated/50',
     ]}
   >
     {#if nested}
-      <GitBranch size={11} class="shrink-0 text-gray-300 dark:text-dark-text-faint" />
+      <GitBranch size={11} class="shrink-0 text-dark-text-faint" />
     {/if}
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline gap-1.5">
-        <span class="truncate text-gray-700 dark:text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
-        <span class="text-xs text-gray-500 dark:text-dark-text-secondary shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
+        <span class="truncate text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
+        <span class="text-xs text-dark-text-secondary shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
           {formatRelative(session.updated_at || session.created_at)}
         </span>
       </div>
-      <div class="truncate text-[11px] leading-4 text-gray-500 dark:text-dark-text-secondary flex items-center gap-1">
+      <div class="truncate text-[11px] leading-4 text-dark-text-secondary flex items-center gap-1">
         {#if nested || isTaskThreadSession(session)}
-          <span class="text-violet-500 dark:text-violet-400">Task thread</span>
+          <span class="text-violet-400">Task thread</span>
           <span>·</span>
         {/if}
         <span>{session.config?.organization_chat ? 'Organization · ' : ''}{getAgentName(session.agent_id)}</span>
         {#if !nested && !isTaskThreadSession(session) && session.config?.bot_config_id}
           <span>·</span>
-          <span class="text-blue-500 dark:text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>
+          <span class="text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>
         {/if}
         {#if childCount > 0}
           <span>· {childCount} task{childCount === 1 ? '' : 's'}</span>
@@ -925,14 +925,14 @@
     <button
       onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
       disabled={sending && selectedSessionId === session.id}
-      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-orange-500 disabled:opacity-30"
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-dark-text-secondary hover:text-orange-500 disabled:opacity-30"
       title="Clear messages"
     >
       <RotateCcw size={11} />
     </button>
     <button
       onclick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-red-500 "
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-dark-text-secondary hover:text-red-500"
       title="Delete"
     >
       <Trash2 size={11} />
@@ -944,15 +944,15 @@
   <title>AT | Sessions</title>
 </svelte:head>
 
-<div class="flex h-full min-h-0 overflow-hidden bg-gray-50 dark:bg-dark-base">
+<div class="flex h-full min-h-0 overflow-hidden bg-dark-base">
   <!-- Left: Session list -->
-  <div id="sessions-sidebar" class={[showSessionList ? 'flex' : 'hidden', showDesktopSessionList ? 'sm:flex' : 'sm:hidden', 'w-full sm:w-64 lg:w-72 flex-shrink-0 min-h-0 border-r border-gray-200 dark:border-dark-border flex-col bg-white dark:bg-dark-surface']}>
-    <div class="flex items-center justify-between px-3 h-10 shrink-0 border-b border-gray-200 dark:border-dark-border">
-      <h1 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Sessions</h1>
+  <div id="sessions-sidebar" class={[showSessionList ? 'flex' : 'hidden', showDesktopSessionList ? 'sm:flex' : 'sm:hidden', 'w-full sm:w-64 lg:w-72 flex-shrink-0 min-h-0 border-r border-dark-border flex-col bg-dark-surface']}>
+    <div class="flex items-center justify-between px-3 h-10 shrink-0 border-b border-dark-border">
+      <h1 class="text-sm font-semibold text-dark-text">Sessions</h1>
       <button
         onclick={openNewSession}
         disabled={sending}
-        class="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40"
+        class="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-accent text-gray-950 disabled:opacity-40"
         title="New session (or type /new)"
       >
         <Plus size={16} /> New
@@ -960,14 +960,14 @@
     </div>
 
     {#if showNewSession}
-      <form onsubmit={(e) => { e.preventDefault(); void createTargetSession(); }} class="space-y-3 border-b border-gray-200 bg-gray-50 p-2 text-xs dark:border-dark-border dark:bg-dark-base">
-        <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">Talk to</span>
-          <select bind:value={targetType} onchange={() => { newTargetId = ''; }} disabled={creatingSession} class="w-full border border-gray-300 bg-white px-2 py-1 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+      <form onsubmit={(e) => { e.preventDefault(); void createTargetSession(); }} class="space-y-3 border-b p-2 text-xs border-dark-border bg-dark-base">
+        <label class="block space-y-1"><span class="font-medium text-dark-text">Talk to</span>
+          <select bind:value={targetType} onchange={() => { newTargetId = ''; }} disabled={creatingSession} class="w-full border px-2 py-1 text-sm border-dark-border bg-dark-surface text-dark-text">
             <option value="agent">Agent</option><option value="organization">Organization</option>
           </select>
         </label>
-        <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">{targetType === 'agent' ? 'Agent' : 'Organization'}</span>
-          <select bind:value={newTargetId} disabled={creatingSession || (targetType === 'organization' && loadingOrganizations)} class="w-full border border-gray-300 bg-white px-2 py-1 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+        <label class="block space-y-1"><span class="font-medium text-dark-text">{targetType === 'agent' ? 'Agent' : 'Organization'}</span>
+          <select bind:value={newTargetId} disabled={creatingSession || (targetType === 'organization' && loadingOrganizations)} class="w-full border px-2 py-1 text-sm border-dark-border bg-dark-surface text-dark-text">
             <option value="">Select {targetType === 'agent' ? 'an agent' : 'an organization'}…</option>
             {#if targetType === 'agent'}
               {#each agents as agent (agent.id)}<option value={agent.id}>{agent.name}</option>{/each}
@@ -977,26 +977,26 @@
           </select>
         </label>
         {#if targetType === 'organization'}
-          <p class="text-gray-600 dark:text-dark-text-secondary">Discuss ideas with the team’s head agent. A task starts only when you ask for work to be done.</p>
-          {#if loadingOrganizations}<p role="status">Loading organizations…</p>{:else if organizationError}<p role="alert" class="text-red-700 dark:text-red-300">{organizationError}</p><button type="button" onclick={loadOrganizations} class="underline">Retry</button>{:else if !organizations.length}<p>No organizations available in this workspace.</p>{/if}
+          <p class="text-dark-text-secondary">Discuss ideas with the team’s head agent. A task starts only when you ask for work to be done.</p>
+          {#if loadingOrganizations}<p role="status">Loading organizations…</p>{:else if organizationError}<p role="alert" class="text-red-300">{organizationError}</p><button type="button" onclick={loadOrganizations} class="underline">Retry</button>{:else if !organizations.length}<p>No organizations available in this workspace.</p>{/if}
         {/if}
         <div class="flex gap-2">
-          <button type="submit" disabled={!newTargetId || creatingSession} class="border border-gray-900 bg-gray-900 px-3 py-1.5 text-white disabled:opacity-40 dark:border-accent dark:bg-accent dark:text-gray-950">{creatingSession ? 'Starting…' : 'Start chat'}</button>
-          <button type="button" onclick={() => { showNewSession = false; }} disabled={creatingSession} class="border border-gray-300 px-3 py-1.5 dark:border-dark-border dark:text-dark-text">Cancel</button>
+          <button type="submit" disabled={!newTargetId || creatingSession} class="border px-3 py-1.5 disabled:opacity-40 border-accent bg-accent text-gray-950">{creatingSession ? 'Starting…' : 'Start chat'}</button>
+          <button type="button" onclick={() => { showNewSession = false; }} disabled={creatingSession} class="border px-3 py-1.5 border-dark-border text-dark-text">Cancel</button>
         </div>
       </form>
     {/if}
 
-    <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 border border-gray-200 dark:border-dark-border focus-within:ring-1 focus-within:ring-accent text-gray-500 dark:text-dark-text-secondary">
+    <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 border border-dark-border focus-within:ring-1 focus-within:ring-accent text-dark-text-secondary">
       <Search size={14} />
-      <input bind:value={sessionSearch} aria-label="Search sessions" placeholder="Search sessions…" class="w-full min-w-0 bg-transparent text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary outline-none" />
+      <input bind:value={sessionSearch} aria-label="Search sessions" placeholder="Search sessions…" class="w-full min-w-0 bg-transparent text-base sm:text-xs text-dark-text placeholder:text-dark-text-secondary outline-none" />
     </label>
 
     {#if bots.length > 0}
-      <div class="px-2 py-1.5 border-b border-gray-200 dark:border-dark-border">
+      <div class="px-2 py-1.5 border-b border-dark-border">
         <select
           bind:value={botFilter}
-          class="w-full text-xs px-2 py-1 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-accent"
+          class="w-full text-xs px-2 py-1 border border-dark-border bg-dark-elevated text-dark-text focus:outline-none focus:ring-1 focus:ring-accent"
           title="Filter sessions by bot"
         >
           <option value="all">All sessions</option>
@@ -1011,10 +1011,10 @@
     <div class="flex-1 overflow-y-auto">
       {#if loading}
         <div class="flex items-center justify-center py-6">
-          <Loader2 size={14} class="animate-spin text-gray-400" />
+          <Loader2 size={14} class="animate-spin text-dark-text-muted" />
         </div>
       {:else if filteredSessions.length === 0}
-        <div class="px-2 py-6 text-[11px] text-gray-400 dark:text-dark-text-muted text-center">
+        <div class="px-2 py-6 text-[11px] text-dark-text-muted text-center">
           {sessions.length === 0 ? 'Type to start chatting' : 'No sessions match this filter'}
         </div>
       {:else}
@@ -1025,7 +1025,7 @@
               {#if thread.children.length > 0}
                 <button
                   onclick={(e) => { e.stopPropagation(); collapsedSessionThreads[thread.parent.id] = !collapsedSessionThreads[thread.parent.id]; }}
-                  class="absolute left-0.5 top-2 p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text z-10"
+                  class="absolute left-0.5 top-2 p-0.5 text-dark-text-muted hover:text-dark-text z-10"
                   title={collapsedSessionThreads[thread.parent.id] ? 'Show task threads' : 'Hide task threads'}
                 >
                   <ChevronDown size={10} class={collapsedSessionThreads[thread.parent.id] ? '-rotate-90' : ''} />
@@ -1046,13 +1046,13 @@
   <!-- Right: Chat area -->
   <div class={[showSessionList ? 'hidden' : 'flex', 'sm:flex flex-1 flex-col min-w-0 min-h-0 relative']}>
     <!-- Top bar: current agent indicator -->
-      <div class="flex items-center gap-2 h-10 shrink-0 px-2 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+      <div class="flex items-center gap-2 h-10 shrink-0 px-2 border-b border-dark-border bg-dark-surface">
         <button
           onclick={() => { showSessionList = true; }}
           aria-label="All sessions"
           aria-controls="sessions-sidebar"
           title="All sessions"
-          class="sm:hidden inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
+          class="sm:hidden inline-flex h-9 w-9 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
         ><ArrowLeft size={16} /></button>
         <button
           onclick={() => { showDesktopSessionList = !showDesktopSessionList; }}
@@ -1060,7 +1060,7 @@
           aria-expanded={showDesktopSessionList}
           aria-controls="sessions-sidebar"
           title={showDesktopSessionList ? 'Hide session list' : 'Show session list'}
-          class="hidden sm:inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
+          class="hidden sm:inline-flex h-9 w-9 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
         ><PanelLeft size={16} /></button>
       {#if selectedSession}
         <div class="min-w-0 flex-1 flex items-center gap-3">
@@ -1080,27 +1080,27 @@
                   }
                   if (event.key === 'Enter' && event.isComposing) event.preventDefault();
                 }}
-                class="h-8 min-w-0 flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-2 text-sm text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+                class="h-8 min-w-0 flex-1 border border-dark-border-subtle bg-dark-surface px-2 text-sm text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
               />
-              <button type="submit" disabled={savingTitle || !titleDraft.trim()} aria-label={savingTitle ? 'Saving session name' : 'Save session name'} title="Save (Enter)" class="flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
+              <button type="submit" disabled={savingTitle || !titleDraft.trim()} aria-label={savingTitle ? 'Saving session name' : 'Save session name'} title="Save (Enter)" class="flex h-9 w-9 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
                 {#if savingTitle}<Loader2 size={15} class="animate-spin" />{:else}<Check size={15} />{/if}
               </button>
-              <button type="button" onclick={cancelTitleEdit} disabled={savingTitle} aria-label="Cancel rename" title="Cancel (Escape)" class="flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><X size={15} /></button>
+              <button type="button" onclick={cancelTitleEdit} disabled={savingTitle} aria-label="Cancel rename" title="Cancel (Escape)" class="flex h-9 w-9 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><X size={15} /></button>
             </form>
           {:else}
-            <h2 class="min-w-0 text-sm font-medium text-gray-900 dark:text-dark-text">
-              <button bind:this={titleButton} onclick={editTitle} title="Rename session" aria-label={`Rename session: ${selectedSession.name || 'Untitled session'}`} class="flex h-9 max-w-full items-center gap-2 px-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
-                <span class="truncate">{selectedSession.name || 'Untitled session'}</span><Pencil size={12} class="shrink-0 text-gray-500 dark:text-dark-text-secondary" />
+            <h2 class="min-w-0 text-sm font-medium text-dark-text">
+              <button bind:this={titleButton} onclick={editTitle} title="Rename session" aria-label={`Rename session: ${selectedSession.name || 'Untitled session'}`} class="flex h-9 max-w-full items-center gap-2 px-1 text-left hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
+                <span class="truncate">{selectedSession.name || 'Untitled session'}</span><Pencil size={12} class="shrink-0 text-dark-text-secondary" />
               </button>
             </h2>
-            <span class="hidden md:block truncate text-xs text-gray-500 dark:text-dark-text-secondary" title={`${currentAgent?.name || 'Assistant'} · ${currentAgent?.config?.provider || ''}/${currentAgent?.config?.model || ''}`}>{currentAgent?.name || 'Assistant'}{currentAgent?.config?.model ? ` · ${currentAgent.config.model}` : ''}</span>
+            <span class="hidden md:block truncate text-xs text-dark-text-secondary" title={`${currentAgent?.name || 'Assistant'} · ${currentAgent?.config?.provider || ''}/${currentAgent?.config?.model || ''}`}>{currentAgent?.name || 'Assistant'}{currentAgent?.config?.model ? ` · ${currentAgent.config.model}` : ''}</span>
           {/if}
         </div>
-        {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
-        {#if selectedSession.task_id || selectedSession.config?.active_task_id}<a href={`#/tasks/${selectedSession.task_id || selectedSession.config.active_task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
-        <button onclick={refreshMessages} disabled={sending || loadingMessages} aria-label="Refresh messages" title="Refresh messages" class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><RotateCcw size={14} /></button>
+        {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-dark-text-secondary hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
+        {#if selectedSession.task_id || selectedSession.config?.active_task_id}<a href={`#/tasks/${selectedSession.task_id || selectedSession.config.active_task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
+        <button onclick={refreshMessages} disabled={sending || loadingMessages} aria-label="Refresh messages" title="Refresh messages" class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><RotateCcw size={14} /></button>
       {:else}
-        <h2 class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-dark-text">New session</h2>
+        <h2 class="min-w-0 truncate text-sm font-medium text-dark-text">New session</h2>
       {/if}
       </div>
 
@@ -1109,13 +1109,13 @@
       {#if !selectedSessionId}
         <div class="flex min-h-full items-center justify-center px-4 py-8 sm:px-6">
           <div class="w-full max-w-2xl text-sm">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Select an agent to start</h2>
-            <p class="mt-1 mb-6 text-sm text-gray-500 dark:text-dark-text-secondary">Choose who to work with, then send a message or attach a file.</p>
+            <h2 class="text-lg font-semibold text-dark-text">Select an agent to start</h2>
+            <p class="mt-1 mb-6 text-sm text-dark-text-secondary">Choose who to work with, then send a message or attach a file.</p>
             {#if agents.length > 0}
               <div class="space-y-5 mb-4">
                 {#each groupedAgents as group (group.name)}
                   <section aria-label={group.name || 'Ungrouped agents'}>
-                    {#if hasAgentGroups}<h3 class="mb-2 flex items-baseline gap-2 text-sm font-medium text-gray-700 dark:text-dark-text"><span class="break-words">{group.name || 'Ungrouped'}</span><span class="text-xs font-normal text-gray-500 dark:text-dark-text-secondary">{group.agents.length}</span></h3>{/if}
+                    {#if hasAgentGroups}<h3 class="mb-2 flex items-baseline gap-2 text-sm font-medium text-dark-text"><span class="break-words">{group.name || 'Ungrouped'}</span><span class="text-xs font-normal text-dark-text-secondary">{group.agents.length}</span></h3>{/if}
                     <div class="flex flex-wrap gap-2">
                 {#each group.agents as agent (agent.id)}
                   <button
@@ -1125,11 +1125,11 @@
                     class={[
                       'inline-flex min-h-10 max-w-full items-center gap-2 px-3 py-2 text-sm border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
                       pendingAgentId === agent.id
-                        ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white dark:text-gray-950'
-                        : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated',
+                        ? 'border-accent bg-accent text-gray-950'
+                        : 'border-dark-border text-dark-text-secondary hover:border-dark-text-muted hover:bg-dark-elevated',
                     ]}
                   >
-                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 rounded-full bg-gray-100 dark:bg-dark-elevated" />
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 rounded-full bg-dark-elevated" />
                     <span class="break-words text-left">{agent.name}</span>
                     {#if pendingAgentId === agent.id}<Check size={14} class="shrink-0" />{/if}
                   </button>
@@ -1138,7 +1138,7 @@
                   </section>
                 {/each}
               </div>
-              {#if pendingAgent}<p role="status" class="text-sm text-gray-500 dark:text-dark-text-secondary">Ready to chat with {pendingAgent.name}.</p>{/if}
+              {#if pendingAgent}<p role="status" class="text-sm text-dark-text-secondary">Ready to chat with {pendingAgent.name}.</p>{/if}
             {:else}
               <p class="text-[11px]">No agents configured. Create an agent first.</p>
             {/if}
@@ -1147,28 +1147,28 @@
       {:else}
         <div class="w-full px-4 py-4 space-y-4">
           {#if messageError}
-            <div role="alert" class="flex flex-wrap items-center gap-2 border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
+            <div role="alert" class="flex flex-wrap items-center gap-2 border border-red-900 bg-red-950/30 p-3 text-sm text-red-300">
               <span class="flex-1">Messages could not be refreshed. {messageError}</span>
               <button onclick={refreshMessages} class="font-semibold underline underline-offset-4">Try again</button>
             </div>
           {/if}
           {#if loadingMessages}
-            <div role="status" class="flex items-center justify-center gap-2 py-12 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={18} class="animate-spin motion-reduce:animate-none" /> Loading conversation…</div>
+            <div role="status" class="flex items-center justify-center gap-2 py-12 text-sm text-dark-text-secondary"><Loader2 size={18} class="animate-spin motion-reduce:animate-none" /> Loading conversation…</div>
           {:else if messages.length === 0 && !messageError && !sending}
             <div class="py-12 text-center">
-              <h3 class="font-semibold text-gray-900 dark:text-dark-text">Start the conversation</h3>
-              <p class="mt-2 text-sm text-gray-500 dark:text-dark-text-secondary">Send a message to {currentAgent?.name || 'your agent'}. Responses and tool activity will appear here.</p>
+              <h3 class="font-semibold text-dark-text">Start the conversation</h3>
+              <p class="mt-2 text-sm text-dark-text-secondary">Send a message to {currentAgent?.name || 'your agent'}. Responses and tool activity will appear here.</p>
             </div>
           {/if}
           {#if loadingOlder}
-            <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
+            <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-dark-text-muted">
               <Loader2 size={12} class="animate-spin" /> Loading older messages…
             </div>
           {:else if hasOlder}
             <div class="flex items-center justify-center py-1">
               <button
                 onclick={loadOlderMessages}
-                class="text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:underline"
+                class="text-[11px] text-dark-text-muted hover:text-dark-text-secondary hover:underline"
               >Load older messages</button>
             </div>
           {/if}
@@ -1178,13 +1178,13 @@
               <div class="flex gap-3 justify-end group">
                 <div class="min-w-0 max-w-[85%] flex flex-col items-end">
                   <div class="flex items-center gap-2 mb-1">
-                    <span class="text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
-                    <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">You</span>
+                    <span class="text-xs text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
+                    <span class="text-xs font-semibold text-blue-400">You</span>
                   </div>
                   {#if msg.data.attachments?.length}
                     <div class="mb-2 flex max-w-full flex-wrap justify-end gap-2">
                       {#each msg.data.attachments as file}
-                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface text-left text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
+                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden border border-dark-border bg-dark-surface text-left text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
                           {#if attachmentIsImage(file)}
                             <img src={attachmentImageURL(file)} alt={file.name} class="max-h-56 max-w-full object-contain" loading="lazy" />
                           {/if}
@@ -1193,7 +1193,7 @@
                       {/each}
                     </div>
                   {/if}
-                  {#if getMessageText(msg.data)}<div class="px-4 py-2.5 bg-gray-900 dark:bg-[#2B2D42] text-white whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>{/if}
+                  {#if getMessageText(msg.data)}<div class="px-4 py-2.5 bg-[#2B2D42] text-white whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>{/if}
                 </div>
               </div>
 
@@ -1207,14 +1207,14 @@
               <div class="flex gap-3 group">
                 <div class="flex-1 min-w-0">
                   <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
-                    <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-400 break-words">{currentAgent?.name || 'Assistant'}</span>
-                    <span class="text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
+                    <span class="text-xs font-semibold text-emerald-400 break-words">{currentAgent?.name || 'Assistant'}</span>
+                    <span class="text-xs text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
                     {#if text}
-                      <button onclick={() => copyMessage(text)} class="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title="Copy response"><Copy size={13} /> Copy</button>
+                      <button onclick={() => copyMessage(text)} class="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary hover:text-dark-text" title="Copy response"><Copy size={13} /> Copy</button>
                       <button
                         type="button"
                         onclick={() => { rawSourceMode[msg.id] = !rawSourceMode[msg.id]; }}
-                        class="flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                        class="flex items-center gap-1 px-2 py-1 text-xs border border-dark-border text-dark-text-secondary hover:bg-dark-elevated"
                         title={showSource ? 'Show rendered markdown' : 'Show raw source'}
                       >
                         {#if showSource}
@@ -1232,14 +1232,14 @@
                   {#if reasoning}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="mb-2 border border-gray-200 dark:border-dark-border px-3 py-2">
-                      <button aria-expanded={!!expandedTools[reasoningId]} class="w-full flex items-center gap-2 text-sm text-gray-600 dark:text-dark-text-secondary text-left" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
+                    <div class="mb-2 border border-dark-border px-3 py-2">
+                      <button aria-expanded={!!expandedTools[reasoningId]} class="w-full flex items-center gap-2 text-sm text-dark-text-secondary text-left" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
                         <Brain size={12} />
                         <span class="font-medium">Reasoning</span>
                         <ChevronDown size={14} class={`ml-auto ${expandedTools[reasoningId] ? '' : '-rotate-90'}`} />
                       </button>
                       {#if expandedTools[reasoningId]}
-                        <div class="mt-1 text-[12px] text-purple-900 dark:text-purple-200 whitespace-pre-wrap italic opacity-90">{reasoning}</div>
+                        <div class="mt-1 text-[12px] text-purple-200 whitespace-pre-wrap italic opacity-90">{reasoning}</div>
                       {/if}
                     </div>
                   {/if}
@@ -1247,16 +1247,16 @@
                   <!-- Main text body: rendered markdown OR raw source -->
                   {#if text}
                     {#if showSource}
-                      <pre class="px-3 py-2 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{text}</pre>
+                      <pre class="px-3 py-2 bg-dark-base border border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-dark-text max-h-[32rem] overflow-y-auto">{text}</pre>
                     {:else}
                       <Markdown
                         source={text}
                         enhance
-                        class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-900 dark:text-dark-text [overflow-wrap:anywhere]"
+                        class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-dark-elevated border border-dark-border-subtle shadow-sm text-dark-text [overflow-wrap:anywhere]"
                       />
                     {/if}
                   {:else if !reasoning && toolCalls.length === 0}
-                    <p class="text-sm text-gray-500 dark:text-dark-text-secondary italic">The model returned no text content.</p>
+                    <p class="text-sm text-dark-text-secondary italic">The model returned no text content.</p>
                   {/if}
 
                   <!-- Tool call summary -->
@@ -1266,15 +1266,15 @@
                         {@const tcId = `tc-${msg.id}-${tc.id || tc.name}`}
                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div class="border border-yellow-300 dark:border-yellow-700/60 bg-yellow-50/60 dark:bg-yellow-950/20">
-                          <button aria-expanded={!!expandedTools[tcId]} class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-left text-yellow-800 dark:text-yellow-300" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
+                        <div class="border border-yellow-700/60 bg-yellow-950/20">
+                          <button aria-expanded={!!expandedTools[tcId]} class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-left text-yellow-300" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
                             <Wrench size={11} />
                             <span class="font-mono font-semibold break-all">{tc.name || '(tool)'}</span>
                             {#if tc.id}<span class="text-[10px] opacity-60 font-mono">{tc.id.slice(0, 10)}</span>{/if}
                             <ChevronDown size={14} class={`ml-auto shrink-0 ${expandedTools[tcId] ? '' : '-rotate-90'}`} />
                           </button>
                           {#if expandedTools[tcId] && tc.args}
-                            <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-white dark:bg-dark-base border border-yellow-200 dark:border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
+                            <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-dark-base border border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
                           {/if}
                         </div>
                       {/each}
@@ -1289,31 +1289,31 @@
               {@const toolId = `tool-${msg.id}`}
               <!-- Tool result row -->
               <div class="flex gap-3 group">
-                <div class="shrink-0 w-7 h-7 rounded-full bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted flex items-center justify-center">
+                <div class="shrink-0 w-7 h-7 rounded-full bg-dark-elevated text-dark-text-muted flex items-center justify-center">
                   <Terminal size={13} />
                 </div>
                 <div class="flex-1 min-w-0">
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <button aria-expanded={!!expandedTools[toolId]} class="w-full flex flex-wrap items-center gap-2 mb-1 py-1 text-left" onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}>
-                    <span class="text-[11px] font-semibold text-gray-600 dark:text-dark-text-secondary">Tool result</span>
+                    <span class="text-[11px] font-semibold text-dark-text-secondary">Tool result</span>
                     {#if msg.data.tool_call_id}
-                      <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{msg.data.tool_call_id.slice(0, 12)}</span>
+                      <span class="text-[10px] font-mono text-dark-text-muted">{msg.data.tool_call_id.slice(0, 12)}</span>
                     {/if}
-                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {toolText.length} chars{pretty.isJSON ? ' · json' : ''}</span>
-                    <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[toolId] ? '' : '-rotate-90'}`} />
+                    <span class="text-[10px] text-dark-text-muted">· {toolText.length} chars{pretty.isJSON ? ' · json' : ''}</span>
+                    <ChevronDown size={14} class={`ml-auto text-dark-text-secondary ${expandedTools[toolId] ? '' : '-rotate-90'}`} />
                   </button>
                   {#if expandedTools[toolId]}
-                    <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base p-2.5 border border-gray-200 dark:border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
+                    <pre class="text-[11px] font-mono text-dark-text-secondary whitespace-pre-wrap break-all bg-dark-base p-2.5 border border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
                   {:else}
-                    <pre class="text-[11px] font-mono text-gray-500 dark:text-dark-text-muted whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base/50 px-2.5 py-1.5 border border-gray-200 dark:border-dark-border/60 line-clamp-2 overflow-hidden">{toolText.slice(0, 240)}{toolText.length > 240 ? '…' : ''}</pre>
+                    <pre class="text-[11px] font-mono text-dark-text-muted whitespace-pre-wrap break-all bg-dark-base/50 px-2.5 py-1.5 border border-dark-border/60 line-clamp-2 overflow-hidden">{toolText.slice(0, 240)}{toolText.length > 240 ? '…' : ''}</pre>
                   {/if}
                 </div>
               </div>
 
             {:else if msg.role === 'system'}
               <!-- System message (hint banner) -->
-              <div class="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-[12px] text-amber-800 dark:text-amber-300">
+              <div class="px-3 py-2 bg-amber-950/20 border border-amber-800/40 text-[12px] text-amber-300">
                 <div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">System</div>
                 <div class="whitespace-pre-wrap">{getMessageText(msg.data)}</div>
               </div>
@@ -1321,20 +1321,20 @@
           {/each}
 
           {#if turnError}
-            <div role="alert" class="border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
+            <div role="alert" class="border border-red-900 bg-red-950/30 p-3 text-sm text-red-300">
               {turnError}
               <button onclick={refreshMessages} disabled={loadingMessages || sending} class="ml-2 font-semibold underline underline-offset-4 disabled:opacity-40">Check saved messages</button>
               <p class="mt-1 text-xs">Checking history does not run the agent again. Retry sends a new turn and may repeat tools.</p>
             </div>
           {/if}
           {#if missingFinalReply}
-            <div class="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 text-sm text-gray-600 dark:text-dark-text-secondary">
+            <div class="flex flex-wrap items-center gap-3 border border-dark-border bg-dark-surface px-4 py-3 text-sm text-dark-text-secondary">
               <span>This saved turn has tool activity but no final reply.</span>
               <button disabled={!!inputText.trim() || attachments.length > 0 || readingAttachments} class="font-medium underline underline-offset-4 disabled:opacity-40" onclick={() => { inputText = 'Please summarize the results of the work above in the language of my previous messages. Reply directly to me without running any additional tools.'; void handleSend(); }}>Ask for a summary</button>
             </div>
           {/if}
           {#if sending && !streamContent && toolEvents.length === 0 && !pendingConfirmation}
-            <div role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Waiting for {currentAgent?.name || 'the agent'}…</div>
+            <div role="status" class="flex items-center gap-2 text-sm text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Waiting for {currentAgent?.name || 'the agent'}…</div>
           {/if}
 
           <!-- Retry button (shown after last message when not streaming) -->
@@ -1342,7 +1342,7 @@
             <div class="flex justify-start py-1">
               <button
                 onclick={retryLastMessage}
-                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
+                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-dark-text-secondary hover:text-dark-text hover:bg-dark-elevated"
                 title="Retry last message"
               >
                 <RotateCcw size={11} />
@@ -1353,7 +1353,7 @@
 
           <!-- Live tool events (while streaming) -->
           {#if toolEvents.length > 0 && !showToolActivity}
-            <div role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary">
+            <div role="status" class="flex items-center gap-2 text-sm text-dark-text-secondary">
               {#if sending}<Loader2 size={14} class="animate-spin motion-reduce:animate-none" />{:else}<Wrench size={14} />{/if}
               <span class="truncate">{sending ? (toolEvents.findLast(e => e.progress)?.progress || 'Working with tools…') : 'Tool activity saved.'}</span>
               <button class="underline underline-offset-4" onclick={() => { showToolActivity = true; }}>Show activity</button>
@@ -1361,13 +1361,13 @@
           {/if}
           {#if toolEvents.length > 0 && showToolActivity}
             <div class="flex gap-3">
-              <div class="shrink-0 w-7 h-7 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex items-center justify-center">
+              <div class="shrink-0 w-7 h-7 rounded-full bg-yellow-900/30 text-yellow-400 flex items-center justify-center">
                 <Wrench size={13} />
               </div>
               <div class="flex-1 min-w-0 space-y-1">
                 {#each toolEvents as evt}
                   {#if evt.type === 'call' || evt.type === 'wait'}
-                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300 min-w-0">
+                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] bg-yellow-950/20 border border-yellow-800/40 text-yellow-300 min-w-0">
                       <Loader2 size={11} class="animate-spin shrink-0" />
                       <span class="font-mono font-semibold shrink-0">{evt.type === 'wait' ? 'background subagents' : evt.name}</span>
                       <span class="text-[10px] opacity-60 truncate">{evt.progress || 'running…'}</span>
@@ -1378,17 +1378,17 @@
                     {@const evtId = `stream-${evt.id || evt.name}`}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated">
+                    <div class="border border-dark-border bg-dark-elevated">
                       <button aria-expanded={!!expandedTools[evtId]} class="w-full flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-left" onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}>
-                        <Check size={11} class="text-green-600 dark:text-green-400" />
-                        <span class="font-mono font-semibold text-gray-700 dark:text-dark-text">{evt.name}</span>
-                        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {evtResult.length} chars{evtPretty.isJSON ? ' · json' : ''}</span>
-                        <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[evtId] ? '' : '-rotate-90'}`} />
+                        <Check size={11} class="text-green-400" />
+                        <span class="font-mono font-semibold text-dark-text">{evt.name}</span>
+                        <span class="text-[10px] text-dark-text-muted">· {evtResult.length} chars{evtPretty.isJSON ? ' · json' : ''}</span>
+                        <ChevronDown size={14} class={`ml-auto text-dark-text-secondary ${expandedTools[evtId] ? '' : '-rotate-90'}`} />
                       </button>
                       {#if expandedTools[evtId]}
-                        <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
+                        <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-dark-base border border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
                       {:else if evtResult}
-                        <div class="mx-2 mb-1.5 px-2 py-1 text-[11px] font-mono text-gray-500 dark:text-dark-text-muted truncate">{evtResult.slice(0, 200)}{evtResult.length > 200 ? '…' : ''}</div>
+                        <div class="mx-2 mb-1.5 px-2 py-1 text-[11px] font-mono text-dark-text-muted truncate">{evtResult.slice(0, 200)}{evtResult.length > 200 ? '…' : ''}</div>
                       {/if}
                     </div>
                   {/if}
@@ -1399,25 +1399,25 @@
 
           <!-- Tool confirmation prompt -->
           {#if pendingConfirmation}
-            <div class="py-3 px-4 my-1 border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30">
-              <div class="flex items-center gap-1.5 text-[12px] font-semibold text-orange-700 dark:text-orange-400 mb-1.5">
+            <div class="py-3 px-4 my-1 border border-orange-800 bg-orange-950/30">
+              <div class="flex items-center gap-1.5 text-[12px] font-semibold text-orange-400 mb-1.5">
                 <ShieldCheck size={14} />
                 <span>Tool confirmation required</span>
               </div>
-              <div class="text-[11px] text-gray-700 dark:text-dark-text-secondary mb-1">
-                The agent wants to execute <span class="font-mono font-bold text-orange-700 dark:text-orange-300">{pendingConfirmation.toolName}</span>
+              <div class="text-[11px] text-dark-text-secondary mb-1">
+                The agent wants to execute <span class="font-mono font-bold text-orange-300">{pendingConfirmation.toolName}</span>
               </div>
               <details class="mb-2">
-                <summary class="text-[10px] text-gray-500 dark:text-dark-text-muted cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary">
+                <summary class="text-[10px] text-dark-text-muted cursor-pointer hover:text-dark-text-secondary">
                   Show arguments
                 </summary>
-                <pre class="text-[10px] text-gray-600 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border p-2 font-mono">{(() => { try { return JSON.stringify(JSON.parse(pendingConfirmation.arguments), null, 2); } catch { return pendingConfirmation.arguments; } })()}</pre>
+                <pre class="text-[10px] text-dark-text-secondary whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto bg-dark-surface border border-dark-border p-2 font-mono">{(() => { try { return JSON.stringify(JSON.parse(pendingConfirmation.arguments), null, 2); } catch { return pendingConfirmation.arguments; } })()}</pre>
               </details>
               <div class="flex items-center gap-2">
                 <button
                   onclick={() => handleConfirmation(true)}
                   disabled={turnState.confirming}
-                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white "
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white"
                 >
                   <ShieldCheck size={12} />
                   Approve
@@ -1425,7 +1425,7 @@
                 <button
                   onclick={() => handleConfirmation(false)}
                   disabled={turnState.confirming}
-                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-red-500 hover:bg-red-600 text-white "
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-red-500 hover:bg-red-600 text-white"
                 >
                   <ShieldX size={12} />
                   Reject
@@ -1438,14 +1438,14 @@
             <div class="flex gap-3 group">
               <div class="flex-1 min-w-0">
                 <div class="flex flex-wrap items-center gap-2 mb-1">
-                  <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
+                  <span class="text-xs font-semibold text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
                   {#if sending}
-                    <Loader2 size={11} class="animate-spin text-gray-400" />
+                    <Loader2 size={11} class="animate-spin text-dark-text-muted" />
                   {/if}
                   <button
                     type="button"
                     onclick={() => { rawSourceMode['__streaming'] = !rawSourceMode['__streaming']; }}
-                    class="ml-auto flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                    class="ml-auto flex items-center gap-1 px-2 py-1 text-xs border border-dark-border text-dark-text-secondary hover:bg-dark-elevated"
                     title={streamShowSource ? 'Show rendered markdown' : 'Show raw source'}
                   >
                     {#if streamShowSource}
@@ -1458,11 +1458,11 @@
                   </button>
                 </div>
                 {#if streamShowSource}
-                  <pre class="px-3 py-2 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{streamContent}</pre>
+                  <pre class="px-3 py-2 bg-dark-base border border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-dark-text max-h-[32rem] overflow-y-auto">{streamContent}</pre>
                 {:else}
                   <Markdown
                     source={streamContent}
-                    class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-900 dark:text-dark-text [overflow-wrap:anywhere]"
+                    class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-dark-elevated border border-dark-border-subtle shadow-sm text-dark-text [overflow-wrap:anywhere]"
                   />
                 {/if}
               </div>
@@ -1474,20 +1474,20 @@
     </div>
 
     {#if !nearBottom && selectedSessionId}
-      <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
+      <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 border border-dark-border bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
     {/if}
     <!-- Input bar -->
-    <section aria-label="Message composer" ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); draggingFiles = true; } }} ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) draggingFiles = false; }} ondrop={(e) => { e.preventDefault(); draggingFiles = false; void addAttachments(Array.from(e.dataTransfer?.files || [])); }} class={['relative shrink-0 border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface', draggingFiles ? 'ring-2 ring-inset ring-accent' : '']}>
+    <section aria-label="Message composer" ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); draggingFiles = true; } }} ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) draggingFiles = false; }} ondrop={(e) => { e.preventDefault(); draggingFiles = false; void addAttachments(Array.from(e.dataTransfer?.files || [])); }} class={['relative shrink-0 border-t border-dark-border bg-dark-surface', draggingFiles ? 'ring-2 ring-inset ring-accent' : '']}>
       <!-- Slash command menu -->
       {#if showSlashMenu && filteredSlashCommands.length > 0}
-        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border shadow-lg overflow-hidden z-10">
+        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-dark-elevated border border-dark-border shadow-lg overflow-hidden z-10">
           {#each filteredSlashCommands as cmd}
             <button
               onclick={() => handleSlashCommand(cmd.cmd)}
-              class="w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-3 "
+              class="w-full text-left px-3 py-2 text-[12px] hover:bg-dark-elevated flex items-center gap-3"
             >
-              <span class="font-mono font-bold text-gray-700 dark:text-dark-text w-20">{cmd.cmd}</span>
-              <span class="text-gray-500 dark:text-dark-text-secondary">{cmd.desc}</span>
+              <span class="font-mono font-bold text-dark-text w-20">{cmd.cmd}</span>
+              <span class="text-dark-text-secondary">{cmd.desc}</span>
             </button>
           {/each}
         </div>
@@ -1495,27 +1495,27 @@
 
       <!-- Agent picker dropdown -->
       {#if showAgentPicker && !selectedSession?.config?.organization_chat}
-        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-lg overflow-hidden z-10">
-          <div class="px-3 py-2 text-sm font-medium text-gray-600 dark:text-dark-text-secondary border-b border-gray-100 dark:border-dark-border/50">Switch agent</div>
+        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-dark-surface border border-dark-border shadow-lg overflow-hidden z-10">
+          <div class="px-3 py-2 text-sm font-medium text-dark-text-secondary border-b border-dark-border/50">Switch agent</div>
           {#each agents as agent (agent.id)}
             <button
               onclick={() => switchAgent(agent.id)}
               class={[
-                'w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-2 ',
-                selectedSession?.agent_id === agent.id ? 'bg-gray-50 dark:bg-dark-elevated' : '',
+                'w-full text-left px-3 py-2 text-[12px] hover:bg-dark-elevated flex items-center gap-2 ',
+                selectedSession?.agent_id === agent.id ? 'bg-dark-elevated' : '',
               ]}
             >
-              <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+              <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-dark-elevated" />
               <div>
-                <span class="font-medium text-gray-700 dark:text-dark-text">{agent.name}</span>
+                <span class="font-medium text-dark-text">{agent.name}</span>
                 {#if agent.scope === 'personal'}
-                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40" title="Personal agent — only visible to you">personal</span>
+                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-blue-900/20 text-blue-400 border border-blue-900/40" title="Personal agent — only visible to you">personal</span>
                 {:else if agent.scope === 'global'}
-                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900/40" title="Global agent — available in every workspace">global</span>
+                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-purple-900/20 text-purple-400 border border-purple-900/40" title="Global agent — available in every workspace">global</span>
                 {/if}
-                {#if agent.config.group}<span class="ml-2 text-xs text-gray-500 dark:text-dark-text-secondary">{agent.config.group}</span>{/if}
+                {#if agent.config.group}<span class="ml-2 text-xs text-dark-text-secondary">{agent.config.group}</span>{/if}
                 {#if agent.config.description}
-                  <span class="text-gray-400 dark:text-dark-text-muted ml-1">— {agent.config.description}</span>
+                  <span class="text-dark-text-muted ml-1">— {agent.config.description}</span>
                 {/if}
               </div>
               {#if selectedSession?.agent_id === agent.id}
@@ -1524,7 +1524,7 @@
             </button>
           {/each}
           {#if agents.length === 0}
-            <div class="px-3 py-3 text-[11px] text-gray-400 text-center">No agents configured</div>
+            <div class="px-3 py-3 text-[11px] text-dark-text-muted text-center">No agents configured</div>
           {/if}
         </div>
       {/if}
@@ -1533,20 +1533,20 @@
         <input bind:this={fileInput} type="file" multiple class="hidden" aria-label="Attach photos or files" onchange={(e) => { void addAttachments(Array.from(e.currentTarget.files || [])); e.currentTarget.value = ''; }} />
         {#if attachments.length || readingAttachments || attachmentError || draggingFiles}
           <div class="order-first basis-full space-y-2">
-            {#if draggingFiles}<p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">Drop files here to attach them.</p>{/if}
+            {#if draggingFiles}<p role="status" class="text-sm text-dark-text-secondary">Drop files here to attach them.</p>{/if}
             {#if attachments.length}
               <ul class="flex flex-wrap gap-2" aria-label="Attachments ready to send">
                 {#each attachments as file, i}
-                  <li class="flex min-w-0 max-w-full items-center gap-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base py-2 pl-2 pr-1">
-                    {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-10 object-cover" />{:else}<FileText size={20} class="mx-2 shrink-0 text-gray-500 dark:text-dark-text-secondary" />{/if}
-                    <div class="min-w-0"><p class="max-w-44 truncate text-sm text-gray-900 dark:text-dark-text" title={file.name}>{file.name}</p><p class="text-xs text-gray-500 dark:text-dark-text-secondary">{attachmentSize(attachmentBytes(file))}</p></div>
-                    <button class={`${composerControl} w-10 text-gray-500 hover:bg-gray-200 dark:hover:bg-dark-elevated`} disabled={sending || readingAttachments} aria-label={`Remove ${file.name}`} onclick={() => { attachments = attachments.filter((_, index) => index !== i); attachmentError = ''; }}><X size={16} /></button>
+                  <li class="flex min-w-0 max-w-full items-center gap-2 border border-dark-border bg-dark-base py-2 pl-2 pr-1">
+                    {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-10 object-cover" />{:else}<FileText size={20} class="mx-2 shrink-0 text-dark-text-secondary" />{/if}
+                    <div class="min-w-0"><p class="max-w-44 truncate text-sm text-dark-text" title={file.name}>{file.name}</p><p class="text-xs text-dark-text-secondary">{attachmentSize(attachmentBytes(file))}</p></div>
+                    <button class={`${composerControl} w-10 text-dark-text-muted hover:bg-dark-elevated`} disabled={sending || readingAttachments} aria-label={`Remove ${file.name}`} onclick={() => { attachments = attachments.filter((_, index) => index !== i); attachmentError = ''; }}><X size={16} /></button>
                   </li>
                 {/each}
               </ul>
             {/if}
-            {#if readingAttachments}<p role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Reading files…</p>{/if}
-            {#if attachmentError}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{attachmentError}</p>{/if}
+            {#if readingAttachments}<p role="status" class="flex items-center gap-2 text-sm text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Reading files…</p>{/if}
+            {#if attachmentError}<p role="alert" class="text-sm text-red-300">{attachmentError}</p>{/if}
           </div>
         {/if}
         <div class="order-first basis-full">
@@ -1561,7 +1561,7 @@
             placeholder={attachments.length ? 'Add a message about these files…' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
             rows={2}
             disabled={sending || loadingMessages}
-            class="block w-full min-w-0 resize-y max-h-48 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+            class="block w-full min-w-0 resize-y max-h-48 border border-dark-border bg-dark-base px-3 py-2 text-base leading-6 text-dark-text placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
           ></textarea>
         </div>
         <!-- Agent pill -->
@@ -1596,13 +1596,13 @@
           <button
             onclick={handleSend}
             disabled={(!inputText.trim() && !attachments.length) || loadingMessages || readingAttachments || recording || transcribing || (!selectedSessionId && !agents.length)}
-            class={`${composerControl} ml-auto min-w-20 px-3 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover`}
+            class={`${composerControl} ml-auto min-w-20 px-3 bg-accent text-gray-950 hover:bg-accent-hover`}
             title="Send"
           >
             <Send size={16} /> Send
           </button>
         {/if}
-        <p id="session-composer-help" class="hidden sm:block basis-full text-xs leading-5 text-gray-500 dark:text-dark-text-secondary">Enter to send · Shift + Enter for a new line. Up to 4 files · 5 MB each · 8 MB total. Supported file formats depend on the agent’s model.</p>
+        <p id="session-composer-help" class="hidden sm:block basis-full text-xs leading-5 text-dark-text-secondary">Enter to send · Shift + Enter for a new line. Up to 4 files · 5 MB each · 8 MB total. Supported file formats depend on the agent’s model.</p>
       </div>
     </section>
   </div>

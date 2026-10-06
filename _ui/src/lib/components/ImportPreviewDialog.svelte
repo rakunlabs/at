@@ -51,19 +51,19 @@
 </script>
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-  <div class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-lg">
+  <div class="bg-dark-surface border border-dark-border w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-lg">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Import Preview</span>
+        <span class="text-sm font-medium text-dark-text">Import Preview</span>
         {#if hasConflicts > 0}
-          <span class="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+          <span class="flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-900/20 text-amber-400 border border-amber-800">
             <AlertTriangle size={11} />
             {hasConflicts} conflict{hasConflicts > 1 ? 's' : ''}
           </span>
         {/if}
       </div>
-      <button onclick={oncancel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
+      <button onclick={oncancel} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
         <X size={14} />
       </button>
     </div>
@@ -73,7 +73,7 @@
       <!-- Organization -->
       {#if preview.organization}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">Organization</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Organization</h3>
           {@render entityRow('organization', preview.organization.name, preview.organization.conflict)}
         </div>
       {/if}
@@ -81,7 +81,7 @@
       <!-- Agents -->
       {#if (preview.agents || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">Agents ({preview.agents.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Agents ({preview.agents.length})</h3>
           <div class="space-y-1">
             {#each preview.agents as agent}
               {@render entityRow('agent', agent.name, agent.conflict)}
@@ -93,7 +93,7 @@
       <!-- Skills -->
       {#if (preview.skills || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">Skills ({preview.skills.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Skills ({preview.skills.length})</h3>
           <div class="space-y-1">
             {#each preview.skills as skill}
               {@render entityRow('skill', skill.name, skill.conflict)}
@@ -105,7 +105,7 @@
       <!-- MCP Sets -->
       {#if (preview.mcp_sets || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">MCP Sets ({preview.mcp_sets.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">MCP Sets ({preview.mcp_sets.length})</h3>
           <div class="space-y-1">
             {#each preview.mcp_sets as ms}
               {@render entityRow('mcp_set', ms.name, ms.conflict)}
@@ -117,7 +117,7 @@
       <!-- MCP Servers -->
       {#if (preview.mcp_servers || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">MCP Servers ({preview.mcp_servers.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">MCP Servers ({preview.mcp_servers.length})</h3>
           <div class="space-y-1">
             {#each preview.mcp_servers as ms}
               {@render entityRow('mcp_server', ms.name, ms.conflict)}
@@ -129,19 +129,19 @@
       <!-- Relationships -->
       {#if (preview.relationships || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">Relationships ({preview.relationships.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Relationships ({preview.relationships.length})</h3>
           <div class="space-y-1">
             {#each preview.relationships as rel}
-              <div class="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-dark-base/50 border border-gray-100 dark:border-dark-border text-xs">
-                <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{rel.agent_name}</span>
+              <div class="flex items-center gap-2 px-3 py-1.5 bg-dark-base/50 border border-dark-border text-xs">
+                <span class="font-mono text-dark-text-secondary">{rel.agent_name}</span>
                 {#if rel.role}
-                  <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">{rel.role}</span>
+                  <span class="px-1.5 py-0.5 bg-blue-900/20 text-blue-400 border border-blue-800">{rel.role}</span>
                 {/if}
                 {#if rel.title}
-                  <span class="text-gray-400 dark:text-dark-text-muted">- {rel.title}</span>
+                  <span class="text-dark-text-muted">- {rel.title}</span>
                 {/if}
                 {#if rel.is_head}
-                  <span class="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800">Head</span>
+                  <span class="px-1.5 py-0.5 bg-green-900/20 text-green-400 border border-green-800">Head</span>
                 {/if}
               </div>
             {/each}
@@ -151,17 +151,17 @@
     </div>
 
     <!-- Footer -->
-    <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+    <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base/50">
       <button
         onclick={oncancel}
-        class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+        class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
       >
         Cancel
       </button>
       <button
         onclick={handleConfirm}
         disabled={importing}
-        class="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+        class="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
       >
         {#if importing}
           <RefreshCw size={14} class="animate-spin" />
@@ -176,11 +176,11 @@
 </div>
 
 {#snippet entityRow(type: string, name: string, conflict?: string)}
-  <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-dark-base/50 border border-gray-100 dark:border-dark-border">
+  <div class="flex items-center justify-between px-3 py-1.5 bg-dark-base/50 border border-dark-border">
     <div class="flex items-center gap-2 min-w-0">
-      <span class="font-mono text-sm text-gray-700 dark:text-dark-text-secondary truncate">{name}</span>
+      <span class="font-mono text-sm text-dark-text-secondary truncate">{name}</span>
       {#if conflict}
-        <span class="shrink-0 flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+        <span class="shrink-0 flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-amber-900/20 text-amber-400 border border-amber-800">
           <AlertTriangle size={9} />
           exists
         </span>
@@ -190,14 +190,14 @@
       <select
         value={actions[`${type}:${name}`] || 'skip'}
         onchange={(e) => { actions[`${type}:${name}`] = (e.target as HTMLSelectElement).value; }}
-        class="text-xs border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-gray-700 dark:text-dark-text-secondary focus:outline-none"
+        class="text-xs border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-dark-text-secondary focus:outline-none"
       >
         <option value="create_new">Create New</option>
         <option value="skip">Skip</option>
         <option value="overwrite">Overwrite</option>
       </select>
     {:else}
-      <span class="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400">
+      <span class="flex items-center gap-1 text-[10px] text-green-400">
         <Check size={10} />
         Will create
       </span>

@@ -30,10 +30,10 @@
   const visibleEntries = $derived(query === '' ? entries : entries.filter(([k, v]) => k.toLowerCase().includes(query) || matches(v, query)));
 
   function scalarClass(v: unknown): string {
-    if (typeof v === 'string') return 'text-emerald-700 dark:text-emerald-400';
-    if (typeof v === 'number') return 'text-blue-700 dark:text-blue-400';
-    if (typeof v === 'boolean') return 'text-purple-700 dark:text-purple-400';
-    return 'text-gray-400 dark:text-dark-text-muted';
+    if (typeof v === 'string') return 'text-emerald-400';
+    if (typeof v === 'number') return 'text-blue-400';
+    if (typeof v === 'boolean') return 'text-purple-400';
+    return 'text-dark-text-muted';
   }
   function scalarText(v: unknown): string {
     return typeof v === 'string' ? JSON.stringify(v) : String(v);
@@ -50,26 +50,26 @@
 
 <div class="group">
   {#if isObject}
-    <button class="flex items-center gap-0.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated" onclick={() => (open = !expanded)} aria-expanded={expanded}>
+    <button class="flex items-center gap-0.5 text-left hover:bg-dark-elevated" onclick={() => (open = !expanded)} aria-expanded={expanded}>
       {#if expanded}<ChevronDown size={10} />{:else}<ChevronRight size={10} />{/if}
-      {#if name !== undefined}<span class="text-gray-600 dark:text-dark-text-secondary">{name}:</span>{/if}
-      <span class="text-gray-400 dark:text-dark-text-muted">{isArray ? `[${entries.length}]` : `{${entries.length}}`}</span>
+      {#if name !== undefined}<span class="text-dark-text-secondary">{name}:</span>{/if}
+      <span class="text-dark-text-muted">{isArray ? `[${entries.length}]` : `{${entries.length}}`}</span>
     </button>
     {#if expanded}
-      <div class="ml-3 border-l border-gray-200 pl-2 dark:border-dark-border">
+      <div class="ml-3 border-l pl-2 border-dark-border">
         {#each visibleEntries.slice(0, 500) as [key, child] (key)}
           <JsonNode value={child} name={isArray ? `${key}` : key} {depth} level={level + 1} {query} />
         {/each}
         {#if visibleEntries.length > 500}
-          <div class="text-gray-400 dark:text-dark-text-muted">… {visibleEntries.length - 500} more</div>
+          <div class="text-dark-text-muted">… {visibleEntries.length - 500} more</div>
         {/if}
       </div>
     {/if}
   {:else}
     <div class="flex items-start gap-1 pl-3">
-      {#if name !== undefined}<span class="shrink-0 text-gray-600 dark:text-dark-text-secondary">{name}:</span>{/if}
-      <span class={['min-w-0 whitespace-pre-wrap break-words', scalarClass(value), query && String(value).toLowerCase().includes(query) ? 'bg-yellow-100 dark:bg-yellow-900/40' : '']}>{scalarText(value)}</span>
-      <button onclick={copyValue} class="invisible shrink-0 text-[10px] text-gray-400 group-hover:visible hover:text-gray-700 dark:hover:text-dark-text-secondary" title="Copy value">copy</button>
+      {#if name !== undefined}<span class="shrink-0 text-dark-text-secondary">{name}:</span>{/if}
+      <span class={['min-w-0 whitespace-pre-wrap break-words', scalarClass(value), query && String(value).toLowerCase().includes(query) ? 'bg-yellow-900/40' : '']}>{scalarText(value)}</span>
+      <button onclick={copyValue} class="invisible shrink-0 text-[10px] text-dark-text-muted group-hover:visible hover:text-dark-text-secondary" title="Copy value">copy</button>
     </div>
   {/if}
 </div>

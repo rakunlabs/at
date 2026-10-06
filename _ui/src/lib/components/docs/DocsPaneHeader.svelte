@@ -13,15 +13,15 @@
   let { title, description = '', badge, actions }: Props = $props();
 </script>
 
-<header class="mb-5 border-b border-gray-200 pb-4 dark:border-dark-border">
+<header class="mb-5 border-b pb-4 border-dark-border">
   <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
     <div class="min-w-0">
       <div class="flex flex-wrap items-center gap-2">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">{title}</h1>
+        <h1 class="text-lg font-semibold text-dark-text">{title}</h1>
         {#if badge}{@render badge()}{/if}
       </div>
       {#if description}
-        <p class="mt-1 text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+        <p class="mt-1 text-sm leading-relaxed text-dark-text-secondary">
           {description}
         </p>
       {/if}

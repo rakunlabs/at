@@ -44,10 +44,10 @@
   }
 </script>
 
-<p class="text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+<p class="text-sm leading-relaxed text-dark-text-secondary">
   Point any OpenAI client at the gateway base URL. These snippets use
   <code
-    class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-[12px] text-gray-800 dark:text-dark-text-secondary"
+    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
     >{model}</code
   > — swap in any model from Available models.
 </p>
@@ -57,7 +57,7 @@
     bind:this={tablistEl}
     role="tablist"
     aria-label="Example language"
-    class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-dark-border"
+    class="flex flex-wrap gap-1 border-b border-dark-border"
   >
     {#each codeExampleTabs as tab (tab.id)}
       {@const selected = tab.id === current.id}
@@ -72,10 +72,10 @@
         onclick={() => (activeTab = tab.id)}
         onkeydown={onKeydown}
         class={[
-          '-mb-px border-b-2 px-3 py-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent',
+          '-mb-px border-b-2 px-3 py-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
           selected
-            ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-accent-text'
-            : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-dark-text-secondary dark:hover:text-dark-text',
+            ? 'border-accent text-accent-text'
+            : 'border-transparent text-dark-text-secondary hover:text-dark-text',
         ]}
       >
         {tab.label}

@@ -505,20 +505,20 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <BarChart3 size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Usage</h2>
+      <BarChart3 size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Usage</h2>
       {#if summary}
-        <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+        <span class="text-xs text-dark-text-muted">
           ({fmtNum(summary.request_count)} calls)
         </span>
       {/if}
     </div>
     <div class="flex items-center gap-1">
-      <button onclick={exportCSV} disabled={loading || !summary?.request_count} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-50" title="Download usage CSV" aria-label="Download filtered usage as CSV"><Download size={14} /></button>
+      <button onclick={exportCSV} disabled={loading || !summary?.request_count} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary disabled:opacity-50" title="Download usage CSV" aria-label="Download filtered usage as CSV"><Download size={14} /></button>
       <button
         onclick={refresh}
         disabled={loading}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-50"
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary disabled:opacity-50"
         title="Refresh"
       >
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
@@ -527,7 +527,7 @@
   </div>
 
   <!-- Filters -->
-  <div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-gray-200 dark:border-dark-border">
+  <div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-dark-border">
     <DateRangePicker bind:from bind:to bind:preset onchange={handleRangeChange} />
     <MultiSelect label="User" options={availableUsers} bind:selected={userIds} onchange={handleFilterChange} />
     <MultiSelect label="Source" options={sourceOptions} bind:selected={sources} onchange={handleFilterChange} />
@@ -556,20 +556,20 @@
       onchange={handleFilterChange}
     />
     <MultiSelect label="Billing code" options={billingCodeOptions} bind:selected={billingCodes} onchange={handleFilterChange} />
-    <select bind:value={status} onchange={handleFilterChange} aria-label="Status" class="border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 dark:border-dark-border-subtle dark:bg-dark-surface dark:text-dark-text-secondary">
+    <select bind:value={status} onchange={handleFilterChange} aria-label="Status" class="border px-2 py-1 text-xs border-dark-border-subtle bg-dark-surface text-dark-text-secondary">
       <option value="">All statuses</option>
       <option value="ok">Successful</option>
       <option value="error">Errors</option>
     </select>
     <div class="ml-auto flex items-center gap-1 text-xs">
-      <span class="text-gray-500 dark:text-dark-text-muted">Bucket:</span>
+      <span class="text-dark-text-muted">Bucket:</span>
       <button
         onclick={() => { bucket = 'hour'; loadAll(); }}
         class={[
           'px-2 py-1 border',
           bucket === 'hour'
-            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-            : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary',
+            ? 'text-dark-base bg-accent border-accent'
+            : 'border-dark-border-subtle text-dark-text-secondary',
         ]}
       >Hour</button>
       <button
@@ -577,8 +577,8 @@
         class={[
           'px-2 py-1 border',
           bucket === 'day'
-            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-            : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary',
+            ? 'text-dark-base bg-accent border-accent'
+            : 'border-dark-border-subtle text-dark-text-secondary',
         ]}
       >Day</button>
     </div>
@@ -587,93 +587,91 @@
   <!-- KPI Cards -->
   {#if summary}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Zap size={12} /> {primaryUsage.label}
         </div>
-        <div class="text-xl font-semibold text-gray-900 dark:text-dark-text tabular-nums">
+        <div class="text-xl font-semibold text-dark-text tabular-nums">
           {primaryUsage.value}
         </div>
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">
+        <div class="text-[11px] text-dark-text-muted mt-0.5">
           {primaryUsage.detail}
           {#if primaryTrend}<span class="block">{primaryTrend}</span>{/if}
         </div>
       </div>
 
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Activity size={12} /> Calls
         </div>
-        <div class="text-xl font-semibold text-gray-900 dark:text-dark-text tabular-nums">
+        <div class="text-xl font-semibold text-dark-text tabular-nums">
           {fmtNum(summary.request_count)}
         </div>
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">
+        <div class="text-[11px] text-dark-text-muted mt-0.5">
           {fmtNum(summary.error_count)} failed · {fmtPct(errorRate)} error rate
         </div>
       </div>
 
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <AlertCircle size={12} /> Cost coverage
         </div>
         <div
           class="text-xl font-semibold tabular-nums"
-          class:text-amber-700={pricingCoverage < 100}
-          class:text-gray-900={pricingCoverage === 100}
-          class:dark:text-amber-400={pricingCoverage < 100}
-          class:dark:text-dark-text={pricingCoverage === 100}
+          class:text-amber-400={pricingCoverage < 100}
+          class:text-dark-text={pricingCoverage === 100}
         >
           {summary.request_count ? fmtPct(pricingCoverage) : '—'}
         </div>
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">
+        <div class="text-[11px] text-dark-text-muted mt-0.5">
           {fmtNum(summary.priced_request_count)} of {fmtNum(summary.request_count)} calls · {fmtCost(summary.cost_cents)} known
         </div>
       </div>
 
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Clock size={12} /> P95 latency
         </div>
-        <div class="text-xl font-semibold text-gray-900 dark:text-dark-text tabular-nums">
+        <div class="text-xl font-semibold text-dark-text tabular-nums">
           {fmtLatency(summary.p95_latency_ms)}
         </div>
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">
+        <div class="text-[11px] text-dark-text-muted mt-0.5">
           median {fmtLatency(summary.p50_latency_ms)} · p99 {fmtLatency(summary.p99_latency_ms)}
         </div>
       </div>
 
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Zap size={12} /> Cache hit rate
         </div>
-        <div class="text-xl font-semibold text-gray-900 dark:text-dark-text tabular-nums">
+        <div class="text-xl font-semibold text-dark-text tabular-nums">
           {fmtPct(cacheHitRate)}
         </div>
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">
+        <div class="text-[11px] text-dark-text-muted mt-0.5">
           {fmtNum(summary.cache_read_tokens)} read · {fmtNum(summary.cache_write_tokens)} write
         </div>
       </div>
     </div>
   {/if}
 
-  <p class="mb-3 text-xs text-gray-600 dark:text-dark-text-secondary">User attribution starts with this update. Older calls and system activity appear as unattributed. LLM time is the sum of model-call durations, not time spent on the page.</p>
+  <p class="mb-3 text-xs text-dark-text-secondary">User attribution starts with this update. Older calls and system activity appear as unattributed. LLM time is the sum of model-call durations, not time spent on the page.</p>
   {#each [{ title: 'User usage', rows: rankedUsers, users: true }, { title: 'Source usage', rows: bySource, users: false }] as section}
-    <section class="mb-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{section.title}{section.users ? ` · Top 20 by ${rankingMetric}` : ''}</h3>
-        {#if section.users}<p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Select a user to filter all charts and see their Chats / Sessions breakdown below.</p>{/if}
+    <section class="mb-4 border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+        <h3 class="text-sm font-medium text-dark-text">{section.title}{section.users ? ` · Top 20 by ${rankingMetric}` : ''}</h3>
+        {#if section.users}<p class="mt-1 text-xs text-dark-text-secondary">Select a user to filter all charts and see their Chats / Sessions breakdown below.</p>{/if}
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-xs text-left">
-          <thead class="text-gray-600 dark:text-dark-text-secondary border-b border-gray-200 dark:border-dark-border">
+          <thead class="text-dark-text-secondary border-b border-dark-border">
             <tr><th class="px-4 py-2">{section.users ? 'User' : 'Source'}</th><th class="px-3 py-2 text-right">Calls</th><th class="px-3 py-2 text-right">Input</th><th class="px-3 py-2 text-right">Output</th><th class="px-3 py-2 text-right">Cache read / write</th><th class="px-3 py-2 text-right">{pricingCoverage === 100 ? 'Cost' : 'Known cost'}</th><th class="px-3 py-2 text-right">LLM time</th><th class="px-3 py-2 text-right">Errors</th></tr>
           </thead>
-          <tbody class="text-gray-800 dark:text-dark-text tabular-nums">
+          <tbody class="text-dark-text tabular-nums">
             {#each section.rows as row}
-              <tr class="border-b last:border-b-0 border-gray-100 dark:border-dark-border">
+              <tr class="border-b last:border-b-0 border-dark-border">
                 <td class="px-4 py-2">
                   {#if section.users}
-                    <button class="max-w-64 truncate text-left underline underline-offset-2 hover:text-purple-700 dark:hover:text-purple-300 focus-visible:outline-2 focus-visible:outline-accent" title={row.key || 'No recorded user'} onclick={() => { userIds = [row.key || '']; loadAll(); }}>{userLabel(row)}</button>
+                    <button class="max-w-64 truncate text-left underline underline-offset-2 hover:text-purple-300 focus-visible:outline-2 focus-visible:outline-accent" title={row.key || 'No recorded user'} onclick={() => { userIds = [row.key || '']; loadAll(); }}>{userLabel(row)}</button>
                   {:else}{sourceLabel(row)}{/if}
                 </td>
                 <td class="px-3 py-2 text-right">{fmtNum(row.request_count)}</td>
@@ -685,7 +683,7 @@
                 <td class="px-3 py-2 text-right">{fmtNum(row.error_count)}</td>
               </tr>
             {:else}
-              <tr><td colspan="8" class="px-4 py-6 text-gray-600 dark:text-dark-text-secondary">{pageLoad.loading(section.title) ? 'Loading usage…' : pageLoad.error(section.title) || 'No usage in this date range for the selected filters.'}</td></tr>
+              <tr><td colspan="8" class="px-4 py-6 text-dark-text-secondary">{pageLoad.loading(section.title) ? 'Loading usage…' : pageLoad.error(section.title) || 'No usage in this date range for the selected filters.'}</td></tr>
             {/each}
           </tbody>
         </table>
@@ -695,8 +693,8 @@
 
   <!-- Time-series charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-2">
         Requests &amp; errors by {bucket}
       </div>
       <TimeBarChart
@@ -708,8 +706,8 @@
       />
     </div>
 
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-2">
         Tokens by {bucket}
       </div>
       <TimeBarChart
@@ -721,8 +719,8 @@
       />
     </div>
 
-    <div class={['p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface', !summary?.priced_request_count ? 'lg:col-span-2' : '']}>
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
+    <div class={['p-3 border border-dark-border bg-dark-surface', !summary?.priced_request_count ? 'lg:col-span-2' : '']}>
+      <div class="text-xs font-medium text-dark-text-secondary mb-2">
         Latency by {bucket}
       </div>
       <TimeBarChart
@@ -735,8 +733,8 @@
     </div>
 
     {#if summary?.priced_request_count}
-      <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
+      <div class="p-3 border border-dark-border bg-dark-surface">
+        <div class="text-xs font-medium text-dark-text-secondary mb-2">
           {pricingCoverage === 100 ? `Cost by ${bucket}` : `Known cost by ${bucket}`}
         </div>
         <TimeBarChart
@@ -749,36 +747,36 @@
 
   <!-- Group-by charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Tokens by provider
       </div>
       <DonutChart slices={providerSlices} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top models (by tokens)
       </div>
       <HorizontalBarChart rows={modelRows} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top agents (by requests)
       </div>
       <HorizontalBarChart rows={agentRows} formatValue={fmtInt} />
     </div>
 
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top organizations (by tokens)
       </div>
       <HorizontalBarChart rows={orgRows} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface lg:col-span-2">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface lg:col-span-2">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top billing codes (by tokens)
       </div>
       <HorizontalBarChart rows={billingRows} formatValue={fmtNum} />
@@ -786,14 +784,14 @@
   </div>
 
   {#if byModel.length > 0}
-    <section class="mb-4 border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
-      <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-border dark:bg-dark-base">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Model efficiency</h3>
-        <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Cost efficiency is shown only when every call in that model row has calculable usage and pricing.</p>
+    <section class="mb-4 border border-dark-border bg-dark-surface">
+      <div class="border-b px-4 py-3 border-dark-border bg-dark-base">
+        <h3 class="text-sm font-medium text-dark-text">Model efficiency</h3>
+        <p class="mt-1 text-xs text-dark-text-secondary">Cost efficiency is shown only when every call in that model row has calculable usage and pricing.</p>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
-          <thead class="border-b border-gray-200 text-gray-600 dark:border-dark-border dark:text-dark-text-secondary">
+          <thead class="border-b border-dark-border text-dark-text-secondary">
             <tr>
               <th class="px-4 py-2">Model</th>
               <th class="px-3 py-2 text-right">Calls</th>
@@ -805,7 +803,7 @@
               <th class="w-10 px-3 py-2"><span class="sr-only">Inspect</span></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 text-gray-800 dark:divide-dark-border dark:text-dark-text">
+          <tbody class="divide-y divide-dark-border text-dark-text">
             {#each [...byModel].sort((a, b) => b.total_tokens - a.total_tokens).slice(0, 20) as row}
               {@const fullyPriced = row.request_count > 0 && row.priced_request_count === row.request_count}
               <tr>
@@ -816,7 +814,7 @@
                 <td class="px-3 py-2 text-right tabular-nums">{fullyPriced ? fmtCost(row.cost_cents / row.request_count) : '—'}</td>
                 <td class="px-3 py-2 text-right tabular-nums">{row.request_count ? fmtPct((row.error_count / row.request_count) * 100) : '0.0%'}</td>
                 <td class="px-3 py-2 text-right tabular-nums">{fmtLatency(row.p95_latency_ms)}</td>
-                <td class="px-3 py-2 text-right"><button class="p-1 text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text" title={`Inspect ${row.key || 'model'} traces`} aria-label={`Inspect ${row.key || 'model'} traces`} onclick={() => inspectTraces({ model: row.key || '' })}><ExternalLink size={13} /></button></td>
+                <td class="px-3 py-2 text-right"><button class="p-1 text-dark-text-muted hover:text-dark-text" title={`Inspect ${row.key || 'model'} traces`} aria-label={`Inspect ${row.key || 'model'} traces`} onclick={() => inspectTraces({ model: row.key || '' })}><ExternalLink size={13} /></button></td>
               </tr>
             {/each}
           </tbody>
@@ -828,12 +826,12 @@
   <!-- Error breakdown (by status) -->
   {#if byStatus.length > 0}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Requests by status
       </div>
       <table class="w-full text-xs">
-        <thead class="text-left text-gray-500 dark:text-dark-text-muted">
+        <thead class="text-left text-dark-text-muted">
           <tr>
             <th class="py-1.5 font-medium">Status</th>
             <th class="py-1.5 font-medium text-right">Requests</th>
@@ -842,10 +840,10 @@
             <th class="py-1.5 font-medium text-right">{pricingCoverage === 100 ? 'Cost' : 'Known cost'}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+        <tbody class="divide-y divide-dark-border">
           {#each byStatus as s}
             <tr>
-              <td class="py-1.5 font-mono" class:text-red-600={s.key === 'error'} class:dark:text-red-400={s.key === 'error'}>
+              <td class="py-1.5 font-mono" class:text-red-400={s.key === 'error'}>
                 {s.key || 'ok'}
               </td>
               <td class="py-1.5 text-right tabular-nums">{fmtNum(s.request_count)}</td>
@@ -857,10 +855,10 @@
         </tbody>
       </table>
     </div>
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">Error reasons</div>
+    <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">Error reasons</div>
       <table class="w-full text-xs">
-        <thead class="text-left text-gray-500 dark:text-dark-text-muted">
+        <thead class="text-left text-dark-text-muted">
           <tr>
             <th class="py-1.5 font-medium">Reason</th>
             <th class="py-1.5 font-medium text-right">Calls</th>
@@ -868,16 +866,16 @@
             <th class="w-10 py-1.5"><span class="sr-only">Inspect</span></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+        <tbody class="divide-y divide-dark-border">
           {#each byErrorCode as row}
             <tr>
               <td class="py-1.5 font-mono">{row.key || 'unknown'}</td>
               <td class="py-1.5 text-right tabular-nums">{fmtNum(row.request_count)}</td>
               <td class="py-1.5 text-right tabular-nums">{summary?.error_count ? fmtPct((row.request_count / summary.error_count) * 100) : '0.0%'}</td>
-              <td class="py-1.5 text-right"><button class="p-1 text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text" title={`Inspect ${row.key || 'unknown'} errors`} aria-label={`Inspect ${row.key || 'unknown'} errors`} onclick={() => inspectTraces({ status: 'error', error_code: row.key || '' })}><ExternalLink size={13} /></button></td>
+              <td class="py-1.5 text-right"><button class="p-1 text-dark-text-muted hover:text-dark-text" title={`Inspect ${row.key || 'unknown'} errors`} aria-label={`Inspect ${row.key || 'unknown'} errors`} onclick={() => inspectTraces({ status: 'error', error_code: row.key || '' })}><ExternalLink size={13} /></button></td>
             </tr>
           {:else}
-            <tr><td colspan="4" class="py-4 text-gray-500 dark:text-dark-text-muted">No errors in this range.</td></tr>
+            <tr><td colspan="4" class="py-4 text-dark-text-muted">No errors in this range.</td></tr>
           {/each}
         </tbody>
       </table>
@@ -887,11 +885,11 @@
 
   <!-- Budget utilization -->
   {#if budgets.length > 0}
-    <div class="p-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
-      <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-3">
+    <div class="p-3 border border-dark-border bg-dark-surface mb-4">
+      <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Budget utilization
       </div>
-      <p class="mb-3 text-[11px] text-gray-500 dark:text-dark-text-muted">Current agent budget periods. These values are independent of the dashboard date and attribution filters above.</p>
+      <p class="mb-3 text-[11px] text-dark-text-muted">Current agent budget periods. These values are independent of the dashboard date and attribution filters above.</p>
       <div class="flex flex-col gap-2">
         {#each budgets as b}
           {@const pct = Math.min(100, b.usage_percent)}
@@ -900,27 +898,27 @@
           {@const budgetComplete = b.request_count === b.priced_request_count}
           <div class="flex items-center gap-2 text-xs">
             <div class="w-52 min-w-0" title={b.agent_id}>
-              <span class="font-medium text-gray-900 dark:text-dark-text block truncate">{b.agent_name || b.agent_id}</span>
-              <span class="text-[9px] text-gray-400 dark:text-dark-text-muted block truncate">
+              <span class="font-medium text-dark-text block truncate">{b.agent_name || b.agent_id}</span>
+              <span class="text-[9px] text-dark-text-muted block truncate">
                 {b.budget_period}{b.period_end ? ` · resets ${new Date(b.period_end).toLocaleString(undefined, { timeZone: b.budget_timezone || 'UTC' })}` : ''}
               </span>
-              <span class="text-[9px] text-gray-400 dark:text-dark-text-muted block truncate">
+              <span class="text-[9px] text-dark-text-muted block truncate">
                 {#if projected !== null}Projected ${projected.toFixed(2)} this period{:else if b.request_count > 0}Forecast unavailable · cost coverage incomplete{:else}No calls this period{/if}
               </span>
             </div>
-            <div class="flex-1 h-4 relative bg-gray-100 dark:bg-dark-elevated rounded-sm overflow-hidden">
+            <div class="flex-1 h-4 relative bg-dark-elevated overflow-hidden">
               <div
-                class="h-full "
+                class="h-full"
                 class:bg-blue-500={budgetComplete && !over && pct < 80}
                 class:bg-yellow-500={!over && (!budgetComplete || pct >= 80)}
                 class:bg-red-500={over}
                 style="width: {pct}%"
               ></div>
             </div>
-            <div class="w-28 text-right font-mono tabular-nums" class:text-red-600={over} class:dark:text-red-400={over}>
+            <div class="w-28 text-right font-mono tabular-nums" class:text-red-400={over}>
               {budgetComplete ? '' : 'known '}${b.current_spend.toFixed(2)} / ${b.monthly_limit.toFixed(2)}
             </div>
-            <div class="w-12 text-right font-mono text-gray-500 dark:text-dark-text-muted">
+            <div class="w-12 text-right font-mono text-dark-text-muted">
               {fmtPct(b.usage_percent)}
             </div>
           </div>
@@ -930,7 +928,7 @@
   {/if}
 
   {#if !loading && summary && summary.request_count === 0}
-    <div class="p-8 text-center text-sm text-gray-400 dark:text-dark-text-muted border border-dashed border-gray-300 dark:border-dark-border">
+    <div class="p-8 text-center text-sm text-dark-text-muted border border-dashed border-dark-border">
       No usage data in this range. Usage is recorded on every LLM call through the gateway or via
       agent/workflow execution.
     </div>

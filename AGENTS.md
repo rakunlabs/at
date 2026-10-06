@@ -3016,15 +3016,27 @@ See `_ui/README.md` for install, deployment and device verification instructions
 
 ### Styling
 - TailwindCSS 4 utility classes inline — almost no `<style>` blocks
-- Dark mode: class-based (`.dark`), custom `dark-*` tokens in `@theme` block in `global.css`
-- When `<style>` needs Tailwind: `@reference "tailwindcss"` at top of style block
+- Single dark theme, no light mode and no theme switch. `.dark` is always on
+  `<html>` (set in `index.html` and `store.svelte.ts`), so legacy `dark:`
+  variants still resolve; write new classes without the prefix.
+- Palette (`@theme` in `global.css`, modelled on the OpenCode TUI): `dark-base`
+  #0f0d0d ground, `dark-surface` / `dark-elevated` / `dark-highest` for raised
+  blocks, `dark-border` / `dark-border-subtle` for rules, `dark-text` /
+  `-secondary` / `-muted` / `-faint` for type, `accent` #5c9cf5 (blue), plus
+  `oc-peach` (running/selected), `oc-violet`, `oc-green`, `oc-red`. The gray
+  scale is remapped onto the same tones; prefer the named tokens.
+- Type is JetBrains Mono everywhere (`--font-sans` and `--font-mono`).
+- Solid `bg-accent` fills carry dark ink (`text-dark-base`), never white.
+- When `<style>` needs Tailwind: `@reference` the relative path to
+  `src/style/global.css` (not `"tailwindcss"`, and not the `@/` alias, which CSS
+  does not resolve), so the theme tokens exist inside `@apply`
 - `:global()` for styling `{@html}` rendered content or third-party library elements
 - Path alias: `@/` maps to `src/`
 
 The app style is square (no `rounded*` on cards, inputs, buttons, badges or
 modals), compact (`text-xs`/`text-sm`, `px-3 py-1.5`) and card-based: a bordered
-`border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface` panel
-with a `px-4 py-3 … bg-gray-50 dark:bg-dark-base` header strip and a `p-4` body.
+`border-dark-border bg-dark-surface` panel with a `px-4 py-3 … bg-dark-base`
+header strip and a `p-4` body.
 Providers, Agents, Secrets, Features and Tokens are the reference pages.
 
 The `.settings-*` classes in `src/style/global.css` (`@layer components`) exist

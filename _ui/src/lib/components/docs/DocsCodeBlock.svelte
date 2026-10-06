@@ -35,18 +35,18 @@
   }
 </script>
 
-<figure class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+<figure class="border border-dark-border bg-dark-surface">
   <figcaption
-    class="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated"
+    class="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-dark-border bg-dark-elevated"
   >
-    <span class="min-w-0 truncate font-mono text-[11px] text-gray-600 dark:text-dark-text-secondary">
+    <span class="min-w-0 truncate font-mono text-[11px] text-dark-text-secondary">
       {label || lang || 'code'}
     </span>
     <button
       type="button"
       onclick={copy}
       aria-label={copyLabel}
-      class="inline-flex shrink-0 items-center gap-1.5 border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-highest dark:focus-visible:outline-accent"
+      class="inline-flex shrink-0 items-center gap-1.5 border px-2 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-highest focus-visible:outline-accent"
     >
       {#if copied}
         <Check size={12} aria-hidden="true" />

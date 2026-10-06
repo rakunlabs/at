@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/lib/helper/tool-activity.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { toolResultsByMessage, formatToolPayload, toolResultFailed } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { toolResultsByMessage, formatToolPayload, toolResultFailed, toolGlyph, toolArgSummary, toolResultSummary } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const call = id => ({ id, type: 'function', function: { name: 'file_read', arguments: '{}' } });
 
 test('same-name calls keep distinct results, including out-of-order results', () => {
@@ -49,4 +49,25 @@ test('JSON is readable while plaintext, empty results and errors retain their me
   assert.equal(toolResultFailed('{"error":"denied"}'), true);
   assert.equal(toolResultFailed('{"error":null,"result":"ok"}'), false);
   assert.equal(toolResultFailed('No errors found'), false);
+});
+
+test('compact tool rows name the call by its identifying argument', () => {
+  assert.equal(toolGlyph('bash_execute'), '$');
+  assert.equal(toolGlyph('file_read'), '→');
+  assert.equal(toolGlyph('file_write'), '✎');
+  assert.equal(toolGlyph('grep_search'), '*');
+  assert.equal(toolGlyph('whoami'), '•');
+  assert.equal(toolArgSummary('{"timeout":5,"command":"go test ./..."}'), 'go test ./...');
+  assert.equal(toolArgSummary('{"pattern":"chatCallChain"}'), '"chatCallChain"');
+  assert.equal(toolArgSummary('{"options":{"a":1},"limit":10}'), '10');
+  assert.equal(toolArgSummary('{}'), '');
+  assert.equal(toolArgSummary('not json'), 'not json');
+  assert.equal(toolArgSummary(`{"path":"${'a'.repeat(200)}"}`).length, 120);
+});
+
+test('result summaries keep errors visible and collapse long output', () => {
+  assert.equal(toolResultSummary('Error: permission denied\nmore', true), 'error · permission denied');
+  assert.equal(toolResultSummary('', false), 'empty');
+  assert.equal(toolResultSummary('ok', false), 'ok');
+  assert.equal(toolResultSummary('a\nb\nc', false), '3 lines');
 });

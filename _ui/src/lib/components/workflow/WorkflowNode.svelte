@@ -100,21 +100,21 @@
       <Icon size={16} strokeWidth={2.25} />
     </span>
     <div class="min-w-0 flex-1">
-      <div class="truncate text-sm font-semibold leading-5 text-gray-900 dark:text-dark-text" title={title}>{title}</div>
+      <div class="truncate text-sm font-semibold leading-5 text-dark-text" title={title}>{title}</div>
       {#if subtitle}
-        <div class="truncate text-xs leading-4 text-gray-500 dark:text-dark-text-muted" title={subtitle}>{subtitle}</div>
+        <div class="truncate text-xs leading-4 text-dark-text-muted" title={subtitle}>{subtitle}</div>
       {/if}
     </div>
     <div class="flex shrink-0 items-center gap-1.5 pt-0.5">
       {#if run?.status === 'running'}
-        <Loader size={14} class="text-blue-600 dark:text-blue-400" aria-label="Running" />
+        <Loader size={14} class="text-blue-400" aria-label="Running" />
       {:else if run?.status === 'completed'}
-        {#if run.pinned}<Pin size={14} class="text-blue-600 dark:text-blue-400" aria-label="Pinned output" />{:else}<CircleCheck size={14} class="text-green-600 dark:text-green-400" aria-label="Completed" />{/if}
+        {#if run.pinned}<Pin size={14} class="text-blue-400" aria-label="Pinned output" />{:else}<CircleCheck size={14} class="text-green-400" aria-label="Completed" />{/if}
       {:else if run?.status === 'error'}
-        {#if run.error_policy}<TriangleAlert size={14} class="text-amber-600" aria-label="Handled failure" />{:else}<CircleX size={14} class="text-red-600 dark:text-red-400" aria-label="Failed" />{/if}
+        {#if run.error_policy}<TriangleAlert size={14} class="text-amber-600" aria-label="Handled failure" />{:else}<CircleX size={14} class="text-red-400" aria-label="Failed" />{/if}
       {/if}
       {#if data.node_number != null}
-        <span class="text-[11px] tabular-nums text-gray-400 dark:text-dark-text-faint">#{data.node_number}</span>
+        <span class="text-[11px] tabular-nums text-dark-text-faint">#{data.node_number}</span>
       {/if}
       {#if actions && (rows > 0 || setup || shownFields.length || code || tags.length || children || empty)}
         <button
@@ -123,7 +123,7 @@
           aria-expanded={!collapsed}
           aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
           title={collapsed ? 'Expand' : 'Collapse'}
-          class="-mr-1 flex size-5 items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-dark-text-faint dark:hover:bg-dark-elevated dark:hover:text-dark-text"
+          class="-mr-1 flex size-5 items-center justify-center text-dark-text-faint hover:bg-dark-elevated hover:text-dark-text"
         >
           {#if collapsed}<ChevronRight size={14} />{:else}<ChevronDown size={14} />{/if}
         </button>
@@ -147,7 +147,7 @@
       {/each}
     </div>
   {:else if rows > 0}
-    <div class="border-t border-gray-100 py-1 dark:border-dark-border">
+    <div class="border-t py-1 border-dark-border">
       {#each Array(rows) as _, i}
         {@const input = inputs[i]}
         {@const output = outputs[i]}
@@ -155,13 +155,13 @@
           <div class="wf-port relative min-w-0">
             {#if input}
               <Handle id={input.id} type="input" port={input.port ?? 'data'} accept={'accept' in input ? input.accept : ['data', 'text']} position="left" label={input.label ?? input.id} />
-              <span class={['block truncate pl-3', muted(input, 'in') ? 'text-gray-400 dark:text-dark-text-faint' : 'text-gray-700 dark:text-dark-text-secondary']}>{input.label ?? input.id}</span>
+              <span class={['block truncate pl-3', muted(input, 'in') ? 'text-dark-text-faint' : 'text-dark-text-secondary']}>{input.label ?? input.id}</span>
             {/if}
           </div>
           <div class="wf-port relative min-w-0">
             {#if output}
               <Handle id={output.id} type="output" port={output.port ?? 'data'} position="right" label={output.label ?? output.id} />
-              <span class={['block truncate pr-3 text-right', muted(output, 'out') ? 'text-gray-400 dark:text-dark-text-faint' : 'text-gray-700 dark:text-dark-text-secondary']}>{output.label ?? output.id}</span>
+              <span class={['block truncate pr-3 text-right', muted(output, 'out') ? 'text-dark-text-faint' : 'text-dark-text-secondary']}>{output.label ?? output.id}</span>
             {/if}
           </div>
         </div>
@@ -170,33 +170,33 @@
   {/if}
 
   {#if !collapsed && (setup || shownFields.length || code || tags.length || children || empty)}
-    <div class="space-y-2 border-t border-gray-100 px-3 py-2.5 dark:border-dark-border">
+    <div class="space-y-2 border-t px-3 py-2.5 border-dark-border">
       {#if setup}
-        <div class="flex items-center gap-1.5 border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <div class="flex items-center gap-1.5 border px-2 py-1 text-xs border-amber-900 bg-amber-950/40 text-amber-300">
           <CircleAlert size={12} class="shrink-0" />{setup}
         </div>
       {/if}
       {#if shownFields.length}
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
           {#each shownFields as field (field.label)}
-            <dt class="text-gray-500 dark:text-dark-text-muted">{field.label}</dt>
-            <dd class={['truncate text-gray-800 dark:text-dark-text', field.mono && 'font-mono']} title={String(field.value)}>{field.value}</dd>
+            <dt class="text-dark-text-muted">{field.label}</dt>
+            <dd class={['truncate text-dark-text', field.mono && 'font-mono']} title={String(field.value)}>{field.value}</dd>
           {/each}
         </dl>
       {/if}
       {#if code}
-        <pre class="line-clamp-3 overflow-hidden whitespace-pre-wrap break-all border border-gray-100 bg-gray-50 px-2 py-1.5 font-mono text-[11px] leading-4 text-gray-700 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-secondary">{code}</pre>
+        <pre class="line-clamp-3 overflow-hidden whitespace-pre-wrap break-all border px-2 py-1.5 font-mono text-[11px] leading-4 border-dark-border bg-dark-base text-dark-text-secondary">{code}</pre>
       {/if}
       {#if tags.length}
         <div class="flex flex-wrap gap-1">
           {#each tags as tag}
-            <span class="border border-gray-200 bg-gray-50 px-1.5 py-px font-mono text-[11px] text-gray-600 dark:border-dark-border dark:bg-dark-elevated dark:text-dark-text-secondary">{tag}</span>
+            <span class="border px-1.5 py-px font-mono text-[11px] border-dark-border bg-dark-elevated text-dark-text-secondary">{tag}</span>
           {/each}
         </div>
       {/if}
       {@render children?.()}
       {#if empty && !setup && !shownFields.length && !code && !tags.length && !children}
-        <p class="text-xs text-gray-500 dark:text-dark-text-muted">{empty}</p>
+        <p class="text-xs text-dark-text-muted">{empty}</p>
       {/if}
     </div>
   {/if}
@@ -204,11 +204,11 @@
   {#if run && run.status !== 'idle'}
     <div class={[
       'flex items-center gap-1.5 border-t px-3 py-1.5 text-[11px]',
-      run.status === 'running' && 'border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-950 dark:bg-blue-950/40 dark:text-blue-300',
-      run.status === 'completed' && 'border-green-100 bg-green-50 text-green-700 dark:border-green-950 dark:bg-green-950/40 dark:text-green-300',
+      run.status === 'running' && 'border-blue-950 bg-blue-950/40 text-blue-300',
+      run.status === 'completed' && 'border-green-950 bg-green-950/40 text-green-300',
       run.status === 'error' && (run.error_policy
-        ? 'border-amber-100 bg-amber-50 text-amber-800 dark:border-amber-950 dark:bg-amber-950/40 dark:text-amber-300'
-        : 'border-red-100 bg-red-50 text-red-700 dark:border-red-950 dark:bg-red-950/40 dark:text-red-300'),
+        ? 'border-amber-950 bg-amber-950/40 text-amber-300'
+        : 'border-red-950 bg-red-950/40 text-red-300'),
     ]}>
       <span class="min-w-0 flex-1 truncate font-medium" title={run.status === 'error' ? run.error : undefined}>
         {#if run.status === 'running'}

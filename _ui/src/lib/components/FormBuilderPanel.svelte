@@ -113,7 +113,7 @@
   }
 </script>
 
-<aside {id} class="settings-form relative max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" style:width={`${width}px`} aria-label={title}>
+<aside {id} class="settings-form relative max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-dark-border bg-dark-surface" style:width={`${width}px`} aria-label={title}>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
     role="separator"
@@ -122,16 +122,16 @@
     aria-valuenow={width}
     aria-valuemin={minWidth}
     tabindex="0"
-    class={["absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-gray-300/60 dark:hover:bg-dark-border focus:outline-none focus-visible:bg-gray-300/60", resizing ? "bg-gray-300/60 dark:bg-dark-border" : ""]}
+    class={["absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none hover:bg-dark-border focus:outline-none focus-visible:bg-dark-border-subtle/60", resizing ? "bg-dark-border" : ""]}
     onpointerdown={startResize}
     onkeydown={resizeByKey}
     ondblclick={() => { width = clampWidth(320); localStorage.setItem(widthKey, String(width)); }}
   ></div>
-  <header class="flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
-    <h3 class="flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-dark-text"><Bot size={14} class="text-gray-500 dark:text-dark-text-muted" />{title}</h3>
-    <button type="button" class="text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text" aria-label={`Close ${title}`} onclick={onclose}><X size={14} /></button>
+  <header class="flex items-center justify-between gap-3 px-3 py-2 border-b border-dark-border shrink-0">
+    <h3 class="flex items-center gap-1.5 text-xs font-medium text-dark-text"><Bot size={14} class="text-dark-text-muted" />{title}</h3>
+    <button type="button" class="text-dark-text-muted hover:text-dark-text" aria-label={`Close ${title}`} onclick={onclose}><X size={14} /></button>
   </header>
-  <div class="px-4 py-3 space-y-2 border-b border-gray-200 dark:border-dark-border">
+  <div class="px-4 py-3 space-y-2 border-b border-dark-border">
     <label>Assistant model<select bind:value={model} disabled={loading || busy || !models.length}>{#if !models.length}<option value="">{loading ? 'Loading models…' : 'No models available'}</option>{/if}{#each models as name}<option value={name}>{name}</option>{/each}</select></label>
     {#if contextLoading}<p role="status" class="settings-note">Loading available form resources…</p>{/if}
     {#if !loading && (!models.length || error)}<button type="button" class="settings-button" disabled={busy} onclick={loadModels}>Reload models</button>{/if}
@@ -145,7 +145,7 @@
     {#each messages as message}
       {#if message.role === 'user' || message.role === 'assistant'}
         <div class="space-y-1">
-          <p class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">{message.role === 'user' ? 'You' : 'Assistant'}</p>
+          <p class="text-xs font-medium text-dark-text-muted">{message.role === 'user' ? 'You' : 'Assistant'}</p>
           {#if message.role === 'assistant'}<Markdown source={getTextContent(message.content)} class="text-sm break-words" safe />
           {:else}<p class="text-sm whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>{/if}
           {#if message.tool_calls?.length}<p class="settings-note">{message.tool_calls.some(call => call.function.name === names.update) ? 'Processing form changes' : 'Reading form context'}</p>{/if}
@@ -154,7 +154,7 @@
     {/each}
     {#if busy}<p role="status" class="settings-note">Working…</p>{/if}
   </div>
-  <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border space-y-2">
+  <div class="px-4 py-3 border-t border-dark-border space-y-2">
     {#if updates.length}<p role="status" class="settings-note">Updated: {updates.join(', ')}. Not saved yet.</p>{/if}
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
     <label>Message<textarea rows="3" bind:value={input} {placeholder} onkeydown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); void send(); } }}></textarea></label>

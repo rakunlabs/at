@@ -243,19 +243,19 @@
   // Focus has to stay visible: reordering and status assignment are driven
   // from these buttons, so a keyboard user needs to see where they are.
   const focusRing =
-    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent';
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
   const iconButton =
-    `p-1 text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated ${focusRing} focus-visible:outline-offset-1 disabled:opacity-40 disabled:cursor-not-allowed `;
+    `p-1 text-dark-text-secondary hover:text-dark-text hover:bg-dark-elevated ${focusRing} focus-visible:outline-offset-1 disabled:opacity-40 disabled:cursor-not-allowed `;
 
   const actionButton = `px-3 py-1.5 text-xs font-medium ${focusRing} `;
   const primaryButton =
-    `${actionButton} flex items-center gap-1.5 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed`;
+    `${actionButton} flex items-center gap-1.5 bg-accent text-gray-950 hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed`;
   const secondaryButton =
-    `${actionButton} border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-40 disabled:cursor-not-allowed`;
+    `${actionButton} border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-40 disabled:cursor-not-allowed`;
 </script>
 
-<div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-gray-900/50 dark:bg-black/70 p-4">
+<div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4">
   <div
     bind:this={dialog}
     role="dialog"
@@ -264,13 +264,13 @@
     aria-describedby="board-editor-intro"
     tabindex="-1"
     onkeydown={onKeydown}
-    class="w-full max-w-5xl my-6 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-xl outline-none"
+    class="w-full max-w-5xl my-6 bg-dark-surface border border-dark-border shadow-xl outline-none"
   >
     <!-- Header -->
-    <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200 dark:border-dark-border">
+    <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-dark-border">
       <div>
-        <h2 id="board-editor-title" class="text-sm font-semibold text-gray-900 dark:text-dark-text">Board columns</h2>
-        <p id="board-editor-intro" class="mt-1 text-xs leading-relaxed text-gray-600 dark:text-dark-text-secondary max-w-2xl">
+        <h2 id="board-editor-title" class="text-sm font-semibold text-dark-text">Board columns</h2>
+        <p id="board-editor-intro" class="mt-1 text-xs leading-relaxed text-dark-text-secondary max-w-2xl">
           Each column collects one or more task statuses. A status belongs to one column at a time, and dragging a
           card into a column sets the task to that column's first status.
         </p>
@@ -286,11 +286,11 @@
 
     <!-- Conflict banner -->
     {#if conflict}
-      <div class="flex flex-wrap items-start gap-3 px-5 py-3 border-b border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40">
-        <TriangleAlert size={16} class="mt-0.5 shrink-0 text-amber-700 dark:text-amber-400" />
+      <div class="flex flex-wrap items-start gap-3 px-5 py-3 border-b border-amber-900/50 bg-amber-950/40">
+        <TriangleAlert size={16} class="mt-0.5 shrink-0 text-amber-400" />
         <div class="flex-1 min-w-[20rem]">
-          <p class="text-xs font-medium text-amber-900 dark:text-amber-200">The board was changed by someone else.</p>
-          <p class="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-200/90">
+          <p class="text-xs font-medium text-amber-200">The board was changed by someone else.</p>
+          <p class="mt-1 text-xs leading-relaxed text-amber-200/90">
             Your edit was not saved, so nothing of theirs was overwritten. Reloading replaces this draft with the
             current board; keep editing if you would rather copy your changes across by hand first.
           </p>
@@ -299,13 +299,13 @@
           <button
             onclick={reloadFromServer}
             disabled={saving}
-            class="px-2.5 py-1.5 text-xs font-medium bg-amber-800 text-white hover:bg-amber-900 dark:bg-amber-700 dark:hover:bg-amber-600 disabled:opacity-50 {focusRing}"
+            class="px-2.5 py-1.5 text-xs font-medium text-white bg-amber-700 hover:bg-amber-600 disabled:opacity-50 {focusRing}"
           >
             Reload the board
           </button>
           <button
             onclick={() => (conflict = false)}
-            class="px-2.5 py-1.5 text-xs font-medium border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 {focusRing}"
+            class="px-2.5 py-1.5 text-xs font-medium border border-amber-800 text-amber-200 hover:bg-amber-900/40 {focusRing}"
           >
             Keep editing
           </button>
@@ -319,12 +319,12 @@
         <section
           aria-label="Column {i + 1}: {columnName(i)}"
           class={[
-            'flex flex-col w-72 shrink-0 border bg-gray-50 dark:bg-dark-base',
-            problems[i] ? 'border-red-300 dark:border-red-900' : 'border-gray-200 dark:border-dark-border',
+            'flex flex-col w-72 shrink-0 border bg-dark-base',
+            problems[i] ? 'border-red-900' : 'border-dark-border',
           ]}
         >
           <!-- Name and column actions -->
-          <div class="flex items-center gap-1 px-2 py-2 border-b border-gray-200 dark:border-dark-border">
+          <div class="flex items-center gap-1 px-2 py-2 border-b border-dark-border">
             <span class="w-2.5 h-2.5 shrink-0 {columnDotClass(column.color)}"></span>
             <input
               id="board-col-label-{i}"
@@ -333,7 +333,7 @@
               maxlength={TASK_BOARD_MAX_LABEL_LENGTH}
               placeholder="Column name"
               aria-label="Name of column {i + 1}"
-              class="flex-1 min-w-0 bg-transparent px-1 py-0.5 text-sm font-medium text-gray-900 dark:text-dark-text border border-transparent hover:border-gray-300 dark:hover:border-dark-border-subtle focus:outline-none focus:border-gray-900 dark:focus:border-accent placeholder:text-gray-400 dark:placeholder:text-dark-text-muted"
+              class="flex-1 min-w-0 bg-transparent px-1 py-0.5 text-sm font-medium text-dark-text border border-transparent hover:border-dark-border-subtle focus:outline-none focus:border-accent placeholder:text-dark-text-muted"
             />
             <button
               id="board-col-left-{i}"
@@ -356,7 +356,7 @@
             <button
               onclick={() => requestRemove(i)}
               aria-label="Remove {columnName(i)}"
-              class="{iconButton} hover:text-red-600 dark:hover:text-red-400"
+              class="{iconButton} hover:text-red-400"
             >
               <Trash2 size={14} />
             </button>
@@ -364,8 +364,8 @@
 
           <!-- Removal confirmation -->
           {#if removeIndex === i}
-            <div class="px-3 py-2.5 border-b border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40">
-              <p class="text-xs leading-relaxed text-red-800 dark:text-red-200">
+            <div class="px-3 py-2.5 border-b border-red-900/60 bg-red-950/40">
+              <p class="text-xs leading-relaxed text-red-200">
                 {columnTaskCount(i) === 1 ? '1 task is' : `${columnTaskCount(i)} tasks are`} in
                 "{columnName(i)}". Removing it keeps their status but takes them off the board unless another column
                 collects it.
@@ -379,7 +379,7 @@
                 </button>
                 <button
                   onclick={() => (removeIndex = null)}
-                  class="px-2 py-1 text-xs font-medium border border-red-300 dark:border-red-900 text-red-800 dark:text-red-200 hover:bg-red-100 dark:hover:bg-red-900/40 {focusRing}"
+                  class="px-2 py-1 text-xs font-medium border border-red-900 text-red-200 hover:bg-red-900/40 {focusRing}"
                 >
                   Keep it
                 </button>
@@ -388,7 +388,7 @@
           {/if}
 
           <!-- Colour -->
-          <fieldset class="px-3 py-2 border-b border-gray-200 dark:border-dark-border">
+          <fieldset class="px-3 py-2 border-b border-dark-border">
             <legend class="sr-only">Colour for {columnName(i)}</legend>
             <div class="flex items-center gap-2">
               {#each TASK_BOARD_COLORS as color}
@@ -403,7 +403,7 @@
                   />
                   <span
                     aria-hidden="true"
-                    class="w-5 h-5 {columnDotClass(color)} ring-offset-2 ring-offset-gray-50 dark:ring-offset-dark-base peer-checked:ring-2 peer-checked:ring-gray-900 dark:peer-checked:ring-dark-text peer-focus-visible:ring-2 peer-focus-visible:ring-gray-900 dark:peer-focus-visible:ring-accent"
+                    class="w-5 h-5 {columnDotClass(color)} ring-offset-2 ring-offset-dark-base peer-checked:ring-2 peer-checked:ring-dark-text peer-focus-visible:ring-2 peer-focus-visible:ring-accent"
                   ></span>
                   <span class="sr-only">{TASK_BOARD_COLOR_LABELS[color]}</span>
                 </label>
@@ -416,11 +416,11 @@
             {#if column.statuses.length}
               <ol class="space-y-1">
                 {#each column.statuses as status, si (status)}
-                  <li class="flex items-center gap-1 pl-2 pr-1 py-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border">
-                    <span class="flex-1 min-w-0 truncate text-xs text-gray-900 dark:text-dark-text">
+                  <li class="flex items-center gap-1 pl-2 pr-1 py-1 bg-dark-surface border border-dark-border">
+                    <span class="flex-1 min-w-0 truncate text-xs text-dark-text">
                       {taskStatusText(status)}
                     </span>
-                    <span class="text-[11px] font-mono tabular-nums text-gray-500 dark:text-dark-text-secondary">
+                    <span class="text-[11px] font-mono tabular-nums text-dark-text-secondary">
                       {statusCounts[status] || 0}<span class="sr-only"> tasks loaded</span>
                     </span>
                     <button
@@ -444,34 +444,34 @@
                     <button
                       onclick={() => unassignStatus(i, status)}
                       aria-label="Take {taskStatusText(status)} off {columnName(i)}"
-                      class="{iconButton} hover:text-red-600 dark:hover:text-red-400"
+                      class="{iconButton} hover:text-red-400"
                     >
                       <X size={13} />
                     </button>
                   </li>
                 {/each}
               </ol>
-              <p class="mt-2 text-[11px] leading-relaxed text-gray-600 dark:text-dark-text-secondary">
-                A card dropped here becomes <strong class="font-medium text-gray-900 dark:text-dark-text">{taskStatusText(dropStatus(column))}</strong>.
+              <p class="mt-2 text-[11px] leading-relaxed text-dark-text-secondary">
+                A card dropped here becomes <strong class="font-medium text-dark-text">{taskStatusText(dropStatus(column))}</strong>.
               </p>
             {:else}
-              <p class="text-xs leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+              <p class="text-xs leading-relaxed text-dark-text-secondary">
                 No statuses yet, so nothing would appear in this column.
               </p>
             {/if}
 
             {#if problems[i]}
-              <p role="alert" class="mt-2 text-xs leading-relaxed text-red-700 dark:text-red-300">{problems[i]}</p>
+              <p role="alert" class="mt-2 text-xs leading-relaxed text-red-300">{problems[i]}</p>
             {/if}
           </div>
 
           <!-- Assign a status -->
-          <div class="px-3 py-2.5 border-t border-gray-200 dark:border-dark-border">
+          <div class="px-3 py-2.5 border-t border-dark-border">
             <label class="sr-only" for="board-add-status-{i}">Add a status to {columnName(i)}</label>
             <select
               id="board-add-status-{i}"
               onchange={(e) => { assignStatus(i, e.currentTarget.value); e.currentTarget.value = ''; }}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs text-gray-900 dark:bg-dark-elevated dark:text-dark-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+              class="w-full border border-dark-border-subtle px-2 py-1.5 text-xs bg-dark-elevated text-dark-text focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
             >
               <option value="">Add a status…</option>
               {#each available.filter(s => !column.statuses.includes(s)) as status}
@@ -489,7 +489,7 @@
           id="board-add-column"
           onclick={addColumn}
           disabled={draft.length >= TASK_BOARD_MAX_COLUMNS}
-          class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-dashed border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:border-gray-900 dark:hover:border-accent hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-40 disabled:cursor-not-allowed {focusRing}"
+          class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-dashed border-dark-border-subtle text-dark-text-secondary hover:border-accent hover:text-dark-text disabled:opacity-40 disabled:cursor-not-allowed {focusRing}"
         >
           <Plus size={13} />
           {draft.length >= TASK_BOARD_MAX_COLUMNS ? `${TASK_BOARD_MAX_COLUMNS} columns is the maximum` : 'Add a column'}
@@ -499,10 +499,10 @@
 
     <!-- What this layout hides -->
     {#if uncovered.length}
-      <div class="flex items-start gap-2.5 mx-5 mb-4 px-3 py-2.5 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <EyeOff size={14} class="mt-0.5 shrink-0 text-gray-600 dark:text-dark-text-secondary" />
-        <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">
-          Not on the board: <span class="text-gray-900 dark:text-dark-text">{uncovered.map(taskStatusText).join(', ')}</span>.
+      <div class="flex items-start gap-2.5 mx-5 mb-4 px-3 py-2.5 border border-dark-border bg-dark-base">
+        <EyeOff size={14} class="mt-0.5 shrink-0 text-dark-text-secondary" />
+        <p class="text-xs leading-relaxed text-dark-text-secondary">
+          Not on the board: <span class="text-dark-text">{uncovered.map(taskStatusText).join(', ')}</span>.
           {#if hiddenCount > 0}
             {hiddenCount === 1 ? '1 loaded task is' : `${hiddenCount} loaded tasks are`} in {uncovered.length === 1 ? 'it' : 'those statuses'} and would not be shown.
           {:else}
@@ -513,16 +513,16 @@
     {/if}
 
     <!-- Footer -->
-    <div class="px-5 py-3.5 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+    <div class="px-5 py-3.5 border-t border-dark-border bg-dark-base">
       {#if error}
-        <p role="alert" class="mb-3 text-xs leading-relaxed text-red-700 dark:text-red-300">{error}</p>
+        <p role="alert" class="mb-3 text-xs leading-relaxed text-red-300">{error}</p>
       {:else if blocking}
-        <p class="mb-3 text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">{blocking}</p>
+        <p class="mb-3 text-xs leading-relaxed text-dark-text-secondary">{blocking}</p>
       {/if}
 
       {#if resetConfirm}
-        <div class="mb-3 px-3 py-2.5 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface">
-          <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">
+        <div class="mb-3 px-3 py-2.5 border border-dark-border-subtle bg-dark-surface">
+          <p class="text-xs leading-relaxed text-dark-text-secondary">
             Reset discards the saved layout for everyone in this workspace and returns to the four default columns.
           </p>
           <div class="flex gap-2 mt-2">

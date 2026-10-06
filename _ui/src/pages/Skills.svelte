@@ -777,33 +777,33 @@
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto">
       <!-- Tab Bar -->
-      <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
+      <div class="flex items-center gap-4 mb-4 border-b border-dark-border">
         <button
           onclick={() => (tabRoute.value = 'my-skills')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'my-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'my-skills' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
         >
           <Wand2 size={14} />
           My Skills
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.filter((skill) => Boolean(skill.owner_user_id)).length})</span>
+          <span class="text-xs text-dark-text-muted">({skills.filter((skill) => Boolean(skill.owner_user_id)).length})</span>
         </button>
         <button
           onclick={() => { tabRoute.value = 'workspace-skills'; offset = 0; mySelectedCategory = ''; resetForm(); }}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'workspace-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'workspace-skills' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
         >
           <Users size={14} />
           Workspace Skills
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.filter((skill) => !skill.owner_user_id).length})</span>
+          <span class="text-xs text-dark-text-muted">({skills.filter((skill) => !skill.owner_user_id).length})</span>
         </button>
         <button
           onclick={() => (tabRoute.value = 'store')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'store' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
         >
           <Store size={14} />
           Skill Store
         </button>
         <button
           onclick={() => (tabRoute.value = 'community')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'community' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'community' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
         >
           <Globe size={14} />
           Community
@@ -814,14 +814,14 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <Wand2 size={16} class="text-gray-500 dark:text-dark-text-muted" />
-          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Skills</h2>
+          <Wand2 size={16} class="text-dark-text-muted" />
+          <h2 class="text-sm font-medium text-dark-text">Skills</h2>
         </div>
         <div class="flex items-center gap-2">
           {#if activeTab === 'my-skills'}
           <button
             onclick={() => { showImportURL = !showImportURL; if (showImportURL) showImportRaw = false; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
             title="Import skill from URL"
           >
             <ExternalLink size={12} />
@@ -829,7 +829,7 @@
           </button>
           <button
             onclick={() => { showImportRaw = !showImportRaw; if (showImportRaw) showImportURL = false; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
             title="Paste raw SKILL.md content"
           >
             <FileText size={12} />
@@ -838,7 +838,7 @@
           {/if}
           <button
             onclick={load}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+            class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
             title="Refresh"
           >
             <RefreshCw size={14} />
@@ -846,7 +846,7 @@
           {#if activeTab === 'my-skills' || mayPublish}
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
           >
             <Plus size={12} />
             New Skill
@@ -857,58 +857,58 @@
 
       <!-- Import from URL -->
       {#if showImportURL}
-        <div class="mb-4 p-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 space-y-3">
+        <div class="mb-4 p-3 border border-dark-border bg-dark-base/50 space-y-3">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-xs font-medium text-gray-800 dark:text-dark-text">Import a skill source</div>
-              <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">Use a raw JSON/SKILL.md URL or clone a Git repository package with bundled references.</p>
+              <div class="text-xs font-medium text-dark-text">Import a skill source</div>
+              <p class="mt-0.5 text-[11px] text-dark-text-muted">Use a raw JSON/SKILL.md URL or clone a Git repository package with bundled references.</p>
             </div>
-            <button type="button" aria-label="Close import form" onclick={() => { showImportURL = false; }} class="p-1.5 shrink-0 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary">
+            <button type="button" aria-label="Close import form" onclick={() => { showImportURL = false; }} class="p-1.5 shrink-0 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
-          <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-dark-text-secondary">
+          <label class="flex items-center gap-2 text-xs text-dark-text-secondary">
             <input type="checkbox" bind:checked={importRepository} onchange={() => { if (importRepository) void loadGitCredentials(); }} class="size-3.5" />
             Git repository
           </label>
           <div class="grid grid-cols-1 gap-2 {importRepository ? 'md:grid-cols-[minmax(0,2fr)_minmax(8rem,0.7fr)_minmax(0,1fr)]' : ''}">
-            <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+            <label class="min-w-0 text-[11px] text-dark-text-muted">
               {importRepository ? 'Clone URL' : 'File URL'}
-              <input type="text" bind:value={importURL} placeholder={importRepository ? 'https://git.example.com/team/skills.git' : 'https://example.com/SKILL.md'} class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+              <input type="text" bind:value={importURL} placeholder={importRepository ? 'https://git.example.com/team/skills.git' : 'https://example.com/SKILL.md'} class="mt-1 w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted" />
             </label>
             {#if importRepository}
-              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              <label class="min-w-0 text-[11px] text-dark-text-muted">
                 Branch or tag
-                <input type="text" bind:value={importRef} placeholder="default branch" class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+                <input type="text" bind:value={importRef} placeholder="default branch" class="mt-1 w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted" />
               </label>
-              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              <label class="min-w-0 text-[11px] text-dark-text-muted">
                 Path inside repository
-                <input type="text" bind:value={importPath} placeholder="skills/my-skill" class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+                <input type="text" bind:value={importPath} placeholder="skills/my-skill" class="mt-1 w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted" />
               </label>
             {/if}
           </div>
           {#if importRepository}
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <label class="min-w-0 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              <label class="min-w-0 text-[11px] text-dark-text-muted">
                 SSH credential
-                <select bind:value={importCredentialID} class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text">
+                <select bind:value={importCredentialID} class="mt-1 w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text">
                   <option value="">Server SSH configuration</option>
                   {#each gitCredentials as credential}<option value={credential.id}>{credential.name} — {credential.host}</option>{/each}
                 </select>
               </label>
-              <a href="#/settings/git-credentials" class="inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Manage deploy keys</a>
+              <a href="#/settings/git-credentials" class="inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Manage deploy keys</a>
             </div>
           {/if}
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             {#if importRepository}
-              <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-dark-text-secondary">
+              <label class="flex items-center gap-2 text-xs text-dark-text-secondary">
                 <input type="checkbox" bind:checked={importAll} class="size-3.5" />
                 Import every skill found under this path
               </label>
             {:else}
               <span></span>
             {/if}
-            <button onclick={handleImportURL} disabled={importingURL} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50">
+            <button onclick={handleImportURL} disabled={importingURL} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50">
               <Upload size={12} />
               {importingURL ? (importRepository ? 'Cloning...' : 'Importing...') : 'Import'}
             </button>
@@ -918,12 +918,12 @@
 
       <!-- Import Raw SKILL.md -->
       {#if showImportRaw}
-        <div class="mb-4 p-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 space-y-2">
+        <div class="mb-4 p-3 border border-dark-border bg-dark-base/50 space-y-2">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste raw SKILL.md content</span>
+            <span class="text-xs font-medium text-dark-text-secondary">Paste raw SKILL.md content</span>
             <button
               onclick={() => { showImportRaw = false; }}
-              class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+              class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
             >
               <X size={14} />
             </button>
@@ -932,13 +932,13 @@
             bind:value={importRawContent}
             rows={10}
             placeholder={"---\nname: my_skill\ndescription: What this skill does\n---\n\n# Instructions\n\nYour system prompt content here..."}
-            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
+            class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 resize-y text-dark-text placeholder:text-dark-text-muted"
           ></textarea>
           <div class="flex justify-end">
             <button
               onclick={handleImportRaw}
               disabled={importingRaw}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
             >
               <Upload size={12} />
               {importingRaw ? 'Importing...' : 'Import SKILL.md'}
@@ -952,12 +952,12 @@
         <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
           <button
             onclick={() => mySelectedCategory = ''}
-            class={["px-2 py-0.5 text-xs border ", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+            class={["px-2 py-0.5 text-xs border ", !mySelectedCategory ? 'bg-accent text-dark-base border-accent' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated']}
           >All</button>
           {#each myCategories as cat}
             <button
               onclick={() => mySelectedCategory = cat}
-              class={["px-2 py-0.5 text-xs border ", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+              class={["px-2 py-0.5 text-xs border ", mySelectedCategory === cat ? 'bg-accent text-dark-base border-accent' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated']}
             >{cat}</button>
           {/each}
         </div>
@@ -965,15 +965,15 @@
 
       <!-- Form -->
       {#if showForm}
-        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+        <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border bg-dark-base/50">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+              <span class="text-sm font-medium text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Skill'}
               </span>
-              <button type="button" disabled={saving} aria-expanded={showAIBuilder} aria-controls="skill-ai-builder" onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
+              <button type="button" disabled={saving} aria-expanded={showAIBuilder} aria-controls="skill-ai-builder" onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent-text border-accent/30' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
             </div>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
+            <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
@@ -981,39 +981,39 @@
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
             {#if editingSkill}
               {@const resources = editingSkill.resources ?? []}
-              <div class="border border-gray-200 dark:border-dark-border">
-                <div class="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-border dark:bg-dark-base/50">
-                  <div class="flex min-w-0 items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-dark-text">
+              <div class="border border-dark-border">
+                <div class="flex items-center justify-between gap-3 border-b px-3 py-2 border-dark-border bg-dark-base/50">
+                  <div class="flex min-w-0 items-center gap-1.5 text-sm font-medium text-dark-text">
                     <FolderOpen size={14} class="shrink-0" />
                     Skill folder
-                    <span class="text-xs font-normal text-gray-500 dark:text-dark-text-muted">· {resources.length + 1} file{resources.length ? 's' : ''}</span>
+                    <span class="text-xs font-normal text-dark-text-muted">· {resources.length + 1} file{resources.length ? 's' : ''}</span>
                   </div>
-                  <button type="button" onclick={() => openFolderFromForm()} disabled={saving} class="flex shrink-0 items-center gap-1.5 border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary dark:hover:bg-dark-border">
+                  <button type="button" onclick={() => openFolderFromForm()} disabled={saving} class="flex shrink-0 items-center gap-1.5 border px-2.5 py-1 text-xs font-medium disabled:opacity-50 border-dark-border-subtle bg-dark-elevated text-dark-text-secondary hover:bg-dark-border">
                     <FolderOpen size={12} /> Open folder
                   </button>
                 </div>
-                <ul class="divide-y divide-gray-100 text-xs dark:divide-dark-border">
+                <ul class="divide-y text-xs divide-dark-border">
                   <li>
-                    <button type="button" onclick={() => openFolderFromForm('SKILL.md')} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated">
-                      <FileText size={12} class="shrink-0 text-gray-400 dark:text-dark-text-muted" />
-                      <span class="font-mono text-gray-800 dark:text-dark-text">SKILL.md</span>
-                      <span class="truncate text-gray-500 dark:text-dark-text-muted">— generated from the fields below</span>
+                    <button type="button" onclick={() => openFolderFromForm('SKILL.md')} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-dark-elevated">
+                      <FileText size={12} class="shrink-0 text-dark-text-muted" />
+                      <span class="font-mono text-dark-text">SKILL.md</span>
+                      <span class="truncate text-dark-text-muted">— generated from the fields below</span>
                     </button>
                   </li>
                   {#each resources.slice(0, 8) as resource (resource.path)}
                     <li>
-                      <button type="button" onclick={() => openFolderFromForm(resource.path)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated" title={`Open ${resource.path}`}>
-                        <FileText size={12} class="shrink-0 text-gray-400 dark:text-dark-text-muted" />
-                        <span class="min-w-0 truncate font-mono text-gray-700 dark:text-dark-text-secondary">{resource.path}</span>
-                        <span class="ml-auto shrink-0 text-gray-400 dark:text-dark-text-muted">{formatBytes(new TextEncoder().encode(resource.content).length)}</span>
+                      <button type="button" onclick={() => openFolderFromForm(resource.path)} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-dark-elevated" title={`Open ${resource.path}`}>
+                        <FileText size={12} class="shrink-0 text-dark-text-muted" />
+                        <span class="min-w-0 truncate font-mono text-dark-text-secondary">{resource.path}</span>
+                        <span class="ml-auto shrink-0 text-dark-text-muted">{formatBytes(new TextEncoder().encode(resource.content).length)}</span>
                       </button>
                     </li>
                   {/each}
                   {#if resources.length > 8}
-                    <li><button type="button" onclick={() => openFolderFromForm()} class="w-full px-3 py-1.5 text-left text-gray-500 hover:bg-gray-50 dark:text-dark-text-muted dark:hover:bg-dark-elevated">and {resources.length - 8} more…</button></li>
+                    <li><button type="button" onclick={() => openFolderFromForm()} class="w-full px-3 py-1.5 text-left text-dark-text-muted hover:bg-dark-elevated">and {resources.length - 8} more…</button></li>
                   {/if}
                 </ul>
-                <p class="border-t border-gray-100 px-3 py-2 text-[11px] text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+                <p class="border-t px-3 py-2 text-[11px] border-dark-border text-dark-text-muted">
                   {resources.length
                     ? 'Updating this form rewrites SKILL.md only; the other files stay as they are. Edit them in the folder.'
                     : 'Only SKILL.md so far. Add references, scripts or templates in the folder.'}
@@ -1023,11 +1023,11 @@
 
             {#if !editingId && mayPublish}
               <div class="grid grid-cols-4 gap-3 items-center">
-                <label for="form-scope" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Availability</label>
+                <label for="form-scope" class="text-sm font-medium text-dark-text-secondary">Availability</label>
                 <select
                   id="form-scope"
                   bind:value={formScope}
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                  class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text"
                 >
                   <option value="personal">Personal — only visible to you</option>
                   <option value="workspace">Workspace — shared with this workspace</option>
@@ -1036,118 +1036,118 @@
             {/if}
 
             {#if !editingId && formScope === 'personal'}
-              <div class="border border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-base/50">
+              <div class="border p-3 border-dark-border bg-dark-base/50">
                 <div class="mb-2 flex items-start justify-between gap-3">
                   <div>
-                    <div class="flex items-center gap-1.5 text-sm font-medium text-gray-800 dark:text-dark-text">
+                    <div class="flex items-center gap-1.5 text-sm font-medium text-dark-text">
                       <FolderOpen size={14} />
                       Create from a skill folder
                     </div>
-                    <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+                    <p class="mt-0.5 text-[11px] text-dark-text-muted">
                       Select or drop one folder containing SKILL.md. All nested text files are imported with their folder structure.
                     </p>
                   </div>
                   {#if createFolderFiles.length > 0}
-                    <button type="button" onclick={() => createFolderFiles = []} class="shrink-0 p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-dark-text-muted dark:hover:bg-dark-elevated"><X size={13} /></button>
+                    <button type="button" onclick={() => createFolderFiles = []} class="shrink-0 p-1 hover:text-dark-text-secondary text-dark-text-muted hover:bg-dark-elevated"><X size={13} /></button>
                   {/if}
                 </div>
                 <div
                   role="region"
                   aria-label="Drop a skill folder"
-                  class={['flex min-h-24 flex-col items-center justify-center border border-dashed px-4 py-3 text-center text-blue-700 dark:text-accent-text', createFolderDragging ? 'border-blue-500 bg-blue-50 dark:bg-accent-muted' : 'border-gray-300 bg-white dark:border-dark-border-subtle dark:bg-dark-surface']}
+                  class={['flex min-h-24 flex-col items-center justify-center border border-dashed px-4 py-3 text-center text-accent-text', createFolderDragging ? 'border-blue-500 bg-accent-muted' : 'border-dark-border-subtle bg-dark-surface']}
                   ondragover={(event) => { event.preventDefault(); createFolderDragging = true; }}
                   ondragleave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) createFolderDragging = false; }}
                   ondrop={dropCreateFolder}
                 >
                   <FolderOpen size={22} class="mb-1" />
                   {#if createFolderFiles.length > 0}
-                    <div class="text-xs font-medium text-gray-800 dark:text-dark-text">{createFolderFiles.length} files ready</div>
+                    <div class="text-xs font-medium text-dark-text">{createFolderFiles.length} files ready</div>
                     <div class="mt-0.5 max-w-full truncate text-[11px]">{createFolderFiles[0]?.path.split('/')[0]}</div>
                   {:else}
-                    <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Drop the complete folder here</div>
+                    <div class="text-xs font-medium text-dark-text-secondary">Drop the complete folder here</div>
                     <div class="mt-0.5 text-[11px]">SKILL.md + references, scripts and other text files</div>
                   {/if}
-                  <button type="button" onclick={() => createFolderInput?.click()} class="mt-2 border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary dark:hover:bg-dark-border">
+                  <button type="button" onclick={() => createFolderInput?.click()} class="mt-2 border px-3 py-1.5 text-xs font-medium border-dark-border-subtle bg-dark-elevated text-dark-text-secondary hover:bg-dark-border">
                     Choose folder
                   </button>
                   <input bind:this={createFolderInput} class="hidden" type="file" multiple webkitdirectory={true} onchange={selectCreateFolder} />
                 </div>
                 {#if createFolderFiles.length > 0}
                   <div class="mt-2 flex items-center justify-between gap-3">
-                    <span class="text-[11px] {createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md') ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}">
+                    <span class="text-[11px] {createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md') ? 'text-green-400' : 'text-amber-400'}">
                       {createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md') ? 'SKILL.md found' : 'SKILL.md is required'}
                     </span>
-                    <button type="button" onclick={handleImportFolder} disabled={importingFolder || !createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md')} class="flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-40 dark:bg-accent dark:hover:bg-accent-hover">
+                    <button type="button" onclick={handleImportFolder} disabled={importingFolder || !createFolderFiles.some((item) => item.file.name.toLowerCase() === 'skill.md')} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base disabled:opacity-40 bg-accent hover:bg-accent-hover">
                       <Upload size={12} />
                       {importingFolder ? 'Creating...' : 'Create from folder'}
                     </button>
                   </div>
                 {/if}
-                <div class="mt-3 flex items-center gap-3 text-[11px] text-gray-400 before:h-px before:flex-1 before:bg-gray-200 after:h-px after:flex-1 after:bg-gray-200 dark:text-dark-text-muted dark:before:bg-dark-border dark:after:bg-dark-border">or define it manually</div>
+                <div class="mt-3 flex items-center gap-3 text-[11px] before:h-px before:flex-1 after:h-px after:flex-1 text-dark-text-muted before:bg-dark-border after:bg-dark-border">or define it manually</div>
               </div>
             {/if}
 
             <!-- Name -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
+              <label for="form-name" class="text-sm font-medium text-dark-text-secondary">Name</label>
               <input
                 id="form-name"
                 type="text"
                 bind:value={formName}
                 placeholder="e.g., web_search, code_review"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- Description -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
+              <label for="form-description" class="text-sm font-medium text-dark-text-secondary">Description</label>
               <input
                 id="form-description"
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this skill does"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- Category -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-category" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Category</label>
+              <label for="form-category" class="text-sm font-medium text-dark-text-secondary">Category</label>
               <input
                 id="form-category"
                 type="text"
                 bind:value={formCategory}
                 placeholder="e.g. OpenMontage, Utilities"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- Tags -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-tags" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Tags</label>
+              <label for="form-tags" class="text-sm font-medium text-dark-text-secondary">Tags</label>
               <input
                 id="form-tags"
                 type="text"
                 value={formTags.join(', ')}
                 oninput={(e) => { formTags = (e.target as HTMLInputElement).value.split(',').map(t => t.trim()).filter(Boolean); }}
                 placeholder="e.g. video, production"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- Markdown instructions -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Instructions</label>
+              <label for="form-system-prompt" class="text-sm font-medium text-dark-text-secondary pt-1.5">Instructions</label>
               <div class="col-span-3 space-y-2">
                 <textarea
                   id="form-system-prompt"
                   bind:value={formSystemPrompt}
                   rows={12}
                   placeholder={'Write Markdown guidance for the agent.\n\nDescribe which existing built-in, MCP, or workflow tools to use when needed.'}
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle resize-y text-dark-text placeholder:text-dark-text-muted"
                 ></textarea>
-                <div class="flex gap-2 border border-blue-200 dark:border-accent/30 bg-blue-50 dark:bg-accent-muted px-3 py-2 text-xs text-blue-800 dark:text-accent-text">
+                <div class="flex gap-2 border border-accent/30 bg-accent-muted px-3 py-2 text-xs text-accent-text">
                   <BookOpen size={14} class="mt-0.5 shrink-0" />
                   <p>Skills are documentation only. Code blocks are examples and are never executed. Executable capabilities must be configured as built-in tools, MCP tools, or workflows.</p>
                 </div>
@@ -1156,13 +1156,13 @@
 
             <!-- Execution Context -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <label for="form-context" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Execution</label>
+              <label for="form-context" class="text-sm font-medium text-dark-text-secondary pt-1.5">Execution</label>
               <div class="col-span-3 space-y-2">
                 <select
                   id="form-context"
                   bind:value={formContext}
                   onchange={() => { if (formContext !== 'fork') formAgent = ''; }}
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                  class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text"
                 >
                   <option value="">Current agent context</option>
                   <option value="fork">Forked subagent context</option>
@@ -1170,31 +1170,31 @@
                 {#if formContext === 'fork'}
                   <select
                     bind:value={formAgent}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text"
                   >
                     <option value="">Select subagent...</option>
                     {#each agents as agent}
                       <option value={agent.id}>{agent.name}</option>
                     {/each}
                   </select>
-                  <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">The calling agent chooses foreground or background for each run. It must include this target in its Subagents allowlist.</p>
+                  <p class="text-[11px] text-dark-text-muted">The calling agent chooses foreground or background for each run. It must include this target in its Subagents allowlist.</p>
                 {/if}
               </div>
             </div>
 
             <!-- Actions -->
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+            <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+                class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -1225,30 +1225,30 @@
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Content</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Content</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
 
           {#snippet row(skill)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
+            <tr class="hover:bg-dark-elevated/50">
               <td class="px-4 py-2.5">
-                <div class="font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</div>
+                <div class="font-mono font-medium text-dark-text">{skill.name}</div>
                 {#if skill.resources?.length}
-                  <button type="button" onclick={() => openFolder(skill)} class="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text" title="Open skill folder">
+                  <button type="button" onclick={() => openFolder(skill)} class="mt-0.5 flex items-center gap-1 text-[11px] text-dark-text-muted hover:text-dark-text" title="Open skill folder">
                     <FolderOpen size={11} /> {skill.resources.length + 1} files
                   </button>
                 {/if}
               </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
+              <td class="px-4 py-2.5 text-xs text-dark-text-muted max-w-64 truncate" title={skill.description}>
                 {skill.description || '-'}
               </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+              <td class="px-4 py-2.5 text-xs text-dark-text-muted">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-dark-elevated text-dark-text-secondary">
                   <BookOpen size={11} /> Markdown
                 </span>
                 {#if skill.resources?.length}
-                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">{skill.resources.length} resource{skill.resources.length === 1 ? '' : 's'}</span>
+                  <span class="ml-1.5 text-dark-text-muted">{skill.resources.length} resource{skill.resources.length === 1 ? '' : 's'}</span>
                 {/if}
               </td>
               <td class="px-4 py-2.5 text-right">
@@ -1256,7 +1256,7 @@
                   {#if skill.owner_user_id === storeAuth.identity?.subject && mayPublish}
                     <button
                       onclick={() => handlePublish(skill)}
-                      class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text"
+                      class="p-1.5 hover:bg-accent-muted hover:text-blue-300 text-accent-text"
                       title="Copy to Workspace Skills"
                     >
                       <Share2 size={14} />
@@ -1264,14 +1264,14 @@
                   {/if}
                   <button
                     onclick={() => openFolder(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Open skill folder"
                   >
                     <FolderOpen size={14} />
                   </button>
                   <button
                     onclick={() => handleDownload(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Download skill package"
                     aria-label={`Download ${skill.name} as a ZIP package`}
                   >
@@ -1280,7 +1280,7 @@
                   {#if skill.owner_user_id || mayPublish}
                   <button
                     onclick={() => openEdit(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1288,20 +1288,20 @@
                   {#if deleteConfirm === skill.id}
                     <button
                       onclick={() => handleDelete(skill.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
+                      class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = skill.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
+                      class="p-1.5 hover:bg-red-900/20 text-red-400 hover:text-red-300"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1322,11 +1322,11 @@
         {#if templates.length > 0}
           {@const categories = [...new Set(templates.map((t) => t.category))]}
           <div class="flex items-center gap-2 mb-4 flex-wrap">
-            <span class="text-xs text-gray-500 dark:text-dark-text-muted">Filter:</span>
+            <span class="text-xs text-dark-text-muted">Filter:</span>
             {#each categories as cat}
               <button
                 onclick={() => selectCategory(cat)}
-                class="px-2.5 py-1 text-xs font-medium {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+                class="px-2.5 py-1 text-xs font-medium {selectedCategory === cat ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}"
               >
                 {cat}
               </button>
@@ -1334,7 +1334,7 @@
             {#if selectedCategory}
               <button
                 onclick={() => selectCategory('')}
-                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+                class="px-2 py-1 text-xs text-dark-text-muted hover:text-dark-text-secondary"
               >
                 Clear
               </button>
@@ -1343,65 +1343,65 @@
         {/if}
 
         {#if storeLoading}
-          <div class="flex items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+          <div class="flex items-center justify-center py-12 text-dark-text-muted">
             <RefreshCw size={16} class="animate-spin mr-2" />
             Loading templates...
           </div>
         {:else if templates.length === 0}
-          <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+          <div class="flex flex-col items-center justify-center py-12 text-dark-text-muted">
             <Store size={24} class="mb-2" />
             <p class="text-sm">No templates available</p>
           </div>
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each templates as tmpl}
-              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 flex flex-col">
+              <div class="border border-dark-border bg-dark-surface p-4 flex flex-col">
                 <div class="flex items-start justify-between mb-2">
                   <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{tmpl.name}</h3>
-                    <span class="inline-block mt-1 px-2 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                    <h3 class="text-sm font-medium text-dark-text">{tmpl.name}</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 text-[10px] font-medium bg-dark-elevated text-dark-text-muted">
                       {tmpl.category}
                     </span>
                   </div>
                   {#if installedSlugs.has(tmpl.slug)}
-                    <span class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20">
+                    <span class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-400 bg-green-900/20">
                       <Check size={12} />
                       Installed
                     </span>
                   {/if}
                 </div>
-                <p class="text-xs text-gray-500 dark:text-dark-text-muted mb-3 flex-1">{tmpl.description}</p>
+                <p class="text-xs text-dark-text-muted mb-3 flex-1">{tmpl.description}</p>
 
                 <!-- Tags -->
                 {#if tmpl.tags && tmpl.tags.length > 0}
                   <div class="flex flex-wrap gap-1 mb-3">
                     {#each tmpl.tags as tag}
-                      <span class="px-1.5 py-0.5 text-[10px] bg-gray-50 dark:bg-dark-base text-gray-400 dark:text-dark-text-muted">{tag}</span>
+                      <span class="px-1.5 py-0.5 text-[10px] bg-dark-base text-dark-text-muted">{tag}</span>
                     {/each}
                   </div>
                 {/if}
 
                 <!-- Required vars -->
                 {#if tmpl.required_variables && tmpl.required_variables.length > 0 && !tmpl.oauth}
-                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted mb-3">
+                  <div class="text-[10px] text-dark-text-muted mb-3">
                     Requires: {tmpl.required_variables.map((v) => v.key).join(', ')}
                   </div>
                 {/if}
 
-                <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted mb-3">
+                <div class="flex items-center gap-1 text-xs text-dark-text-muted mb-3">
                   <BookOpen size={12} /> Markdown instructions and reference resources
                 </div>
 
                 <!-- OAuth setup flow -->
                 {#if tmpl.oauth && !installedSlugs.has(tmpl.slug)}
                   {#if oauthSetupSlug === tmpl.slug}
-                    <div class="border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 p-3 mb-3 space-y-2">
+                    <div class="border border-dark-border bg-dark-base/50 p-3 mb-3 space-y-2">
                       <!-- Step 1: Required variables -->
                       {#each tmpl.required_variables as rv}
                         <label class="block">
-                          <span class="block text-[10px] text-gray-500 dark:text-dark-text-muted mb-0.5">{rv.key}</span>
+                          <span class="block text-[10px] text-dark-text-muted mb-0.5">{rv.key}</span>
                           {#if existingVars.has(rv.key)}
-                            <div class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <div class="flex items-center gap-1 text-xs text-green-400">
                               <Check size={10} />
                               Already set
                             </div>
@@ -1411,7 +1411,7 @@
                               placeholder={rv.description}
                               value={oauthVarInputs[rv.key] || ''}
                               oninput={(e) => { oauthVarInputs = { ...oauthVarInputs, [rv.key]: (e.target as HTMLInputElement).value }; }}
-                              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-xs dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                              class="w-full border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-xs text-dark-text placeholder:text-dark-text-muted"
                             />
                           {/if}
                         </label>
@@ -1420,7 +1420,7 @@
                       {#if !oauthAllVarsReady(tmpl)}
                         <button
                           onclick={() => saveOAuthVars(tmpl)}
-                          class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-gray-800 dark:bg-dark-elevated text-white hover:bg-gray-700 dark:hover:bg-dark-border "
+                          class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-dark-elevated text-white hover:bg-dark-border"
                         >
                           <Save size={10} />
                           Save Credentials
@@ -1430,19 +1430,19 @@
                       <!-- Step 2: OAuth connect -->
                       {#if oauthAllVarsReady(tmpl)}
                         {#if oauthRefreshTokenReady(tmpl.oauth)}
-                          <div class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 py-1">
+                          <div class="flex items-center gap-1 text-xs text-green-400 py-1">
                             <Check size={12} />
                             Account connected
                           </div>
                         {:else}
                           <button
                             onclick={() => startOAuthConnect(tmpl.oauth!)}
-                            class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 "
+                            class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700"
                           >
                             <ExternalLink size={10} />
                             Connect {tmpl.oauth.charAt(0).toUpperCase() + tmpl.oauth.slice(1)} Account (Optional)
                           </button>
-                          <p class="text-[10px] text-gray-400 dark:text-dark-text-muted leading-tight">Users can connect their own accounts via /login in chat</p>
+                          <p class="text-[10px] text-dark-text-muted leading-tight">Users can connect their own accounts via /login in chat</p>
                         {/if}
                       {/if}
 
@@ -1450,7 +1450,7 @@
                       {#if oauthAllVarsReady(tmpl)}
                         <button
                           onclick={() => handleInstallTemplate(tmpl.slug)}
-                          class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                          class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
                         >
                           <Download size={12} />
                           Install
@@ -1460,14 +1460,14 @@
 
                     <button
                       onclick={() => { oauthSetupSlug = ''; }}
-                      class="w-full text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary py-1"
+                      class="w-full text-xs text-dark-text-muted hover:text-dark-text-secondary py-1"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => startOAuthSetup(tmpl.slug)}
-                      class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                      class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
                     >
                       <Settings size={12} />
                       Setup & Install
@@ -1478,7 +1478,7 @@
                 {:else if !installedSlugs.has(tmpl.slug)}
                   <button
                     onclick={() => handleInstallTemplate(tmpl.slug)}
-                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
                   >
                     <Download size={12} />
                     Install
@@ -1494,24 +1494,24 @@
       {#if activeTab === 'community'}
         <!-- Source Filter Chips + Manage Button -->
         <div class="flex items-center gap-2 mb-4 flex-wrap">
-          <span class="text-xs text-gray-500 dark:text-dark-text-muted">Sources:</span>
+          <span class="text-xs text-dark-text-muted">Sources:</span>
           <button
             onclick={() => handleSourceFilter('')}
-            class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === '' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+            class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === '' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}"
           >
             All
           </button>
           {#each communitySources.filter((s) => s.enabled) as src}
             <button
               onclick={() => handleSourceFilter(src.id)}
-              class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === src.id ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+              class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === src.id ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}"
             >
               {src.name}
             </button>
           {/each}
           <button
             onclick={() => { showManageSources = !showManageSources; }}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ml-auto"
+            class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary ml-auto"
             title="Manage sources"
           >
             <Settings size={14} />
@@ -1521,18 +1521,18 @@
         <!-- Search Bar -->
         <div class="flex items-center gap-2 mb-4">
           <div class="relative flex-1">
-            <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" />
+            <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-dark-text-muted" />
             <input
               type="text"
               value={communitySearchQuery}
               oninput={(e) => handleCommunitySearch((e.target as HTMLInputElement).value)}
               placeholder="Search community skills..."
-              class="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              class="w-full pl-9 pr-3 py-2 border border-dark-border-subtle bg-dark-elevated text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted"
             />
           </div>
           <button
             onclick={loadCommunitySkills}
-            class="p-2 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+            class="p-2 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
             title="Refresh"
           >
             <RefreshCw size={14} />
@@ -1541,12 +1541,12 @@
 
         <!-- Manage Sources Panel -->
         {#if showManageSources}
-          <div class="mb-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4">
+          <div class="mb-4 border border-dark-border bg-dark-surface p-4">
             <div class="flex items-center justify-between mb-3">
-              <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Marketplace Sources</h3>
+              <h3 class="text-sm font-medium text-dark-text">Marketplace Sources</h3>
               <button
                 onclick={() => { showAddSource = !showAddSource; }}
-                class="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                class="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
               >
                 <Plus size={12} />
                 Add Source
@@ -1554,40 +1554,40 @@
             </div>
 
             {#if showAddSource}
-              <div class="mb-3 p-3 bg-gray-50 dark:bg-dark-base/50 border border-gray-200 dark:border-dark-border space-y-2">
-                <input type="text" bind:value={newSourceName} placeholder="Source name" class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text dark:placeholder:text-dark-text-muted" />
-                <select bind:value={newSourceType} class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text">
+              <div class="mb-3 p-3 bg-dark-base/50 border border-dark-border space-y-2">
+                <input type="text" bind:value={newSourceName} placeholder="Source name" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
+                <select bind:value={newSourceType} class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text">
                   <option value="generic">Generic</option>
                 </select>
-                <input type="text" bind:value={newSourceSearchURL} placeholder="Search API URL" class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text dark:placeholder:text-dark-text-muted" />
-                <input type="text" bind:value={newSourceTopURL} placeholder="Top/Trending API URL (optional)" class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text dark:placeholder:text-dark-text-muted" />
+                <input type="text" bind:value={newSourceSearchURL} placeholder="Search API URL" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
+                <input type="text" bind:value={newSourceTopURL} placeholder="Top/Trending API URL (optional)" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
                 <div class="flex justify-end gap-2">
-                  <button onclick={() => { showAddSource = false; }} class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
-                  <button onclick={handleAddSource} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover ">Add</button>
+                  <button onclick={() => { showAddSource = false; }} class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
+                  <button onclick={handleAddSource} class="px-3 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover">Add</button>
                 </div>
               </div>
             {/if}
 
             <div class="space-y-2">
               {#each communitySources as src}
-                <div class="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-dark-base/30 border border-gray-100 dark:border-dark-border">
+                <div class="flex items-center justify-between py-2 px-3 bg-dark-base/30 border border-dark-border">
                   <div class="flex items-center gap-3">
                     <button
                       onclick={() => toggleSourceEnabled(src)}
                       aria-label="Toggle {src.name}"
-                      class="w-8 h-5 rounded-full {src.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-dark-border'} relative"
+                      class="w-8 h-5 rounded-full {src.enabled ? 'bg-green-500' : 'bg-dark-border'} relative"
                     >
-                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow "></span>
+                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-dark-surface shadow "></span>
                     </button>
                     <div>
-                      <span class="text-sm font-medium text-gray-900 dark:text-dark-text">{src.name}</span>
-                      <span class="ml-2 px-1.5 py-0.5 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">{src.type}</span>
+                      <span class="text-sm font-medium text-dark-text">{src.name}</span>
+                      <span class="ml-2 px-1.5 py-0.5 text-[10px] bg-dark-elevated text-dark-text-muted">{src.type}</span>
                     </div>
                   </div>
                   {#if !src.id.startsWith('default-')}
                     <button
                       onclick={() => handleDeleteSource(src.id)}
-                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 "
+                      class="p-1 hover:bg-red-900/20 text-red-400 hover:text-red-300"
                       title="Delete source"
                     >
                       <Trash2 size={14} />
@@ -1601,45 +1601,45 @@
 
         <!-- Results -->
         {#if communityLoading}
-          <div class="flex items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+          <div class="flex items-center justify-center py-12 text-dark-text-muted">
             <RefreshCw size={16} class="animate-spin mr-2" />
             Searching marketplaces...
           </div>
         {:else if communitySkills.length === 0}
-          <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+          <div class="flex flex-col items-center justify-center py-12 text-dark-text-muted">
             <Globe size={24} class="mb-2" />
             <p class="text-sm">{communitySearchQuery ? 'No skills found' : 'Browse community skills'}</p>
             <p class="text-xs mt-1">Search or browse trending skills from configured marketplaces</p>
           </div>
         {:else}
-          <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">
+          <div class="text-xs text-dark-text-muted mb-3">
             {communitySkills.length} skill{communitySkills.length !== 1 ? 's' : ''} found
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each communitySkills as skill}
-              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 flex flex-col">
+              <div class="border border-dark-border bg-dark-surface p-4 flex flex-col">
                 <div class="flex items-start justify-between mb-2">
                   <div class="flex-1 min-w-0">
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">{skill.name}</h3>
+                    <h3 class="text-sm font-medium text-dark-text truncate">{skill.name}</h3>
                     {#if skill.author}
-                      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">by {skill.author}</span>
+                      <span class="text-[10px] text-dark-text-muted">by {skill.author}</span>
                     {/if}
                   </div>
-                  <span class="ml-2 shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                  <span class="ml-2 shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-dark-elevated text-dark-text-muted">
                     {skill.source}
                   </span>
                 </div>
-                <p class="text-xs text-gray-500 dark:text-dark-text-muted mb-3 flex-1 line-clamp-3">{skill.description || 'No description'}</p>
+                <p class="text-xs text-dark-text-muted mb-3 flex-1 line-clamp-3">{skill.description || 'No description'}</p>
 
                 {#if skill.tags && skill.tags.length > 0}
                   <div class="flex flex-wrap gap-1 mb-3">
                     {#each skill.tags.slice(0, 5) as tag}
-                      <span class="px-1.5 py-0.5 text-[10px] bg-gray-50 dark:bg-dark-base text-gray-400 dark:text-dark-text-muted">{tag}</span>
+                      <span class="px-1.5 py-0.5 text-[10px] bg-dark-base text-dark-text-muted">{tag}</span>
                     {/each}
                   </div>
                 {/if}
 
-                <div class="flex items-center justify-between text-[10px] text-gray-400 dark:text-dark-text-muted mb-3">
+                <div class="flex items-center justify-between text-[10px] text-dark-text-muted mb-3">
                   {#if skill.downloads > 0}
                     <span>{skill.downloads.toLocaleString()} downloads</span>
                   {:else}
@@ -1652,7 +1652,7 @@
 
                 <button
                   onclick={() => handlePreview(skill)}
-                  class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                  class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
                 >
                   <Eye size={12} />
                   Preview
@@ -1669,58 +1669,58 @@
           <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick={() => { previewSkill = null; previewData = null; }}>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border w-full max-w-2xl max-h-[80vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
-              <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+            <div class="bg-dark-surface border border-dark-border w-full max-w-2xl max-h-[80vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
+              <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
                 <div>
-                  <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{previewSkill.name}</h3>
-                  <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">from {previewSkill.source}</span>
+                  <h3 class="text-sm font-medium text-dark-text">{previewSkill.name}</h3>
+                  <span class="text-[10px] text-dark-text-muted">from {previewSkill.source}</span>
                 </div>
-                <button onclick={() => { previewSkill = null; previewData = null; }} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 ">
+                <button onclick={() => { previewSkill = null; previewData = null; }} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
                   <X size={14} />
                 </button>
               </div>
 
               <div class="flex-1 overflow-y-auto p-4">
                 {#if previewLoading}
-                  <div class="flex items-center justify-center py-8 text-gray-400 dark:text-dark-text-muted">
+                  <div class="flex items-center justify-center py-8 text-dark-text-muted">
                     <RefreshCw size={16} class="animate-spin mr-2" />
                     Loading preview...
                   </div>
                 {:else if previewData}
                   <div class="space-y-4">
                     <div>
-                      <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Name</span>
-                      <p class="text-sm text-gray-900 dark:text-dark-text font-mono">{previewData.name || '-'}</p>
+                      <span class="block text-xs font-medium text-dark-text-muted">Name</span>
+                      <p class="text-sm text-dark-text font-mono">{previewData.name || '-'}</p>
                     </div>
                     {#if previewData.description}
                       <div>
-                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Description</span>
-                        <p class="text-sm text-gray-700 dark:text-dark-text-secondary">{previewData.description}</p>
+                        <span class="block text-xs font-medium text-dark-text-muted">Description</span>
+                        <p class="text-sm text-dark-text-secondary">{previewData.description}</p>
                       </div>
                     {/if}
                     {#if previewData.system_prompt}
                       <div>
-                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Markdown instructions</span>
-                        <pre class="mt-1 p-3 bg-gray-50 dark:bg-dark-base/50 border border-gray-200 dark:border-dark-border text-xs text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap max-h-64 overflow-y-auto">{previewData.system_prompt}</pre>
+                        <span class="block text-xs font-medium text-dark-text-muted">Markdown instructions</span>
+                        <pre class="mt-1 p-3 bg-dark-base/50 border border-dark-border text-xs text-dark-text-secondary whitespace-pre-wrap max-h-64 overflow-y-auto">{previewData.system_prompt}</pre>
                       </div>
                     {/if}
                   </div>
                 {:else}
-                  <p class="text-sm text-gray-400 dark:text-dark-text-muted">Failed to load preview</p>
+                  <p class="text-sm text-dark-text-muted">Failed to load preview</p>
                 {/if}
               </div>
 
-              <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+              <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base/50">
                 <button
                   onclick={() => { previewSkill = null; previewData = null; }}
-                  class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                  class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
                 >
                   Cancel
                 </button>
                 {#if previewData}
                   <button
                     onclick={() => handleCommunityImport(previewSkill.url)}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
                   >
                     <Download size={12} />
                     Import Skill

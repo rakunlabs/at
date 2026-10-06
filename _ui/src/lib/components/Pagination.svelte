@@ -38,17 +38,17 @@
   }
 </script>
 
-<div class={`flex flex-wrap items-center justify-between gap-3 px-3 sm:px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base ${className}`}>
-  <div class="text-xs text-gray-500 dark:text-dark-text-muted">
+<div class={`flex flex-wrap items-center justify-between gap-3 px-3 sm:px-4 py-3 border-t border-dark-border bg-dark-base ${className}`}>
+  <div class="text-xs text-dark-text-muted">
     Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} results
   </div>
   <div class="flex w-full sm:w-auto flex-wrap items-center gap-2">
-    <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
+    <label class="flex items-center gap-1.5 text-xs text-dark-text-muted">
       <span>Rows</span>
       <select
         value={limit}
         onchange={changeLimit}
-         class="h-11 sm:h-7 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 text-xs text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+         class="h-11 sm:h-7 border border-dark-border-subtle bg-dark-elevated px-2 text-xs text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
         aria-label="Rows per page"
       >
         {#each [10, 25, 50, 100] as size}
@@ -59,14 +59,14 @@
     <button
       onclick={prev}
       disabled={offset === 0}
-      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-dark-border-subtle bg-dark-elevated hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
     >
       Previous
     </button>
     <button
       onclick={next}
       disabled={offset + limit >= total}
-      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-dark-border-subtle bg-dark-elevated hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
     >
       Next
     </button>

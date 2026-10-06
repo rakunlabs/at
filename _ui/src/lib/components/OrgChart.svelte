@@ -336,10 +336,10 @@
           class={[
             'border overflow-hidden ',
             isSelected
-              ? 'border-accent bg-white dark:bg-dark-surface'
+              ? 'border-accent bg-dark-surface'
               : isHead
-                ? 'border-gray-400 dark:border-dark-text-muted bg-white dark:bg-dark-surface'
-                : 'border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface hover:border-gray-400 dark:hover:border-dark-border',
+                ? 'border-dark-text-muted bg-dark-surface'
+                : 'border-dark-border-subtle bg-dark-surface hover:border-dark-border',
           ]}
         >
           <!-- Top bar -->
@@ -350,7 +350,7 @@
                 ? 'bg-accent'
                 : isSelected
                   ? 'bg-accent'
-                  : 'bg-gray-300 dark:bg-dark-border',
+                  : 'bg-dark-border',
             ]}
           ></div>
 
@@ -359,12 +359,12 @@
             <!-- Name row -->
             <div class="flex items-center gap-2 mb-1">
               <div class="relative shrink-0">
-                <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] rounded-full bg-gray-100 dark:bg-dark-elevated" />
+                <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] rounded-full bg-dark-elevated" />
                 {#if isHead}
                   <Crown size={8} class="absolute -top-0.5 -right-0.5 text-amber-500 drop-shadow" />
                 {/if}
               </div>
-              <span class="text-xs font-medium text-gray-900 dark:text-dark-text truncate">
+              <span class="text-xs font-medium text-dark-text truncate">
                 {node.agent.name}
               </span>
               {#if node.agent.active_count && node.agent.active_count > 0}
@@ -377,7 +377,7 @@
                     <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
                   </span>
                   {#if node.agent.active_count > 1}
-                    <span class="text-[9px] font-medium text-green-600 dark:text-green-400">{node.agent.active_count}</span>
+                    <span class="text-[9px] font-medium text-green-400">{node.agent.active_count}</span>
                   {/if}
                 </span>
               {:else}
@@ -392,23 +392,23 @@
             <!-- Details -->
             <div class="space-y-0.5 ml-[30px]">
               {#if node.agent.title}
-                <div class="text-[10px] text-gray-600 dark:text-dark-text-secondary truncate">
+                <div class="text-[10px] text-dark-text-secondary truncate">
                   {node.agent.title}
                 </div>
               {/if}
               {#if node.agent.role}
-                <div class="text-[10px] text-gray-500 dark:text-dark-text-muted truncate">{node.agent.role}</div>
+                <div class="text-[10px] text-dark-text-muted truncate">{node.agent.role}</div>
               {/if}
               {#if node.agent.description && !node.agent.title && !node.agent.role}
-                <div class="text-[10px] text-gray-500 dark:text-dark-text-muted truncate">{node.agent.description}</div>
+                <div class="text-[10px] text-dark-text-muted truncate">{node.agent.description}</div>
               {/if}
               {#if node.agent.model}
-                <div class="text-[10px] text-gray-400 dark:text-dark-text-faint font-mono truncate">
+                <div class="text-[10px] text-dark-text-faint font-mono truncate">
                   {node.agent.model}
                 </div>
               {/if}
               {#if !node.agent.title && !node.agent.role && !node.agent.description && !node.agent.model}
-                <div class="text-[10px] text-gray-400 dark:text-dark-text-faint">--</div>
+                <div class="text-[10px] text-dark-text-faint">--</div>
               {/if}
             </div>
           </div>
@@ -418,40 +418,35 @@
   </div>
 
   <!-- Controls -->
-  <div class="org-controls absolute bottom-3 left-3 flex items-center gap-px border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+  <div class="org-controls absolute bottom-3 left-3 flex items-center gap-px border border-dark-border bg-dark-surface">
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 1.25); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated border-r border-gray-200 dark:border-dark-border"
+      class="w-7 h-7 flex items-center justify-center text-xs text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border"
       title="Zoom in"
     >+</button>
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 0.8); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated border-r border-gray-200 dark:border-dark-border"
+      class="w-7 h-7 flex items-center justify-center text-xs text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border"
       title="Zoom out"
     >-</button>
     <button
       onclick={(e) => { e.stopPropagation(); fitView(); }}
-      class="h-7 px-2 flex items-center justify-center text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated "
+      class="h-7 px-2 flex items-center justify-center text-[10px] text-dark-text-muted hover:bg-dark-elevated"
       title="Fit view"
     >fit</button>
   </div>
 
-  <div class="absolute bottom-3 right-3 text-[10px] text-gray-400 dark:text-dark-text-faint font-mono">
+  <div class="absolute bottom-3 right-3 text-[10px] text-dark-text-faint font-mono">
     {Math.round(scale * 100)}%
   </div>
 </div>
 
 <style>
-  @reference "tailwindcss";
+  @reference "../../style/global.css";
 
   .org-chart-container {
-    --conn-color: #d1d5db;
-    background-color: #f9fafb;
-  }
-
-  :global(.dark) .org-chart-container {
-    --conn-color: #3a3836;
-    background-color: #161618;
+    --conn-color: var(--color-dark-border-subtle);
+    background-color: var(--color-dark-base);
   }
 
   /* Live edge: an in-flight delegation chain runs through this edge.

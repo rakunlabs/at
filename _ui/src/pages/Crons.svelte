@@ -254,21 +254,21 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Clock size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Cron Jobs</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({triggers.length})</span>
+      <Clock size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Cron Jobs</h2>
+      <span class="text-xs text-dark-text-muted">({triggers.length})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Cron Job
@@ -278,12 +278,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? 'Edit Cron Job' : 'New Cron Job'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -291,12 +291,12 @@
       <form novalidate onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Target Type -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-target-type" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Target Type</label>
+          <label for="form-target-type" class="text-sm font-medium text-dark-text-secondary">Target Type</label>
           <select
             id="form-target-type"
             bind:value={formTargetType}
             onchange={() => { formTargetId = ''; formEntryNodeId = ''; inputNodes = []; }}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="workflow">Workflow</option>
           </select>
@@ -304,12 +304,12 @@
 
         <!-- Target -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-target" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Target</label>
+          <label for="form-target" class="text-sm font-medium text-dark-text-secondary">Target</label>
           <select
             id="form-target"
             value={formTargetId}
             onchange={(e) => handleTargetIdChange((e.target as HTMLSelectElement).value)}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="">Select target...</option>
             {#each workflows as w}
@@ -321,12 +321,12 @@
         <!-- Entry Node (only for workflow) -->
         {#if formTargetType === 'workflow' && inputNodes.length > 1}
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-entry-node" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Entry Node</label>
+            <label for="form-entry-node" class="text-sm font-medium text-dark-text-secondary">Entry Node</label>
             <div class="col-span-3">
               <select
                 id="form-entry-node"
                 bind:value={formEntryNodeId}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+                class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
               >
                 <option value="">All input nodes (default)</option>
                 {#each inputNodes as node}
@@ -339,21 +339,21 @@
 
         <!-- Schedule -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-schedule" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Schedule</label>
+          <label for="form-schedule" class="text-sm font-medium text-dark-text-secondary">Schedule</label>
           <div class="col-span-3">
             <input
               id="form-schedule"
               type="text"
               bind:value={formSchedule}
               placeholder="*/5 * * * *"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
             />
             <div class="flex flex-wrap gap-1 mt-1.5">
               {#each scheduleExamples as ex}
                 <button
                   type="button"
                   onclick={() => (formSchedule = ex.value)}
-                  class="px-1.5 py-0.5 text-[10px] border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted "
+                  class="px-1.5 py-0.5 text-[10px] border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-muted"
                 >
                   {ex.label}
                 </button>
@@ -364,14 +364,14 @@
 
         <!-- Timezone -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-timezone" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Timezone</label>
+          <label for="form-timezone" class="text-sm font-medium text-dark-text-secondary">Timezone</label>
           <div class="col-span-3">
             <input
               id="form-timezone"
               type="text"
               bind:value={formTimezone}
               placeholder="UTC (default), America/New_York, Europe/London..."
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
             />
           </div>
         </div>
@@ -379,16 +379,16 @@
         <!-- Payload -->
         {#if formTargetType === 'workflow'}
           <div class="grid grid-cols-4 gap-3 items-start">
-            <label for="form-payload" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Payload</label>
+            <label for="form-payload" class="text-sm font-medium text-dark-text-secondary pt-1.5">Payload</label>
             <div class="col-span-3">
               <textarea
                 id="form-payload"
                 bind:value={formPayload}
                 rows={3}
                 placeholder={'{}'}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"
+                class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted resize-y"
               ></textarea>
-              <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
+              <div class="text-xs text-dark-text-muted mt-1">
                 Static JSON data passed as workflow inputs alongside trigger metadata.
               </div>
             </div>
@@ -397,21 +397,21 @@
 
         <!-- Enabled -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Enabled</span>
+          <span class="text-sm font-medium text-dark-text-secondary">Enabled</span>
           <div class="col-span-3 flex items-center gap-3">
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" bind:checked={formEnabled} class="sr-only peer" />
-              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
+              <div class="w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 rounded-full peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:rounded-full after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent"></div>
             </label>
           </div>
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
-          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
+          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">
             Cancel
           </button>
-          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
             <Save size={14} />
             {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
           </button>
@@ -422,51 +422,49 @@
 
   <!-- List -->
   {#if pageLoad.loading('Schedules')}
-    <div class="text-center py-12 text-gray-400 dark:text-dark-text-muted text-sm">Loading cron jobs...</div>
+    <div class="text-center py-12 text-dark-text-muted text-sm">Loading cron jobs...</div>
   {:else if pageLoad.error('Schedules') && !triggers.length}
-    <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Schedules could not be loaded. Retry above.</p>
+    <p class="text-sm text-dark-text-secondary">Schedules could not be loaded. Retry above.</p>
   {:else if triggers.length === 0}
-    <div class="text-center py-12 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <Clock size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />
-      <p class="text-sm text-gray-500 dark:text-dark-text-muted">No cron jobs configured</p>
-      <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create a cron job to run workflows on a schedule</p>
+    <div class="text-center py-12 border border-dark-border bg-dark-surface">
+      <Clock size={24} class="mx-auto mb-2 text-dark-text-muted" />
+      <p class="text-sm text-dark-text-muted">No cron jobs configured</p>
+      <p class="text-xs text-dark-text-muted mt-1">Create a cron job to run workflows on a schedule</p>
     </div>
   {:else}
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+    <div class="border border-dark-border bg-dark-surface overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Schedule</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Timezone</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+          <tr class="border-b border-dark-border bg-dark-base">
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Schedule</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Timezone</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           </tr>
         </thead>
         <tbody>
           {#each triggers as t}
-            <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
+            <tr class="border-b border-dark-border last:border-b-0 hover:bg-dark-elevated/50">
               <td class="px-4 py-2.5">
-                <div class="font-mono text-xs text-gray-900 dark:text-dark-text">{t.config?.schedule || '—'}</div>
-                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">{describeSchedule(t.config?.schedule as string || '')}</div>
+                <div class="font-mono text-xs text-dark-text">{t.config?.schedule || '—'}</div>
+                <div class="text-[10px] text-dark-text-muted">{describeSchedule(t.config?.schedule as string || '')}</div>
               </td>
               <td class="px-4 py-2.5">
-                <span class="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+                <span class="text-xs px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary">
                   Workflow
                 </span>
-                <span class="ml-1.5 text-xs text-gray-700 dark:text-dark-text-secondary">{getTargetName(t)}</span>
+                <span class="ml-1.5 text-xs text-dark-text-secondary">{getTargetName(t)}</span>
               </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted font-mono">
+              <td class="px-4 py-2.5 text-xs text-dark-text-muted font-mono">
                 {t.config?.timezone || 'UTC'}
               </td>
               <td class="px-4 py-2.5">
                 <button
                   onclick={() => toggleEnabled(t)}
-                  class="inline-flex items-center gap-1 text-xs "
-                  class:text-green-600={t.enabled}
-                  class:dark:text-green-400={t.enabled}
-                  class:text-gray-400={!t.enabled}
-                  class:dark:text-dark-text-muted={!t.enabled}
+                  class="inline-flex items-center gap-1 text-xs"
+                  class:text-green-400={t.enabled}
+                  class:text-dark-text-muted={!t.enabled}
                   title={t.enabled ? 'Click to disable' : 'Click to enable'}
                 >
                   {#if t.enabled}
@@ -482,18 +480,18 @@
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => openEdit(t)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Edit"
                   >
                     <Pencil size={14} />
                   </button>
                   {#if deleteConfirm === t.id}
-                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 ">Confirm</button>
-                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700">Confirm</button>
+                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated">Cancel</button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = t.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                      class="p-1.5 hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                       title="Delete"
                     >
                       <Trash2 size={14} />

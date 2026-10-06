@@ -15,9 +15,9 @@
   let notice = $state('');
   let cancellable = $state(false);
   let controller: AbortController | undefined;
-  const inputClass = 'w-full rounded-md border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
-  const buttonClass = 'rounded-md border border-gray-300 dark:border-dark-border px-3 py-2.5 text-sm font-medium hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed';
-  const primaryClass = 'rounded-md bg-gray-900 dark:bg-accent text-white dark:text-gray-950 px-4 py-2.5 text-sm font-medium hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed';
+  const inputClass = 'w-full border border-dark-border bg-dark-surface px-3 py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+  const buttonClass = 'border border-dark-border px-3 py-2.5 text-sm font-medium hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed';
+  const primaryClass = 'bg-accent text-gray-950 px-4 py-2.5 text-sm font-medium hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed';
 
   async function load() {
     if (busy || !storeAuth.passkeys) return;
@@ -99,40 +99,40 @@
 <section aria-labelledby="passkeys-title" aria-busy={busy} class="space-y-4">
   <div>
     <h2 id="passkeys-title" class="text-base font-semibold">Your passkeys</h2>
-    <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Sign in with a passkey or security key instead of a password. Passkeys are bound to this server's domain; keep your password available if the domain changes or a key is unavailable. You can save up to 20 passkeys.</p>
+    <p class="mt-1 max-w-2xl text-sm leading-6 text-dark-text-secondary">Sign in with a passkey or security key instead of a password. Passkeys are bound to this server's domain; keep your password available if the domain changes or a key is unavailable. You can save up to 20 passkeys.</p>
   </div>
   {#if !storeAuth.passkeys}
-    <p class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Passkeys are not enabled for this server. Continue using your password.</p>
+    <p class="text-sm leading-6 text-dark-text-secondary">Passkeys are not enabled for this server. Continue using your password.</p>
   {:else}
     {#if !storeAuth.passkeyLogin}
-      <p role="status" class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">An administrator has turned off passkey sign-in for this server, so your passkeys are not offered on the sign-in screen. They still work for verifying sensitive changes, and become available again if it is turned back on.</p>
+      <p role="status" class="text-sm leading-6 text-dark-text-secondary">An administrator has turned off passkey sign-in for this server, so your passkeys are not offered on the sign-in screen. They still work for verifying sensitive changes, and become available again if it is turned back on.</p>
     {/if}
     <div class="flex flex-wrap items-center justify-between gap-3 max-w-2xl">
-      <p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">{!loaded ? (busy ? 'Loading passkeys...' : 'Passkey list unavailable') : `${keys.length} of 20 passkeys`}</p>
+      <p role="status" class="text-sm text-dark-text-secondary">{!loaded ? (busy ? 'Loading passkeys...' : 'Passkey list unavailable') : `${keys.length} of 20 passkeys`}</p>
       <button class={buttonClass} disabled={busy} onclick={load}>Reload passkeys</button>
     </div>
-    {#if loaded && keys.length === 0}<p class="text-sm text-gray-600 dark:text-dark-text-secondary">No passkeys yet. Add one below to use it at your next sign-in.</p>{/if}
-    <ul class="max-w-2xl divide-y divide-gray-200 dark:divide-dark-border">
+    {#if loaded && keys.length === 0}<p class="text-sm text-dark-text-secondary">No passkeys yet. Add one below to use it at your next sign-in.</p>{/if}
+    <ul class="max-w-2xl divide-y divide-dark-border">
       {#each keys as key (key.id)}
         <li class="flex flex-wrap items-start justify-between gap-3 py-3">
           <div class="min-w-0 flex-1">
             <h3 class="text-sm font-semibold break-all">{key.name}</h3>
-            <p class="mt-1 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Added <time datetime={key.created_at}>{new Date(key.created_at).toLocaleString()}</time><br />Last used: {#if key.last_used_at}<time datetime={key.last_used_at}>{new Date(key.last_used_at).toLocaleString()}</time>{:else}Never{/if}</p>
+            <p class="mt-1 text-sm leading-6 text-dark-text-secondary">Added <time datetime={key.created_at}>{new Date(key.created_at).toLocaleString()}</time><br />Last used: {#if key.last_used_at}<time datetime={key.last_used_at}>{new Date(key.last_used_at).toLocaleString()}</time>{:else}Never{/if}</p>
           </div>
           <button class={buttonClass} disabled={busy} aria-label={`Delete passkey ${key.name}`} aria-expanded={deleting?.id === key.id} aria-controls="passkey-form" onclick={() => { deleting = key; password = error = notice = ''; }}>Delete</button>
         </li>
       {/each}
     </ul>
-    {#if !supported}<p class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Adding a passkey needs a supported browser and a secure connection. You can still manage existing keys and sign in with your password.</p>{/if}
-    {#if keys.length >= 20}<p class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">You have reached the 20-passkey limit. Delete an unused key before adding another. Deletion signs you out everywhere.</p>{/if}
+    {#if !supported}<p class="text-sm leading-6 text-dark-text-secondary">Adding a passkey needs a supported browser and a secure connection. You can still manage existing keys and sign in with your password.</p>{/if}
+    {#if keys.length >= 20}<p class="text-sm leading-6 text-dark-text-secondary">You have reached the 20-passkey limit. Delete an unused key before adding another. Deletion signs you out everywhere.</p>{/if}
     {#if deleting || (supported && loaded && keys.length < 20)}
-      <form id="passkey-form" onsubmit={submit} class="max-w-md space-y-4 border-t border-gray-200 dark:border-dark-border pt-4">
+      <form id="passkey-form" onsubmit={submit} class="max-w-md space-y-4 border-t border-dark-border pt-4">
         <h3 class="text-sm font-semibold break-all">{deleting ? `Delete ${deleting.name}` : 'Add a passkey'}</h3>
         <fieldset disabled={busy} class="space-y-4">
-          {#if !deleting}<div><label for="passkey-name" class="block text-sm font-medium mb-1.5">Passkey name</label><input id="passkey-name" bind:value={name} required maxlength={80} autocomplete="off" placeholder="e.g. Personal laptop" aria-describedby="passkey-name-help" class={inputClass} /><p id="passkey-name-help" class="mt-1.5 text-sm text-gray-600 dark:text-dark-text-secondary">A name you will recognize, up to 80 UTF-8 bytes.</p></div>{/if}
+          {#if !deleting}<div><label for="passkey-name" class="block text-sm font-medium mb-1.5">Passkey name</label><input id="passkey-name" bind:value={name} required maxlength={80} autocomplete="off" placeholder="e.g. Personal laptop" aria-describedby="passkey-name-help" class={inputClass} /><p id="passkey-name-help" class="mt-1.5 text-sm text-dark-text-secondary">A name you will recognize, up to 80 UTF-8 bytes.</p></div>{/if}
           <div><label for="passkey-password" class="block text-sm font-medium mb-1.5">Current password</label><input id="passkey-password" type="password" bind:value={password} required autocomplete="current-password" class={inputClass} /></div>
         </fieldset>
-        {#if deleting}<p class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Deleting this key ends all your sessions. You will need to sign in again.</p>{/if}
+        {#if deleting}<p class="text-sm leading-6 text-dark-text-secondary">Deleting this key ends all your sessions. You will need to sign in again.</p>{/if}
         <div class="flex flex-wrap gap-2">
           <button disabled={busy} class={primaryClass}>{busy ? 'Working...' : deleting ? 'Delete passkey and sign out' : 'Add passkey'}</button>
           {#if deleting}<button type="button" disabled={busy} class={buttonClass} onclick={() => { deleting = null; password = error = ''; }}>Cancel deletion</button>{/if}
@@ -140,7 +140,7 @@
         </div>
       </form>
     {/if}
-    {#if error}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{error}</p>{/if}
-    {#if notice}<p role="status" class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">{notice}</p>{/if}
+    {#if error}<p role="alert" class="text-sm text-red-300">{error}</p>{/if}
+    {#if notice}<p role="status" class="text-sm leading-6 text-dark-text-secondary">{notice}</p>{/if}
   {/if}
 </section>

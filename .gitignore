@@ -14,3 +14,4 @@
 /data
 /internal/devfs/devfsbin/bin/*
 !/internal/devfs/devfsbin/bin/.gitkeep
+.impeccable

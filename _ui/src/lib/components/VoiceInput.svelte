@@ -50,8 +50,8 @@
   let settingsBottom = $state(64);
   const settingsId = $props.id();
   const control = $derived(compact
-    ? 'inline-flex h-9 min-w-9 sm:h-7 sm:min-w-7 shrink-0 items-center justify-center gap-1 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-elevated dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed'
-    : 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed');
+    ? 'inline-flex h-9 min-w-9 sm:h-7 sm:min-w-7 shrink-0 items-center justify-center gap-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed'
+    : 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 border border-dark-border text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed');
   const iconSize = $derived(compact ? 15 : 18);
   const label = $derived(method === 'browser' ? 'Browser' : method === 'openai' ? 'API' : model);
 
@@ -152,7 +152,7 @@
 
 <div class={compact ? 'flex shrink-0 items-center' : 'flex shrink-0 items-center gap-1'}>
   {#if recording}
-    <button onclick={stop} class={`${control} px-2 !text-red-700 dark:!text-red-300`} aria-label={starting ? 'Cancel microphone request' : 'Stop voice input'} title="Stop voice input">
+    <button onclick={stop} class={`${control} px-2 !text-red-300`} aria-label={starting ? 'Cancel microphone request' : 'Stop voice input'} title="Stop voice input">
       <MicOff size={iconSize} /><span class="text-xs tabular-nums">{starting ? '…' : `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`}</span>
     </button>
     <span role="status" class="sr-only">{starting ? 'Waiting for microphone permission' : method === 'browser' ? 'Listening with browser dictation' : 'Recording voice'}</span>
@@ -167,23 +167,23 @@
 
 <div bind:this={settings} id={settingsId} popover="auto" role="dialog" aria-label="Voice input settings" ontoggle={event => { settingsOpen = event.newState === 'open'; }}
   style:left={`${settingsLeft}px`} style:bottom={`${settingsBottom}px`} style:max-height={`calc(100dvh - ${settingsBottom + 12}px)`}
-  class="fixed top-auto right-auto m-0 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 text-gray-900 dark:text-dark-text shadow-lg">
-  <div class="mb-2 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">Voice input</h2><button onclick={() => settings?.hidePopover()} class="inline-flex size-11 sm:size-8 items-center justify-center hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" aria-label="Close voice settings"><X size={16} /></button></div>
+  class="fixed top-auto right-auto m-0 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto border border-dark-border bg-dark-surface p-3 text-dark-text shadow-lg">
+  <div class="mb-2 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">Voice input</h2><button onclick={() => settings?.hidePopover()} class="inline-flex size-11 sm:size-8 items-center justify-center hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" aria-label="Close voice settings"><X size={16} /></button></div>
   <label class="block text-sm">Transcription method
-    <select value={method} onchange={event => { method = event.currentTarget.value; save('at-voice-method', method); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">
+    <select value={method} onchange={event => { method = event.currentTarget.value; save('at-voice-method', method); }} class="mt-1 h-11 w-full border border-dark-border bg-dark-elevated px-2 text-base sm:text-sm">
       {#each methods as option}<option value={option.value} disabled={option.value === 'browser' && !browserSupported}>{option.label}{option.value === 'browser' && !browserSupported ? ' — unavailable' : ''}</option>{/each}
     </select>
   </label>
   {#if method === 'browser'}
     <label class="mt-3 block text-sm">Dictation language
-      <select value={language} onchange={event => { language = event.currentTarget.value; save('at-voice-language', language); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each languages as option}<option value={option.value}>{option.label}</option>{/each}</select>
+      <select value={language} onchange={event => { language = event.currentTarget.value; save('at-voice-language', language); }} class="mt-1 h-11 w-full border border-dark-border bg-dark-elevated px-2 text-base sm:text-sm">{#each languages as option}<option value={option.value}>{option.label}</option>{/each}</select>
     </label>
-    <p class="mt-3 text-xs leading-5 text-gray-600 dark:text-dark-text-secondary">Uses your browser’s speech service, not AT’s transcription API. The browser may use an online service; offline processing is not guaranteed.</p>
+    <p class="mt-3 text-xs leading-5 text-dark-text-secondary">Uses your browser’s speech service, not AT’s transcription API. The browser may use an online service; offline processing is not guaranteed.</p>
   {:else if method !== 'openai'}
     <label class="mt-3 block text-sm">Whisper model
-      <select value={model} onchange={event => { model = event.currentTarget.value; save('at-voice-model', model); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each ['tiny', 'base', 'small', 'medium'] as value}<option {value}>{value}</option>{/each}</select>
+      <select value={model} onchange={event => { model = event.currentTarget.value; save('at-voice-model', model); }} class="mt-1 h-11 w-full border border-dark-border bg-dark-elevated px-2 text-base sm:text-sm">{#each ['tiny', 'base', 'small', 'medium'] as value}<option {value}>{value}</option>{/each}</select>
     </label>
   {/if}
-  {#if !browserSupported}<p class="mt-3 text-xs leading-5 text-gray-600 dark:text-dark-text-secondary">Browser dictation is unavailable here. Use an API method or your keyboard’s microphone.</p>{/if}
-  <p class="mt-3 text-xs leading-5 text-gray-600 dark:text-dark-text-secondary">You can also tap the microphone on your phone’s keyboard or use your system’s dictation shortcut while the message field is focused.</p>
+  {#if !browserSupported}<p class="mt-3 text-xs leading-5 text-dark-text-secondary">Browser dictation is unavailable here. Use an API method or your keyboard’s microphone.</p>{/if}
+  <p class="mt-3 text-xs leading-5 text-dark-text-secondary">You can also tap the microphone on your phone’s keyboard or use your system’s dictation shortcut while the message field is focused.</p>
 </div>

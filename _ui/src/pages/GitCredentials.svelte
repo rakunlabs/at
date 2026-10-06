@@ -103,7 +103,7 @@
     </div>
   </div>
 
-  <div class="flex items-start gap-2 border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"><ShieldCheck size={15} class="shrink-0" /><span>Private keys are encrypted at rest and never returned by the API. AT accepts host keys only after you review their fingerprints.</span></div>
+  <div class="flex items-start gap-2 border p-3 text-xs border-emerald-900 bg-emerald-950/30 text-emerald-100"><ShieldCheck size={15} class="shrink-0" /><span>Private keys are encrypted at rest and never returned by the API. AT accepts host keys only after you review their fingerprints.</span></div>
 
   {#if showCreate}
     <section class="settings-section">
@@ -116,7 +116,7 @@
         </div>
         <div><button class="settings-button" onclick={scanHost} disabled={busy || !host.trim()}><ShieldCheck size={13} /> {busy ? 'Scanning…' : 'Scan host keys'}</button></div>
         {#if scan}
-          <div class="border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+          <div class="border p-3 text-xs border-amber-800 bg-amber-950/30 text-amber-100">
             <p class="font-semibold">Verify these fingerprints through a trusted channel</p>
             <div class="mt-2 space-y-1 font-mono break-all">{#each scan.fingerprints as fingerprint}<div>{fingerprint}</div>{/each}</div>
             <label class="mt-3 flex items-start gap-2 font-sans"><input class="mt-0.5" type="checkbox" bind:checked={confirmed} /><span>I verified these fingerprints with the Git provider or server administrator.</span></label>
@@ -128,17 +128,17 @@
   {/if}
 
   <section class="settings-section !p-0 !space-y-0 overflow-hidden">
-    <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border"><h2 class="settings-section-title">Deploy keys</h2><p class="settings-note">Add each public key to its Git repository with read-only access.</p></div>
+    <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Deploy keys</h2><p class="settings-note">Add each public key to its Git repository with read-only access.</p></div>
     {#if loading}
       <div class="p-6 text-center settings-note">Loading Git credentials…</div>
     {:else if items.length === 0}
       <div class="p-6 text-center settings-note">No deploy keys yet. Generate one to access a private skill repository.</div>
     {:else}
-      <div class="divide-y divide-gray-200 dark:divide-dark-border">
+      <div class="divide-y divide-dark-border">
         {#each items as item (item.id)}
           <div class="p-4 space-y-3">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div class="min-w-0"><div class="text-sm font-semibold text-gray-900 dark:text-dark-text">{item.name}</div><div class="text-xs text-gray-500 dark:text-dark-text-muted">{item.host}:{item.port}</div></div>
+              <div class="min-w-0"><div class="text-sm font-semibold text-dark-text">{item.name}</div><div class="text-xs text-dark-text-muted">{item.host}:{item.port}</div></div>
               <div class="flex flex-wrap gap-2">
                 <button class="settings-button" onclick={() => testAccess(item)} disabled={busy}><Check size={12} /> Test</button>
                 <button class="settings-button" onclick={() => rotate(item)} disabled={busy}><RotateCw size={12} /> {rotateConfirm === item.id ? 'Confirm rotation' : 'Rotate'}</button>
@@ -151,9 +151,9 @@
                 <button class="settings-primary" onclick={() => testAccess(item)} disabled={busy || !testRepositoryURL.trim()}><Check size={12} /> {busy ? 'Testing…' : 'Run test'}</button>
               </div>
             {/if}
-            {#if rotateConfirm === item.id}<p class="text-xs text-amber-700 dark:text-amber-300">Rotation immediately replaces AT’s private key. Update the repository with the new public key after confirming.</p>{/if}
-            <div class="flex items-start gap-2 border border-gray-200 bg-gray-50 p-2 dark:border-dark-border dark:bg-dark-base"><code class="min-w-0 flex-1 break-all text-[11px] text-gray-700 dark:text-dark-text-secondary">{item.public_key}</code><button class="settings-button shrink-0" onclick={() => copy(item.public_key)}><Copy size={12} /> Copy</button></div>
-            <div class="text-[11px] text-gray-500 dark:text-dark-text-muted">Host fingerprints: {item.fingerprints.join(' · ')}</div>
+            {#if rotateConfirm === item.id}<p class="text-xs text-amber-300">Rotation immediately replaces AT’s private key. Update the repository with the new public key after confirming.</p>{/if}
+            <div class="flex items-start gap-2 border p-2 border-dark-border bg-dark-base"><code class="min-w-0 flex-1 break-all text-[11px] text-dark-text-secondary">{item.public_key}</code><button class="settings-button shrink-0" onclick={() => copy(item.public_key)}><Copy size={12} /> Copy</button></div>
+            <div class="text-[11px] text-dark-text-muted">Host fingerprints: {item.fingerprints.join(' · ')}</div>
           </div>
         {/each}
       </div>

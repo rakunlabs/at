@@ -136,7 +136,7 @@
 
   // The button stays enabled with nothing selected: a control that is greyed out
   // for a reason you cannot see is harder to understand than a short answer.
-  const floatingControl = 'inline-flex min-h-9 items-center gap-1.5 rounded-md border border-gray-400/60 bg-white/90 px-2.5 py-1.5 text-xs text-gray-900 shadow-sm backdrop-blur focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-dark-border dark:bg-dark-elevated/90 dark:text-dark-text';
+  const floatingControl = 'inline-flex min-h-9 items-center gap-1.5 border px-2.5 py-1.5 text-xs shadow-sm backdrop-blur focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border bg-dark-elevated/90 text-dark-text';
   const copyHint = 'Copy the selected text. Select it with the mouse first — Ctrl+C is sent to the shell as an interrupt.';
 
   async function copySelection() {
@@ -305,20 +305,20 @@
 
 <svelte:head><title>AT | Terminal</title></svelte:head>
 
-<div class="flex h-full min-h-0 flex-col bg-white text-gray-900 dark:bg-dark-surface dark:text-dark-text">
-  <header class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-dark-border">
-    <div class="flex items-center gap-2"><TerminalSquare size={18} /><h1 class="text-sm font-semibold">Terminal</h1><span class="text-xs text-gray-500 dark:text-dark-text-muted">Host access</span></div>
+<div class="flex h-full min-h-0 flex-col bg-dark-surface text-dark-text">
+  <header class="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 border-dark-border">
+    <div class="flex items-center gap-2"><TerminalSquare size={18} /><h1 class="text-sm font-semibold">Terminal</h1><span class="text-xs text-dark-text-muted">Host access</span></div>
     <div class="flex items-center gap-2">
       <button class="terminal-button" disabled={loading || busy} onclick={() => void load()} aria-label="Refresh hosts and saved terminals"><RefreshCw size={15} /></button>
       <button class="terminal-button" disabled={loading || busy} onclick={() => { showNew = !showNew; if (showNew) void loadUsers(); }}><Plus size={15} />New terminal</button>
     </div>
   </header>
 
-  {#if error}<div role="alert" class="m-3 border border-red-300 p-3 text-sm text-red-700 dark:border-red-800 dark:text-red-300">{error}<button class="terminal-button ml-3" onclick={() => void load()}>Retry</button></div>{/if}
-  {#if loading && !sessions.length}<p role="status" class="p-6 text-sm text-gray-500 dark:text-dark-text-secondary">Loading saved terminals…</p>{/if}
+  {#if error}<div role="alert" class="m-3 border p-3 text-sm border-red-800 text-red-300">{error}<button class="terminal-button ml-3" onclick={() => void load()}>Retry</button></div>{/if}
+  {#if loading && !sessions.length}<p role="status" class="p-6 text-sm text-dark-text-secondary">Loading saved terminals…</p>{/if}
 
   {#if showNew && !loading}
-    <form onsubmit={(e) => { e.preventDefault(); void create(); }} class="border-b border-gray-200 bg-gray-50 p-3 dark:border-dark-border dark:bg-dark-elevated">
+    <form onsubmit={(e) => { e.preventDefault(); void create(); }} class="border-b p-3 border-dark-border bg-dark-elevated">
       <div class="flex flex-wrap items-end gap-3">
         <label class="flex min-w-40 flex-1 flex-col gap-1 text-xs">Host
           <select aria-label="Host" class="terminal-input" bind:value={selectedTarget} onchange={() => void loadUsers()} disabled={busy}>
@@ -336,8 +336,8 @@
         {#if sessions.length}<button class="terminal-button" type="button" onclick={() => showNew = false} aria-label="Close new terminal form"><X size={15} /></button>{/if}
       </div>
       <label class="mt-3 flex items-center gap-2 text-xs"><input type="checkbox" bind:checked={rememberUser} />Remember this Linux user for this host</label>
-      {#if userError}<p role="alert" class="mt-2 text-xs text-red-700 dark:text-red-300">{userError}<button type="button" class="ml-2 underline" onclick={() => void loadUsers()}>Retry</button></p>{/if}
-      {#each targets.filter(t => !t.available) as host}<p class="mt-2 text-xs text-gray-600 dark:text-dark-text-secondary">{host.name || 'Local host'}: {host.reason}</p>{/each}
+      {#if userError}<p role="alert" class="mt-2 text-xs text-red-300">{userError}<button type="button" class="ml-2 underline" onclick={() => void loadUsers()}>Retry</button></p>{/if}
+      {#each targets.filter(t => !t.available) as host}<p class="mt-2 text-xs text-dark-text-secondary">{host.name || 'Local host'}: {host.reason}</p>{/each}
     </form>
   {/if}
 
@@ -345,23 +345,23 @@
   toolbar, leaving the shell alone on screen. The wrapper is display:contents
   otherwise, so the normal page layout is unchanged. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class={maximized ? 'terminal-stage fixed inset-0 z-50 flex flex-col bg-white dark:bg-dark-surface' : 'contents'} onpointermove={revealControls} onpointerdown={revealControls}>
+  <div class={maximized ? 'terminal-stage fixed inset-0 z-50 flex flex-col bg-dark-surface' : 'contents'} onpointermove={revealControls} onpointerdown={revealControls}>
   {#if sessions.length && !maximized}
-    <div role="tablist" aria-label="Saved terminals" class="flex shrink-0 overflow-x-auto border-b border-gray-200 dark:border-dark-border">
+    <div role="tablist" aria-label="Saved terminals" class="flex shrink-0 overflow-x-auto border-b border-dark-border">
       {#each sessions as session, index (session.id)}
-        <button role="tab" id={`terminal-tab-${session.id}`} aria-controls="terminal-panel" aria-selected={activeID === session.id} tabindex={activeID === session.id ? 0 : -1} onclick={() => select(session.id)} onkeydown={(e) => tabKeys(e, index)} title={`${session.username}@${session.target_name}`} class={['max-w-64 shrink-0 border-b-2 px-4 py-3 text-sm focus-visible:outline-2 focus-visible:outline-accent', activeID === session.id ? 'border-accent bg-gray-50 font-medium dark:bg-dark-elevated' : 'border-transparent text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><span class="block truncate">{session.title}</span></button>
+        <button role="tab" id={`terminal-tab-${session.id}`} aria-controls="terminal-panel" aria-selected={activeID === session.id} tabindex={activeID === session.id ? 0 : -1} onclick={() => select(session.id)} onkeydown={(e) => tabKeys(e, index)} title={`${session.username}@${session.target_name}`} class={['max-w-64 shrink-0 border-b-2 px-4 py-3 text-sm focus-visible:outline-2 focus-visible:outline-accent', activeID === session.id ? 'border-accent font-medium bg-dark-elevated' : 'border-transparent text-dark-text-secondary hover:bg-dark-elevated']}><span class="block truncate">{session.title}</span></button>
       {/each}
     </div>
   {/if}
 
   {#if active}
     {#if !maximized}
-    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-dark-border">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 border-dark-border">
       <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <span class="font-mono">{active.username}@{active.target_name}</span>
-        <span role="status" class="text-gray-600 dark:text-dark-text-secondary">{!target ? 'Host offline' : status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
+        <span role="status" class="text-dark-text-secondary">{!target ? 'Host offline' : status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
         {#if target && status === 'connected' && watchers > 0}
-          <span class="flex items-center gap-1 text-gray-600 dark:text-dark-text-secondary" title="Other connections attached to this same shell"><Eye size={13} />{watchers} watching</span>
+          <span class="flex items-center gap-1 text-dark-text-secondary" title="Other connections attached to this same shell"><Eye size={13} />{watchers} watching</span>
         {/if}
       </div>
       <div class="flex flex-wrap items-center gap-1">
@@ -379,9 +379,9 @@
         <button class="terminal-button" disabled={!target || busy} onclick={() => askAction('terminate')}><Power size={14} />End terminal</button>
       </div>
     </div>
-    {#if editTitle}<form class="flex gap-2 border-b border-gray-200 p-3 dark:border-dark-border" onsubmit={e => { e.preventDefault(); void rename(); }}><label class="sr-only" for="terminal-name">Terminal name</label><input id="terminal-name" class="terminal-input min-w-0 flex-1" bind:value={renamed} maxlength="80" /><button class="terminal-button" disabled={busy || !renamed.trim()}>Save name</button><button class="terminal-button" type="button" onclick={() => editTitle = false}>Cancel</button></form>{/if}
+    {#if editTitle}<form class="flex gap-2 border-b p-3 border-dark-border" onsubmit={e => { e.preventDefault(); void rename(); }}><label class="sr-only" for="terminal-name">Terminal name</label><input id="terminal-name" class="terminal-input min-w-0 flex-1" bind:value={renamed} maxlength="80" /><button class="terminal-button" disabled={busy || !renamed.trim()}>Save name</button><button class="terminal-button" type="button" onclick={() => editTitle = false}>Cancel</button></form>{/if}
     {#if showDisplay}
-      <div class="flex flex-wrap items-end gap-3 border-b border-gray-200 p-3 text-xs dark:border-dark-border">
+      <div class="flex flex-wrap items-end gap-3 border-b p-3 text-xs border-dark-border">
         <label class="flex flex-col gap-1">Colours
           <select class="terminal-input" bind:value={preferences.appearance} onchange={persistPreferences}>
             <option value="dark">Dark</option>
@@ -412,7 +412,7 @@
           </select>
         </label>
         <button class="terminal-button" onclick={() => showDisplay = false}>Done</button>
-        <p class="basis-full text-gray-600 dark:text-dark-text-secondary">
+        <p class="basis-full text-dark-text-secondary">
           {#if fontFamily === BUNDLED}Included with AT, so nothing has to be installed — the one choice that works on a phone. About 1 MB per weight, downloaded once and then cached.{:else if !fontReady}Not installed on this device, so the system monospace font is used. Fonts are installed on this device, not on the host; on a phone, pick the included font instead.{:else}Any other font has to be installed on this device. Glyphs still depend on what the program prints.{/if}
         </p>
       </div>
@@ -421,7 +421,7 @@
     <!-- Shown in full screen too: a screen that silently ignores typing is the
     worst possible way to learn that another connection holds the shell. -->
     {#if target && !control}
-      <div role="status" class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <div role="status" class="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-xs border-amber-900 bg-amber-950/40 text-amber-200">
         <p class="flex items-center gap-1.5"><Eye size={14} />Watching. Another connection to this terminal is typing.</p>
         <button class="terminal-button" onclick={() => terminal?.takeControl()}>Take control</button>
       </div>
@@ -429,7 +429,7 @@
     <!-- A dead terminal explains itself even in full screen; hiding this would
     leave a frozen screen with no reason and no way back. -->
     {#if !target || status === 'error' || status === 'disconnected'}
-      <div role="status" class="flex flex-wrap items-center justify-between gap-2 bg-gray-50 px-3 py-2 text-xs dark:bg-dark-elevated">
+      <div role="status" class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs bg-dark-elevated">
         <p>{!target ? 'This host is offline. Refresh hosts when it is available again.' : statusMessage}</p>
         <div class="flex items-center gap-1">
           {#if maximized && target}<button class="terminal-button" disabled={busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; control = true; watchers = 0; }}><RefreshCw size={14} />Reconnect</button>{/if}
@@ -440,7 +440,7 @@
     <div id="terminal-panel" role="tabpanel" tabindex="0" aria-labelledby={`terminal-tab-${active.id}`} class="relative min-h-40 flex-1 overflow-hidden">
       {#if target}
         {#key `${active.id}:${generation}`}<HostTerminal bind:this={terminal} id={active.id} {appearance} {fontFamily} {fontSize} {keyBar} onstatus={(value, text) => { status = value; statusMessage = text; }} onrole={(held, others) => { control = held; watchers = others; }} />{/key}
-      {:else}<div class="p-6 text-sm text-gray-500 dark:text-dark-text-secondary">Saved terminal: {active.title}. It will reconnect to {active.target_name}, not another host.</div>{/if}
+      {:else}<div class="p-6 text-sm text-dark-text-secondary">Saved terminal: {active.title}. It will reconnect to {active.target_name}, not another host.</div>{/if}
       {#if maximized}
         <!-- Full screen drops the toolbar, so copying needs its own control here;
         both share the fade so neither covers shell output while you work. -->
@@ -458,31 +458,28 @@
             onfocus={() => { clearTimeout(controlsTimer); controls = true; }}
             onblur={revealControls}
             onclick={() => setMaximized(false)}
-          ><Minimize2 size={14} />Exit full screen {#if !touchOnly}<span class="text-gray-500 dark:text-dark-text-muted">Ctrl/Cmd + Shift + F</span>{/if}</button>
+          ><Minimize2 size={14} />Exit full screen {#if !touchOnly}<span class="text-dark-text-muted">Ctrl/Cmd + Shift + F</span>{/if}</button>
         </div>
       {/if}
     </div>
   {:else if !loading && !error}
-    <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"><TerminalSquare size={30} class="text-gray-400" /><h2 class="text-base font-medium">Your host terminals, saved here</h2><p class="max-w-md text-sm text-gray-600 dark:text-dark-text-secondary">Choose a host and Linux user to open your first terminal. You can leave this page and return to the same running shell.</p></div>
+    <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"><TerminalSquare size={30} class="text-dark-text-muted" /><h2 class="text-base font-medium">Your host terminals, saved here</h2><p class="max-w-md text-sm text-dark-text-secondary">Choose a host and Linux user to open your first terminal. You can leave this page and return to the same running shell.</p></div>
   {/if}
   </div>
-  <footer class="shrink-0 border-t border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-dark-border dark:text-dark-text-muted">Closing this page keeps shells running. A second connection watches the same shell until it takes control. Host restarts end running processes.</footer>
+  <footer class="shrink-0 border-t px-3 py-2 text-xs border-dark-border text-dark-text-muted">Closing this page keeps shells running. A second connection watches the same shell until it takes control. Host restarts end running processes.</footer>
 </div>
 
-<dialog bind:this={actionDialog} class="m-auto w-[min(28rem,calc(100%-2rem))] rounded-lg border border-gray-200 bg-white p-5 text-gray-900 backdrop:bg-black/40 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text" oncancel={() => {}}>
+<dialog bind:this={actionDialog} class="m-auto w-[min(28rem,calc(100%-2rem))] border p-5 backdrop:bg-black/40 border-dark-border bg-dark-surface text-dark-text" oncancel={() => {}}>
   <h2 class="text-base font-semibold">{action === 'terminate' ? 'End this terminal?' : 'Start a shell in this saved terminal?'}</h2>
-  <p class="mt-2 text-sm text-gray-600 dark:text-dark-text-secondary">{action === 'terminate' ? `This stops the shell and its processes in “${active?.title || ''}” and removes the saved tab.` : 'If the previous shell has ended, a new login shell will start under the same Linux user. A running shell is kept. Previous commands are not replayed.'}</p>
+  <p class="mt-2 text-sm text-dark-text-secondary">{action === 'terminate' ? `This stops the shell and its processes in “${active?.title || ''}” and removes the saved tab.` : 'If the previous shell has ended, a new login shell will start under the same Linux user. A running shell is kept. Previous commands are not replayed.'}</p>
   <div class="mt-5 flex justify-end gap-2"><button class="terminal-button" disabled={busy} onclick={() => actionDialog.close()}>Cancel</button><button class="terminal-button" disabled={busy} onclick={() => void performAction()}>{busy ? 'Working…' : action === 'terminate' ? 'End terminal' : 'Start shell'}</button></div>
 </dialog>
 
 <style>
-  @reference "tailwindcss";
-  .terminal-button { @apply inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50; }
-  .terminal-input { @apply h-9 rounded-md border border-gray-300 bg-white px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50; }
+  @reference "../style/global.css";
+  .terminal-button { @apply inline-flex min-h-9 items-center justify-center gap-1.5 border border-dark-border-subtle px-2.5 py-1.5 text-xs hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50; }
+  .terminal-input { @apply h-9 border border-dark-border-subtle bg-dark-surface px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50; }
   /* The overlay is fixed to the viewport, so the body's safe-area padding does
      not apply and a notch or home indicator would sit over the shell. */
   .terminal-stage { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-  :global(.dark) .terminal-button { border-color: var(--color-dark-border); }
-  :global(.dark) .terminal-button:hover { background: var(--color-dark-elevated); }
-  :global(.dark) .terminal-input { border-color: var(--color-dark-border); background: var(--color-dark-surface); }
 </style>

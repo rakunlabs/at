@@ -28,27 +28,27 @@
 <div class="flex flex-col gap-1.5">
   {#each visible as row, index}
     <div
-      class={["relative flex items-center gap-2 text-xs", hoverIndex === index ? 'bg-gray-50 dark:bg-dark-base' : '']}
+      class={["relative flex items-center gap-2 text-xs", hoverIndex === index ? 'bg-dark-base' : '']}
       role="presentation"
       onmouseenter={() => (hoverIndex = index)}
       onmouseleave={() => (hoverIndex = null)}
     >
-      <div class="w-28 truncate text-gray-600 dark:text-dark-text-secondary font-mono">
+      <div class="w-28 truncate text-dark-text-secondary font-mono">
         {row.label || '(none)'}
       </div>
-      <div class="flex-1 h-4 relative bg-gray-100 dark:bg-dark-elevated rounded-sm overflow-hidden">
+      <div class="flex-1 h-4 relative bg-dark-elevated overflow-hidden">
         <div
           class="h-full"
           style="width: {(row.value / maxVal) * 100}%; background: {row.color || barColor}; opacity: {hoverIndex === null || hoverIndex === index ? 1 : 0.45}"
         ></div>
       </div>
-      <div class="w-20 text-right font-mono text-gray-900 dark:text-dark-text tabular-nums">
+      <div class="w-20 text-right font-mono text-dark-text tabular-nums">
         {formatValue(row.value)}
       </div>
       {#if hoverIndex === index}
-        <div class="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-full border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] shadow-sm dark:border-dark-border dark:bg-dark-surface">
-          <div class="break-all font-mono text-gray-900 dark:text-dark-text">{row.label || '(none)'}</div>
-          <div class="text-gray-600 dark:text-dark-text-secondary">
+        <div class="pointer-events-none absolute bottom-full left-0 z-10 mb-1 max-w-full border px-2.5 py-1.5 text-[11px] shadow-sm border-dark-border bg-dark-surface">
+          <div class="break-all font-mono text-dark-text">{row.label || '(none)'}</div>
+          <div class="text-dark-text-secondary">
             <span class="font-mono tabular-nums">{formatValue(row.value)}</span>
             {#if total > 0}<span class="ml-1">· {((row.value / total) * 100).toFixed(1)}%</span>{/if}
           </div>
@@ -56,6 +56,6 @@
       {/if}
     </div>
   {:else}
-    <div class="text-xs text-gray-400 dark:text-dark-text-muted">No data</div>
+    <div class="text-xs text-dark-text-muted">No data</div>
   {/each}
 </div>

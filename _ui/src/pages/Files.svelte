@@ -27,9 +27,9 @@
   let uploading = $state(false);
   let uploadInput: HTMLInputElement;
   let previewController: AbortController | null = null;
-  const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-gray-200 dark:border-dark-border px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
-  const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
-  const inputClass = 'h-7 w-full min-w-0 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
+  const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-dark-border px-2 text-xs text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
+  const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
+  const inputClass = 'h-7 w-full min-w-0 border border-dark-border bg-dark-surface px-2 text-base sm:text-xs text-dark-text placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
 
   // Search & Sort & Hidden
   let searchQuery = $state('');
@@ -247,11 +247,11 @@
 </script>
 
 <svelte:head><title>AT | Files</title></svelte:head>
-<div class="flex h-full min-h-0 min-w-0 bg-gray-50 dark:bg-dark-base text-gray-900 dark:text-dark-text">
+<div class="flex h-full min-h-0 min-w-0 bg-dark-base text-dark-text">
   <!-- Main content -->
   <div class={[previewFile ? 'hidden xl:flex' : 'flex', 'flex-1 flex-col min-h-0 min-w-0']}>
     <!-- Header -->
-    <header class="flex flex-col gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shrink-0">
+    <header class="flex flex-col gap-1.5 px-3 py-2 border-b border-dark-border bg-dark-surface shrink-0">
       <div class="flex items-center gap-2 min-w-0">
         <button
           onclick={() => browse(parentPath)}
@@ -267,15 +267,15 @@
         <nav aria-label="File path" class="flex items-center gap-1 text-xs min-w-0 overflow-x-auto">
           {#each breadcrumbs as crumb, i}
             {#if i > 0}
-              <ChevronRight size={10} class="text-gray-300 dark:text-dark-text-faint shrink-0" />
+              <ChevronRight size={10} class="text-dark-text-faint shrink-0" />
             {/if}
             <button
               onclick={() => browse(crumb.path)}
               class={[
-                'shrink-0 min-h-7 truncate max-w-40 px-1 rounded focus-visible:outline-2 focus-visible:outline-accent ',
+                'shrink-0 min-h-7 truncate max-w-40 px-1 focus-visible:outline-2 focus-visible:outline-accent ',
                 i === breadcrumbs.length - 1
-                  ? 'text-gray-900 dark:text-dark-text font-medium'
-                  : 'text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text'
+                  ? 'text-dark-text font-medium'
+                  : 'text-dark-text-secondary hover:text-dark-text'
               ]}
               aria-current={i === breadcrumbs.length - 1 ? 'location' : undefined}
               aria-label={i === 0 ? 'Workspace root' : crumb.name}
@@ -304,7 +304,7 @@
         />
         <!-- Search -->
         <div class="relative min-w-0 flex-1 basis-40">
-          <Search size={13} class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-dark-text-secondary" />
+          <Search size={13} class="absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-secondary" />
           <input
             type="text"
             bind:value={searchQuery}
@@ -325,63 +325,63 @@
         <!-- Hidden files toggle -->
         <button
           onclick={() => { showHidden = !showHidden; }}
-          class={`${controlClass} ${showHidden ? 'bg-gray-900 !text-white dark:bg-gray-100 dark:!text-gray-950' : ''}`}
+          class={`${controlClass} ${showHidden ? 'bg-gray-100 !text-gray-950' : ''}`}
           title={showHidden ? 'Hide dotfiles' : 'Show dotfiles'}
           aria-pressed={showHidden}
         >.hidden</button>
       </div>
     </header>
-    {#if browseError}<div role="alert" class="m-3 rounded-md border border-red-200 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">{browseError}</div>{/if}
+    {#if browseError}<div role="alert" class="m-3 border border-red-900 p-3 text-sm text-red-300">{browseError}</div>{/if}
 
     <!-- File list -->
-    <div class="flex-1 min-h-0 overflow-y-auto bg-white dark:bg-dark-surface" aria-busy={loading}>
+    <div class="flex-1 min-h-0 overflow-y-auto bg-dark-surface" aria-busy={loading}>
       {#if loading}
-        <div role="status" class="flex items-center justify-center gap-2 py-12 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" />Loading files…</div>
+        <div role="status" class="flex items-center justify-center gap-2 py-12 text-sm text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" />Loading files…</div>
       {:else if filteredEntries.length === 0}
-        <div class="text-center py-12 text-sm text-gray-500 dark:text-dark-text-secondary">
+        <div class="text-center py-12 text-sm text-dark-text-secondary">
           {entries.length > 0 ? 'No matches' : 'Empty directory'}
         </div>
       {:else}
         <table class="w-full table-fixed text-xs">
           <thead>
-            <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-xs text-gray-600 dark:text-dark-text-secondary">
+            <tr class="border-b border-dark-border bg-dark-base text-xs text-dark-text-secondary">
               <th class="text-left px-3 py-1.5 font-medium">
-                <button onclick={() => toggleSort('name')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Name{sortIndicator('name')}</button>
+                <button onclick={() => toggleSort('name')} class="hover:text-dark-text-secondary">Name{sortIndicator('name')}</button>
               </th>
               <th class="hidden md:table-cell text-right px-3 py-1.5 font-medium w-24">
-                <button onclick={() => toggleSort('size')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Size{sortIndicator('size')}</button>
+                <button onclick={() => toggleSort('size')} class="hover:text-dark-text-secondary">Size{sortIndicator('size')}</button>
               </th>
               <th class="hidden 2xl:table-cell text-right px-3 py-1.5 font-medium w-40">
-                <button onclick={() => toggleSort('mod_time')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Modified{sortIndicator('mod_time')}</button>
+                <button onclick={() => toggleSort('mod_time')} class="hover:text-dark-text-secondary">Modified{sortIndicator('mod_time')}</button>
               </th>
               <th class="text-right px-2 py-1.5 font-medium w-20"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+          <tbody class="divide-y divide-dark-border">
             {#each filteredEntries as entry}
               {@const FileIcon = getFileIcon(entry)}
               <tr class={[
                 'group',
                 previewFile?.path === entry.path
-                  ? 'bg-gray-100 dark:bg-dark-elevated'
-                  : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'
+                  ? 'bg-dark-elevated'
+                  : 'hover:bg-dark-elevated'
               ]}>
                 <td class="px-3 py-0.5">
                   <button
                     onclick={() => openPreview(entry)}
-                    class="flex min-h-7 min-w-0 items-center gap-2 text-left w-full rounded focus-visible:outline-2 focus-visible:outline-accent"
+                    class="flex min-h-7 min-w-0 items-center gap-2 text-left w-full focus-visible:outline-2 focus-visible:outline-accent"
                     title={entry.name}
                   >
-                    <span class="inline-flex size-4 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary">
+                    <span class="inline-flex size-4 shrink-0 items-center justify-center text-dark-text-secondary">
                       <FileIcon size={14} />
                     </span>
-                    <span class="min-w-0"><span class="block truncate text-gray-800 dark:text-dark-text">{entry.name}</span><span class="block text-xs text-gray-500 dark:text-dark-text-secondary md:hidden">{entry.is_dir ? 'Folder' : formatSize(entry.size)}</span></span>
+                    <span class="min-w-0"><span class="block truncate text-dark-text">{entry.name}</span><span class="block text-xs text-dark-text-secondary md:hidden">{entry.is_dir ? 'Folder' : formatSize(entry.size)}</span></span>
                   </button>
                 </td>
-                <td class="hidden md:table-cell px-3 py-0.5 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
+                <td class="hidden md:table-cell px-3 py-0.5 text-right text-xs text-dark-text-secondary tabular-nums">
                   {entry.is_dir ? '-' : formatSize(entry.size)}
                 </td>
-                <td class="hidden 2xl:table-cell px-3 py-0.5 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
+                <td class="hidden 2xl:table-cell px-3 py-0.5 text-right text-xs text-dark-text-secondary tabular-nums">
                   {entry.mod_time}
                 </td>
                 <td class="px-2 py-0.5 text-right">
@@ -399,7 +399,7 @@
                     {/if}
                       <button
                         onclick={() => (deleteConfirm = entry.path)}
-                        class={`${iconClass} hover:!text-red-600 dark:hover:!text-red-400`}
+                        class={`${iconClass} hover:!text-red-400`}
                         title={`Delete ${entry.name}`}
                         aria-label={`Delete ${entry.name}`}
                       >
@@ -417,12 +417,12 @@
 
   <!-- Preview panel -->
   {#if previewFile}
-    <section aria-label="File preview" class="w-full xl:w-[28rem] min-w-0 min-h-0 xl:border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col shrink-0">
+    <section aria-label="File preview" class="w-full xl:w-[28rem] min-w-0 min-h-0 xl:border-l border-dark-border bg-dark-surface flex flex-col shrink-0">
       <!-- Preview header -->
-      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-dark-border shrink-0">
         <div class="min-w-0">
-          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text break-all">{previewFile.name}</h2>
-          <div class="text-xs text-gray-500 dark:text-dark-text-secondary">{formatSize(previewFile.size)} · {previewFile.mod_time}</div>
+          <h2 class="text-sm font-medium text-dark-text break-all">{previewFile.name}</h2>
+          <div class="text-xs text-dark-text-secondary">{formatSize(previewFile.size)} · {previewFile.mod_time}</div>
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <a
@@ -453,30 +453,30 @@
       </div>
 
       <!-- Preview content -->
-      <div class="flex-1 min-h-0 overflow-auto p-3 sm:p-4 bg-gray-50 dark:bg-dark-base">
-        {#if previewLoading}<p role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" />Loading preview…</p>
-        {:else if previewError}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{previewError} Download the file to open it on your device.</p>
+      <div class="flex-1 min-h-0 overflow-auto p-3 sm:p-4 bg-dark-base">
+        {#if previewLoading}<p role="status" class="flex items-center gap-2 text-sm text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" />Loading preview…</p>
+        {:else if previewError}<p role="alert" class="text-sm text-red-300">{previewError} Download the file to open it on your device.</p>
         {:else if previewType === 'video'}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
             src={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
             controls
             preload="metadata"
-            class="w-full max-h-full rounded-md bg-black"
+            class="w-full max-h-full bg-black"
             onerror={() => { previewError = 'The video could not be played in this browser.'; }}
           ></video>
         {:else if previewType === 'image'}
           <img
             src={storageFileServeUrl(previewFile.path, previewFile.mod_time)}
             alt={previewFile.name}
-            class="mx-auto max-w-full max-h-full object-contain rounded-md"
+            class="mx-auto max-w-full max-h-full object-contain"
             onerror={() => { previewError = 'The image could not be loaded.'; }}
           />
         {:else if previewType === 'audio'}
           <div class="w-full pt-8">
             <div class="text-center mb-4">
-              <FileAudio size={40} class="mx-auto text-gray-500 dark:text-dark-text-secondary mb-2" />
-              <div class="text-sm text-gray-600 dark:text-dark-text-secondary">{previewFile.name}</div>
+              <FileAudio size={40} class="mx-auto text-dark-text-secondary mb-2" />
+              <div class="text-sm text-dark-text-secondary">{previewFile.name}</div>
             </div>
             <!-- svelte-ignore a11y_media_has_caption -->
             <audio
@@ -488,10 +488,10 @@
             ></audio>
           </div>
         {:else if previewType === 'text'}
-          {#if previewTruncated}<p class="mb-3 text-sm text-gray-600 dark:text-dark-text-secondary">Showing the first 1 MB. Download the file for the full content.</p>{/if}
-          <pre class="w-full text-sm font-mono text-gray-800 dark:text-dark-text whitespace-pre-wrap break-all bg-white dark:bg-dark-surface p-3 border border-gray-200 dark:border-dark-border rounded-md">{previewText}</pre>
+          {#if previewTruncated}<p class="mb-3 text-sm text-dark-text-secondary">Showing the first 1 MB. Download the file for the full content.</p>{/if}
+          <pre class="w-full text-sm font-mono text-dark-text whitespace-pre-wrap break-all bg-dark-surface p-3 border border-dark-border">{previewText}</pre>
         {:else}
-          <div class="space-y-3 py-8 text-center text-sm text-gray-600 dark:text-dark-text-secondary"><FileText size={32} class="mx-auto" /><p>No browser preview for this file type.</p><a class={controlClass} href={storageFileServeUrl(previewFile.path, previewFile.mod_time)} download={previewFile.name}><Download size={16} />Download file</a></div>
+          <div class="space-y-3 py-8 text-center text-sm text-dark-text-secondary"><FileText size={32} class="mx-auto" /><p>No browser preview for this file type.</p><a class={controlClass} href={storageFileServeUrl(previewFile.path, previewFile.mod_time)} download={previewFile.name}><Download size={16} />Download file</a></div>
         {/if}
       </div>
     </section>
@@ -499,8 +499,8 @@
 </div>
 
 {#if deleteConfirm}
-  <section class="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-xl rounded-lg border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface p-4 shadow-lg" aria-label="Confirm file deletion" aria-live="polite">
-    <p id="file-delete-description" class="mb-3 break-all text-sm text-gray-900 dark:text-dark-text">Delete {deleteConfirm}? Only files and empty folders can be deleted.</p>
-    <div class="flex flex-wrap justify-end gap-2"><button class={controlClass} disabled={deleting} onclick={() => { deleteConfirm = null; }}>Cancel</button><button class="inline-flex h-10 items-center rounded-md bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50" disabled={deleting} onclick={() => { if (deleteConfirm) void handleDelete(deleteConfirm); }}>{deleting ? 'Deleting…' : 'Delete'}</button></div>
+  <section class="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-xl border border-dark-border bg-dark-surface p-4 shadow-lg" aria-label="Confirm file deletion" aria-live="polite">
+    <p id="file-delete-description" class="mb-3 break-all text-sm text-dark-text">Delete {deleteConfirm}? Only files and empty folders can be deleted.</p>
+    <div class="flex flex-wrap justify-end gap-2"><button class={controlClass} disabled={deleting} onclick={() => { deleteConfirm = null; }}>Cancel</button><button class="inline-flex h-10 items-center bg-red-600 px-4 text-sm font-medium text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 disabled:opacity-50" disabled={deleting} onclick={() => { if (deleteConfirm) void handleDelete(deleteConfirm); }}>{deleting ? 'Deleting…' : 'Delete'}</button></div>
   </section>
 {/if}

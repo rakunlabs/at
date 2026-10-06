@@ -80,17 +80,17 @@
 <div bind:this={container} class="relative w-full">
   <svg {width} {height} class="overflow-visible" role="img" onmouseleave={() => (hoverKey = null)}>
     {#if hoverKey !== null}
-      <rect x={margin.left + (xScale(hoverKey) || 0)} y={margin.top} width={xScale.bandwidth()} height={plotHeight} class="fill-gray-100 dark:fill-dark-elevated" />
+      <rect x={margin.left + (xScale(hoverKey) || 0)} y={margin.top} width={xScale.bandwidth()} height={plotHeight} class="fill-dark-elevated" />
     {/if}
 
     {#each yTicks as tick}
-      <line x1={margin.left} x2={margin.left + plotWidth} y1={margin.top + yScale(tick)} y2={margin.top + yScale(tick)} class="stroke-gray-200 dark:stroke-dark-border" stroke-width="1" />
-      <text x={margin.left - 6} y={margin.top + yScale(tick) + 3} class="fill-gray-500 text-[10px] dark:fill-dark-text-muted" text-anchor="end">{formatY(tick)}</text>
+      <line x1={margin.left} x2={margin.left + plotWidth} y1={margin.top + yScale(tick)} y2={margin.top + yScale(tick)} class="stroke-dark-border" stroke-width="1" />
+      <text x={margin.left - 6} y={margin.top + yScale(tick) + 3} class="text-[10px] fill-dark-text-muted" text-anchor="end">{formatY(tick)}</text>
     {/each}
 
     {#each buckets as value, index}
       {#if index % tickStep === 0 || index === buckets.length - 1}
-        <text x={margin.left + (xScale(String(value.getTime())) || 0) + xScale.bandwidth() / 2} y={height - 8} class="fill-gray-500 text-[10px] dark:fill-dark-text-muted" text-anchor="middle">{formatTick(value)}</text>
+        <text x={margin.left + (xScale(String(value.getTime())) || 0) + xScale.bandwidth() / 2} y={height - 8} class="text-[10px] fill-dark-text-muted" text-anchor="middle">{formatTick(value)}</text>
       {/if}
     {/each}
 
@@ -122,22 +122,22 @@
 
   {#if hoverBucket}
     <div
-      class="pointer-events-none absolute z-10 min-w-36 border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] shadow-sm dark:border-dark-border dark:bg-dark-surface"
+      class="pointer-events-none absolute z-10 min-w-36 border px-2.5 py-1.5 text-[11px] shadow-sm border-dark-border bg-dark-surface"
       style={`top:${margin.top}px; left:${hoverCenter}px; transform:translateX(${hoverCenter > width / 2 ? 'calc(-100% - 12px)' : '12px'})`}
     >
-      <div class="mb-1 font-medium text-gray-900 dark:text-dark-text">{formatHoverDate(hoverBucket)}</div>
+      <div class="mb-1 font-medium text-dark-text">{formatHoverDate(hoverBucket)}</div>
       {#each hoverRows as row}
-        <div class="flex items-center gap-2 text-gray-600 dark:text-dark-text-secondary">
+        <div class="flex items-center gap-2 text-dark-text-secondary">
           <span class="inline-block h-2 w-2 shrink-0" style={`background:${row.color}`}></span>
           <span class="truncate">{row.name}</span>
-          <span class="ml-auto pl-3 font-mono tabular-nums text-gray-900 dark:text-dark-text">{row.y === null ? '—' : formatY(row.y)}</span>
+          <span class="ml-auto pl-3 font-mono tabular-nums text-dark-text">{row.y === null ? '—' : formatY(row.y)}</span>
         </div>
       {/each}
     </div>
   {/if}
 
   {#if series.length > 1}
-    <div class="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-600 dark:text-dark-text-secondary">
+    <div class="mt-1 flex flex-wrap gap-3 text-[11px] text-dark-text-secondary">
       {#each series as item}
         <div class="flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5" style={`background:${item.color}`}></span><span>{item.name}</span></div>
       {/each}

@@ -11,9 +11,9 @@
   {#snippet extra()}<Handle id="mcp_urls" type="output" port="config" position="top" label="mcp" />{/snippet}
   {#if sets.length || legacyURLs.length}
     <ul class="space-y-0.5 text-xs">
-      {#each sets as name}<li class="truncate font-mono text-gray-700 dark:text-dark-text-secondary" title={name}>{name}</li>{/each}
+      {#each sets as name}<li class="truncate font-mono text-dark-text-secondary" title={name}>{name}</li>{/each}
       {#if legacyURLs.length}
-        <li class="truncate text-amber-700 dark:text-amber-400" title={legacyURLs.join('\n')}>{legacyURLs.length} legacy URL{legacyURLs.length === 1 ? '' : 's'}</li>
+        <li class="truncate text-amber-400" title={legacyURLs.join('\n')}>{legacyURLs.length} legacy URL{legacyURLs.length === 1 ? '' : 's'}</li>
       {/if}
     </ul>
   {/if}

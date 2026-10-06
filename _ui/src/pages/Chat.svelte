@@ -120,11 +120,12 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { Send, Trash2, ChevronDown, Square, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText, Paperclip, FileAudio, FileVideo, SkipForward } from 'lucide-svelte';
+  import { X, Wrench, Loader2, MessageCircleQuestion, PanelLeft, PanelRight, GitBranch, FileText, FileAudio, FileVideo } from 'lucide-svelte';
   import { onDestroy, untrack, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import MessageContent from '@/lib/components/playground/MessageContent.svelte';
+  import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import { createChatMediaCache } from '@/lib/helper/chat-media-cache';
 
   storeNavbar.title = 'Chats';
@@ -948,7 +949,8 @@
   let conversations = $state<PlaygroundConversation[]>([]);
   let conversationsLoading = $state(false);
   let conversationsCursor = $state('');
-  let showConversations = $state(true);
+  // Below lg the list is an overlay, so it starts closed on narrow screens.
+  let showConversations = $state(typeof window === 'undefined' || window.matchMedia('(min-width: 1024px)').matches);
   let historyLoading = $state(false);
   let historyTruncated = $state(false);
   let historyCursor = $state('');
@@ -3029,7 +3031,15 @@
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
+      // A lone "/" opens the command palette, as in a terminal agent.
+      if (userInput.trim() === '/' && pendingImages.length === 0) { userInput = ''; palette = 'commands'; return; }
       if (!e.repeat) void sendMessage();
+      return;
+    }
+    // Tab on an empty composer cycles presets; otherwise it keeps moving focus.
+    if (e.key === 'Tab' && !e.shiftKey && !userInput && pendingImages.length === 0 && presets.length > 0) {
+      e.preventDefault();
+      cyclePreset();
       return;
     }
     // Recall the newest queued message for editing, like a shell history.
@@ -3042,6 +3052,138 @@
       e.preventDefault();
       stopStreaming();
     }
+  }
+
+  // ─── Terminal layout: command palette and session sidebar ───
+
+  let palette = $state<'' | 'commands' | 'models' | 'presets' | 'effort'>('');
+  let showSessionPanel = $state(typeof window === 'undefined' || window.matchMedia('(min-width: 1280px)').matches);
+  let composerInput: HTMLTextAreaElement | undefined = $state();
+
+  // Sidebars become overlays when the window narrows; close them rather than
+  // letting a desktop choice cover the transcript.
+  $effect(() => {
+    const lg = window.matchMedia('(min-width: 1024px)');
+    const xl = window.matchMedia('(min-width: 1280px)');
+    const onLg = () => { if (!lg.matches) showConversations = false; };
+    const onXl = () => { if (!xl.matches) showSessionPanel = false; };
+    lg.addEventListener('change', onLg);
+    xl.addEventListener('change', onXl);
+    return () => { lg.removeEventListener('change', onLg); xl.removeEventListener('change', onXl); };
+  });
+
+  const modelLabel = (ref: string) => ref.slice(ref.indexOf('/') + 1) || ref;
+  const providerLabel = (ref: string) => (ref.includes('/') ? ref.slice(0, ref.indexOf('/')) : '');
+  let activePresetName = $derived(presets.find(p => p.id === activePresetId)?.name ?? '');
+  let conversationTitle = $derived(conversation?.title?.trim() || (conversationId ? 'Untitled conversation' : 'New chat'));
+
+  function setModel(ref: string) {
+    selectedModel = ref;
+    workbenchChanged();
+  }
+
+  function cycleReasoningEffort() {
+    if (reasoningEffortOptions.length === 0) return;
+    const options = ['', ...reasoningEffortOptions];
+    reasoningEffort = options[(options.indexOf(effectiveReasoningEffort) + 1) % options.length];
+    workbenchChanged();
+  }
+
+  function cyclePreset() {
+    if (presets.length === 0) return;
+    const index = presets.findIndex(p => p.id === activePresetId);
+    applyPreset(presets[(index + 1) % presets.length].id);
+  }
+
+  function openWorkbench(tab: WorkbenchTab = 'prompt') {
+    workbenchTab = tab;
+    showWorkbench = true;
+  }
+
+  let paletteTitle = $derived(palette === 'models' ? 'Select model' : palette === 'presets' ? 'Apply preset' : palette === 'effort' ? 'Reasoning effort' : 'Commands');
+
+  let paletteGroups = $derived.by((): PaletteGroup[] => {
+    if (palette === 'models') {
+      return modelGroups.map(group => ({
+        label: group.label,
+        items: group.models.map(ref => ({ label: modelLabel(ref), current: ref === selectedModel, run: () => setModel(ref) })),
+      }));
+    }
+    if (palette === 'presets') {
+      const toItem = (p: ChatPreset) => ({ label: p.name, current: p.id === activePresetId, run: () => applyPreset(p.id) });
+      return [
+        { label: 'My presets', items: personalPresets.map(toItem) },
+        { label: 'Workspace presets', items: workspacePresets.map(toItem) },
+        { label: 'Manage', items: [{ label: 'Save or edit presets…', run: () => openWorkbench('prompt') }] },
+      ];
+    }
+    if (palette === 'effort') {
+      return [{
+        label: modelLabel(selectedModel),
+        items: ['', ...reasoningEffortOptions].map(effort => ({
+          label: effort || 'default',
+          current: effort === effectiveReasoningEffort,
+          run: () => { reasoningEffort = effort; workbenchChanged(); },
+        })),
+      }];
+    }
+    const lastAssistant = messages.findLastIndex(m => m.role === 'assistant');
+    return [
+      {
+        label: 'Session',
+        items: [
+          { label: 'New chat', hint: 'ctrl+alt+n', run: newConversation },
+          { label: 'Share snapshot', disabled: !(sharingAvailable && conversationId && shareBoundaries.length > 0), run: () => (showShareDialog = true) },
+          { label: 'Copy last answer', disabled: lastAssistant < 0, run: () => copyMessage(lastAssistant) },
+          { label: 'Fork from last message', disabled: messages.length === 0 || meta[messages.length - 1]?.sequence == null, run: () => forkFrom(messages.length - 1) },
+          { label: unsavedCount > 0 ? `Retry saving ${unsavedCount} message${unsavedCount === 1 ? '' : 's'}` : 'Retry saving', disabled: !(unsavedCount > 0 && conversationId), run: () => persistPending() },
+          { label: 'Clear transcript…', disabled: streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0), run: () => { showSessionPanel = true; requestClear(); } },
+        ],
+      },
+      {
+        label: 'Model',
+        items: [
+          { label: 'Switch model', hint: 'ctrl+m', disabled: models.length === 0, run: () => (palette = 'models') },
+          { label: 'Reasoning effort', hint: 'ctrl+t', disabled: reasoningEffortOptions.length === 0, run: () => (palette = 'effort') },
+          { label: 'Apply preset', hint: 'tab', disabled: presets.length === 0, run: () => (palette = 'presets') },
+        ],
+      },
+      {
+        label: 'Workbench',
+        items: [
+          { label: 'System prompt', run: () => openWorkbench('prompt') },
+          { label: 'Skills', run: () => openWorkbench('skills') },
+          { label: 'Server tools & MCP sets', run: () => openWorkbench('tools') },
+          { label: 'Chat tools, local MCP & extensions', run: () => openWorkbench('chat') },
+          ...(localProvidersAvailable ? [{ label: 'Local providers', run: () => openWorkbench('providers') }] : []),
+        ],
+      },
+      {
+        label: 'View',
+        items: [
+          { label: showConversations ? 'Hide chats sidebar' : 'Show chats sidebar', hint: 'ctrl+b', run: () => (showConversations = !showConversations) },
+          { label: showSessionPanel ? 'Hide session sidebar' : 'Show session sidebar', hint: 'ctrl+.', run: () => (showSessionPanel = !showSessionPanel) },
+        ],
+      },
+    ];
+  });
+
+  function closePalette() {
+    palette = '';
+    tick().then(() => composerInput?.focus());
+  }
+
+  /** Page-level shortcuts. Ignored while another dialog owns the keyboard. */
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.isComposing || palette || showWorkbench || showShareDialog || localApprovalFor || extensionApprovalTarget || extensionInspectorTarget) return;
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+    const key = e.key.toLowerCase();
+    if (key === 'p' && !e.altKey) { e.preventDefault(); palette = 'commands'; }
+    else if (key === 'm' && !e.altKey && models.length > 0) { e.preventDefault(); palette = 'models'; }
+    else if (key === 't' && !e.altKey && reasoningEffortOptions.length > 0 && document.activeElement === composerInput) { e.preventDefault(); cycleReasoningEffort(); }
+    else if (key === 'b' && !e.altKey) { e.preventDefault(); showConversations = !showConversations; }
+    else if (key === '.' && !e.altKey) { e.preventDefault(); showSessionPanel = !showSessionPanel; }
+    else if (key === 'n' && e.altKey) { e.preventDefault(); newConversation(); }
   }
 
   function growComposer(node: HTMLTextAreaElement, _value: string) {
@@ -3078,10 +3220,8 @@
       onclick={() => copyMessage(index)}
       aria-label={copiedIndex === index ? 'Copied' : 'Copy message'}
       title="Copy message"
-      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
-    >
-      {#if copiedIndex === index}<Check size={11} class="text-green-600 dark:text-green-400" />Copied{:else}<Copy size={11} />Copy{/if}
-    </button>
+      class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+    >{#if copiedIndex === index}<span class="text-[var(--oc-green)]">copied</span>{:else}copy{/if}</button>
   {/if}
 {/snippet}
 
@@ -3092,10 +3232,8 @@
       aria-pressed={!!rawMessages[index]}
       aria-label={rawMessages[index] ? 'Show rendered markdown' : 'Show raw text'}
       title={rawMessages[index] ? 'Show rendered markdown' : 'Show raw markdown source'}
-      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent"
-    >
-      {#if rawMessages[index]}<FileText size={11} />Rendered{:else}<Code size={11} />Raw{/if}
-    </button>
+      class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+    >{rawMessages[index] ? 'rendered' : 'raw'}</button>
   {/if}
 {/snippet}
 
@@ -3106,49 +3244,44 @@
     disabled={sequence === null}
     aria-label={sequence === null ? 'Fork unavailable: this message is not saved yet' : `Fork a new conversation from message ${sequence}`}
     title={sequence === null ? 'Fork becomes available once this message is saved to history' : 'Fork a new conversation from here'}
-    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 "
-  >
-    <GitBranch size={11} />
-    Fork
-  </button>
+    class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed"
+  >fork</button>
 {/snippet}
 
 {#snippet modelBadge(index: number)}
   {@const m = meta[index]}
-  {#if m && joinModel(m.provider_key, m.model) && joinModel(m.provider_key, m.model) !== selectedModel}
-    <span
-      class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border px-1 py-px"
-      title={`Produced by ${joinModel(m.provider_key, m.model)}`}
-    >
-      {m.model || m.provider_key}
-    </span>
+  {#if m && (m.model || m.provider_key)}
+    <span title={`Produced by ${joinModel(m.provider_key, m.model)}`}>{m.model || m.provider_key}</span>
   {/if}
 {/snippet}
 
 {#snippet messageTime(index: number)}
   {@const stamp = meta[index]?.created_at ?? ''}
   {#if stamp}
-    <span
-      class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums whitespace-nowrap"
-      title={formatLocalDateTime(stamp)}
-    >{formatMessageTime(stamp)}</span>
+    <span class="tabular-nums whitespace-nowrap" title={formatLocalDateTime(stamp)}>{formatMessageTime(stamp)}</span>
   {/if}
 {/snippet}
 
-<div class="flex h-full">
+<svelte:window onkeydown={handleGlobalKeydown} />
+
+<div class="oc-theme flex h-full min-h-0 text-sm leading-relaxed">
   {#if showConversations}
-    <ConversationList
-      {conversations}
-      activeId={conversationId}
-      loading={conversationsLoading}
-      hasMore={!!conversationsCursor}
-      scratchDirty={!conversationId && messages.length > 0}
-      onSelect={selectConversation}
-      onNew={newConversation}
-      onRename={renameConversation}
-      onDelete={removeConversation}
-      onLoadMore={() => loadConversations(true)}
-    />
+    <!-- Below lg the list overlays the transcript instead of squeezing it. -->
+    <div class="fixed inset-y-0 left-0 z-40 shadow-[12px_0_40px_-8px_rgb(0_0_0/0.8)] lg:static lg:z-auto lg:shadow-none">
+      <ConversationList
+        {conversations}
+        activeId={conversationId}
+        loading={conversationsLoading}
+        hasMore={!!conversationsCursor}
+        scratchDirty={!conversationId && messages.length > 0}
+        onSelect={id => { selectConversation(id); if (!window.matchMedia('(min-width: 1024px)').matches) showConversations = false; }}
+        onNew={newConversation}
+        onRename={renameConversation}
+        onDelete={removeConversation}
+        onLoadMore={() => loadConversations(true)}
+      />
+    </div>
+    <button class="fixed inset-0 z-30 bg-black/50 lg:hidden" aria-label="Close chats sidebar" onclick={() => (showConversations = false)}></button>
   {/if}
 
 <div
@@ -3160,205 +3293,8 @@
 >
   <!-- Drag overlay -->
   {#if dragging}
-    <div class="absolute inset-0 z-50 bg-gray-900/10 dark:bg-dark-base/30 border-2 border-dashed border-gray-400 dark:border-dark-border-subtle flex items-center justify-center pointer-events-none">
-      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here — saved to history when media storage is configured</div>
-    </div>
-  {/if}
-
-  <!-- Toolbar -->
-  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-1 flex flex-wrap items-center gap-1.5 shrink-0">
-    <!-- Conversation panel toggle -->
-    <button
-      onclick={() => (showConversations = !showConversations)}
-      aria-label={showConversations ? 'Hide conversation list' : 'Show conversation list'}
-      aria-expanded={showConversations}
-      title={showConversations ? 'Hide conversations' : 'Show conversations'}
-      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent "
-    >
-      <PanelLeft size={14} />
-    </button>
-
-    <!-- Model selector -->
-    <div class="relative min-w-0 flex-1 basis-40 max-w-xs">
-      <select
-        value={selectedModel}
-        onchange={(e) => { selectedModel = e.currentTarget.value; workbenchChanged(); }}
-        aria-label="Model"
-        disabled={loading || models.length === 0}
-        class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
-      >
-        {#if modelOptions.length === 0}
-          <option value="">No models available</option>
-        {/if}
-        {#if selectedModel && !models.includes(selectedModel)}
-          <option value={selectedModel}>{selectedModel} · unavailable</option>
-        {/if}
-        {#each modelGroups as group}
-          <optgroup label={group.label}>
-            {#each group.models as model}
-              <option value={model}>{model.slice(model.indexOf('/') + 1)}</option>
-            {/each}
-          </optgroup>
-        {/each}
-      </select>
-      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
-    </div>
-
-    <!-- Reasoning effort: only for adapters that accept one. -->
-    {#if reasoningEffortOptions.length > 0}
-      <div class="relative min-w-0 shrink basis-24 max-w-36">
-        <select
-          value={effectiveReasoningEffort}
-          onchange={(e) => { reasoningEffort = e.currentTarget.value; workbenchChanged(); }}
-          aria-label="Reasoning effort"
-          title="Reasoning effort — models without reasoning may reject it"
-          class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
-        >
-          <option value="">Reasoning: default</option>
-          {#each reasoningEffortOptions as effort}
-            <option value={effort}>Reasoning: {effort}</option>
-          {/each}
-        </select>
-        <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
-      </div>
-    {/if}
-
-    <!-- Preset switcher. Controlled by the derived id, not bound: once the
-         setup diverges from the applied preset it reports none. -->
-    {#if presets.length > 0}
-      <div class="relative min-w-0 shrink basis-28 max-w-44">
-        <select
-          value={activePresetId}
-          onchange={(e) => applyPreset(e.currentTarget.value)}
-          aria-label="Preset"
-          title="Apply a saved setup to this conversation"
-          class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
-        >
-          <option value="">No preset</option>
-          {#if personalPresets.length > 0}
-            <optgroup label="My presets">
-              {#each personalPresets as preset}
-                <option value={preset.id}>{preset.name}</option>
-              {/each}
-            </optgroup>
-          {/if}
-          {#if workspacePresets.length > 0}
-            <optgroup label="Workspace presets">
-              {#each workspacePresets as preset}
-                <option value={preset.id}>{preset.name}{preset.can_edit ? ' · yours' : ''}</option>
-              {/each}
-            </optgroup>
-          {/if}
-        </select>
-        <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
-      </div>
-    {/if}
-
-    <!-- Workbench: one entry point for the setup, system prompt included. A
-         dot marks a prompt that is set, because the prompt is now behind a
-         dialog and its presence is not otherwise visible from the page. -->
-    <button
-      onclick={() => (showWorkbench = true)}
-      aria-label={`Workbench${toolCount > 0 ? ` (${toolCount} tools)` : ''}`}
-      aria-expanded={showWorkbench}
-      aria-haspopup="dialog"
-      class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showWorkbench ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-      title="Workbench — system prompt, skills, presets and tools"
-    >
-      <Wrench size={14} />
-      {#if toolCount > 0}
-        <span class="tabular-nums">{toolCount}</span>
-      {/if}
-      {#if systemPrompt.trim()}
-        <span class="w-1.5 h-1.5 bg-gray-400 dark:bg-dark-text-muted" title="A system prompt is set"></span>
-      {/if}
-    </button>
-
-    <!-- Todo panel toggle -->
-    {#if todos.length > 0}
-      <button
-        onclick={() => (showTodoPanel = !showTodoPanel)}
-        aria-label={`Todo list${todoActiveCount > 0 ? ` (${todoActiveCount} active)` : ''}`}
-        aria-expanded={showTodoPanel}
-        class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showTodoPanel ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-        title="Todo list"
-      >
-        <ListChecks size={14} />
-        {#if todoActiveCount > 0}
-          <span class="tabular-nums">{todoActiveCount}</span>
-        {/if}
-      </button>
-    {/if}
-
-    <!-- Unsaved / saving indicator (right-aligned) -->
-    <div class="ml-auto flex flex-wrap min-w-0 items-center justify-end gap-1.5">
-      {#if saving}
-        <span class="flex items-center gap-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
-          <Loader2 size={11} class="animate-spin" />
-          Saving
-        </span>
-      {:else if unsavedCount > 0 && conversationId}
-        <button
-          onclick={() => persistPending()}
-          aria-label={`Retry saving ${unsavedCount} unsaved message${unsavedCount === 1 ? '' : 's'}`}
-          title="These messages are only in this browser tab. Click to retry saving them."
-          class="h-9 inline-flex shrink-0 items-center justify-center gap-1.5 px-2 text-xs border border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 focus-visible:outline-2 focus-visible:outline-accent "
-        >
-          <CloudOff size={14} />
-          {unsavedCount} unsaved
-        </button>
-      {/if}
-
-      <!-- Token usage -->
-      {#if totalTokens > 0}
-        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted font-mono tabular-nums" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">
-          {totalTokens.toLocaleString()} tok
-        </div>
-      {/if}
-
-      {#if sharingAvailable && conversationId && shareBoundaries.length > 0}
-        <button onclick={() => (showShareDialog = true)} aria-label="Share conversation snapshot" aria-haspopup="dialog" aria-expanded={showShareDialog} class="h-9 inline-flex items-center justify-center gap-1.5 border border-gray-300 px-2.5 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-accent dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text">
-          <Share2 size={14} /> Share
-        </button>
-      {/if}
-
-      <!-- Clear transcript (two-step confirm: this deletes stored messages) -->
-      <button
-        onclick={requestClear}
-        onblur={() => (confirmClear = false)}
-        disabled={streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0)}
-        aria-label={confirmClear ? 'Confirm clearing the transcript' : 'Clear transcript'}
-        title={conversationId ? 'Clear transcript (deletes saved messages)' : 'Clear transcript'}
-        class={['h-9 min-w-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-2 border text-xs focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'border-red-600 text-red-600 dark:text-red-400 hover:border-red-700' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400']}
-      >
-        <Trash2 size={14} />
-        {#if confirmClear}Confirm?{/if}
-      </button>
-    </div>
-  </div>
-
-  <!-- Fork lineage -->
-  {#if conversation?.forked_from_sequence}
-    <div class="border-b border-gray-200 dark:border-dark-border bg-purple-50/60 dark:bg-purple-900/10 px-4 py-1.5 shrink-0 flex items-center gap-1.5 text-[11px] text-purple-800 dark:text-purple-300">
-      <GitBranch size={12} class="shrink-0" />
-      {#if conversation.forked_from_id}
-        <span>
-          Forked from
-          <a
-            href={`#${playgroundRoute(conversation.forked_from_id)}`}
-            class="underline underline-offset-2 hover:text-purple-950 dark:hover:text-purple-200 focus-visible:outline-2 focus-visible:outline-accent"
-          >{parentTitle || 'the source conversation'}</a>
-          at message {conversation.forked_from_sequence}
-        </span>
-      {:else}
-        <span>Forked at message {conversation.forked_from_sequence} — the source conversation was deleted</span>
-      {/if}
-    </div>
-  {/if}
-
-  {#if conversation?.imported_from_share_id}
-    <div class="border-b border-gray-200 bg-blue-50/70 px-4 py-1.5 text-[11px] text-blue-800 dark:border-dark-border dark:bg-blue-900/10 dark:text-blue-300">
-      Independent copy of shared snapshot version {conversation.imported_from_share_version}. Changes here never affect the source.
+    <div class="absolute inset-0 z-50 bg-dark-base/70 border border-dashed border-accent flex items-center justify-center pointer-events-none">
+      <div class="bg-dark-surface px-4 py-2 text-dark-text">drop files to attach — saved to history when media storage is configured</div>
     </div>
   {/if}
 
@@ -3388,19 +3324,19 @@
         aria-modal="true"
         aria-label="Workbench"
         onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); showWorkbench = false; } }}
-        class="flex w-full max-w-3xl max-h-[calc(100dvh-2rem)] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface focus:outline-none sm:max-h-[calc(100dvh-4rem)]"
+        class="flex w-full max-w-3xl max-h-[calc(100dvh-2rem)] flex-col border border-dark-border bg-dark-surface focus:outline-none sm:max-h-[calc(100dvh-4rem)]"
       >
-        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base shrink-0">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base shrink-0">
           <div class="min-w-0">
-            <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Workbench</h2>
-            <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+            <h2 class="text-sm font-medium text-dark-text">Workbench</h2>
+            <p class="mt-0.5 text-dark-text-muted">
               What this conversation runs with. Changes take effect on the next message and are saved with the conversation.
             </p>
           </div>
           <button
             onclick={() => (showWorkbench = false)}
             aria-label="Close"
-            class="p-1 shrink-0 text-gray-400 dark:text-dark-text-muted hover:bg-gray-200 dark:hover:bg-dark-elevated hover:text-gray-600 dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+            class="p-1 shrink-0 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
           >
             <X size={16} />
           </button>
@@ -3409,21 +3345,21 @@
         <!-- Presets stay above the tabs: they describe and replace the complete
              setup, so burying them inside one category makes their scope look
              smaller than it is. -->
-        <div class="shrink-0 border-b border-gray-200 dark:border-dark-border px-4 py-3">
+        <div class="shrink-0 border-b border-dark-border px-4 py-3">
           <div class="flex items-center justify-between gap-3 mb-1.5">
             <div>
-              <h3 class="text-xs font-medium text-gray-800 dark:text-dark-text">Preset</h3>
-              <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">Save or replace the complete setup shown below.</p>
+              <h3 class="text-xs font-medium text-dark-text">Preset</h3>
+              <p class="text-dark-text-muted">Save or replace the complete setup shown below.</p>
             </div>
             {#if activePresetId}
-              <span class="shrink-0 border border-emerald-300 dark:border-emerald-900/60 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">Applied</span>
+              <span class="shrink-0 border border-emerald-900/60 px-1.5 py-0.5 text-emerald-300">Applied</span>
             {/if}
           </div>
           <div class="flex flex-wrap gap-2">
             <select
               bind:value={presetSaveScope}
               aria-label="Preset visibility"
-              class="border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+              class="border border-dark-border-subtle bg-dark-elevated text-dark-text px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/10 focus:border-dark-border-subtle"
             >
               <option value="personal">Only me</option>
               <option value="workspace">Workspace</option>
@@ -3433,7 +3369,7 @@
               placeholder="Preset name"
               aria-label="Preset name"
               maxlength={80}
-              class="min-w-0 flex-1 basis-40 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+              class="min-w-0 flex-1 basis-40 border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/10 focus:border-dark-border-subtle"
             />
             <button
               onclick={savePreset}
@@ -3442,7 +3378,7 @@
                 : draftPreset
                   ? `Replace "${draftPreset.name}" with the current setup`
                   : `Save the current setup for ${presetSaveScope === 'workspace' ? 'this workspace' : 'yourself'}`}
-              class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30"
+              class="px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-30"
               disabled={!presetDraftName.trim() || presetSaving || !!(draftPreset && !draftPreset.can_edit)}
             >
               {draftPreset && !draftPreset.can_edit ? 'Owned by teammate' : draftPreset ? 'Overwrite' : presetSaveScope === 'workspace' ? 'Share setup' : 'Save setup'}
@@ -3452,14 +3388,14 @@
                 onclick={() => deletePreset(draftPreset)}
                 disabled={presetSaving}
                 title={`Delete the saved setup "${draftPreset.name}". The current selections stay.`}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30"
+                class="px-3 py-1.5 text-sm border border-dark-border-subtle text-dark-text-secondary hover:border-red-800 hover:text-red-400 disabled:opacity-30"
               >
                 Delete
               </button>
             {/if}
           </div>
           {#if draftPreset && !draftPreset.can_edit}
-            <p class="mt-1.5 text-xs text-amber-700 dark:text-amber-300">This workspace preset belongs to another member. Change the name to save a derived preset; the original stays unchanged.</p>
+            <p class="mt-1.5 text-xs text-amber-300">This workspace preset belongs to another member. Change the name to save a derived preset; the original stays unchanged.</p>
           {/if}
         </div>
 
@@ -3468,7 +3404,7 @@
           tabindex="-1"
           aria-label="Workbench sections"
           onkeydown={handleWorkbenchTabsKeydown}
-          class="shrink-0 flex overflow-x-auto border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-2"
+          class="shrink-0 flex overflow-x-auto border-b border-dark-border bg-dark-base px-2"
         >
           {#each workbenchTabs as tab}
             <button
@@ -3481,8 +3417,8 @@
               class={[
                 'min-h-10 shrink-0 border-b-2 px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
                 workbenchTab === tab.id
-                  ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text'
-                  : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text',
+                  ? 'border-accent text-dark-text'
+                  : 'border-transparent text-dark-text-muted hover:text-dark-text',
               ]}
             >
               {tab.label}
@@ -3500,17 +3436,17 @@
                skills and tools serve. -->
           {#if workbenchTab === 'prompt'}
           <div class="block max-w-2xl">
-            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
+            <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
             <textarea
               value={systemPrompt}
               oninput={(e) => { systemPrompt = e.currentTarget.value; workbenchChanged(); }}
               aria-label="System prompt"
               placeholder="System prompt (optional)"
               rows={8}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+              class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-accent/10 focus:border-dark-border-subtle"
             ></textarea>
           </div>
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+          <p class="text-xs text-dark-text-muted">
             The prompt guides the whole conversation. Presets also capture the model, prompt, skills and every tool selection without changing the transcript.
           </p>
           {/if}
@@ -3521,55 +3457,55 @@
                request to it. -->
           <div role="group" aria-label="Local providers" class="block max-w-3xl">
             <div class="flex items-center gap-2 mb-1">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Called by this browser</span>
+              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">Called by this browser</span>
               <button
                 onclick={() => editLocalProvider()}
-                class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                class="ml-auto px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated"
               >
                 Add provider
               </button>
             </div>
-            <p class="mb-2 text-[11px] text-gray-500 dark:text-dark-text-muted">
-              An OpenAI-compatible endpoint — a model server on your computer or an API with your own key. Your browser calls it directly, so it must allow this page (CORS). Provider budgets and pricing do not apply; see <a href="#/docs?g=local-providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text">Documentation → Local providers</a>.
+            <p class="mb-2 text-dark-text-muted">
+              An OpenAI-compatible endpoint — a model server on your computer or an API with your own key. Your browser calls it directly, so it must allow this page (CORS). Provider budgets and pricing do not apply; see <a href="#/docs?g=local-providers" class="underline underline-offset-2 hover:text-dark-text">Documentation → Local providers</a>.
             </p>
 
             <div class="space-y-1.5">
               {#each localProviders as provider (provider.id)}
                 {@const enabled = localProviderEnabledIds.includes(provider.id)}
                 {@const status = localProviderStatus[provider.id]}
-                <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                <div class="border border-dark-border-subtle px-2.5 py-1.5">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{provider.name}</span>
-                    <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{provider.base_url}</code>
+                    <span class="text-xs font-medium text-dark-text">{provider.name}</span>
+                    <code class="font-mono text-dark-text-muted truncate">{provider.base_url}</code>
                     {#if enabled}
-                      <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                      <span class="px-1.5 py-0.5 border border-emerald-900/60 text-emerald-300">
                         Enabled here{status?.busy ? ' · listing models…' : status?.models?.length ? ` · ${status.models.length} models` : ''}
                       </span>
                     {:else}
-                      <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                      <span class="px-1.5 py-0.5 border border-dark-border-subtle text-dark-text-muted">
                         Not enabled on this device
                       </span>
                     {/if}
                     <div class="ml-auto flex items-center gap-1">
                       {#if enabled}
-                        <button onclick={() => discoverLocalProviderModels(provider)} disabled={status?.busy} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-40">Refresh models</button>
-                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                        <button onclick={() => discoverLocalProviderModels(provider)} disabled={status?.busy} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated disabled:opacity-40">Refresh models</button>
+                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:text-red-400">Disable</button>
                       {:else}
-                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable here</button>
+                        <button onclick={() => toggleLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-accent bg-accent text-dark-base">Enable here</button>
                       {/if}
-                      <button onclick={() => editLocalProvider(provider)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
-                      <button onclick={() => removeLocalProvider(provider)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${provider.name}`}><X size={12} /></button>
+                      <button onclick={() => editLocalProvider(provider)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated">Edit</button>
+                      <button onclick={() => removeLocalProvider(provider)} class="p-0.5 text-dark-text-muted hover:text-red-500" aria-label={`Remove ${provider.name}`}><X size={12} /></button>
                     </div>
                   </div>
                   {#if status?.error}
-                    <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                    <p class="mt-1 text-red-400">{status.error}</p>
                   {/if}
                 </div>
               {/each}
             </div>
 
             {#if localProviders.length === 0 && !localProviderEditorOpen}
-              <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">No local providers yet. {LOCAL_PROVIDER_CORS_HINT}</p>
+              <p class="text-dark-text-muted">No local providers yet. {LOCAL_PROVIDER_CORS_HINT}</p>
             {/if}
 
             {#if localProviderEditorOpen}
@@ -3589,7 +3525,7 @@
           <!-- MCP Sets (Internal MCPs) -->
           {#if availableMCPSets.length > 0}
             <div role="group" aria-label="MCP" class="block">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
+              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
               <div class="flex flex-wrap gap-1.5">
                 {#each availableMCPSets as mcpSet}
                   {@const status = mcpSetStatus[mcpSet.name]}
@@ -3598,21 +3534,21 @@
                     aria-pressed={selectedMCPSetNames.includes(mcpSet.name)}
                     aria-label={`${mcpSet.name}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected' : ''}`}
                     class="px-2.5 py-1 text-xs border {selectedMCPSetNames.includes(mcpSet.name)
-                      ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
-                      : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                      ? 'bg-purple-600 text-white border-purple-600'
+                      : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated'}"
                     title={mcpSet.description || mcpSet.name}
                   >
                     {mcpSet.name}
                     {#if status?.busy}
                       <Loader2 size={10} class="ml-1 inline animate-spin" />
                     {:else if status?.error || status?.warnings.length}
-                      <span class="ml-1 border border-red-300 bg-red-50 px-1 text-[10px] text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300" title={status.error || status.warnings.join('\n')}>{status.tools.length > 0 ? `Partial · ${status.tools.length}` : 'Failed'}</span>
+                      <span class="ml-1 border px-1 border-red-800 bg-red-900/30 text-red-300" title={status.error || status.warnings.join('\n')}>{status.tools.length > 0 ? `Partial · ${status.tools.length}` : 'Failed'}</span>
                     {:else if status}
                       <span class="ml-1 opacity-70">({status.tools.length})</span>
                     {/if}
                   </button>
                   {#if selectedMCPSetNames.includes(mcpSet.name) && !status?.busy && (status?.error || status?.warnings.length)}
-                    <p role="status" class="basis-full text-[10px] text-red-600 dark:text-red-400">
+                    <p role="status" class="basis-full text-red-400">
                       {mcpSet.name}: {status.error || status.warnings[0]}
                     </p>
                   {/if}
@@ -3625,23 +3561,23 @@
                carries its credentials, processes and execution admission. A saved
                conversation keeps its old record until it is dismissed. -->
           {#if legacyMcpUrls.length > 0}
-            <div class="border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1.5">
-              <p class="text-xs text-amber-900 dark:text-amber-200">
+            <div class="border border-amber-900/50 bg-amber-900/20 px-3 py-2 space-y-1.5">
+              <p class="text-xs text-amber-200">
                 This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which Chats no longer calls. Add the server under MCP sets to use its tools again.
               </p>
               <div class="flex flex-wrap gap-1.5">
                 {#each legacyMcpUrls as url}
-                  <code class="border border-amber-300 dark:border-amber-900/50 bg-white/60 dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-amber-900 dark:text-amber-200 truncate max-w-full">{url}</code>
+                  <code class="border border-amber-900/50 bg-dark-elevated px-2 py-0.5 font-mono text-amber-200 truncate max-w-full">{url}</code>
                 {/each}
               </div>
-              <button onclick={dismissLegacyMcpUrls} class="text-[10px] text-amber-800 dark:text-amber-300 underline hover:no-underline">Dismiss</button>
+              <button onclick={dismissLegacyMcpUrls} class="text-amber-300 underline hover:no-underline">Dismiss</button>
             </div>
           {/if}
 
           <!-- Server Tools (built-in) -->
           {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0}
             <div role="group" aria-label="Server Tools" class="block">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
+              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
               <BuiltinToolPicker tools={builtinTools.filter(tool => !isChatTodoTool(tool.name))} bind:selected={enabledBuiltinTools} collapsed onchange={refreshTools} />
             </div>
           {/if}
@@ -3651,8 +3587,8 @@
           {#if workbenchTab === 'skills'}
           {#if skills.length > 0}
             <div role="group" aria-label="Skills" class="block">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
-              <p class="mb-2 text-xs text-gray-500 dark:text-dark-text-muted">Add reusable Markdown instructions and reference resources. Skills do not grant tools.</p>
+              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
+              <p class="mb-2 text-xs text-dark-text-muted">Add reusable Markdown instructions and reference resources. Skills do not grant tools.</p>
               <div class="flex flex-wrap gap-1.5">
                 {#each skills as skill}
                   <button
@@ -3660,8 +3596,8 @@
                     aria-pressed={selectedSkillNames.includes(skill.name)}
                     aria-label={`${skill.name}${selectedSkillNames.includes(skill.name) ? ' · Selected' : ''}`}
                     class="px-2.5 py-1 text-xs border {selectedSkillNames.includes(skill.name)
-                      ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                      : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                      ? 'bg-accent text-dark-base border-accent'
+                      : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated'}"
                     title={skill.description || skill.name}
                   >
                     {skill.name}
@@ -3670,29 +3606,29 @@
               </div>
             </div>
           {:else}
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted">No skills are available. Create or import a skill from the Skills page, then return here to add it.</p>
+            <p class="text-xs text-dark-text-muted">No skills are available. Create or import a skill from the Skills page, then return here to add it.</p>
           {/if}
           {/if}
 
           <!-- Chat Tools (frontend-only) -->
           {#if workbenchTab === 'chat'}
           <div role="group" aria-label="Chat Tools" class="block">
-            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
+            <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
             <div class="flex flex-wrap gap-1.5">
               {#each FRONTEND_TOOLS as tool}
                 <button
                   onclick={() => toggleFrontendTool(tool.function.name)}
                   aria-pressed={enabledFrontendTools.includes(tool.function.name)}
                   class="px-2.5 py-1 text-xs border {enabledFrontendTools.includes(tool.function.name)
-                    ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                    : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                    ? 'bg-accent text-dark-base border-accent'
+                    : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated'}"
                   title={tool.function.description}
                 >
                   {tool.function.name}
                 </button>
               {/each}
             </div>
-            <p class="mt-2 max-w-2xl text-xs text-gray-500 dark:text-dark-text-muted">These tools run in this chat interface and help the model manage the conversation while you are here.</p>
+            <p class="mt-2 max-w-2xl text-xs text-dark-text-muted">These tools run in this chat interface and help the model manage the conversation while you are here.</p>
           </div>
 
           <!-- Local MCP servers.
@@ -3702,17 +3638,17 @@
           {#if localMCPAvailable}
             <div role="group" aria-label="Local MCP servers" class="block">
               <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">On this machine</span>
+                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">On this machine</span>
                 <button
                   onclick={() => editLocalServer()}
-                  class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                  class="ml-auto px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated"
                 >
                   Add server
                 </button>
               </div>
 
               {#if localServers.length === 0 && !localEditorOpen}
-                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                <p class="text-dark-text-muted">
                   An MCP server running on your own computer. Your browser connects to it directly, so it must allow this page (CORS) — and it is reachable only from this device.
                 </p>
               {/if}
@@ -3722,38 +3658,38 @@
                   {@const approved = localApprovedIds.includes(server.id)}
                   {@const status = localStatus[server.id]}
                   {@const added = toolsAddedSinceApproval(approvalFor(server.id, localStorageSafe()), status?.tools ?? [])}
-                  <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                  <div class="border border-dark-border-subtle px-2.5 py-1.5">
                     <div class="flex items-center gap-2 flex-wrap">
-                      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{server.name}</span>
-                      <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{server.url}</code>
+                      <span class="text-xs font-medium text-dark-text">{server.name}</span>
+                      <code class="font-mono text-dark-text-muted truncate">{server.url}</code>
                       {#if approved}
-                        <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                        <span class="px-1.5 py-0.5 border border-emerald-900/60 text-emerald-300">
                           Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
                         </span>
                       {:else}
-                        <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                        <span class="px-1.5 py-0.5 border border-dark-border-subtle text-dark-text-muted">
                           Not enabled on this device
                         </span>
                       {/if}
                       <div class="ml-auto flex items-center gap-1">
                         {#if approved}
-                          <button onclick={() => disableLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                          <button onclick={() => disableLocalServer(server)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:text-red-400">Disable</button>
                         {:else}
-                          <button onclick={() => beginLocalApproval(server)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
+                          <button onclick={() => beginLocalApproval(server)} class="px-2 py-0.5 text-[10px] border border-accent bg-accent text-dark-base">Enable…</button>
                         {/if}
-                        <button onclick={() => editLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
-                        <button onclick={() => removeLocalServer(server)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${server.name}`}><X size={12} /></button>
+                        <button onclick={() => editLocalServer(server)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated">Edit</button>
+                        <button onclick={() => removeLocalServer(server)} class="p-0.5 text-dark-text-muted hover:text-red-500" aria-label={`Remove ${server.name}`}><X size={12} /></button>
                       </div>
                     </div>
                     {#if added.length > 0}
-                      <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                      <p class="mt-1 text-amber-300">
                         New since you enabled it: {added.join(', ')}
                       </p>
                     {/if}
                     {#if status?.error}
-                      <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                      <p class="mt-1 text-red-400">{status.error}</p>
                       {#if status.hint}
-                        <p class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">{status.hint}</p>
+                        <p class="mt-0.5 text-dark-text-muted">{status.hint}</p>
                       {/if}
                     {/if}
                   </div>
@@ -3772,7 +3708,7 @@
               {/if}
             </div>
           {:else}
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted">Tools on this machine are not available in this installation.</p>
+            <p class="text-xs text-dark-text-muted">Tools on this machine are not available in this installation.</p>
           {/if}
 
           <!-- Browser extensions.
@@ -3784,7 +3720,7 @@
           {#if extensionsAvailable}
             <div role="group" aria-label="Browser extensions" class="block">
               <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Browser extensions</span>
+                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">Browser extensions</span>
                 <label class="flex items-center gap-1 text-xs">
                   <input type="checkbox" bind:checked={webConnectionEnabled} />
                   Web connection
@@ -3792,14 +3728,14 @@
                 <button
                   onclick={() => scanExtensions()}
                   disabled={!webConnectionEnabled || extensionsScanning}
-                  class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
+                  class="ml-auto px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated disabled:opacity-50"
                 >
                   {extensionsScanning ? 'Scanning…' : 'Scan again'}
                 </button>
               </div>
 
               {#if extensions.length === 0}
-                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                <p class="text-dark-text-muted">
                   {!webConnectionEnabled
                     ? 'Turn on Web connection to make this chat available in your extension’s Agent list.'
                     : extensionsScanned && !extensionsScanning
@@ -3814,59 +3750,59 @@
                   {@const status = extensionStatus[ext.id]}
                   {@const added = toolsAddedSinceApproval(extensionApprovalFor(ext.id, localStorageSafe()), status?.tools ?? [])}
                   {@const serves = ext.capabilities.includes(CAPABILITY_TOOLS)}
-                  <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                  <div class="border border-dark-border-subtle px-2.5 py-1.5">
                     <div class="flex items-center gap-2 flex-wrap">
-                      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{ext.name}</span>
+                      <span class="text-xs font-medium text-dark-text">{ext.name}</span>
                       {#if ext.version}
-                        <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{ext.version}</code>
+                        <code class="font-mono text-dark-text-muted">{ext.version}</code>
                       {/if}
                       {#if approved}
                         <button
                           onclick={() => inspectExtensionTools(ext)}
-                          class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 focus-visible:outline-2 focus-visible:outline-accent"
+                          class="px-1.5 py-0.5 border border-emerald-900/60 text-emerald-300 hover:bg-emerald-900/20 focus-visible:outline-2 focus-visible:outline-accent"
                           title={`View tools connected through ${ext.name}`}
                         >
                           Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ' · View tools'}
                         </button>
                       {:else}
-                        <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                        <span class="px-1.5 py-0.5 border border-dark-border-subtle text-dark-text-muted">
                           Not enabled on this device
                         </span>
                       {/if}
                       <div class="ml-auto flex items-center gap-1">
                         {#if approved}
-                          <button onclick={() => disableExtension(ext)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                          <button onclick={() => disableExtension(ext)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:text-red-400">Disable</button>
                         {:else if serves}
-                          <button onclick={() => beginExtensionApproval(ext)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
+                          <button onclick={() => beginExtensionApproval(ext)} class="px-2 py-0.5 text-[10px] border border-accent bg-accent text-dark-base">Enable…</button>
                         {/if}
                       </div>
                     </div>
                     {#if ext.description}
-                      <p class="mt-1 text-[11px] text-gray-500 dark:text-dark-text-muted">{ext.description}</p>
+                      <p class="mt-1 text-dark-text-muted">{ext.description}</p>
                     {/if}
                     <!-- The extension's own words for why it is connected but
                          idle. Without it, "0 tools" is indistinguishable from a
                          fault the reader would go looking for. -->
                     {#if ext.notice}
-                      <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-300">{ext.notice}</p>
+                      <p class="mt-1 text-amber-300">{ext.notice}</p>
                     {/if}
                     {#if !serves}
-                      <p class="mt-1 text-[11px] text-gray-400 dark:text-dark-text-muted">This extension offers no tools to Chats.</p>
+                      <p class="mt-1 text-dark-text-muted">This extension offers no tools to Chats.</p>
                     {/if}
                     {#if added.length > 0}
-                      <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                      <p class="mt-1 text-amber-300">
                         New since you enabled it: {added.join(', ')}
                       </p>
                     {/if}
                     {#if status?.error}
-                      <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                      <p class="mt-1 text-red-400">{status.error}</p>
                     {/if}
                   </div>
                 {/each}
               </div>
             </div>
           {:else}
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted">Browser extensions are not available in this installation.</p>
+            <p class="text-xs text-dark-text-muted">Browser extensions are not available in this installation.</p>
           {/if}
           {/if}
         </div>
@@ -3875,7 +3811,7 @@
              scrolling body because it is the answer to "did that work?", and
              a reader who has scrolled to the bottom of the tool catalogues is
              exactly who needs to read it. -->
-        <div class="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-xs text-gray-500 dark:text-dark-text-muted">
+        <div class="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-dark-border bg-dark-base text-xs text-dark-text-muted">
           <div class="flex min-w-0 flex-1 items-center gap-2">
             {#if loadingTools}
               <Loader2 size={12} class="shrink-0 animate-spin" />
@@ -3883,7 +3819,7 @@
             {:else if toolCount > 0}
               <Wrench size={12} class="shrink-0" />
               <span class="shrink-0">{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
-              <span class="text-gray-300 dark:text-dark-border">|</span>
+              <span class="text-dark-border">|</span>
               <span class="truncate" title={discoveredTools.map(t => t.function.name).join(', ')}>{discoveredTools.map(t => t.function.name).join(', ')}</span>
             {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
               <span>No tools discovered</span>
@@ -3894,7 +3830,7 @@
           {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
             <button
               onclick={clearAllToolSelections}
-              class="shrink-0 px-2 py-1 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 focus-visible:outline-2 focus-visible:outline-accent "
+              class="shrink-0 px-2 py-1 border border-dark-border-subtle text-dark-text-muted hover:text-red-400 hover:border-red-800 focus-visible:outline-2 focus-visible:outline-accent"
               title="Clear all selected skills and tools"
             >
               Clear my selections
@@ -3902,7 +3838,7 @@
           {/if}
           <button
             onclick={() => (showWorkbench = false)}
-            class="shrink-0 px-3 py-1 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent "
+            class="shrink-0 px-3 py-1 text-xs bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent"
           >
             Done
           </button>
@@ -3911,290 +3847,257 @@
     </div>
   {/if}
 
-  <!-- Todo panel -->
-  {#if showTodoPanel && todos.length > 0}
-    <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-2.5 shrink-0 max-h-48 overflow-y-auto">
-      <div class="flex items-center justify-between mb-1.5">
-        <div class="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">
-          <ListChecks size={12} />
-          Todos
-          <span class="normal-case tracking-normal font-normal">({todos.filter(t => t.status === 'completed').length}/{todos.length})</span>
-        </div>
-        <button
-          onclick={() => (showTodoPanel = false)}
-          class="p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
-        >
-          <X size={12} />
-        </button>
-      </div>
-      <div class="space-y-0.5">
-        {#each todos as todo}
-          <div class="flex items-start gap-2 py-0.5 text-xs {todo.status === 'completed' ? 'opacity-50' : ''} {todo.status === 'cancelled' ? 'opacity-30 line-through' : ''}">
-            <span class="shrink-0 mt-0.5">
-              {#if todo.status === 'completed'}
-                <span class="inline-block w-3.5 h-3.5 rounded-full bg-green-500 text-white text-[8px] flex items-center justify-center">&#10003;</span>
-              {:else if todo.status === 'in_progress'}
-                <Loader2 size={14} class="animate-spin text-blue-500" />
-              {:else if todo.status === 'cancelled'}
-                <span class="inline-block w-3.5 h-3.5 rounded-full bg-gray-400 text-white text-[8px] flex items-center justify-center">&times;</span>
-              {:else}
-                <span class="inline-block w-3.5 h-3.5 rounded-full border-2 {todo.priority === 'high' ? 'border-red-400' : todo.priority === 'medium' ? 'border-amber-400' : 'border-gray-300 dark:border-dark-border-subtle'}"></span>
-              {/if}
-            </span>
-            <span class="text-gray-700 dark:text-dark-text-secondary leading-tight">{todo.content}</span>
-            {#if todo.priority === 'high' && todo.status !== 'completed' && todo.status !== 'cancelled'}
-              <span class="shrink-0 text-[9px] text-red-500 font-medium uppercase">high</span>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
-
   <!-- Chat messages -->
   <div
     bind:this={chatContainer}
     onscroll={handleChatScroll}
-    class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+    class="flex-1 min-h-0 overflow-y-auto"
   >
-    {#if loading || historyLoading}
-      <div class="flex items-center justify-center gap-2 py-12 text-gray-400 dark:text-dark-text-muted text-sm">
-        <Loader2 size={14} class="animate-spin" />
-        {historyLoading ? 'Loading conversation…' : 'Loading providers...'}
-      </div>
-    {:else if models.length === 0}
-      <div class="text-center py-12">
-        <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers configured</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
-          Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text ">Providers</a> page first.
-          {#if localProvidersAvailable}
-            Or <button onclick={() => { workbenchTab = 'providers'; showWorkbench = true; }} class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text">add a local provider</button> that this browser calls directly.
+    <div class="mx-auto w-full max-w-[920px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
+      <!-- Title block: the conversation and what it has cost so far. -->
+      <header class="mb-5 flex items-center gap-4 bg-dark-surface px-4 py-3 sm:px-[22px] sm:py-4">
+        <button
+          onclick={() => (showConversations = !showConversations)}
+          aria-label={showConversations ? 'Hide chats sidebar' : 'Show chats sidebar'}
+          aria-expanded={showConversations}
+          title="Chats (ctrl+b)"
+          class="oc-link -ml-1 shrink-0 focus-visible:outline-1 focus-visible:outline-accent"
+        ><PanelLeft size={15} /></button>
+        <h1 class="min-w-0 flex-1 truncate font-bold text-dark-text"><span class="text-dark-text-faint">#</span> {conversationTitle}</h1>
+        <div class="flex shrink-0 items-center gap-[2ch] text-dark-text-muted">
+          {#if saving}
+            <span>saving…</span>
+          {:else if unsavedCount > 0 && conversationId}
+            <button
+              onclick={() => persistPending()}
+              aria-label={`Retry saving ${unsavedCount} unsaved message${unsavedCount === 1 ? '' : 's'}`}
+              title="These messages are only in this browser tab. Click to retry saving them."
+              class="text-[var(--oc-peach)] hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent"
+            >{unsavedCount} unsaved</button>
           {/if}
+          {#if totalTokens > 0}
+            <span class="hidden tabular-nums sm:inline" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">{totalTokens.toLocaleString()}</span>
+          {/if}
+          <button
+            onclick={() => (showSessionPanel = !showSessionPanel)}
+            aria-label={showSessionPanel ? 'Hide session sidebar' : 'Show session sidebar'}
+            aria-expanded={showSessionPanel}
+            title="Session (ctrl+.)"
+            class="oc-link focus-visible:outline-1 focus-visible:outline-accent"
+          ><PanelRight size={15} /></button>
         </div>
+      </header>
+
+      {#if conversation?.forked_from_sequence}
+        <p class="-mt-2 mb-5 flex items-center gap-[1ch] px-1 text-dark-text-muted">
+          <GitBranch size={12} class="shrink-0 text-[var(--oc-violet)]" />
+          {#if conversation.forked_from_id}
+            <span>forked from <a href={`#${playgroundRoute(conversation.forked_from_id)}`} class="text-dark-text-secondary underline underline-offset-4 decoration-dark-text-faint hover:text-dark-text focus-visible:outline-1 focus-visible:outline-accent">{parentTitle || 'the source conversation'}</a> at message {conversation.forked_from_sequence}</span>
+          {:else}
+            <span>forked at message {conversation.forked_from_sequence} — the source conversation was deleted</span>
+          {/if}
+        </p>
+      {/if}
+      {#if conversation?.imported_from_share_id}
+        <p class="-mt-2 mb-5 px-1 text-dark-text-muted">Independent copy of shared snapshot version {conversation.imported_from_share_version}. Changes here never affect the source.</p>
+      {/if}
+
+    {#if loading || historyLoading}
+      <p class="px-[22px] py-10 text-dark-text-muted">{historyLoading ? 'loading conversation…' : 'loading providers…'}</p>
+    {:else if models.length === 0}
+      <div class="px-[22px] py-10">
+        <p class="text-dark-text">No providers configured.</p>
+        <p class="mt-1 text-dark-text-muted">
+          Add providers on the <a href="#/providers" class="text-dark-text-secondary underline underline-offset-4 decoration-dark-text-faint hover:text-dark-text">Providers</a> page first.
+          {#if localProvidersAvailable}
+            Or <button onclick={() => openWorkbench('providers')} class="text-dark-text-secondary underline underline-offset-4 decoration-dark-text-faint hover:text-dark-text">add a local provider</button> that this browser calls directly.
+          {/if}
+        </p>
       </div>
     {:else if messages.length === 0}
-      <div class="text-center py-12">
-        <div class="text-gray-400 dark:text-dark-text-muted mb-1.5">Send a message to start chatting</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
-          Using <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-600 dark:text-dark-text-secondary">{selectedModel}</code>
-          {#if toolCount > 0}
-            <span class="ml-1">with {toolCount} tool{toolCount !== 1 ? 's' : ''}</span>
-          {/if}
-        </div>
+      <div class="px-[22px] py-10">
+        <p class="text-dark-text">Send a message to start chatting.</p>
+        <p class="mt-1 text-dark-text-muted">
+          Using <span class="text-dark-text-secondary">{selectedModel}</span>{toolCount > 0 ? ` with ${toolCount} tool${toolCount !== 1 ? 's' : ''}` : ''}.
+          <span class="hidden sm:inline">Press <kbd class="text-dark-text-secondary">ctrl+p</kbd> for commands.</span>
+        </p>
       </div>
     {:else}
       {#if historyTruncated}
-        <div class="text-center text-[11px] text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-3 py-1.5">
-          <button onclick={loadOlderHistory} disabled={loadingOlderHistory || streaming || saving} class="underline disabled:opacity-40">{loadingOlderHistory ? 'Loading older messages…' : 'Load older messages'}</button>
-          <span class="ml-2">Earlier context is included by the server when you send.</span>
-        </div>
+        <p class="mb-4 border-l border-[var(--oc-peach)] bg-dark-surface px-[22px] py-2 text-dark-text-muted">
+          <button onclick={loadOlderHistory} disabled={loadingOlderHistory || streaming || saving} class="text-[var(--oc-peach)] underline underline-offset-4 disabled:opacity-40">{loadingOlderHistory ? 'loading older messages…' : 'load older messages'}</button>
+          <span class="ml-[1ch]">— earlier context is included by the server when you send.</span>
+        </p>
       {/if}
       {#each messages as msg, i}
         {#if msg.role === 'user'}
-          <div class="flex justify-end group">
-            <div class="max-w-[75%]">
-              <div class="px-4 py-2.5 text-sm leading-relaxed bg-gray-900 dark:bg-[#2B2D42] text-white">
-                <MessageContent message={msg} workspace={workspaceTransport.selected} formatSize={formatFileSize} />
-              </div>
-              <div class="mt-1 flex justify-end items-center gap-3">
-                {@render copyAction(i)}
-                {@render forkAction(i)}
-                {#if !streaming}
-                  <button
-                    onclick={() => retryFromIndex(i)}
-                    disabled={saving}
-                    aria-label="Retry from this message"
-                    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-accent "
-                    title="Retry from this message"
-                  >
-                    <RotateCcw size={11} />
-                    Retry
-                  </button>
-                {/if}
-                {@render messageTime(i)}
-              </div>
+          <div class="group my-5 border-l-2 border-accent bg-dark-surface px-4 py-3 sm:px-[22px] sm:py-3.5">
+            <div class="text-dark-text">
+              <MessageContent message={msg} workspace={workspaceTransport.selected} formatSize={formatFileSize} />
+            </div>
+            <div class="mt-1.5 flex items-center gap-[2ch] text-dark-text-faint">
+              {@render messageTime(i)}
+              <span class="flex-1"></span>
+              {@render copyAction(i)}
+              {@render forkAction(i)}
+              {#if !streaming}
+                <button
+                  onclick={() => retryFromIndex(i)}
+                  disabled={saving}
+                  aria-label="Retry from this message"
+                  title="Retry from this message"
+                  class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+                >retry</button>
+              {/if}
             </div>
           </div>
         {:else if msg.role === 'assistant'}
-          <div class="flex justify-start group">
-            <div class={msg.tool_calls?.length ? 'min-w-0 w-full sm:max-w-[85%]' : 'max-w-[75%]'}>
-              <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
-                <MessageContent message={msg} workspace={workspaceTransport.selected} raw={!!rawMessages[i]} thinking={streaming && i === messages.length - 1} formatSize={formatFileSize} />
-                <!-- Results remain attached to their originating call. -->
-                {#if msg.tool_calls && msg.tool_calls.length > 0}
-                  <div class="mt-2 pt-2 border-t border-gray-200 dark:border-dark-border space-y-1">
-                    {#each msg.tool_calls as tc}
-                      {@const source = toolSourceMap[tc.function.name]}
-                      {#if pendingQuestion && activeTool?.messageIndex === i && activeTool?.callID === tc.id && tc.function.name === 'question'}
-                        {@render questionPrompt()}
-                      {:else}
-                        <ToolActivity
-                          call={tc}
-                          result={toolResults.get(i)?.get(tc.id)}
-                          running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
-                          queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                          source={source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
-                        />
-                        {#if skillRunProgress[tc.id] && activeTool?.messageIndex === i && activeTool?.callID === tc.id}
-                          <div role="status" class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-gray-500 dark:text-dark-text-muted">
-                            <Loader2 size={11} class="animate-spin shrink-0" />
-                            <span class="truncate">{skillRunProgress[tc.id]}</span>
-                          </div>
-                        {/if}
-                      {/if}
-                    {/each}
-                  </div>
-                {/if}
+          {@const finished = !(streaming && i === messages.length - 1)}
+          {@const closesTurn = finished && !msg.tool_calls?.length && messages[i + 1]?.role !== 'assistant' && messages[i + 1]?.role !== 'tool'}
+          <div class="group mb-4 min-w-0 px-4 sm:px-[22px]">
+            {#if messageText(msg.content).trim() || typeof msg.content !== 'string' || !finished}
+              <div class="max-w-[80ch] text-dark-text">
+                <MessageContent message={msg} workspace={workspaceTransport.selected} raw={!!rawMessages[i]} thinking={!finished} formatSize={formatFileSize} />
               </div>
-              <div class="mt-1 flex items-center gap-3">
-                {@render messageTime(i)}
-                {@render modelBadge(i)}
+            {/if}
+            <!-- Results remain attached to their originating call. -->
+            {#if msg.tool_calls && msg.tool_calls.length > 0}
+              <div class="my-2.5 min-w-0">
+                {#each msg.tool_calls as tc}
+                  {@const source = toolSourceMap[tc.function.name]}
+                  {#if pendingQuestion && activeTool?.messageIndex === i && activeTool?.callID === tc.id && tc.function.name === 'question'}
+                    {@render questionPrompt()}
+                  {:else}
+                    <ToolActivity
+                      compact
+                      call={tc}
+                      result={toolResults.get(i)?.get(tc.id)}
+                      running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
+                      queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
+                      source={source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
+                    />
+                    {#if skillRunProgress[tc.id] && activeTool?.messageIndex === i && activeTool?.callID === tc.id}
+                      <p role="status" class="ml-[2ch] truncate text-[var(--oc-peach)]">~ {skillRunProgress[tc.id]}</p>
+                    {/if}
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+            <div class={['flex flex-wrap items-center gap-x-[1ch] text-dark-text-faint', closesTurn ? 'mt-2' : 'mt-0.5']}>
+              {#if closesTurn}
+                <span class="text-accent" aria-hidden="true">▣</span>
+                <span class="text-dark-text">{activePresetName || 'Chat'}</span>
+                <span aria-hidden="true">·</span>
+                <span class="text-dark-text-muted">{@render modelBadge(i)}</span>
+                {#if meta[i]?.created_at}<span aria-hidden="true">·</span>{/if}
+              {/if}
+              {#if closesTurn || meta[i]?.created_at}
+                <span class={closesTurn ? '' : 'opacity-0 group-hover:opacity-100'}>{@render messageTime(i)}</span>
+              {/if}
+              <span class="ml-[1ch] flex gap-[2ch]">
                 {@render copyAction(i)}
                 {@render rawToggle(i)}
                 {@render forkAction(i)}
-              </div>
+              </span>
             </div>
           </div>
         {/if}
         <!-- Tool messages are rendered in the originating assistant's cards. -->
       {/each}
       {#if skillRunProgress[`wait-${turnTraceId}`]}
-        <div role="status" class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted">
-          <Loader2 size={12} class="animate-spin shrink-0" />
-          <span>Background skills: {skillRunProgress[`wait-${turnTraceId}`]}</span>
-        </div>
+        <p role="status" class="px-4 text-[var(--oc-peach)] sm:px-[22px]">~ background skills: {skillRunProgress[`wait-${turnTraceId}`]}</p>
       {/if}
     {/if}
+    </div>
   </div>
 
   <!-- Input area -->
-  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-3 shrink-0">
+  <div class="mx-auto w-full max-w-[920px] shrink-0 px-3 pb-3 sm:px-8 sm:pb-3.5">
     <!-- Local MCP servers and browser extensions are each approved once, so the
          fact that a model can run something on this computer has to stay
          visible and revocable while it is true — not only at the moment it was
          granted. One strip, because the reader's question is "what can this
          page reach on my machine", not "which subsystem is it". -->
     {#if activeBrowserTools.length > 0}
-      <div role="status" class="mb-2 flex flex-wrap items-center gap-2 border border-emerald-300 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-900/10 px-2.5 py-1.5 text-[11px] text-emerald-900 dark:text-emerald-300">
-        <Wrench size={12} class="shrink-0" />
-        <span class="flex-1 min-w-0">
-          Tools active on this device: {activeBrowserTools.map(t => t.name).join(', ')}
-        </span>
+      <div role="status" class="mb-0.5 flex flex-wrap items-center gap-x-[2ch] gap-y-1 border-l-2 border-[var(--oc-green)] bg-dark-surface px-4 py-1.5 text-dark-text-muted sm:px-[22px]">
+        <span class="min-w-0 flex-1"><span class="text-[var(--oc-green)]">●</span> tools active on this device: <span class="text-dark-text-secondary">{activeBrowserTools.map(t => t.name).join(', ')}</span></span>
         {#each activeBrowserTools as active (active.key)}
-          <button
-            onclick={active.disable}
-            class="shrink-0 px-2 py-0.5 border border-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            Disable {active.name}
-          </button>
+          <button onclick={active.disable} class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent">disable {active.name}</button>
         {/each}
       </div>
     {/if}
 
     <!-- Media storage hint: one quiet, dismissible notice, never a toast per image -->
     {#if mediaStorageOff && !mediaHintDismissed}
-      <div role="status" class="mb-2 flex items-start gap-2 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
-        <ImageOff size={12} class="shrink-0 mt-0.5" />
+      <div role="status" class="mb-0.5 flex items-start gap-[2ch] border-l-2 border-[var(--oc-peach)] bg-dark-surface px-4 py-1.5 text-dark-text-muted sm:px-[22px]">
         <span class="flex-1">
           Media storage is not configured, so attached images stay in this tab only and conversation history keeps a
           placeholder instead.
-          <a
-            href="#/settings/storage"
-            class="underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-200 focus-visible:outline-2 focus-visible:outline-accent"
-          >Configure media storage</a>
+          <a href="#/settings/storage" class="text-[var(--oc-peach)] underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent">Configure media storage</a>
         </span>
-        <button
-          onclick={() => (mediaHintDismissed = true)}
-          aria-label="Dismiss the media storage notice"
-          class="shrink-0 hover:text-amber-950 dark:hover:text-amber-200 focus-visible:outline-2 focus-visible:outline-accent"
-        >
-          <X size={12} />
-        </button>
+        <button onclick={() => (mediaHintDismissed = true)} aria-label="Dismiss the media storage notice" class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent"><X size={13} /></button>
       </div>
-    {/if}
-
-    <!-- Pending attachments -->
-    {#if pendingImages.length > 0}
-      <div class="flex gap-2 mb-2 flex-wrap">
-        {#each pendingImages as att, i}
-          {@const refused = attachmentRefusal(att, acceptedInputs)}
-          <div class="relative group">
-            {#if att.modality === 'image'}
-              <img
-                src={att.dataUrl}
-                alt={att.name}
-                class={['w-16 h-16 object-cover border', refused ? 'border-red-400 dark:border-red-500 opacity-60' : 'border-gray-300 dark:border-dark-border-subtle']}
-              />
-            {:else}
-              <div class={['w-40 h-16 flex items-center gap-2 border px-2 text-xs', refused ? 'border-red-400 text-red-700 dark:border-red-500 dark:text-red-300' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-base']} title={refused || att.name}>
-                {#if att.modality === 'audio'}
-                  <FileAudio size={18} class="shrink-0" />
-                {:else if att.modality === 'video'}
-                  <FileVideo size={18} class="shrink-0" />
-                {:else}
-                  <FileText size={18} class="shrink-0" />
-                {/if}
-                <span class="min-w-0">
-                  <span class="block truncate font-medium">{att.name}</span>
-                  <span class="block text-[10px] text-gray-400 dark:text-dark-text-muted">{att.modality === 'text' ? 'text' : att.modality} · {formatFileSize(att.size)}</span>
-                </span>
-              </div>
-            {/if}
-            <button
-              onclick={() => removeImage(i)}
-              aria-label={`Remove ${att.name}`}
-              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent "
-              title="Remove"
-            >
-              <X size={12} />
-            </button>
-            {#if att.modality === 'image'}
-              <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
-                {att.name}
-              </div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-      {#if pendingRefusals.length > 0}
-        <p role="alert" class="mb-2 text-xs text-red-700 dark:text-red-400">{pendingRefusals[0]} Remove it or choose another model.</p>
-      {/if}
     {/if}
 
     <!-- Messages waiting for the running turn -->
     {#if queuedMessages.length > 0}
-      <div class="mb-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base" aria-live="polite">
-        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 dark:border-dark-border text-xs text-gray-600 dark:text-dark-text-secondary">
-          <ListChecks size={13} class="shrink-0" />
-          <span class="font-medium">{queuedMessages.length} queued</span>
-          <span class="text-gray-400 dark:text-dark-text-muted">
-            {streaming ? '· sent to the agent at its next step' : '· waiting — the last turn stopped'}
-          </span>
+      <div class="mb-0.5 border-l-2 border-[var(--oc-peach)] bg-dark-surface" aria-live="polite">
+        <div class="flex flex-wrap items-center gap-x-[2ch] gap-y-1 px-4 pt-2 pb-1 sm:px-[22px]">
+          <span class="text-[var(--oc-peach)]">{queuedMessages.length} queued</span>
+          <span class="text-dark-text-muted">{streaming ? 'sent to the agent at its next step' : 'waiting — the last turn stopped'}</span>
+          <span class="flex-1"></span>
           {#if !streaming}
-            <button onclick={sendQueuedNow} disabled={!selectedModel || loadingTools} class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent">
-              <Send size={11} /> Send now
-            </button>
+            <button onclick={sendQueuedNow} disabled={!selectedModel || loadingTools} class="text-dark-text hover:underline underline-offset-4 disabled:opacity-40 focus-visible:outline-1 focus-visible:outline-accent">send now</button>
           {:else}
-            <button onclick={interruptAndSend} class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent" title="Stop the current step and continue with the queued messages now (Ctrl+Enter)">
-              <SkipForward size={11} /> Interrupt &amp; send
-            </button>
+            <button onclick={interruptAndSend} class="text-dark-text hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent" title="Stop the current step and continue with the queued messages now (Ctrl+Enter)">interrupt &amp; send</button>
           {/if}
-          <button onclick={() => (queuedMessages = [])} class="px-2 py-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">Clear</button>
+          <button onclick={() => (queuedMessages = [])} class="oc-link focus-visible:outline-1 focus-visible:outline-accent">clear</button>
         </div>
-        <ol class="max-h-40 overflow-y-auto divide-y divide-gray-200 dark:divide-dark-border">
+        <ol class="max-h-40 overflow-y-auto pb-1.5">
           {#each queuedMessages as item, i (item.id)}
-            <li class="flex items-center gap-2 px-3 py-1 text-xs">
-              <span class="shrink-0 w-4 text-gray-400 dark:text-dark-text-muted">{i + 1}.</span>
-              <span class="min-w-0 flex-1 truncate text-gray-700 dark:text-dark-text-secondary" title={item.text}>{queuedPreview(item)}</span>
-              <button onclick={() => editQueued(item.id)} class="shrink-0 px-1.5 py-0.5 text-gray-500 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" title="Move back to the composer">Edit</button>
-              <button onclick={() => removeQueued(item.id)} aria-label="Remove queued message" class="shrink-0 p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={12} /></button>
+            <li class="flex items-center gap-[1ch] px-4 py-0.5 sm:px-[22px]">
+              <span class="shrink-0 text-dark-text-faint">{i + 1}.</span>
+              <span class="min-w-0 flex-1 truncate text-dark-text-secondary" title={item.text}>{queuedPreview(item)}</span>
+              <button onclick={() => editQueued(item.id)} class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent" title="Move back to the composer">edit</button>
+              <button onclick={() => removeQueued(item.id)} aria-label="Remove queued message" class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent"><X size={12} /></button>
             </li>
           {/each}
         </ol>
       </div>
     {/if}
 
-    <div class="flex flex-wrap sm:flex-nowrap items-end gap-2">
+    <div class={['border-l-2 bg-dark-elevated px-4 pt-3 pb-2.5 sm:px-[22px] sm:pt-3.5', streaming ? 'border-[var(--oc-peach)]' : 'border-accent']}>
+      <!-- Pending attachments -->
+      {#if pendingImages.length > 0}
+        <div class="mb-2.5 flex flex-wrap gap-2">
+          {#each pendingImages as att, i}
+            {@const refused = attachmentRefusal(att, acceptedInputs)}
+            <div class={['group flex max-w-full items-center gap-[1ch] bg-dark-base py-1 pr-1 pl-2', refused ? 'text-[var(--oc-red)]' : 'text-dark-text-secondary']} title={refused || att.name}>
+              {#if att.modality === 'image'}
+                <img src={att.dataUrl} alt={att.name} class={['size-7 object-cover', refused ? 'opacity-60' : '']} />
+              {:else if att.modality === 'audio'}
+                <FileAudio size={14} class="shrink-0" />
+              {:else if att.modality === 'video'}
+                <FileVideo size={14} class="shrink-0" />
+              {:else}
+                <FileText size={14} class="shrink-0" />
+              {/if}
+              <span class="min-w-0 max-w-48 truncate">{att.name}</span>
+              <span class="shrink-0 text-dark-text-muted">{formatFileSize(att.size)}</span>
+              <button
+                onclick={() => removeImage(i)}
+                aria-label={`Remove ${att.name}`}
+                title="Remove"
+                class="oc-link shrink-0 p-0.5 focus-visible:outline-1 focus-visible:outline-accent"
+              ><X size={12} /></button>
+            </div>
+          {/each}
+        </div>
+        {#if pendingRefusals.length > 0}
+          <p role="alert" class="mb-2 text-[var(--oc-red)]">{pendingRefusals[0]} Remove it or choose another model.</p>
+        {/if}
+      {/if}
+
       <!-- Hidden file input -->
       <input
         bind:this={fileInput}
@@ -4205,89 +4108,134 @@
         onchange={handleFilePick}
       />
 
-      <!-- Attach button -->
-      <button
-        onclick={() => fileInput?.click()}
-        disabled={models.length === 0}
-        aria-label="Attach files"
-        class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent "
-        title={`Attach files — paste or drop works too. This model reads: ${acceptedInputs ? acceptedInputs.join(', ') : 'unknown (the provider decides)'}. Text files are sent as text to any model.`}
-      >
-        <Paperclip size={18} />
-      </button>
-
       <textarea
+        bind:this={composerInput}
         bind:value={userInput}
         use:growComposer={userInput}
         onkeydown={handleKeydown}
         onpaste={handlePaste}
         aria-label="Message"
-        placeholder={models.length === 0 ? 'No models available' : streaming ? 'Queue a message for the agent…' : 'Write a message…'}
+        placeholder={models.length === 0 ? 'No models available' : streaming ? 'Queue a message for the agent…  (ctrl+enter interrupts)' : 'Write a message…  (/ for commands)'}
         disabled={models.length === 0}
         rows={1}
-        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-11 sm:min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-[9px] sm:py-2 text-base sm:text-sm leading-6 sm:leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
+        class="block min-h-[1.65em] max-h-[min(16rem,35dvh)] w-full resize-none overflow-y-auto bg-transparent text-base leading-relaxed text-dark-text placeholder:text-dark-text-muted focus:outline-none disabled:text-dark-text-muted sm:text-sm"
       ></textarea>
-      <VoiceInput contextKey={voiceContext} disabled={models.length === 0} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 
-      {#if streaming}
+      <!-- Status line: mode, model, provider and effort, each opens its picker. -->
+      <div class="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-[2ch] gap-y-1">
         <button
-          onclick={sendMessage}
-          disabled={(!userInput.trim() && pendingImages.length === 0) || chatRecording || chatTranscribing}
-          class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-accent"
-          title="Queue (Enter) — delivered to the agent at its next step. Ctrl+Enter interrupts and sends now."
-          aria-label="Queue message"
-        >
-          <ListChecks size={18} />
-        </button>
+          onclick={() => (presets.length > 0 ? (palette = 'presets') : openWorkbench('prompt'))}
+          title={presets.length > 0 ? 'Preset (tab on an empty composer cycles)' : 'Save the current setup as a preset in the workbench'}
+          class={['shrink-0 hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent', streaming ? 'text-[var(--oc-peach)]' : 'text-accent']}
+        >{activePresetName || 'Chat'}</button>
         <button
-          onclick={stopStreaming}
-          class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent"
-          title="Stop (Esc) — queued messages are kept"
-          aria-label="Stop response"
-        >
-          <Square size={18} />
-        </button>
-      {:else}
+          onclick={() => (palette = 'models')}
+          disabled={loading || models.length === 0}
+          aria-label={`Model: ${selectedModel || 'none'}`}
+          title="Model (ctrl+m)"
+          class="min-w-0 truncate text-dark-text hover:underline underline-offset-4 decoration-dark-text-faint disabled:text-dark-text-muted focus-visible:outline-1 focus-visible:outline-accent"
+        >{selectedModel ? modelLabel(selectedModel) : 'no model'}{#if selectedModel && !models.includes(selectedModel)}<span class="text-[var(--oc-red)]"> · unavailable</span>{/if}</button>
+        {#if providerLabel(selectedModel)}
+          <span class="hidden min-w-0 truncate text-dark-text-muted sm:inline">{providerLabel(selectedModel)}</span>
+        {/if}
+        {#if reasoningEffortOptions.length > 0}
+          <button
+            onclick={() => (palette = 'effort')}
+            aria-label={`Reasoning effort: ${effectiveReasoningEffort || 'default'}`}
+            title="Reasoning effort — models without reasoning may reject it (ctrl+t cycles)"
+            class="shrink-0 text-dark-text-muted hover:text-dark-text hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent"
+          >{effectiveReasoningEffort || 'default'}</button>
+        {/if}
+        <span class="flex-1"></span>
         <button
-          onclick={sendMessage}
-          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools}
-          class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
-          title="Send (Enter) — Shift+Enter for a new line"
-          aria-label="Send message"
-        >
-          <Send size={18} />
-        </button>
-      {/if}
+          onclick={() => openWorkbench()}
+          aria-label={`Workbench${toolCount > 0 ? ` (${toolCount} tools)` : ''}`}
+          aria-expanded={showWorkbench}
+          aria-haspopup="dialog"
+          title="Workbench — system prompt, skills, presets and tools"
+          class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent"
+        >{toolCount > 0 ? `tools ${toolCount}` : 'tools'}{#if systemPrompt.trim()}<span class="text-accent" title="A system prompt is set"> •</span>{/if}</button>
+        <button
+          onclick={() => fileInput?.click()}
+          disabled={models.length === 0}
+          aria-label="Attach files"
+          title={`Attach files — paste or drop works too. This model reads: ${acceptedInputs ? acceptedInputs.join(', ') : 'unknown (the provider decides)'}. Text files are sent as text to any model.`}
+          class="oc-link shrink-0 disabled:opacity-40 focus-visible:outline-1 focus-visible:outline-accent"
+        >+ attach</button>
+        <VoiceInput compact contextKey={voiceContext} disabled={models.length === 0} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
+        {#if streaming}
+          <button
+            onclick={sendMessage}
+            disabled={(!userInput.trim() && pendingImages.length === 0) || chatRecording || chatTranscribing}
+            title="Queue (Enter) — delivered to the agent at its next step. Ctrl+Enter interrupts and sends now."
+            aria-label="Queue message"
+            class="shrink-0 text-dark-text hover:underline underline-offset-4 disabled:text-dark-text-faint disabled:no-underline focus-visible:outline-1 focus-visible:outline-accent"
+          >queue</button>
+          <button
+            onclick={stopStreaming}
+            title="Stop (Esc) — queued messages are kept"
+            aria-label="Stop response"
+            class="shrink-0 text-[var(--oc-red)] hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent"
+          >■ stop</button>
+        {:else}
+          <button
+            onclick={sendMessage}
+            disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools}
+            title="Send (Enter) — Shift+Enter for a new line"
+            aria-label="Send message"
+            class="shrink-0 text-accent hover:underline underline-offset-4 disabled:text-dark-text-faint disabled:no-underline focus-visible:outline-1 focus-visible:outline-accent"
+          >send ↵</button>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Key hints, as in a terminal agent's footer. -->
+    <div class="hidden justify-between gap-6 px-0.5 pt-2.5 whitespace-nowrap text-dark-text-muted sm:flex">
+      <div class="flex gap-[2ch]">
+        {#if streaming}
+          <span class="text-[var(--oc-peach)]">working…</span>
+          <span><kbd class="text-dark-text">esc</kbd> interrupt</span>
+        {:else}
+          <span><kbd class="text-dark-text">enter</kbd> send</span>
+          <span class="hidden md:inline"><kbd class="text-dark-text">shift+enter</kbd> newline</span>
+        {/if}
+      </div>
+      <div class="flex gap-[2ch]">
+        {#if reasoningEffortOptions.length > 0}<span class="hidden lg:inline"><kbd class="text-dark-text">ctrl+t</kbd> effort</span>{/if}
+        {#if presets.length > 0}<span class="hidden lg:inline"><kbd class="text-dark-text">tab</kbd> presets</span>{/if}
+        <span><kbd class="text-dark-text">ctrl+m</kbd> model</span>
+        <span><kbd class="text-dark-text">ctrl+p</kbd> commands</span>
+      </div>
     </div>
   </div>
 
   {#snippet questionPrompt()}
     {#if pendingQuestion}
-      <details class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border w-full">
-        <summary class="px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
+      <details open class="my-2 w-full border-l-2 border-[var(--oc-violet)] bg-dark-surface">
+        <summary class="cursor-pointer px-4 py-3 hover:bg-dark-elevated focus-visible:outline-1 focus-visible:outline-accent">
           <span class="inline-flex items-center gap-2">
-            <MessageCircleQuestion size={16} class="text-blue-500 shrink-0" />
+            <MessageCircleQuestion size={15} class="shrink-0 text-[var(--oc-violet)]" />
             {#if pendingQuestion.header}
-              <span class="text-sm font-medium text-gray-800 dark:text-dark-text">{pendingQuestion.header}</span>
+              <span class="text-sm font-medium text-dark-text">{pendingQuestion.header}</span>
             {:else}
-              <span class="text-sm font-medium text-gray-800 dark:text-dark-text">Question</span>
+              <span class="text-sm font-medium text-dark-text">Question</span>
             {/if}
           </span>
-          <span class="block mt-2 text-sm text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{pendingQuestion.question}</span>
-          <span class="block mt-1 text-xs text-gray-500 dark:text-dark-text-muted">Waiting for your answer · Click to answer</span>
+          <span class="block mt-2 text-sm text-dark-text-secondary whitespace-pre-wrap break-words">{pendingQuestion.question}</span>
+          <span class="block mt-1 text-xs text-dark-text-muted">Waiting for your answer · Click to answer</span>
         </summary>
         <div class="px-4 py-3">
-          {#if pendingQuestion.multiple}<p class="mb-3 text-xs text-gray-500 dark:text-dark-text-muted">Select one or more options, then submit.</p>{/if}
+          {#if pendingQuestion.multiple}<p class="mb-3 text-xs text-dark-text-muted">Select one or more options, then submit.</p>{/if}
           <div class="space-y-1.5">
             {#each pendingQuestion.options as opt}
               <button
                 aria-pressed={pendingQuestion.multiple ? questionSelections.includes(opt.label) : undefined}
                 onclick={() => { const q = pendingQuestion; if (!q) return; if (q.multiple) { questionSelections = questionSelections.includes(opt.label) ? questionSelections.filter(label => label !== opt.label) : [...questionSelections, opt.label]; } else { pendingQuestion = null; q.resolve(opt.label); } }}
-                class="w-full text-left px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+                class="w-full text-left px-3 py-2 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
               >
                 <div class="font-medium">{opt.label}{#if pendingQuestion.multiple && questionSelections.includes(opt.label)}<span class="ml-2 text-xs">Selected</span>{/if}</div>
                 {#if opt.description}
-                  <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{opt.description}</div>
+                  <div class="text-xs text-dark-text-muted mt-0.5">{opt.description}</div>
                 {/if}
               </button>
             {/each}
@@ -4295,7 +4243,7 @@
               <button
                 disabled={questionSelections.length === 0}
                 onclick={() => { const q = pendingQuestion; if (q && questionSelections.length) { pendingQuestion = null; q.resolve(questionSelections.join(', ')); } }}
-                class="px-3 py-2 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+                class="px-3 py-2 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
               >Submit selected answers</button>
             {/if}
             {#if pendingQuestion.custom !== false}
@@ -4309,11 +4257,11 @@
                     aria-label="Your answer"
                     type="text"
                     placeholder="Type your own answer..."
-                    class="min-w-0 flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
+                    class="min-w-0 flex-1 border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/10 focus:border-dark-border-subtle"
                   />
                   <button
                     type="submit"
-                    class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+                    class="px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover"
                   >
                     Submit
                   </button>
@@ -4326,6 +4274,79 @@
     {/if}
   {/snippet}
 </div>
+
+  {#if showSessionPanel}
+    <!-- Session sidebar: what this conversation runs with and has produced. -->
+    <aside aria-label="Session" class="fixed inset-y-0 right-0 z-40 w-72 shrink-0 overflow-y-auto border-l border-dark-border bg-dark-base px-5 py-5 shadow-[-12px_0_40px_-8px_rgb(0_0_0/0.8)] xl:static xl:z-auto xl:shadow-none">
+      <div class="mb-6 flex items-baseline justify-between xl:hidden">
+        <span class="font-bold text-dark-text">Session</span>
+        <button onclick={() => (showSessionPanel = false)} aria-label="Close session sidebar" class="oc-link focus-visible:outline-1 focus-visible:outline-accent">esc</button>
+      </div>
+
+      <section class="mb-6">
+        <h2 class="mb-1.5 font-bold text-dark-text">Context</h2>
+        <div class="flex justify-between text-dark-text-muted"><span>prompt</span><span class="tabular-nums text-dark-text-secondary">{contextTokens.toLocaleString()}</span></div>
+        <div class="flex justify-between text-dark-text-muted"><span>completion</span><span class="tabular-nums text-dark-text-secondary">{completionTokens.toLocaleString()}</span></div>
+        <div class="flex justify-between text-dark-text-muted"><span>total</span><span class="tabular-nums text-dark-text-secondary">{totalTokens.toLocaleString()}</span></div>
+      </section>
+
+      <section class="mb-6">
+        <div class="mb-1.5 flex items-baseline justify-between">
+          <h2 class="font-bold text-dark-text">Workbench</h2>
+          <button onclick={() => openWorkbench()} class="oc-link focus-visible:outline-1 focus-visible:outline-accent">edit</button>
+        </div>
+        <ul class="space-y-0.5 text-dark-text-muted">
+          <li class="flex gap-[1ch]"><span class={systemPrompt.trim() ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{systemPrompt.trim() ? '●' : '○'}</span>system prompt</li>
+          {#each selectedSkillNames as name (name)}
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{name} <span class="text-dark-text-faint">skill</span></span></li>
+          {/each}
+          {#each selectedMCPSetNames as name (name)}
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{name} <span class="text-dark-text-faint">mcp</span></span></li>
+          {/each}
+          {#each activeBrowserTools as active (active.key)}
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{active.name} <span class="text-dark-text-faint">this device</span></span></li>
+          {/each}
+          <li class="flex gap-[1ch]"><span class={toolCount > 0 ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{toolCount > 0 ? '●' : '○'}</span><span><span class="tabular-nums">{toolCount}</span> tool{toolCount === 1 ? '' : 's'} available</span></li>
+        </ul>
+      </section>
+
+      {#if todos.length > 0}
+        <section class="mb-6">
+          <h2 class="mb-1.5 font-bold text-dark-text">Todo <span class="font-normal text-dark-text-muted tabular-nums">{todos.filter(t => t.status === 'completed').length}/{todos.length}</span></h2>
+          <ul class="space-y-0.5">
+            {#each todos as todo}
+              <li class={['flex gap-[1ch]', todo.status === 'completed' || todo.status === 'cancelled' ? 'text-dark-text-faint line-through' : todo.status === 'in_progress' ? 'text-[var(--oc-peach)]' : 'text-dark-text-secondary']}>
+                <span class="shrink-0">{todo.status === 'completed' ? '[✓]' : todo.status === 'in_progress' ? '[•]' : todo.status === 'cancelled' ? '[×]' : '[ ]'}</span>
+                <span class="min-w-0">{todo.content}{#if todo.priority === 'high' && todo.status !== 'completed' && todo.status !== 'cancelled'}<span class="text-[var(--oc-red)] no-underline"> !</span>{/if}</span>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
+      <section class="mb-6">
+          <h2 class="mb-1.5 font-bold text-dark-text">Conversation</h2>
+          <div class="flex flex-col items-start gap-0.5">
+            {#if sharingAvailable && conversationId && shareBoundaries.length > 0}
+              <button onclick={() => (showShareDialog = true)} aria-haspopup="dialog" class="oc-link focus-visible:outline-1 focus-visible:outline-accent">share snapshot</button>
+            {/if}
+            <button
+              onclick={requestClear}
+              onblur={() => (confirmClear = false)}
+              disabled={streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0)}
+              aria-label={confirmClear ? 'Confirm clearing the transcript' : 'Clear transcript'}
+              title="Clear transcript (deletes saved messages)"
+              class={['focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40', confirmClear ? 'text-[var(--oc-red)]' : 'oc-link']}
+            >{confirmClear ? (conversationId ? 'confirm: delete saved messages?' : 'confirm: clear?') : 'clear transcript'}</button>
+          </div>
+      </section>
+    </aside>
+    <button class="fixed inset-0 z-30 bg-black/50 xl:hidden" aria-label="Close session sidebar" onclick={() => (showSessionPanel = false)}></button>
+  {/if}
+
+  {#if palette}
+    <CommandPalette title={paletteTitle} groups={paletteGroups} placeholder={palette === 'models' ? 'Search models' : 'Search'} onclose={closePalette} />
+  {/if}
 </div>
 
 <!-- Approval for a local MCP server.
@@ -4336,54 +4357,54 @@
      decide with — after this, the model calls them without asking again. -->
 {#if localApprovalFor}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-    <div class="w-full max-w-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Enable {localApprovalFor.name} on this device</h2>
-        <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+    <div class="w-full max-w-lg border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+        <h2 class="text-sm font-medium text-dark-text">Enable {localApprovalFor.name} on this device</h2>
+        <p class="mt-0.5 text-dark-text-muted">
           Your browser will call <code class="font-mono">{localApprovalFor.url}</code> on this computer. The model chooses the arguments, and after this it runs these tools without asking again.
         </p>
       </div>
       <div class="p-4 space-y-3 max-h-80 overflow-y-auto">
         {#if localStatus[localApprovalFor.id]?.busy}
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">Connecting…</p>
+          <p class="text-xs text-dark-text-muted">Connecting…</p>
         {:else if localStatus[localApprovalFor.id]?.error}
-          <p class="text-xs text-red-600 dark:text-red-400">{localStatus[localApprovalFor.id].error}</p>
+          <p class="text-xs text-red-400">{localStatus[localApprovalFor.id].error}</p>
           {#if localStatus[localApprovalFor.id].hint}
-            <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">{localStatus[localApprovalFor.id].hint}</p>
+            <p class="text-dark-text-muted">{localStatus[localApprovalFor.id].hint}</p>
           {/if}
         {:else if localApprovalTools.length === 0}
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">This server advertises no tools.</p>
+          <p class="text-xs text-dark-text-muted">This server advertises no tools.</p>
         {:else}
-          <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{localApprovalTools.length} tool{localApprovalTools.length === 1 ? '' : 's'}:</p>
+          <p class="text-xs text-dark-text-secondary">{localApprovalTools.length} tool{localApprovalTools.length === 1 ? '' : 's'}:</p>
           <ul class="space-y-1.5">
             {#each localApprovalTools as tool}
-              <li class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
-                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+              <li class="border border-dark-border-subtle px-2.5 py-1.5">
+                <code class="font-mono text-dark-text">{tool.name}</code>
                 {#if tool.description}
-                  <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                  <p class="mt-0.5 text-dark-text-muted">{tool.description}</p>
                 {/if}
               </li>
             {/each}
           </ul>
         {/if}
       </div>
-      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+      <div class="px-4 py-3 border-t border-dark-border flex items-center gap-2">
         <button
           onclick={confirmLocalApproval}
           disabled={localApprovalTools.length === 0}
-          class="px-3 py-1.5 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50"
+          class="px-3 py-1.5 text-xs border border-accent bg-accent text-dark-base disabled:opacity-50"
         >
           Enable on this device
         </button>
         <button
           onclick={() => { localApprovalFor = null; }}
-          class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary"
+          class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary"
         >
           Cancel
         </button>
         <button
           onclick={() => localApprovalFor && beginLocalApproval(localApprovalFor)}
-          class="ml-auto px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted"
+          class="ml-auto px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-muted"
         >
           Retry
         </button>
@@ -4400,53 +4421,53 @@
      calls them without asking again, with arguments the reader never sees. -->
 {#if extensionApprovalTarget}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-    <div class="w-full max-w-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Enable {extensionApprovalTarget.name} on this device</h2>
-        <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+    <div class="w-full max-w-lg border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+        <h2 class="text-sm font-medium text-dark-text">Enable {extensionApprovalTarget.name} on this device</h2>
+        <p class="mt-0.5 text-dark-text-muted">
           This extension runs in your browser with the access you granted it when you installed it. The model chooses the arguments, and after this it calls these tools without asking again.
         </p>
       </div>
       <div class="p-4 space-y-3 max-h-80 overflow-y-auto">
         {#if extensionStatus[extensionApprovalTarget.id]?.busy}
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">Asking the extension…</p>
+          <p class="text-xs text-dark-text-muted">Asking the extension…</p>
         {:else if extensionStatus[extensionApprovalTarget.id]?.error}
-          <p class="text-xs text-red-600 dark:text-red-400">{extensionStatus[extensionApprovalTarget.id].error}</p>
+          <p class="text-xs text-red-400">{extensionStatus[extensionApprovalTarget.id].error}</p>
         {:else if extensionApprovalTools.length === 0}
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+          <p class="text-xs text-dark-text-muted">
             {extensionApprovalTarget.notice || 'This extension offers no tools right now.'}
           </p>
         {:else}
-          <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{extensionApprovalTools.length} tool{extensionApprovalTools.length === 1 ? '' : 's'}:</p>
+          <p class="text-xs text-dark-text-secondary">{extensionApprovalTools.length} tool{extensionApprovalTools.length === 1 ? '' : 's'}:</p>
           <ul class="space-y-1.5">
             {#each extensionApprovalTools as tool}
-              <li class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
-                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+              <li class="border border-dark-border-subtle px-2.5 py-1.5">
+                <code class="font-mono text-dark-text">{tool.name}</code>
                 {#if tool.description}
-                  <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                  <p class="mt-0.5 text-dark-text-muted">{tool.description}</p>
                 {/if}
               </li>
             {/each}
           </ul>
         {/if}
       </div>
-      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+      <div class="px-4 py-3 border-t border-dark-border flex items-center gap-2">
         <button
           onclick={confirmExtensionApproval}
           disabled={extensionApprovalTools.length === 0}
-          class="px-3 py-1.5 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50"
+          class="px-3 py-1.5 text-xs border border-accent bg-accent text-dark-base disabled:opacity-50"
         >
           Enable on this device
         </button>
         <button
           onclick={() => { extensionApprovalTarget = null; }}
-          class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary"
+          class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary"
         >
           Cancel
         </button>
         <button
           onclick={() => extensionApprovalTarget && beginExtensionApproval(extensionApprovalTarget)}
-          class="ml-auto px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted"
+          class="ml-auto px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-muted"
         >
           Retry
         </button>
@@ -4471,52 +4492,53 @@
       aria-modal="true"
       aria-labelledby="extension-tools-title"
       onkeydown={(e) => { if (e.key === 'Escape') extensionInspectorTarget = null; }}
-      class="flex w-full max-w-lg max-h-[80vh] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface"
+      class="flex w-full max-w-lg max-h-[80vh] flex-col border border-dark-border bg-dark-surface"
     >
-      <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+      <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base">
         <div class="min-w-0">
-          <h2 id="extension-tools-title" class="text-sm font-medium text-gray-900 dark:text-dark-text">{extensionInspectorTarget.name} tools</h2>
-          <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">Tools currently connected to this chat through the browser extension.</p>
+          <h2 id="extension-tools-title" class="text-sm font-medium text-dark-text">{extensionInspectorTarget.name} tools</h2>
+          <p class="mt-0.5 text-dark-text-muted">Tools currently connected to this chat through the browser extension.</p>
         </div>
         <button
           onclick={() => (extensionInspectorTarget = null)}
           aria-label="Close extension tools"
-          class="shrink-0 p-1 text-gray-400 dark:text-dark-text-muted hover:bg-gray-200 dark:hover:bg-dark-elevated hover:text-gray-600 dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+          class="shrink-0 p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
         ><X size={16} /></button>
       </div>
       <div class="flex-1 overflow-y-auto p-4">
         {#if extensionStatus[extensionInspectorTarget.id]?.busy}
-          <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted"><Loader2 size={13} class="animate-spin" /> Asking the extension…</div>
+          <div class="flex items-center gap-2 text-xs text-dark-text-muted"><Loader2 size={13} class="animate-spin" /> Asking the extension…</div>
         {:else if extensionStatus[extensionInspectorTarget.id]?.error}
           <div class="space-y-2">
-            <p class="text-xs text-red-600 dark:text-red-400">{extensionStatus[extensionInspectorTarget.id].error}</p>
-            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Retry</button>
+            <p class="text-xs text-red-400">{extensionStatus[extensionInspectorTarget.id].error}</p>
+            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2.5 py-1 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Retry</button>
           </div>
         {:else if extensionInspectorTools.length === 0}
-          <p class="text-xs text-gray-500 dark:text-dark-text-muted">{extensionInspectorTarget.notice || 'This extension offers no tools right now.'}</p>
+          <p class="text-xs text-dark-text-muted">{extensionInspectorTarget.notice || 'This extension offers no tools right now.'}</p>
         {:else}
           <div class="mb-2 flex items-center justify-between gap-3">
-            <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{extensionInspectorTools.length} connected tool{extensionInspectorTools.length === 1 ? '' : 's'}</p>
-            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Refresh</button>
+            <p class="text-xs text-dark-text-secondary">{extensionInspectorTools.length} connected tool{extensionInspectorTools.length === 1 ? '' : 's'}</p>
+            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated">Refresh</button>
           </div>
-          <ul class="divide-y divide-gray-100 dark:divide-dark-border border border-gray-200 dark:border-dark-border-subtle">
+          <ul class="divide-y divide-dark-border border border-dark-border-subtle">
             {#each extensionInspectorTools as tool}
               <li class="px-3 py-2.5">
-                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+                <code class="font-mono text-dark-text">{tool.name}</code>
                 {#if tool.description}
-                  <p class="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                  <p class="mt-1 leading-relaxed text-dark-text-muted">{tool.description}</p>
                 {/if}
               </li>
             {/each}
           </ul>
         {/if}
       </div>
-      <div class="shrink-0 flex justify-end px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <button onclick={() => (extensionInspectorTarget = null)} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent">Done</button>
+      <div class="shrink-0 flex justify-end px-4 py-3 border-t border-dark-border bg-dark-base">
+        <button onclick={() => (extensionInspectorTarget = null)} class="px-3 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent">Done</button>
       </div>
     </div>
   </div>
 {/if}
+
 
 <!-- Markdown typography is provided globally via `.markdown-body` rules in
      src/style/global.css. No component-local overrides needed. -->

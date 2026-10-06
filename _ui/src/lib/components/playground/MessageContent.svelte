@@ -16,7 +16,7 @@
 </script>
 
 {#snippet omitted(part: ContentPart)}
-  <div class={['mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px]', user ? 'border-white/40 text-white/80' : 'border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted']}>
+  <div class={['mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px]', user ? 'border-dark-border text-white/80' : 'border-dark-border text-dark-text-muted']}>
     <ImageOff size={11} class="shrink-0" />
     <span class="truncate">{part.name || (part.type === 'file' ? 'attachment' : 'image')} — {part.type === 'file' ? 'attachment' : 'image'} not saved to history</span>
   </div>
@@ -24,7 +24,7 @@
 
 {#snippet pendingUpload(part: ContentPart)}
   {@const url = part.type === 'video_url' ? part.video_url?.url : part.type === 'file' ? part.file?.file_data : part.input_audio ? `data:audio/${part.input_audio.format === 'mp3' ? 'mpeg' : part.input_audio.format};base64,${part.input_audio.data}` : ''}
-  <div class="mb-2 border border-white/40 bg-white/5">
+  <div class="mb-2 border border-dark-border bg-dark-surface/5">
     {#if part.type === 'input_audio' && url}
       <audio controls src={url} class="w-full p-1"></audio>
     {:else if part.type === 'video_url' && url}
@@ -41,11 +41,11 @@
 {#snippet fileArtifact(part: ContentPart)}
   {@const url = mediaImageURL(part.media_id!, workspace)}
   {@const type = part.mime_type || ''}
-  <div class="my-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+  <div class="my-2 border border-dark-border bg-dark-base">
     {#if type === 'application/pdf'}
       <!-- The server sends CSP: sandbox and nosniff; an iframe sandbox would
            also block Chrome's PDF viewer. -->
-      <iframe src={url} title={part.name || 'PDF'} class="w-full h-96 bg-white"></iframe>
+      <iframe src={url} title={part.name || 'PDF'} class="w-full h-96 bg-dark-surface"></iframe>
     {:else if type.startsWith('audio/')}
       <audio controls src={url} class="w-full p-2"></audio>
     {:else if type.startsWith('video/')}
@@ -53,10 +53,10 @@
       <video controls src={url} class="w-full max-h-96"></video>
     {/if}
     <div class="flex items-center gap-2 px-3 py-2 text-xs">
-      <FileText size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
-      <span class="truncate font-medium text-gray-700 dark:text-dark-text">{part.name || 'file'}</span>
-      <span class="shrink-0 text-[10px] text-gray-400 dark:text-dark-text-muted">{type || 'file'}{part.bytes ? ` · ${formatSize(part.bytes)}` : ''}</span>
-      <a href={url} download={part.name || 'file'} class="ml-auto shrink-0 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated">Download</a>
+      <FileText size={13} class="shrink-0 text-dark-text-muted" />
+      <span class="truncate font-medium text-dark-text">{part.name || 'file'}</span>
+      <span class="shrink-0 text-[10px] text-dark-text-muted">{type || 'file'}{part.bytes ? ` · ${formatSize(part.bytes)}` : ''}</span>
+      <a href={url} download={part.name || 'file'} class="ml-auto shrink-0 border border-dark-border-subtle px-2 py-1 text-dark-text-secondary hover:bg-dark-elevated">Download</a>
     </div>
   </div>
 {/snippet}
@@ -65,7 +65,7 @@
   {#if user}
     <span class="whitespace-pre-wrap">{message.content}</span>
   {:else if !message.content && thinking}
-    <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
+    <span class="text-dark-text-muted italic">Thinking...</span>
   {:else if raw}
     <pre class="whitespace-pre-wrap break-words font-mono text-xs">{message.content}</pre>
   {:else}
@@ -78,19 +78,19 @@
         src={part.type === 'image' ? mediaImageURL(part.media_id!, workspace) : part.image_url!.url}
         alt={part.type === 'image' ? part.name || 'Stored image attachment' : ''}
         loading={part.type === 'image' ? 'lazy' : undefined}
-        class={['max-w-full max-h-64 mb-2 border', user ? 'border-gray-600 dark:border-accent/50' : 'border-gray-200 dark:border-dark-border']}
+        class={['max-w-full max-h-64 mb-2 border', user ? 'border-accent/50' : 'border-dark-border']}
       />
     {:else if part.type === 'image'}
       {@render omitted(part)}
     {:else if part.type === 'file' && part.media_id}
-      {#if user}<div class="text-gray-800 dark:text-dark-text">{@render fileArtifact(part)}</div>{:else}{@render fileArtifact(part)}{/if}
+      {#if user}<div class="text-dark-text">{@render fileArtifact(part)}</div>{:else}{@render fileArtifact(part)}{/if}
     {:else if user && ((part.type === 'file' && part.file) || part.type === 'input_audio' || part.type === 'video_url')}
       {@render pendingUpload(part)}
     {:else if user && part.type === 'file'}
       {@render omitted(part)}
     {:else if user && part.type === 'text' && part.text?.startsWith('<file name="')}
       {@const fileName = /^<file name="([^"]*)"/.exec(part.text)?.[1] || 'file'}
-      <div class="mb-2 flex items-center gap-1.5 border border-white/40 px-2 py-1 text-[11px] text-white/80">
+      <div class="mb-2 flex items-center gap-1.5 border border-dark-border px-2 py-1 text-[11px] text-white/80">
         <FileText size={11} class="shrink-0" /><span class="truncate">{fileName}</span>
       </div>
     {:else if part.type === 'text' && part.text}

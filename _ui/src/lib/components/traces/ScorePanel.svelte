@@ -60,43 +60,43 @@
   {#if visible.length}
     <div class="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2">
       {#each visible as score (score.id)}
-        <div class="group border border-gray-200 bg-white p-2 dark:border-dark-border dark:bg-dark-surface">
+        <div class="group border p-2 border-dark-border bg-dark-surface">
           <div class="flex items-center justify-between gap-1">
-            <span class="truncate text-[11px] text-gray-500 dark:text-dark-text-muted" title={score.name}>{score.name}</span>
-            <button onclick={() => remove(score)} class="invisible text-gray-400 hover:text-red-600 group-hover:visible" title="Delete score"><Trash2 size={11} /></button>
+            <span class="truncate text-[11px] text-dark-text-muted" title={score.name}>{score.name}</span>
+            <button onclick={() => remove(score)} class="invisible text-dark-text-muted hover:text-red-600 group-hover:visible" title="Delete score"><Trash2 size={11} /></button>
           </div>
-          <div class="font-mono text-base font-semibold text-gray-900 dark:text-dark-text">{formatScore(score)}</div>
-          <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">{score.source === 'api' ? 'API' : 'Annotation'} · {formatTraceTime(score.created_at)}</div>
-          {#if score.comment}<p class="mt-1 whitespace-pre-wrap break-words text-[11px] text-gray-600 dark:text-dark-text-secondary">{score.comment}</p>{/if}
+          <div class="font-mono text-base font-semibold text-dark-text">{formatScore(score)}</div>
+          <div class="text-[10px] text-dark-text-muted">{score.source === 'api' ? 'API' : 'Annotation'} · {formatTraceTime(score.created_at)}</div>
+          {#if score.comment}<p class="mt-1 whitespace-pre-wrap break-words text-[11px] text-dark-text-secondary">{score.comment}</p>{/if}
         </div>
       {/each}
     </div>
   {:else}
-    <p class="text-xs text-gray-400 dark:text-dark-text-muted">No scores {observationID ? 'on this observation' : 'on this trace'} yet.</p>
+    <p class="text-xs text-dark-text-muted">No scores {observationID ? 'on this observation' : 'on this trace'} yet.</p>
   {/if}
 
-  <form onsubmit={add} class="space-y-2 border border-gray-200 bg-gray-50 p-2 dark:border-dark-border dark:bg-dark-base">
-    <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-text-muted">Add {observationID ? 'observation' : 'trace'} score</div>
+  <form onsubmit={add} class="space-y-2 border p-2 border-dark-border bg-dark-base">
+    <div class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Add {observationID ? 'observation' : 'trace'} score</div>
     <div class="flex flex-wrap gap-2">
-      <input bind:value={name} list="trace-score-names" placeholder="Name (e.g. correctness)" required maxlength="64" class="min-w-0 flex-1 border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+      <input bind:value={name} list="trace-score-names" placeholder="Name (e.g. correctness)" required maxlength="64" class="min-w-0 flex-1 border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
       <datalist id="trace-score-names">{#each names as n}<option value={n}></option>{/each}</datalist>
-      <select bind:value={dataType} class="border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text">
+      <select bind:value={dataType} class="border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text">
         <option value="numeric">Numeric</option>
         <option value="boolean">Boolean</option>
         <option value="categorical">Category</option>
       </select>
       {#if dataType === 'numeric'}
-        <input bind:value={numeric} type="number" step="any" required placeholder="Value" class="w-24 border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+        <input bind:value={numeric} type="number" step="any" required placeholder="Value" class="w-24 border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
       {:else if dataType === 'boolean'}
-        <select bind:value={bool} class="border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text">
+        <select bind:value={bool} class="border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text">
           <option value={true}>true 👍</option>
           <option value={false}>false 👎</option>
         </select>
       {:else}
-        <input bind:value={category} required maxlength="128" placeholder="Category" class="w-28 border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+        <input bind:value={category} required maxlength="128" placeholder="Category" class="w-28 border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
       {/if}
     </div>
-    <textarea bind:value={comment} rows="2" maxlength="4000" placeholder="Comment (optional)" class="w-full border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text"></textarea>
-    <button type="submit" disabled={saving || !name.trim()} class="inline-flex items-center gap-1 border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary dark:hover:bg-dark-highest"><Plus size={12} /> Add score</button>
+    <textarea bind:value={comment} rows="2" maxlength="4000" placeholder="Comment (optional)" class="w-full border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text"></textarea>
+    <button type="submit" disabled={saving || !name.trim()} class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs disabled:opacity-50 border-dark-border-subtle bg-dark-elevated text-dark-text-secondary hover:bg-dark-highest"><Plus size={12} /> Add score</button>
   </form>
 </div>

@@ -9,7 +9,7 @@
 </script>
 <svelte:head><title>AT | Settings</title></svelte:head>
 <div class="settings-page"><header><h1 class="settings-title">Settings</h1><p class="settings-subtitle">Your account, workspace and installation configuration in one place.</p></header>
-<nav aria-label="Configuration sections" class="divide-y divide-gray-200 dark:divide-dark-border">{#each configurationLinks.filter(item => settingsLinkVisible(item.path)) as item}<a href={`#${item.path}`} class="flex items-center justify-between gap-4 py-4 rounded-md hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><div><h2 class="text-sm font-semibold">{item.label}</h2><p class="settings-note mt-1">{item.description}</p></div><ChevronRight size={16} class="shrink-0" /></a>{/each}</nav>
+<nav aria-label="Configuration sections" class="divide-y divide-dark-border">{#each configurationLinks.filter(item => settingsLinkVisible(item.path)) as item}<a href={`#${item.path}`} class="flex items-center justify-between gap-4 py-4 hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><div><h2 class="text-sm font-semibold">{item.label}</h2><p class="settings-note mt-1">{item.description}</p></div><ChevronRight size={16} class="shrink-0" /></a>{/each}</nav>
 <InstallApp />
 <section class="settings-section" aria-labelledby="application-info-title">
   <div>
@@ -20,7 +20,7 @@
     {#each [['Version', storeInfo.version], ['Commit', storeInfo.commit], ['Build date', storeInfo.build_date]] as [label, value]}
       <div class="min-w-0">
         <dt class="settings-note">{label}</dt>
-        <dd class="mt-1 break-all font-mono text-xs tabular-nums text-gray-800 dark:text-dark-text">{value || 'Unavailable'}</dd>
+        <dd class="mt-1 break-all font-mono text-xs tabular-nums text-dark-text">{value || 'Unavailable'}</dd>
       </div>
     {/each}
   </dl>

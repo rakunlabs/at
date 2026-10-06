@@ -75,13 +75,13 @@
         x2={margin.left + plotWidth}
         y1={margin.top + yScale(t)}
         y2={margin.top + yScale(t)}
-        class="stroke-gray-200 dark:stroke-dark-border"
+        class="stroke-dark-border"
         stroke-width="1"
       />
       <text
         x={margin.left - 6}
         y={margin.top + yScale(t) + 3}
-        class="text-[10px] fill-gray-500 dark:fill-dark-text-muted"
+        class="text-[10px] fill-dark-text-muted"
         text-anchor="end"
       >
         {formatY(t)}
@@ -93,7 +93,7 @@
       <text
         x={margin.left + xScale(t)}
         y={height - 8}
-        class="text-[10px] fill-gray-500 dark:fill-dark-text-muted"
+        class="text-[10px] fill-dark-text-muted"
         text-anchor="middle"
       >
         {formatTick(t)}
@@ -115,7 +115,7 @@
       <text
         x={12}
         y={margin.top + plotHeight / 2}
-        class="text-[10px] fill-gray-500 dark:fill-dark-text-muted"
+        class="text-[10px] fill-dark-text-muted"
         transform="rotate(-90, 12, {margin.top + plotHeight / 2})"
         text-anchor="middle"
       >
@@ -126,7 +126,7 @@
 
   <!-- Legend -->
   {#if series.length > 1}
-    <div class="flex flex-wrap gap-3 mt-1 text-[11px] text-gray-600 dark:text-dark-text-secondary">
+    <div class="flex flex-wrap gap-3 mt-1 text-[11px] text-dark-text-secondary">
       {#each series as s}
         <div class="flex items-center gap-1.5">
           <span class="inline-block w-3 h-0.5" style="background: {s.color}"></span>

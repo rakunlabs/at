@@ -40,10 +40,10 @@
     return router.location === path || (path !== '/' && router.location.startsWith(path + '/'));
   }
   const navClass = (active: boolean) => [
-    'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
+    'flex min-w-0 items-center gap-2 px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
     active
-      ? 'bg-gray-100 dark:bg-dark-elevated font-semibold'
-      : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
+      ? 'bg-dark-elevated font-semibold'
+      : 'text-dark-text-secondary hover:bg-dark-elevated',
   ];
 
   function updateScrollThumb() {
@@ -91,13 +91,13 @@
     };
   });
 </script>
-<aside class="app-sidebar relative h-full overflow-hidden border-r border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
+<aside class="app-sidebar relative h-full overflow-hidden border-r border-dark-border bg-dark-surface">
   <div bind:this={scroller} onscroll={handleScroll} class="sidebar-scroller h-full overflow-y-auto">
     <div bind:this={scrollContent} class="flex min-h-full flex-col">
       <div class="flex items-center justify-between gap-2 pr-2">
         <a href="#/" class="flex min-w-0 items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative /><span class="truncate" title={storeInfo.name || 'AT'}>{storeInfo.name || 'AT'}</span></a>
         {#if onclose}
-          <button type="button" aria-label="Close navigation" onclick={onclose} class="flex size-11 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={20} /></button>
+          <button type="button" aria-label="Close navigation" onclick={onclose} class="flex size-11 shrink-0 items-center justify-center text-dark-text-muted hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={20} /></button>
         {/if}
       </div>
       <nav aria-label="Main navigation" class="flex-1 px-2 space-y-1 pb-4">
@@ -110,13 +110,13 @@
            only surface an account with no workspace can use), but Documentation is:
            its guides API answers 404 once the feature is off and 403 for an account
            with no workspace, so the link is filtered on both. -->
-      <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeAllowed('/docs') && routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} class="shrink-0" />{@render navLabel('Documentation')}</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} class="shrink-0" />{@render navLabel('Settings')}</a></nav>
+      <nav aria-label="Application" class="px-2 py-3 border-t border-dark-border space-y-1">{#if routeAllowed('/docs') && routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} class="shrink-0" />{@render navLabel('Documentation')}</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} class="shrink-0" />{@render navLabel('Settings')}</a></nav>
     </div>
   </div>
   {#if scrollThumbHeight > 0}
     <div
       aria-hidden="true"
-      class={['pointer-events-none absolute right-0.5 z-10 w-1 rounded-full bg-gray-400/70 dark:bg-dark-text-muted/70', scrollThumbVisible ? '' : 'hidden']}
+      class={['pointer-events-none absolute right-0.5 z-10 w-1 rounded-full bg-dark-text-muted/70', scrollThumbVisible ? '' : 'hidden']}
       style={`height: ${scrollThumbHeight}px; transform: translateY(${scrollThumbTop}px);`}
     ></div>
   {/if}

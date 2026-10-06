@@ -6,11 +6,11 @@
 </script>
 
 <div class="space-y-2">
-  <div><label for={`${id}-path`} class="block text-xs text-gray-600 dark:text-dark-text-secondary">Field path (JSON Pointer)</label>
-    <input id={`${id}-path`} bind:value={condition.path} placeholder="/status · blank = whole item" class="mt-1 w-full border border-gray-300 bg-white p-2 font-mono text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+  <div><label for={`${id}-path`} class="block text-xs text-dark-text-secondary">Field path (JSON Pointer)</label>
+    <input id={`${id}-path`} bind:value={condition.path} placeholder="/status · blank = whole item" class="mt-1 w-full border p-2 font-mono text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
   </div>
-  <div><label for={`${id}-operator`} class="block text-xs text-gray-600 dark:text-dark-text-secondary">Condition</label>
-    <select id={`${id}-operator`} bind:value={condition.operator} class="mt-1 w-full border border-gray-300 bg-white p-2 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text">
+  <div><label for={`${id}-operator`} class="block text-xs text-dark-text-secondary">Condition</label>
+    <select id={`${id}-operator`} bind:value={condition.operator} class="mt-1 w-full border p-2 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text">
       {#each operators as [value, label]}<option {value}>{label}</option>{/each}
     </select>
   </div>

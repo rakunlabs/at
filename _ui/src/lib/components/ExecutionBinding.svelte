@@ -80,48 +80,48 @@
   }
 </script>
 
-<section class="space-y-3 border-b border-gray-200 dark:border-dark-border pb-4" aria-label="Execution identity" aria-busy={loading || busy}>
-  <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Execution identity</h3>
-  <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
+<section class="space-y-3 border-b border-dark-border pb-4" aria-label="Execution identity" aria-busy={loading || busy}>
+  <h3 class="text-sm font-medium text-dark-text">Execution identity</h3>
+  <p class="text-xs text-dark-text-secondary max-w-prose">
     {kind === 'bot' ? 'Bot messages' : kind === 'trigger' ? 'Webhook-triggered workflow runs' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
     After changing permissions or execution policy, renew this binding.
   </p>
   {#if routeAllowed('/settings/execution')}
-    <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
-      Configure the workspace's <a href="#/settings/execution" class="underline underline-offset-2 hover:text-gray-900 dark:hover:text-dark-text">execution policy</a> first, including allowed tools. Builtin management tools currently require trusted-host mode.
+    <p class="text-xs text-dark-text-secondary max-w-prose">
+      Configure the workspace's <a href="#/settings/execution" class="underline underline-offset-2 hover:text-dark-text">execution policy</a> first, including allowed tools. Builtin management tools currently require trusted-host mode.
     </p>
   {/if}
   {#if loading}
-    <p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading execution identity…</p>
+    <p role="status" class="text-sm text-dark-text-secondary">Loading execution identity…</p>
   {:else}
-    <p class="text-xs text-gray-600 dark:text-dark-text-secondary">
+    <p class="text-xs text-dark-text-secondary">
       {binding ? (binding.revoked ? 'Revoked' : bindingValid ? `Bound · version ${binding.version} · policy ${binding.policy_version}` : `Renewal required · saved version ${binding.version} · policy ${binding.policy_version}`) : 'Setup required — no execution identity is bound.'}
     </p>
     {#if candidates.length > 0}
       <div class="flex flex-col sm:flex-row sm:items-end gap-3">
         <div class="flex-1 min-w-0 space-y-1">
-          <label for={inputId} class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Run as</label>
-          <select id={inputId} bind:value={user} disabled={busy} class="w-full min-w-0 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">
+          <label for={inputId} class="block text-sm font-medium text-dark-text-secondary">Run as</label>
+          <select id={inputId} bind:value={user} disabled={busy} class="w-full min-w-0 border border-dark-border-subtle bg-dark-elevated text-dark-text px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">
             <option value="">Select an account</option>
             {#each candidates as candidate (candidate.user_id)}
               <option value={candidate.user_id}>{candidate.name} ({candidate.role})</option>
             {/each}
           </select>
         </div>
-        <button type="button" onclick={save} disabled={busy || !user} class="px-3 py-2 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-700 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed">
+        <button type="button" onclick={save} disabled={busy || !user} class="px-3 py-2 text-sm bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed">
           {busy ? 'Saving…' : kind === 'bot' ? (binding && !bindingValid ? 'Renew & start bot' : 'Bind & start bot') : (binding && !bindingValid ? 'Renew execution identity' : 'Save execution identity')}
         </button>
       </div>
     {:else if !error}
-      <p class="text-sm text-gray-600 dark:text-dark-text-secondary">No eligible account is available. Enable execution for this workspace and add an active member, then reload.</p>
+      <p class="text-sm text-dark-text-secondary">No eligible account is available. Enable execution for this workspace and add an active member, then reload.</p>
     {/if}
     <div class="flex flex-wrap gap-4 text-xs">
-      <button type="button" onclick={() => load(kind, subjectId)} disabled={busy} class="underline underline-offset-2 text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50">Reload identity</button>
+      <button type="button" onclick={() => load(kind, subjectId)} disabled={busy} class="underline underline-offset-2 text-dark-text-secondary hover:text-dark-text disabled:opacity-50">Reload identity</button>
       {#if binding && !binding.revoked}
-        <button type="button" onclick={revoke} disabled={busy} class="underline underline-offset-2 text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 disabled:opacity-50">Revoke identity</button>
+        <button type="button" onclick={revoke} disabled={busy} class="underline underline-offset-2 text-red-400 hover:text-red-300 disabled:opacity-50">Revoke identity</button>
       {/if}
     </div>
   {/if}
-  {#if error}<p role="alert" class="text-sm text-red-700 dark:text-red-400 break-words">{error}</p>{/if}
-  {#if notice}<p role="status" class="text-sm text-gray-700 dark:text-dark-text-secondary">{notice}</p>{/if}
+  {#if error}<p role="alert" class="text-sm text-red-400 break-words">{error}</p>{/if}
+  {#if notice}<p role="status" class="text-sm text-dark-text-secondary">{notice}</p>{/if}
 </section>

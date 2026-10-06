@@ -7,7 +7,7 @@
   let confirmation = $state('');
   let busy = $state(false);
   let error = $state('');
-  const inputClass = 'w-full rounded-md border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
+  const inputClass = 'w-full border border-dark-border bg-dark-surface px-3 py-2.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -35,7 +35,7 @@
 <section aria-labelledby="change-password-title" class="space-y-4">
   <div>
     <h2 id="change-password-title" class="text-base font-semibold">Change your password</h2>
-    <p id="password-policy" class="mt-1 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Use at least 8 characters. Changing your password signs you out on every device.</p>
+    <p id="password-policy" class="mt-1 text-sm leading-6 text-dark-text-secondary">Use at least 8 characters. Changing your password signs you out on every device.</p>
   </div>
   <form onsubmit={submit} aria-busy={busy} class="space-y-4 max-w-md">
     <fieldset disabled={busy} class="space-y-4">
@@ -46,7 +46,7 @@
       <div><label for="confirm-password" class="block text-sm font-medium mb-1.5">Confirm new password</label>
         <input id="confirm-password" type="password" autocomplete="new-password" required bind:value={confirmation} class={inputClass} /></div>
     </fieldset>
-    {#if error}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{error}</p>{/if}
-    <button disabled={busy} class="rounded-md bg-gray-900 dark:bg-accent text-white dark:text-gray-950 px-4 py-2.5 text-sm font-medium hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">{busy ? 'Changing password...' : 'Change password'}</button>
+    {#if error}<p role="alert" class="text-sm text-red-300">{error}</p>{/if}
+    <button disabled={busy} class="bg-accent text-gray-950 px-4 py-2.5 text-sm font-medium hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">{busy ? 'Changing password...' : 'Change password'}</button>
   </form>
 </section>

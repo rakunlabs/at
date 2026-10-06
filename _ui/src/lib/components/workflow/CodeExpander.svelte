@@ -115,10 +115,10 @@
 <!-- Inline textarea with expand button -->
 <div class="relative">
   <div class="flex items-center justify-between mb-0.5">
-    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">{label}</span>
+    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">{label}</span>
     <button
       onclick={openExpanded}
-      class="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+      class="flex items-center gap-0.5 text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
       title="Expand editor"
     >
       <Maximize2 size={10} />
@@ -129,25 +129,25 @@
     bind:value
     {rows}
     onkeydown={handleInlineKeydown}
-    class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"
+    class="w-full px-2 py-1 text-xs border border-dark-border-subtle font-mono focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text resize-y"
     {placeholder}
   ></textarea>
 </div>
 
 <!-- Expanded overlay with CodeMirror -->
 {#if expanded}
-  <div class="fixed inset-0 z-[1100] flex flex-col bg-white dark:bg-dark-surface">
+  <div class="fixed inset-0 z-[1100] flex flex-col bg-dark-surface">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 shrink-0">
+    <div class="flex items-center justify-between px-4 py-2 border-b border-dark-border bg-dark-base/50 shrink-0">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">{label}</span>
+        <span class="text-sm font-medium text-dark-text-secondary">{label}</span>
         {#if language}
-          <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated rounded">{language}</span>
+          <span class="text-[10px] font-mono text-dark-text-muted px-1.5 py-0.5 bg-dark-elevated">{language}</span>
         {/if}
       </div>
       <button
         onclick={closeExpanded}
-        class="flex items-center gap-1 px-3 py-1 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated rounded "
+        class="flex items-center gap-1 px-3 py-1 text-xs font-medium text-dark-text-secondary hover:text-dark-text hover:bg-dark-elevated"
       >
         <Minimize2 size={12} />
         Close
@@ -158,11 +158,11 @@
     <div bind:this={cmContainer} class="flex-1 overflow-hidden"></div>
 
     <!-- Footer -->
-    <div class="flex items-center justify-between px-4 py-2 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 shrink-0">
-      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono">{value.split('\n').length} lines · {value.length} chars</span>
+    <div class="flex items-center justify-between px-4 py-2 border-t border-dark-border bg-dark-base/50 shrink-0">
+      <span class="text-[10px] text-dark-text-muted font-mono">{value.split('\n').length} lines · {value.length} chars</span>
       <button
         onclick={closeExpanded}
-        class="px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded "
+        class="px-3 py-1 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
       >
         Done
       </button>

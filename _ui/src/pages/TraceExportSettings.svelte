@@ -102,8 +102,8 @@
   {#if settings}
     <form onsubmit={save} oninput={edited} onchange={edited} class="settings-form">
       <fieldset disabled={busy} class="min-w-0 border-0 p-0 space-y-4">
-        <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-          <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border"><h2 class="settings-section-title">Destination</h2></div>
+        <section class="border border-dark-border bg-dark-surface">
+          <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Destination</h2></div>
           <div class="p-4 space-y-4">
             <label class="flex items-start gap-2 text-sm">
               <input type="checkbox" bind:checked={settings.enabled} class="mt-0.5" />
@@ -142,8 +142,8 @@
             </div>
           </div>
         </section>
-        <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-          <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border"><h2 class="settings-section-title">Trace content</h2></div>
+        <section class="border border-dark-border bg-dark-surface">
+          <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Trace content</h2></div>
           <div class="p-4 space-y-3">
             <p class="settings-note">Exports new model calls, tool observations and lifecycle events, including timing, token counts, cost and trace relationships.</p>
             <label class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-0.5" bind:checked={settings.include_content} /><span>Include prompts, responses and tool content<span class="settings-note block mt-1">Requires the installation’s full-body capture feature to be enabled. Each content field is limited to 16 KiB.</span></span></label>
@@ -158,10 +158,10 @@
       <p class="settings-note">Test connection sends a synthetic trace using the values above, even before saving or enabling export. It does not change your saved settings.</p>
     </form>
   {/if}
-  {#if notice}<p role="status" class="text-sm text-green-700 dark:text-green-400">{notice}</p>{/if}
+  {#if notice}<p role="status" class="text-sm text-green-400">{notice}</p>{/if}
   {#if result}
-    <div role="status" class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 space-y-2">
-      <p class="flex items-center gap-2 text-sm font-medium">{#if result.ok}<CheckCircle2 size={16} class="text-green-700 dark:text-green-400 shrink-0" />Receiver accepted the test trace{:else}<XCircle size={16} class="text-red-600 dark:text-red-400 shrink-0" />Connection test failed{/if}</p>
+    <div role="status" class="border border-dark-border bg-dark-surface p-4 space-y-2">
+      <p class="flex items-center gap-2 text-sm font-medium">{#if result.ok}<CheckCircle2 size={16} class="text-green-400 shrink-0" />Receiver accepted the test trace{:else}<XCircle size={16} class="text-red-400 shrink-0" />Connection test failed{/if}</p>
       <p class="settings-note">{result.message}</p>
       <p class="settings-note">Duration: {result.duration_ms} ms</p>
       <p class="settings-note break-all">Trace ID: <code>{result.trace_id}</code></p>

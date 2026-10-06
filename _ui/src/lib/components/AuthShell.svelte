@@ -3,7 +3,7 @@
    * Full-screen auth gates (sign-in, first setup, recovery, backup codes,
    * mobile approval, connection splash) render outside the app shell, so they
    * used to carry their own layout: a bare centred column with a `text-2xl`
-   * heading and rounded panels. That was a second design system — the app
+   * heading and panels. That was a second design system — the app
    * itself is square, compact and card-based — and it was the first thing a
    * user saw. This component reproduces the reference card (Providers, Agents,
    * Secrets, Features, Tokens) for those screens so the style does not change
@@ -30,19 +30,19 @@
   const widths = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
 </script>
 
-<main class="min-h-full overflow-y-auto bg-gray-50 dark:bg-dark-base flex items-start sm:items-center justify-center p-4 sm:p-6">
+<main class="min-h-full overflow-y-auto bg-dark-base flex items-start sm:items-center justify-center p-4 sm:p-6">
   <div class={['w-full', widths[width]]}>
     <section
       aria-label={label || title}
-      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface"
+      class="border border-dark-border bg-dark-surface"
     >
       <!-- The brand mark sits in the header strip, sized to the two title lines,
            instead of a separate wordmark block above the card: the title already
            names the installation, so the block only repeated it. A gate without
            a subtitle has a one-line strip, so the mark shrinks with it. -->
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex items-center gap-3">
+      <div class="px-4 py-3 border-b border-dark-border bg-dark-base flex items-center gap-3">
         <div class="min-w-0 flex-1">
-          <h1 class="text-sm font-medium text-gray-900 dark:text-dark-text break-words">{title}</h1>
+          <h1 class="text-sm font-medium text-dark-text break-words">{title}</h1>
           {#if subtitle}<p class="settings-note mt-0.5">{subtitle}</p>{/if}
         </div>
         {#if action}<div class="shrink-0">{@render action()}</div>{/if}

@@ -270,7 +270,7 @@
       {#each keys as key (key.label)}
         <button
           type="button"
-          class="min-h-9 shrink-0 rounded-md border px-2.5 font-mono text-xs leading-none touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40"
+          class="min-h-9 shrink-0 border px-2.5 font-mono text-xs leading-none touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40"
           style:border-color={theme.selectionBackground}
           style:color={theme.foreground}
           style:background={key.ctrl && ctrlArmed ? theme.selectionBackground : 'transparent'}

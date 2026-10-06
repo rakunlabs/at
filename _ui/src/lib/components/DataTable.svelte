@@ -96,11 +96,11 @@
   }
 </script>
 
-<div class="w-full min-w-0 max-w-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+<div class="w-full min-w-0 max-w-full border border-dark-border bg-dark-surface overflow-hidden">
   {#if onsearch}
-    <div class="px-4 py-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+    <div class="px-4 py-2 border-b border-dark-border bg-dark-base">
       <div class="relative w-full sm:w-64 sm:max-w-full">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" size={13} />
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 text-dark-text-muted" size={13} />
         <input
           type="text"
           bind:value={searchInput}
@@ -108,13 +108,13 @@
           onblur={commitSearch}
           placeholder={searchPlaceholder}
           aria-label={searchPlaceholder}
-          class="w-full min-h-11 sm:min-h-0 pl-8 pr-12 sm:pr-7 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+          class="w-full min-h-11 sm:min-h-0 pl-8 pr-12 sm:pr-7 py-1.5 text-xs border border-dark-border-subtle bg-dark-elevated focus:outline-none focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
         />
         {#if searchInput}
           <button
             onclick={clearSearch}
             aria-label="Clear search"
-            class="absolute right-0 sm:right-1.5 top-1/2 -translate-y-1/2 size-11 sm:size-auto flex items-center justify-center p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+            class="absolute right-0 sm:right-1.5 top-1/2 -translate-y-1/2 size-11 sm:size-auto flex items-center justify-center p-0.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
           >
             <X size={12} />
           </button>
@@ -124,20 +124,20 @@
   {/if}
 
   {#if loading}
-    <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
+    <div class="px-4 py-10 text-center text-dark-text-muted text-sm">Loading...</div>
   {:else if error && items.length === 0}
-    <div class="px-4 py-10 text-center space-y-3"><p role="alert" class="text-sm text-gray-700 dark:text-dark-text-secondary">{error}</p>{#if onretry}<button type="button" class="settings-button" onclick={onretry}>Retry loading</button>{/if}</div>
+    <div class="px-4 py-10 text-center space-y-3"><p role="alert" class="text-sm text-dark-text-secondary">{error}</p>{#if onretry}<button type="button" class="settings-button" onclick={onretry}>Retry loading</button>{/if}</div>
   {:else if items.length === 0}
     {#if empty}
       {@render empty()}
     {:else}
       <div class="px-4 py-10 text-center">
         {#if Icon}
-          <Icon size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
+          <Icon size={24} class="mx-auto text-dark-text-faint mb-2" />
         {/if}
-        <div class="text-gray-600 dark:text-dark-text-secondary mb-1">{searchValue ? 'No matching results' : emptyTitle}</div>
+        <div class="text-dark-text-secondary mb-1">{searchValue ? 'No matching results' : emptyTitle}</div>
         {#if emptyDescription}
-          <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-3">{searchValue ? 'Try another search or clear the filter.' : emptyDescription}</div>
+          <div class="text-xs text-dark-text-muted mb-3">{searchValue ? 'Try another search or clear the filter.' : emptyDescription}</div>
         {/if}
         {#if emptyAction}
           {@render emptyAction()}
@@ -146,7 +146,7 @@
     {/if}
   {:else}
     {#if hasHorizontalOverflow}
-      <p id={scrollHintId} class="flex items-center gap-2 border-b border-gray-200 dark:border-dark-border px-4 py-2 text-xs text-gray-600 dark:text-dark-text-secondary">
+      <p id={scrollHintId} class="flex items-center gap-2 border-b border-dark-border px-4 py-2 text-xs text-dark-text-secondary">
         <ArrowLeftRight size={14} class="shrink-0" /> Swipe or scroll horizontally to see all columns
       </p>
     {/if}
@@ -162,11 +162,11 @@
     >
     <table class={`w-full text-sm ${tableClass}`}>
       <thead>
-        <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <tr class="border-b border-dark-border bg-dark-base">
           {@render header()}
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+      <tbody class="divide-y divide-dark-border">
         {#each items as item}
           {@render row(item)}
         {/each}

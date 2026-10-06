@@ -92,7 +92,7 @@
       <p class="settings-note">{status?.enabled ? `Enabled · ${status.backup_codes_remaining} backup codes remaining` : 'Add a second step to password, passkey and identity-provider sign-in.'}</p>
       {#if enrollment}
         <p class="settings-note">Scan this QR code with your authenticator. It is generated locally in your browser. Enrollment expires after five minutes.</p>
-        {#if qr}<img src={qr} alt="Authenticator enrollment QR code" width="224" height="224" class="rounded-md" />{/if}
+        {#if qr}<img src={qr} alt="Authenticator enrollment QR code" width="224" height="224" class="" />{/if}
         <label>Manual setup key<input readonly value={enrollment.secret} class="font-mono" onclick={e => e.currentTarget.select()} /></label>
         <p class="settings-note">Time-based (TOTP), 6 digits, SHA-1, 30-second period.</p>
         <form class="space-y-4 max-w-md" onsubmit={confirmEnrollment}><label>Six-digit code<input bind:value={code} inputmode="numeric" pattern="[0-9]{6}" required autocomplete="one-time-code" /></label><button class="settings-primary" disabled={busy}>Activate authenticator</button> <button type="button" class="settings-button" disabled={busy} onclick={() => { enrollment = null; qr = code = ''; }}>Cancel enrollment</button></form>

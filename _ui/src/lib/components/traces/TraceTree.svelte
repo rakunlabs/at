@@ -26,11 +26,11 @@
   let container = $state<HTMLDivElement | null>(null);
 
   const barColor: Record<string, string> = {
-    generation: 'bg-blue-500/80 dark:bg-blue-400/70',
-    tool: 'bg-purple-500/80 dark:bg-purple-400/70',
-    agent: 'bg-emerald-500/70 dark:bg-emerald-400/60',
-    span: 'bg-slate-400/80 dark:bg-slate-500/70',
-    embedding: 'bg-cyan-500/80 dark:bg-cyan-400/70',
+    generation: 'bg-blue-400/70',
+    tool: 'bg-purple-400/70',
+    agent: 'bg-emerald-400/60',
+    span: 'bg-slate-500/70',
+    embedding: 'bg-cyan-400/70',
   };
 
   function childTraceID(o: LLMCall): string {
@@ -73,7 +73,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div bind:this={container} class="min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-accent" tabindex="0" role="tree" aria-label="Trace observations" {onkeydown}>
   {#if waterfall}
-    <div class="sticky top-0 z-10 flex border-b border-gray-200 bg-gray-50 text-[10px] text-gray-400 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-muted">
+    <div class="sticky top-0 z-10 flex border-b text-[10px] border-dark-border bg-dark-base text-dark-text-muted">
       <div class="w-[46%] shrink-0 px-2 py-1 font-medium uppercase tracking-wider">Observation</div>
       <div class="relative flex-1 py-1">
         {#each ticks as tick}
@@ -97,38 +97,38 @@
       aria-selected={selected}
       aria-expanded={node.children.length ? !collapsed.has(o.id) : undefined}
       tabindex="-1"
-      class={['flex cursor-pointer items-stretch border-b border-gray-100 text-xs dark:border-dark-border/60',
-        selected ? 'bg-gray-100 shadow-[inset_2px_0_0_0] shadow-gray-900 dark:bg-dark-highest dark:shadow-dark-text' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/60',
-        error && !selected ? 'bg-red-50/60 dark:bg-red-950/20' : '']}
+      class={['flex cursor-pointer items-stretch border-b text-xs border-dark-border/60',
+        selected ? 'shadow-[inset_2px_0_0_0] bg-dark-highest shadow-dark-text' : 'hover:bg-dark-elevated/60',
+        error && !selected ? 'bg-red-950/20' : '']}
       onclick={() => onselect(o.id)}
       onkeydown={() => {}}
     >
       <div class={['flex min-w-0 items-center gap-1 py-1 pr-2', waterfall ? 'w-[46%] shrink-0' : 'flex-1']} style:padding-left={`${6 + node.depth * 14}px`}>
         {#if node.children.length}
-          <button class="shrink-0 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text" onclick={(e) => { e.stopPropagation(); ontoggle(o.id); }} aria-label={collapsed.has(o.id) ? 'Expand' : 'Collapse'}>
+          <button class="shrink-0 text-dark-text-muted hover:text-dark-text" onclick={(e) => { e.stopPropagation(); ontoggle(o.id); }} aria-label={collapsed.has(o.id) ? 'Expand' : 'Collapse'}>
             {#if collapsed.has(o.id)}<ChevronRight size={12} />{:else}<ChevronDown size={12} />{/if}
           </button>
         {:else}
           <span class="w-3 shrink-0"></span>
         {/if}
         <ObservationIcon {type} {error} />
-        <span class={['truncate', selected ? 'font-medium text-gray-900 dark:text-dark-text' : 'text-gray-700 dark:text-dark-text-secondary']} title={observationLabel(o)}>{observationLabel(o)}</span>
+        <span class={['truncate', selected ? 'font-medium text-dark-text' : 'text-dark-text-secondary']} title={observationLabel(o)}>{observationLabel(o)}</span>
         {#if child && onopentrace}
-          <button class="shrink-0 text-blue-600 hover:underline dark:text-blue-400" title="Open child trace" onclick={(e) => { e.stopPropagation(); onopentrace(child); }}><ExternalLink size={11} /></button>
+          <button class="shrink-0 hover:underline text-blue-400" title="Open child trace" onclick={(e) => { e.stopPropagation(); onopentrace(child); }}><ExternalLink size={11} /></button>
         {/if}
-        <span class="ml-auto flex shrink-0 items-center gap-2 pl-2 font-mono text-[10px] text-gray-400 dark:text-dark-text-muted">
+        <span class="ml-auto flex shrink-0 items-center gap-2 pl-2 font-mono text-[10px] text-dark-text-muted">
           {#if node.tokens}<span title="Tokens (subtree)">{formatTokens(node.tokens)}t</span>{/if}
           {#if node.costCents}<span title="Cost (subtree)">{formatCost(node.costCents)}</span>{/if}
           {#if type !== 'event'}<span class="w-12 text-right" title="Duration">{formatDurationMs(node.end - node.start)}</span>{/if}
         </span>
       </div>
       {#if waterfall}
-        <div class="relative flex-1 border-l border-gray-100 dark:border-dark-border/60">
+        <div class="relative flex-1 border-l border-dark-border/60">
           {#if type === 'event'}
-            <span class="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-gray-400 dark:bg-dark-text-muted" style:left={`${bar.left}%`} title={o.name}></span>
+            <span class="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-dark-text-muted" style:left={`${bar.left}%`} title={o.name}></span>
           {:else}
             <span
-              class={['absolute top-1/2 h-2.5 -translate-y-1/2', error ? 'bg-red-500/80' : barColor[type] || barColor.span, selected ? 'ring-1 ring-gray-900 dark:ring-white' : '']}
+              class={['absolute top-1/2 h-2.5 -translate-y-1/2', error ? 'bg-red-500/80' : barColor[type] || barColor.span, selected ? 'ring-1 ring-white' : '']}
               style:left={`${bar.left}%`}
               style:width={`${bar.width}%`}
               title={`${observationLabel(o)} · ${formatDurationMs(node.end - node.start)}`}

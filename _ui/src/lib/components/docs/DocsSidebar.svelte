@@ -155,10 +155,10 @@
   }
 
   const rowBase =
-    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent';
-  const groupRow = `${rowBase} font-semibold text-gray-900 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated`;
+    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
+  const groupRow = `${rowBase} font-semibold text-dark-text hover:bg-dark-elevated`;
   const subHeading =
-    'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600 dark:text-dark-text-secondary';
+    'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dark-text-secondary';
 </script>
 
 {#snippet entryRow(group: DocsGroupId, id: string, title: string, description: string, IconCmp: any)}
@@ -179,8 +179,8 @@
         rowBase,
         'items-start border-l-2 pl-4',
         active
-          ? 'border-gray-900 bg-gray-100 font-medium text-gray-900 dark:border-accent dark:bg-dark-elevated dark:text-dark-text'
-          : 'border-transparent text-gray-700 hover:bg-gray-50 hover:text-gray-900 dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text',
+          ? 'font-medium border-accent bg-dark-elevated text-dark-text'
+          : 'border-transparent text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text',
       ]}
     >
       {#if IconCmp}
@@ -189,7 +189,7 @@
       <span class="min-w-0 flex-1">
         <span class="block truncate">{title}</span>
         {#if description}
-          <span class="mt-0.5 block truncate text-[11px] text-gray-600 dark:text-dark-text-secondary">
+          <span class="mt-0.5 block truncate text-[11px] text-dark-text-secondary">
             {description}
           </span>
         {/if}
@@ -198,13 +198,13 @@
   </li>
 {/snippet}
 
-<div class="flex h-full min-h-0 flex-col bg-white dark:bg-dark-surface">
-  <div class="shrink-0 border-b border-gray-200 p-3 dark:border-dark-border">
+<div class="flex h-full min-h-0 flex-col bg-dark-surface">
+  <div class="shrink-0 border-b p-3 border-dark-border">
     <label for="docs-search" class="sr-only">Search documentation</label>
     <div class="relative">
       <Search
         size={13}
-        class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-600 dark:text-dark-text-secondary"
+        class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-secondary"
         aria-hidden="true"
       />
       <input
@@ -213,14 +213,14 @@
         bind:value={query}
         onkeydown={onSearchKeydown}
         placeholder="Search docs and guides…"
-        class="h-8 w-full border border-gray-300 bg-white pl-7 pr-7 text-xs text-gray-900 placeholder:text-gray-600 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-secondary dark:focus-visible:outline-accent"
+        class="h-8 w-full border pl-7 pr-7 text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-secondary focus-visible:outline-accent"
       />
       {#if query}
         <button
           type="button"
           onclick={() => (query = '')}
           aria-label="Clear search"
-          class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-gray-600 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gray-900 dark:text-dark-text-secondary dark:hover:text-dark-text dark:focus-visible:outline-accent"
+          class="absolute right-1 top-1/2 -translate-y-1/2 p-1 focus-visible:outline-2 focus-visible:outline-offset-1 text-dark-text-secondary hover:text-dark-text focus-visible:outline-accent"
         >
           <X size={12} aria-hidden="true" />
         </button>
@@ -260,7 +260,7 @@
             aria-hidden="true"
           />
           <span class="flex-1">API docs</span>
-          <span class="text-[11px] font-normal tabular-nums text-gray-600 dark:text-dark-text-secondary">
+          <span class="text-[11px] font-normal tabular-nums text-dark-text-secondary">
             {searching ? `${apiEntries.length}/${apiTotal}` : apiTotal}
           </span>
         </button>
@@ -269,7 +269,7 @@
             {#each apiEntries as section (section.id)}
               {@render entryRow('api', section.id, section.title, section.description, null)}
             {:else}
-              <li role="none" class="px-4 py-2 text-[11px] text-gray-600 dark:text-dark-text-secondary">
+              <li role="none" class="px-4 py-2 text-[11px] text-dark-text-secondary">
                 No API section matches.
               </li>
             {/each}
@@ -279,7 +279,7 @@
 
       <!-- ─── Guides ─── -->
       <li role="none">
-        <div class="mt-1 flex items-center border-t border-gray-200 pt-1 dark:border-dark-border">
+        <div class="mt-1 flex items-center border-t pt-1 border-dark-border">
           <button
             type="button"
             role="treeitem"
@@ -306,13 +306,13 @@
               <span class="sr-only">Loading guides</span>
               <Loader2
                 size={12}
-                class="animate-spin motion-reduce:animate-none text-gray-600 dark:text-dark-text-secondary"
+                class="animate-spin motion-reduce:animate-none text-dark-text-secondary"
                 aria-hidden="true"
               />
             {:else if guidesError}
-              <AlertTriangle size={12} class="text-amber-700 dark:text-amber-300" aria-hidden="true" />
+              <AlertTriangle size={12} class="text-amber-300" aria-hidden="true" />
             {:else}
-              <span class="text-[11px] font-normal tabular-nums text-gray-600 dark:text-dark-text-secondary">
+              <span class="text-[11px] font-normal tabular-nums text-dark-text-secondary">
                 {searching ? `${guideEntries.length}/${guideTotal}` : guideTotal}
               </span>
             {/if}
@@ -322,7 +322,7 @@
             onclick={onnewguide}
             aria-label="New guide"
             title="New guide"
-            class="mr-2 shrink-0 border border-gray-300 p-1 text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text dark:focus-visible:outline-accent"
+            class="mr-2 shrink-0 border p-1 focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-accent"
           >
             <Plus size={13} aria-hidden="true" />
           </button>
@@ -332,13 +332,13 @@
           <ul role="group" id="docs-group-guides">
             {#if guidesError}
               <li role="none" class="px-4 py-2">
-                <p class="text-[11px] leading-relaxed text-amber-800 dark:text-amber-300">
+                <p class="text-[11px] leading-relaxed text-amber-300">
                   {guidesError}
                 </p>
                 <button
                   type="button"
                   onclick={onretryguides}
-                  class="mt-1.5 border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent"
+                  class="mt-1.5 border px-2 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
                 >
                   Retry
                 </button>
@@ -369,15 +369,15 @@
 
             {#if !guidesLoading && !guidesError && firstUserIndex < 0 && !searching}
               <li role="none" class="px-4 pb-2 pt-1">
-                <p class="text-[11px] leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+                <p class="text-[11px] leading-relaxed text-dark-text-secondary">
                   No guides of your own yet. Use
-                  <span class="font-medium text-gray-900 dark:text-dark-text">+</span> above to write one.
+                  <span class="font-medium text-dark-text">+</span> above to write one.
                 </p>
               </li>
             {/if}
 
             {#if searching && guideEntries.length === 0 && !guidesError}
-              <li role="none" class="px-4 py-2 text-[11px] text-gray-600 dark:text-dark-text-secondary">
+              <li role="none" class="px-4 py-2 text-[11px] text-dark-text-secondary">
                 No guide matches.
               </li>
             {/if}
@@ -387,16 +387,16 @@
     </ul>
 
     {#if noResults}
-      <div class="border-t border-gray-200 px-4 py-6 text-center dark:border-dark-border">
-        <Search size={20} class="mx-auto text-gray-600 dark:text-dark-text-secondary" aria-hidden="true" />
-        <p class="mt-2 text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">
-          Nothing matches <span class="font-medium text-gray-900 dark:text-dark-text">“{query}”</span>
+      <div class="border-t px-4 py-6 text-center border-dark-border">
+        <Search size={20} class="mx-auto text-dark-text-secondary" aria-hidden="true" />
+        <p class="mt-2 text-xs leading-relaxed text-dark-text-secondary">
+          Nothing matches <span class="font-medium text-dark-text">“{query}”</span>
           in the API docs or guides.
         </p>
         <button
           type="button"
           onclick={() => (query = '')}
-          class="mt-3 border border-gray-300 px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent"
+          class="mt-3 border px-2.5 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
         >
           Clear search
         </button>

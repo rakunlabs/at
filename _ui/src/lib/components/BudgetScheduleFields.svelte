@@ -44,11 +44,11 @@
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Period</span>
+    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period</span>
     <select
       value={period}
       onchange={handlePeriodChange}
-      class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+      class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
     >
       <option value="daily">Daily</option>
       <option value="weekly">Weekly</option>
@@ -58,10 +58,10 @@
 
   {#if period === 'weekly'}
     <label class="block">
-      <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
+      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
       <select
         bind:value={resetDay}
-        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+        class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
       >
         {#each weekdays as day}
           <option value={day.value}>{day.label}</option>
@@ -70,35 +70,35 @@
     </label>
   {:else if period === 'monthly'}
     <label class="block">
-      <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
+      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
       <input
         type="number"
         min="1"
         max="31"
         bind:value={resetDay}
-        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+        class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
       />
-      <span class="text-[9px] text-gray-400 dark:text-dark-text-muted">Short months use their last day.</span>
+      <span class="text-[9px] text-dark-text-muted">Short months use their last day.</span>
     </label>
   {/if}
 
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset time</span>
+    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset time</span>
     <input
       type="time"
       bind:value={resetTime}
-      class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+      class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
     />
   </label>
 
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Timezone</span>
+    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Timezone</span>
     <input
       type="text"
       list="budget-timezones"
       bind:value={timezone}
       placeholder="UTC"
-      class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+      class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
     />
     <datalist id="budget-timezones">
       {#each timezones as zone}<option value={zone}></option>{/each}

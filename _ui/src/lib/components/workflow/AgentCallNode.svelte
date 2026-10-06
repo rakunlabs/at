@@ -44,7 +44,7 @@
   setup={!data.provider && !data.model && !data.agent_id ? 'Choose an agent' : ''}
 >
   {#snippet extra()}
-    <div class="grid grid-cols-4 border-t border-gray-100 text-center text-[11px] leading-6 text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+    <div class="grid grid-cols-4 border-t text-center text-[11px] leading-6 border-dark-border text-dark-text-muted">
       {#each resources as resource (resource)}
         <div class="relative">
           {resource}

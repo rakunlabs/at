@@ -129,9 +129,9 @@
   }
 
   function statusColor(s: string): string {
-    if (s === 'done' || s === 'completed') return 'text-green-600 dark:text-green-400';
-    if (s === 'blocked' || s === 'cancelled' || s === 'failed') return 'text-red-500 dark:text-red-400';
-    return 'text-amber-600 dark:text-amber-400';
+    if (s === 'done' || s === 'completed') return 'text-green-400';
+    if (s === 'blocked' || s === 'cancelled' || s === 'failed') return 'text-red-400';
+    return 'text-amber-400';
   }
 
   $effect(() => {
@@ -152,21 +152,21 @@
   {#if longVideoOrg || longVideos.length || videoError}
     <section aria-label="Finished long videos">
       <div class="flex items-center justify-between mb-2">
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Finished long videos</h2>
-        <button onclick={load} class="p-1 text-gray-500 dark:text-dark-text-muted" aria-label="Refresh productions"><RefreshCw size={13} /></button>
+        <h2 class="text-sm font-semibold text-dark-text">Finished long videos</h2>
+        <button onclick={load} class="p-1 text-dark-text-muted" aria-label="Refresh productions"><RefreshCw size={13} /></button>
       </div>
-      {#if videoError}<p role="alert" class="mb-2 text-xs text-red-700 dark:text-red-400">Could not load long videos: {videoError}</p>{/if}
+      {#if videoError}<p role="alert" class="mb-2 text-xs text-red-400">Could not load long videos: {videoError}</p>{/if}
       {#if !longVideos.some((project) => project.output?.final_video)}
-        <p class="text-xs text-gray-500 dark:text-dark-text-muted py-6 text-center border border-dashed border-gray-200 dark:border-dark-border">No finished long videos yet. Prepare a brief in Long Videos to get started.</p>
+        <p class="text-xs text-dark-text-muted py-6 text-center border border-dashed border-dark-border">No finished long videos yet. Prepare a brief in Long Videos to get started.</p>
       {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           {#each longVideos.filter((project) => project.output?.final_video) as project (project.brief.id)}
-            <article class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+            <article class="border border-dark-border bg-dark-surface">
               <!-- svelte-ignore a11y_media_has_caption -->
               <video controls preload="metadata" aria-label={project.brief.title} src={fileServeUrl(episodeAssetPath(project.dir, project.output?.final_video || ''), project.output?.updated_at)} class="w-full aspect-video bg-black object-contain"></video>
               <div class="p-3 flex items-center gap-2">
-                <h3 class="min-w-0 break-words text-xs font-semibold text-gray-900 dark:text-dark-text">{project.brief.title}</h3>
-                {#if project.task_id}<a href={`#/tasks/${encodeURIComponent(project.task_id)}`} class="ml-auto shrink-0 text-gray-500 dark:text-dark-text-muted" aria-label="Open long video task"><ExternalLink size={13} /></a>{/if}
+                <h3 class="min-w-0 break-words text-xs font-semibold text-dark-text">{project.brief.title}</h3>
+                {#if project.task_id}<a href={`#/tasks/${encodeURIComponent(project.task_id)}`} class="ml-auto shrink-0 text-dark-text-muted" aria-label="Open long video task"><ExternalLink size={13} /></a>{/if}
               </div>
             </article>
           {/each}
@@ -177,22 +177,22 @@
   <section>
     <div class="flex items-center justify-between mb-2">
       <div>
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text flex items-center gap-1.5"><Video size={14} /> Finished episodes</h2>
-        <p class="mt-0.5 text-[11px] text-gray-400 dark:text-dark-text-muted">Structured outputs from <code>episode.json.final_video</code>.</p>
+        <h2 class="text-sm font-semibold text-dark-text flex items-center gap-1.5"><Video size={14} /> Finished episodes</h2>
+        <p class="mt-0.5 text-[11px] text-dark-text-muted">Structured outputs from <code>episode.json.final_video</code>.</p>
       </div>
-      <button onclick={load} class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Refresh"><RefreshCw size={13} /></button>
+      <button onclick={load} class="p-1 text-dark-text-muted hover:text-dark-text-secondary" title="Refresh"><RefreshCw size={13} /></button>
     </div>
     {#if finalEpisodes.length === 0}
-      <p class="text-xs text-gray-400 dark:text-dark-text-muted py-6 text-center border border-dashed border-gray-200 dark:border-dark-border">No assembled episodes yet.</p>
+      <p class="text-xs text-dark-text-muted py-6 text-center border border-dashed border-dark-border">No assembled episodes yet.</p>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {#each finalEpisodes as item (`${item.series.slug}-${item.episode.manifest.number}`)}
-          <article class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+          <article class="border border-dark-border bg-dark-surface">
             <!-- svelte-ignore a11y_media_has_caption -->
             <video controls preload="metadata" src={fileServeUrl(item.videoPath, item.episode.manifest.updated_at)} class="w-full aspect-video bg-black object-contain"></video>
             <div class="p-2.5 flex items-center gap-2">
-              <div class="min-w-0"><h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text truncate">{item.series.name} — E{String(item.episode.manifest.number).padStart(2, '0')}</h3><p class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate">{item.episode.manifest.title || 'Untitled'} · {item.episode.manifest.duration_s || '—'}s</p></div>
-              {#if item.episode.manifest.task_id}<a href={`#/tasks/${item.episode.manifest.task_id}`} class="ml-auto text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Open assembly task"><ExternalLink size={12} /></a>{/if}
+              <div class="min-w-0"><h3 class="text-xs font-semibold text-dark-text truncate">{item.series.name} — E{String(item.episode.manifest.number).padStart(2, '0')}</h3><p class="text-[10px] text-dark-text-muted truncate">{item.episode.manifest.title || 'Untitled'} · {item.episode.manifest.duration_s || '—'}s</p></div>
+              {#if item.episode.manifest.task_id}<a href={`#/tasks/${item.episode.manifest.task_id}`} class="ml-auto text-dark-text-muted hover:text-dark-text-secondary" title="Open assembly task"><ExternalLink size={12} /></a>{/if}
             </div>
           </article>
         {/each}
@@ -201,21 +201,21 @@
   </section>
 
   <section>
-    <div class="flex items-center gap-1.5 mb-2"><Clapperboard size={14} /><h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Production tasks</h2>{#if loading}<Loader2 size={12} class="animate-spin text-gray-400" />{/if}</div>
+    <div class="flex items-center gap-1.5 mb-2"><Clapperboard size={14} /><h2 class="text-sm font-semibold text-dark-text">Production tasks</h2>{#if loading}<Loader2 size={12} class="animate-spin text-dark-text-muted" />{/if}</div>
     {#if productions.length === 0 && !loading}
-      <p class="text-xs text-gray-400 dark:text-dark-text-muted py-6 text-center border border-dashed border-gray-200 dark:border-dark-border">No production tasks yet.</p>
+      <p class="text-xs text-dark-text-muted py-6 text-center border border-dashed border-dark-border">No production tasks yet.</p>
     {:else}
-      <div class="divide-y divide-gray-100 dark:divide-dark-border border-y border-gray-200 dark:border-dark-border">
+      <div class="divide-y divide-dark-border border-y border-dark-border">
         {#each productions as t (t.id)}
           {@const vp = videoPath(t)}
           {@const structured = episodeByTask.get(t.id)}
           <div class="py-3">
             <div class="flex items-center gap-2">
               {#if RUNNING.includes(t.status)}<Loader2 size={12} class="animate-spin text-amber-500 shrink-0" />{/if}
-              <a href={`#/tasks/${t.id}`} class="text-xs font-medium text-gray-900 dark:text-dark-text hover:underline truncate">{t.identifier ? `${t.identifier} — ` : ''}{t.title}</a>
-              {#if structured}<span class="hidden sm:inline text-[9px] px-1 py-px bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">structured</span>{/if}
+              <a href={`#/tasks/${t.id}`} class="text-xs font-medium text-dark-text hover:underline truncate">{t.identifier ? `${t.identifier} — ` : ''}{t.title}</a>
+              {#if structured}<span class="hidden sm:inline text-[9px] px-1 py-px bg-dark-elevated text-dark-text-muted">structured</span>{/if}
               <span class={['ml-auto text-[10px] font-medium uppercase shrink-0', statusColor(t.status)]}>{t.status}</span>
-              <a href={`#/tasks/${t.id}`} class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary shrink-0" title="Open task"><ExternalLink size={11} /></a>
+              <a href={`#/tasks/${t.id}`} class="text-dark-text-muted hover:text-dark-text-secondary shrink-0" title="Open task"><ExternalLink size={11} /></a>
             </div>
             {#if vp}
               <!-- svelte-ignore a11y_media_has_caption -->

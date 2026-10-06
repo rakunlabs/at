@@ -224,22 +224,22 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Settings size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Node Configs</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-faint">({total})</span>
+      <Settings size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Node Configs</h2>
+      <span class="text-xs text-dark-text-faint">({total})</span>
     </div>
     <div class="flex items-center gap-2">
 
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Config
@@ -249,12 +249,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-elevated">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Config'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -262,23 +262,23 @@
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Name -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
+          <label for="form-name" class="text-sm font-medium text-dark-text-secondary">Name</label>
           <input
             id="form-name"
             type="text"
             bind:value={formName}
             placeholder="e.g., Production SMTP"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
           />
         </div>
 
         <!-- Type -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-type" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Type</label>
+          <label for="form-type" class="text-sm font-medium text-dark-text-secondary">Type</label>
           <select
             id="form-type"
             bind:value={formType}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
           >
             <option value="email">Email (SMTP)</option>
           </select>
@@ -288,55 +288,55 @@
         {#if formType === 'email'}
           <!-- Host -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-host" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Host</label>
+            <label for="form-host" class="text-sm font-medium text-dark-text-secondary">Host</label>
             <input
               id="form-host"
               type="text"
               bind:value={formHost}
               placeholder="smtp.example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
 
           <!-- Port -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-port" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Port</label>
+            <label for="form-port" class="text-sm font-medium text-dark-text-secondary">Port</label>
             <input
               id="form-port"
               type="number"
               bind:value={formPort}
               placeholder="587"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
 
           <!-- Username -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-username" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Username</label>
+            <label for="form-username" class="text-sm font-medium text-dark-text-secondary">Username</label>
             <input
               id="form-username"
               type="text"
               bind:value={formUsername}
               placeholder="(optional) user@example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
 
           <!-- Password -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-password" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Password</label>
+            <label for="form-password" class="text-sm font-medium text-dark-text-secondary">Password</label>
             <div class="col-span-3 flex gap-2">
               <input
                 id="form-password"
                 type={formShowPassword ? 'text' : 'password'}
                 bind:value={formPassword}
                 placeholder={editingId && formHasStoredPassword ? '(stored - leave blank to keep)' : '(optional) SMTP password'}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+                class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
               />
               <button
                 type="button"
                 onclick={() => { formShowPassword = !formShowPassword; }}
-                class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
+                class="p-1.5 border border-dark-border-subtle hover:bg-dark-highest text-dark-text-faint hover:text-dark-text-secondary"
                 title={formShowPassword ? 'Hide password' : 'Show password'}
               >
                 {#if formShowPassword}
@@ -350,27 +350,27 @@
 
           <!-- From -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-from" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Default From</label>
+            <label for="form-from" class="text-sm font-medium text-dark-text-secondary">Default From</label>
             <input
               id="form-from"
               type="text"
               bind:value={formFrom}
               placeholder="noreply@example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
 
           <!-- TLS toggle -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-tls" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Implicit TLS</label>
+            <label for="form-tls" class="text-sm font-medium text-dark-text-secondary">Implicit TLS</label>
             <div class="col-span-3 flex items-center gap-2">
               <input
                 id="form-tls"
                 type="checkbox"
                 bind:checked={formTls}
-                class="w-4 h-4 text-gray-900 dark:text-accent border-gray-300 dark:border-dark-border-subtle focus:ring-gray-900/10 dark:focus:ring-accent/20"
+                class="w-4 h-4 text-accent border-dark-border-subtle focus:ring-accent/20"
               />
-              <span class="text-xs text-gray-500 dark:text-dark-text-muted">
+              <span class="text-xs text-dark-text-muted">
                 {formTls ? 'TLS from start (port 465)' : 'STARTTLS upgrade (port 587/25)'}
               </span>
             </div>
@@ -378,15 +378,15 @@
 
           <!-- No TLS toggle -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-no-tls" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">No TLS</label>
+            <label for="form-no-tls" class="text-sm font-medium text-dark-text-secondary">No TLS</label>
             <div class="col-span-3 flex items-center gap-2">
               <input
                 id="form-no-tls"
                 type="checkbox"
                 bind:checked={formNoTls}
-                class="w-4 h-4 text-gray-900 dark:text-accent border-gray-300 dark:border-dark-border-subtle focus:ring-gray-900/10 dark:focus:ring-accent/20"
+                class="w-4 h-4 text-accent border-dark-border-subtle focus:ring-accent/20"
               />
-              <span class="text-xs text-gray-500 dark:text-dark-text-muted">
+              <span class="text-xs text-dark-text-muted">
                 Disable TLS entirely (plain SMTP, no encryption)
               </span>
             </div>
@@ -394,15 +394,15 @@
 
           <!-- Insecure Skip Verify toggle -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-insecure" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Skip Verify</label>
+            <label for="form-insecure" class="text-sm font-medium text-dark-text-secondary">Skip Verify</label>
             <div class="col-span-3 flex items-center gap-2">
               <input
                 id="form-insecure"
                 type="checkbox"
                 bind:checked={formInsecureSkipVerify}
-                class="w-4 h-4 text-gray-900 dark:text-accent border-gray-300 dark:border-dark-border-subtle focus:ring-gray-900/10 dark:focus:ring-accent/20"
+                class="w-4 h-4 text-accent border-dark-border-subtle focus:ring-accent/20"
               />
-              <span class="text-xs text-gray-500 dark:text-dark-text-muted">
+              <span class="text-xs text-dark-text-muted">
                 Skip TLS certificate verification (insecure)
               </span>
             </div>
@@ -410,30 +410,30 @@
 
           <!-- Proxy -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-proxy" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Proxy</label>
+            <label for="form-proxy" class="text-sm font-medium text-dark-text-secondary">Proxy</label>
             <input
               id="form-proxy"
               type="text"
               bind:value={formProxy}
               placeholder="(optional) http://user:pass@proxy:8080"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted"
             />
           </div>
         {/if}
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
+            class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-highest text-dark-text-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
           >
             <Save size={14} />
             {#if saving}
@@ -465,22 +465,22 @@
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Details</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Details</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
       {/snippet}
 
       {#snippet row(config)}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 ">
-          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">{config.name}</td>
-          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{config.type}</td>
-          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{parseConfigSummary(config)}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(config.updated_at)}</td>
+        <tr class="hover:bg-dark-highest/50">
+          <td class="px-4 py-2.5 font-medium text-dark-text">{config.name}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-dark-text-muted">{config.type}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-dark-text-muted">{parseConfigSummary(config)}</td>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted">{formatDate(config.updated_at)}</td>
           <td class="px-4 py-2.5 text-right">
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openEdit(config)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text "
+                class="p-1.5 hover:bg-dark-highest text-dark-text-faint hover:text-dark-text"
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -488,20 +488,20 @@
               {#if deleteConfirm === config.id}
                 <button
                   onclick={() => handleDelete(config.id)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest "
+                  class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-highest"
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = config.id)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 hover:bg-red-900/30 text-dark-text-faint hover:text-red-400"
                   title="Delete"
                 >
                   <Trash2 size={14} />

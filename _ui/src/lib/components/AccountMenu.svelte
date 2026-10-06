@@ -108,8 +108,8 @@
       aria-label={`Account menu for ${accountLabel}`}
       onclick={toggle}
       onkeydown={onTriggerKeydown}
-      class="inline-flex min-h-8 items-center gap-1.5 px-2 text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent {open
-        ? 'bg-gray-100 dark:bg-dark-elevated text-gray-900 dark:text-dark-text'
+      class="inline-flex min-h-8 items-center gap-1.5 px-2 text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent {open
+        ? 'bg-dark-elevated text-dark-text'
         : ''}"
     >
       {#if isNativeAdmin()}<ShieldCheck size={16} class="shrink-0" />{:else}<User size={16} class="shrink-0" />{/if}
@@ -120,18 +120,18 @@
     {#if open}
       <div
         bind:this={panel}
-        class="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-lg"
+        class="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] border border-dark-border bg-dark-surface shadow-lg"
       >
         {#if storeInfo.name || storeAuth.identity}
-          <div class="border-b border-gray-200 dark:border-dark-border px-3 py-2.5">
+          <div class="border-b border-dark-border px-3 py-2.5">
             {#if storeInfo.name}
-              <p class="truncate text-sm font-semibold text-gray-900 dark:text-dark-text">
+              <p class="truncate text-sm font-semibold text-dark-text">
                 {storeInfo.name}
               </p>
             {/if}
             {#if storeAuth.identity}
               <p
-                class="mt-0.5 truncate text-xs text-gray-600 dark:text-dark-text-secondary"
+                class="mt-0.5 truncate text-xs text-dark-text-secondary"
                 title={accountLabel}
               >
                 {storeAuth.identity.name || 'Account'} · {isNativeAdmin() ? 'Administrator' : 'Member'}
@@ -153,14 +153,14 @@
           class="py-1 focus:outline-none"
           onkeydown={onMenuKeydown}
         >
-          <a href="#/settings/account" role="menuitem" onclick={() => close(false)} class="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><Settings size={14} class="shrink-0" />Account settings</a>
+          <a href="#/settings/account" role="menuitem" onclick={() => close(false)} class="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-sm text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><Settings size={14} class="shrink-0" />Account settings</a>
           {#if onlogout}
             <button
               type="button"
               role="menuitem"
               disabled={loggingOut}
               onclick={signOut}
-              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:bg-gray-100 dark:focus-visible:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed "
+              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <LogOut size={14} class="shrink-0" />
               <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>

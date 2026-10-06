@@ -163,18 +163,18 @@
   {#if loading}<p class="settings-note" role="status">Loading trace privacy rules…</p>{/if}
 
   {#snippet ruleTable(list: TracePrivacyRule[], scope: 'workspace' | 'installation', title: string, note: string)}
-    <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border flex flex-wrap items-center justify-between gap-2">
+    <section class="border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 bg-dark-base border-b border-dark-border flex flex-wrap items-center justify-between gap-2">
         <div><h2 class="settings-section-title">{title}</h2><p class="settings-note">{note}</p></div>
         <button type="button" class="settings-button inline-flex items-center gap-1 min-h-11 sm:min-h-0" onclick={() => startNew(scope)}><Plus size={14} /> Add rule</button>
       </div>
       {#if list.length === 0}
         <p class="p-4 settings-note">No rules. Everything is traced.</p>
       {:else}
-        <ul class="divide-y divide-gray-200 dark:divide-dark-border">
+        <ul class="divide-y divide-dark-border">
           {#each list as r (r.id)}
             <li class="px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
-              <span class={["px-1.5 py-0.5 text-xs font-medium border", r.action === 'skip' ? 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-400' : 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400']}>{r.action === 'skip' ? 'Do not record' : 'Hide content'}</span>
+              <span class={["px-1.5 py-0.5 text-xs font-medium border", r.action === 'skip' ? 'border-red-800 text-red-400' : 'border-amber-800 text-amber-400']}>{r.action === 'skip' ? 'Do not record' : 'Hide content'}</span>
               <div class="min-w-0 flex-1">
                 <p class={["break-all", r.enabled ? '' : 'opacity-50']}>{describe(r)}</p>
                 {#if r.description}<p class="settings-note">{r.description}</p>{/if}
@@ -195,8 +195,8 @@
       {@render ruleTable(workspaceRules, 'workspace', 'Workspace rules', `Apply to observations recorded in ${workspaceName}.`)}
       {#if admin}
         {@render ruleTable(installationRules, 'installation', 'Installation rules', 'Apply in every workspace. Only installation administrators see and manage these.')}
-        <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-          <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border"><h2 class="settings-section-title">Personal opt-out</h2></div>
+        <section class="border border-dark-border bg-dark-surface">
+          <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Personal opt-out</h2></div>
           <div class="p-4 space-y-2">
             <label class="flex items-start gap-2 text-sm">
               <input type="checkbox" class="mt-0.5" bind:checked={settings.allow_user_opt_out} onchange={saveSettings} />
@@ -212,8 +212,8 @@
 
 {#if editing}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) editing = null; }} onkeydown={(e) => { if (e.key === 'Escape') editing = null; }}>
-    <form class="w-full max-w-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface settings-form" onsubmit={save}>
-      <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border">
+    <form class="w-full max-w-lg border border-dark-border bg-dark-surface settings-form" onsubmit={save}>
+      <div class="px-4 py-3 bg-dark-base border-b border-dark-border">
         <h2 class="settings-section-title">{editing.id ? 'Edit rule' : 'New rule'} · {editing.scope === 'installation' ? 'Installation' : 'Workspace'}</h2>
         <p class="settings-note">Empty fields match everything. Filled fields must all match.</p>
       </div>
@@ -255,7 +255,7 @@
         <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={editing.enabled} /> Enabled</label>
         <p class="settings-note">Model accepts * and ? wildcards; include a slash (provider/model) to match both.</p>
       </fieldset>
-      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex justify-end gap-2">
+      <div class="px-4 py-3 border-t border-dark-border flex justify-end gap-2">
         <button type="button" class="settings-button" onclick={() => editing = null}>Cancel</button>
         <button type="submit" class="settings-primary" disabled={saving}>{saving ? 'Saving…' : 'Save rule'}</button>
       </div>
@@ -265,8 +265,8 @@
 
 {#if applying}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4" role="presentation" onclick={(e) => { if (e.target === e.currentTarget && !applying?.busy) applying = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !applying?.busy) applying = null; }}>
-    <div class="w-full max-w-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <div class="px-4 py-3 bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border"><h2 class="settings-section-title">Apply to existing traces</h2></div>
+    <div class="w-full max-w-md border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Apply to existing traces</h2></div>
       <div class="p-4 space-y-2 text-sm">
         <p>{describe(applying.rule)}</p>
         {#if !applying.preview}
@@ -278,7 +278,7 @@
           <p class="settings-error">This cannot be undone. Usage and cost records are not affected.</p>
         {/if}
       </div>
-      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex justify-end gap-2">
+      <div class="px-4 py-3 border-t border-dark-border flex justify-end gap-2">
         <button type="button" class="settings-button" disabled={applying.busy && !!applying.preview} onclick={() => applying = null}>Cancel</button>
         {#if applying.preview && applying.preview.traces > 0}
           <button type="button" class="settings-primary" disabled={applying.busy} onclick={confirmApply}>{applying.busy ? 'Applying…' : applying.preview.action === 'skip' ? 'Delete traces' : 'Remove content'}</button>

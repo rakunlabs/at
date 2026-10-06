@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AT · Chats — terminal prototype</title>
+<style>
+  @font-face { font-family: 'JBM'; font-weight: 400; font-display: swap; src: url('../src/style/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2'); }
+  @font-face { font-family: 'JBM'; font-weight: 700; font-display: swap; src: url('../src/style/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2'); }
+
+  :root {
+    --bg: #0f0d0d;
+    --panel: #181515;
+    --panel-2: #201c1c;
+    --line: #2b2626;
+    --text-strong: #f1ecec;
+    --text: #c9c3c3;
+    --text-weak: #8f8989;
+    --text-weaker: #5a5454;
+    --blue: #5c9cf5;
+    --peach: #fab283;
+    --violet: #9d7cd8;
+    --green: #7fd88f;
+    --red: #e06c75;
+    --mono: 'JBM', ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); font: 14px/1.6 var(--mono);
+    font-variant-ligatures: none; -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: #5c9cf540; color: var(--text-strong); }
+  :focus-visible { outline: 1px solid var(--blue); outline-offset: 2px; }
+  * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  kbd { font: inherit; color: var(--text-strong); }
+  .dim { color: var(--text-weak); }
+  .faint { color: var(--text-weaker); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- shell ---------- */
+  .app { display: grid; grid-template-columns: 260px minmax(0, 1fr) 280px; height: 100dvh; }
+  .app.no-left { grid-template-columns: 0 minmax(0, 1fr) 280px; }
+  .app.no-right { grid-template-columns: 260px minmax(0, 1fr) 0; }
+  .app.no-left.no-right { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  .app > aside { overflow: hidden; min-width: 0; }
+
+  /* ---------- left: conversations ---------- */
+  .left { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .brand { padding: 18px 18px 14px; display: flex; align-items: center; justify-content: space-between; }
+  .wordmark b { color: var(--text-strong); font-size: 16px; letter-spacing: .02em; }
+  .menu { display: none; color: var(--text-weak); margin-right: 14px; }
+  .menu:hover { color: var(--text-strong); }
+  .newchat { width: calc(100% - 24px); margin: 0 12px 10px; text-align: left; padding: 7px 10px; background: var(--panel); color: var(--text-strong); display: flex; justify-content: space-between; }
+  .newchat:hover { background: var(--panel-2); }
+  .search { margin: 0 12px 8px; padding: 6px 10px; display: flex; gap: 8px; color: var(--text-weak); border-bottom: 1px solid var(--line); }
+  .search input { all: unset; flex: 1; color: var(--text-strong); caret-color: var(--text-strong); }
+  .search input::placeholder { color: var(--text-weak); }
+  .convs { overflow-y: auto; flex: 1; padding: 4px 0 12px; }
+  .group { padding: 12px 18px 4px; color: var(--text-weaker); }
+  .conv { display: block; width: 100%; text-align: left; padding: 5px 18px 5px 16px; border-left: 2px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-weak); }
+  .conv:hover { color: var(--text-strong); background: var(--panel); }
+  .conv.active { color: var(--text-strong); border-left-color: var(--blue); background: var(--panel); }
+  .conv .h { color: var(--text-weaker); margin-right: 6px; }
+  .left-foot { padding: 12px 18px; border-top: 1px solid var(--line); color: var(--text-weak); display: flex; justify-content: space-between; }
+
+  /* ---------- center ---------- */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .scroll { flex: 1; overflow-y: auto; }
+  .col { max-width: 920px; margin: 0 auto; padding: 24px 32px 8px; }
+
+  .title { background: var(--panel); border-left: 1px solid var(--line); padding: 16px 22px; display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 24px; align-items: baseline; margin-bottom: 22px; }
+  .title h1 { margin: 0; font-size: 14px; font-weight: 700; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title .meta { color: var(--text-weak); white-space: nowrap; }
+  .title .meta span + span { margin-left: 18px; }
+
+  .user { background: var(--panel); border-left: 2px solid var(--blue); padding: 14px 22px; margin: 22px 0; color: var(--text-strong); white-space: pre-wrap; position: relative; }
+  .user .att { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { color: var(--text-weak); background: var(--bg); padding: 3px 10px; display: inline-block; }
+  .chip b { color: var(--text); font-weight: 400; }
+  .user .time, .asst .time { position: absolute; right: 22px; top: 14px; color: var(--text-weaker); opacity: 0; }
+  .user:hover .time, .asst:hover .time { opacity: 1; }
+
+  .asst { padding: 0 22px; margin: 0 0 18px; position: relative; }
+  .asst p { margin: 0 0 14px; color: var(--text-strong); max-width: 78ch; }
+  .asst code { color: var(--peach); }
+  .asst pre { background: var(--panel); padding: 12px 16px; margin: 0 0 14px; overflow-x: auto; color: var(--text); }
+  .asst pre .k { color: var(--violet); } .asst pre .s { color: var(--green); } .asst pre .c { color: var(--text-weaker); }
+  .asst ul { margin: 0 0 14px; padding-left: 2ch; list-style: none; max-width: 78ch; color: var(--text-strong); }
+  .asst li::before { content: '- '; color: var(--text-weaker); margin-left: -2ch; }
+
+  .tools { margin: 0 0 14px; }
+  .tool { display: block; width: 100%; text-align: left; color: var(--text-weak); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool:hover { color: var(--text); }
+  .tool .g { display: inline-block; width: 2ch; color: var(--text-weaker); }
+  .tool .n { color: var(--text); }
+  .tool.run .g { color: var(--peach); animation: pulse 1s steps(2) infinite; }
+  .tool.err .g, .tool.err .r { color: var(--red); }
+  .tool.ok .r { color: var(--text-weaker); }
+  .tool-out { margin: 4px 0 8px 2ch; padding: 8px 12px; background: var(--panel); color: var(--text-weak); white-space: pre; overflow-x: auto; max-height: 220px; font-size: 13px; }
+  .think { color: var(--text-weak); margin: 0 0 14px; font-style: italic; }
+  .think b { color: var(--violet); font-style: normal; font-weight: 400; }
+  .status { margin: 4px 0 14px; color: var(--text-weak); display: flex; gap: 10px; align-items: center; }
+  .status .sq { color: var(--blue); }
+  .status .s-mode { color: var(--text-strong); }
+  .file { color: var(--text-strong); background: var(--panel); padding: 8px 12px; display: inline-flex; gap: 12px; margin: 0 0 14px;  text-decoration: none; }
+  .file:hover { background: var(--panel-2); }
+  .cursor { display: inline-block; width: 1ch; height: 1.2em; background: var(--text-strong); vertical-align: text-bottom; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  /* ---------- composer ---------- */
+  .dock { max-width: 920px; width: 100%; margin: 0 auto; padding: 0 32px 14px; }
+  .queue { padding: 6px 22px; color: var(--text-weak); border-left: 2px solid var(--peach); background: var(--panel); margin-bottom: 2px; display: none; }
+  .queue.on { display: block; }
+  .composer { background: var(--panel-2); border-left: 2px solid var(--blue); padding: 14px 22px 12px; }
+  .composer.busy { border-left-color: var(--peach); }
+  .composer textarea { all: unset; display: block; width: 100%; min-height: 1.6em; max-height: 40vh; overflow-y: auto; color: var(--text-strong); caret-color: var(--text-strong); white-space: pre-wrap; field-sizing: content; }
+  .composer textarea::placeholder { color: var(--text-weak); }
+  .composer .line { display: flex; gap: 14px; margin-top: 12px; align-items: baseline; flex-wrap: wrap; }
+  .composer .mode { color: var(--blue); }
+  .composer.busy .mode { color: var(--peach); }
+  .composer .model { color: var(--text-strong); }
+  .composer .line button:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-weaker); }
+  .composer .attach { margin-left: auto; color: var(--text-weak); }
+  .hints { display: flex; justify-content: space-between; padding: 10px 2px 0; color: var(--text-weak); gap: 24px; white-space: nowrap; }
+  .hints > div { display: flex; gap: 22px; }
+  .hints kbd { margin-right: 1ch; }
+  .spinner { color: var(--blue); letter-spacing: 2px; min-width: 9ch; display: inline-block; }
+
+  /* ---------- right: session sidebar ---------- */
+  .right { border-left: 1px solid var(--line); overflow-y: auto; padding: 22px 20px; }
+  .right section { margin-bottom: 26px; }
+  .right h2 { font-size: 14px; font-weight: 700; color: var(--text-strong); margin: 0 0 8px; }
+  .kv { display: flex; justify-content: space-between; color: var(--text-weak); }
+  .kv b { font-weight: 400; color: var(--text); }
+  .bar { height: 4px; background: var(--panel-2); margin: 8px 0 4px; }
+  .bar i { display: block; height: 100%; background: var(--blue); width: 20%; }
+  .li { display: flex; gap: 1ch; color: var(--text-weak); }
+  .li .dot { color: var(--green); }
+  .li .dot.off { color: var(--text-weaker); }
+  .todo { display: flex; gap: 1ch; color: var(--text); white-space: nowrap; } .todo span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .todo.done { color: var(--text-weaker); text-decoration: line-through; }
+  .todo.doing { color: var(--peach); }
+  .diffstat .a { color: var(--green); } .diffstat .d { color: var(--red); }
+
+  /* ---------- palette ---------- */
+  .overlay { position: fixed; inset: 0; background: #0009; display: none; align-items: flex-start; justify-content: center; padding-top: 14vh; z-index: 10; }
+  .overlay.on { display: flex; }
+  .palette { width: min(620px, calc(100vw - 32px)); background: var(--panel); box-shadow: 0 24px 60px -12px #000c; }
+  .palette header { display: flex; justify-content: space-between; padding: 14px 18px 0; color: var(--text-strong); font-weight: 700; }
+  .palette header span { font-weight: 400; color: var(--text-weak); }
+  .palette input { all: unset; display: block; width: calc(100% - 36px); margin: 10px 18px 6px; padding: 6px 0; color: var(--text-strong); caret-color: var(--text-strong); border-bottom: 1px solid var(--line); }
+  .palette input::placeholder { color: var(--text-weak); }
+  .plist { max-height: 46vh; overflow-y: auto; padding: 6px 0 10px; }
+  .pgroup { padding: 10px 18px 2px; color: var(--violet); }
+  .pitem { display: flex; justify-content: space-between; width: 100%; padding: 3px 18px; text-align: left; color: var(--text); }
+  .pitem .k { color: var(--text-weak); }
+  .pitem.sel { background: var(--peach); color: #1b1414; }
+  .pitem.sel .k { color: #1b1414; }
+  .pitem .cur { color: var(--green); }
+  .pitem.sel .cur { color: #1b1414; }
+  .pempty { padding: 10px 18px; color: var(--text-weak); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel-2); color: var(--text-strong); padding: 8px 16px; border-left: 2px solid var(--green); opacity: 0; pointer-events: none; }
+  .toast.on { opacity: 1; }
+
+  .title h1 { flex: 1; min-width: 0; }
+  @media (max-width: 1180px) {
+    .app, .app.no-left { grid-template-columns: 0 minmax(0,1fr) 0; }
+    .app.show-left { grid-template-columns: 260px minmax(0,1fr) 0; }
+    .menu { display: inline; }
+  }
+  @media (max-width: 720px) {
+    body { font-size: 13px; }
+    .col, .dock { padding-left: 12px; padding-right: 12px; }
+    .title { padding: 12px 14px; flex-direction: column; gap: 4px; }
+    .user, .asst { padding-left: 14px; padding-right: 14px; }
+    .composer { padding: 12px 14px 10px; }
+    .hints .wide { display: none; }
+    .app.show-left { grid-template-columns: 0 minmax(0,1fr) 0; }
+    .app.show-left .left { position: fixed; inset: 0 auto 0 0; width: min(300px, 86vw); background: var(--bg); z-index: 5; box-shadow: 12px 0 40px -8px #000c; }
+    .title { flex-direction: row; flex-wrap: wrap; }
+    .title .meta { width: 100%; }
+    #provider { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- ======== conversations ======== -->
+  <aside class="left">
+    <div class="brand">
+      <span class="wordmark" aria-label="AT"><b>at</b><span class="faint">_</span></span>
+      <span class="faint">chats</span>
+    </div>
+    <button class="newchat" data-cmd="new"><span>+ new chat</span><span class="dim">ctrl+n</span></button>
+    <label class="search"><span>/</span><input id="convSearch" placeholder="search chats" aria-label="Search chats"></label>
+    <nav class="convs" id="convs" aria-label="Conversations"></nav>
+    <div class="left-foot"><span>ray · default</span><button data-cmd="settings" class="dim">settings</button></div>
+  </aside>
+
+  <!-- ======== transcript ======== -->
+  <main class="main">
+    <div class="scroll" id="scroll">
+      <div class="col" id="col">
+        <div class="title">
+          <button class="menu" data-cmd="toggle-left" aria-label="Chats">≡</button><h1 id="title"># Gateway fallback for streaming requests</h1>
+          <div class="meta num"><span id="tok">39,413</span><span id="pct">20%</span><span id="cost">($0.29)</span></div>
+        </div>
+
+        <div class="user"><span class="time">09:14</span>Why does at_fallbacks never kick in when Claude Code streams? Find where streaming picks the provider.</div>
+
+        <div class="asst">
+          <span class="time">09:14</span>
+          <div class="think"><b>thinking</b> · the streaming path probably takes chain[0] before the fallback loop…</div>
+          <p>I'll look at how the gateway resolves the call chain for streaming requests.</p>
+          <div class="tools">
+            <button class="tool ok" data-out="internal/server/gateway-extensions.go:212: func (s *Server) chatCallChain(...)&#10;internal/server/gateway-chat.go:388:  chain, err := s.chatCallChain(r, req)&#10;internal/server/gateway-chat.go:402:  if req.Stream { return s.handleStreamingChat(w, r, chain[0]) }"><span class="g">*</span><span class="n">Grep</span> "chatCallChain|handleStreamingChat" <span class="r">(3 matches)</span></button>
+            <button class="tool ok" data-out="func (s *Server) handleStreamingChat(w http.ResponseWriter, r *http.Request, target callTarget) error {&#10;    w.Header().Set(&quot;Content-Type&quot;, &quot;text/event-stream&quot;)&#10;    stream, err := target.provider.ChatStream(ctx, ...)&#10;    ..."><span class="g">→</span><span class="n">Read</span> internal/server/gateway-chat.go <span class="r">(lines 380–460)</span></button>
+          </div>
+          <p>Found it. Streaming takes <code>chain[0]</code> and returns before the fallback loop runs. The comment says SSE headers are already flushed, but at that point nothing has been written yet:</p>
+<pre><span class="k">if</span> req.Stream {
+    <span class="c">// headers already flushed — cannot fall back</span>
+    <span class="k">return</span> s.handleStreamingChat(w, r, chain[<span class="s">0</span>])
+}</pre>
+          <ul>
+            <li><code>w.Header().Set</code> only fills the header map</li>
+            <li>the upstream stream opens before the first <code>Write</code></li>
+            <li>so an open failure leaves the response completely unwritten</li>
+          </ul>
+          <div class="status"><span class="sq">▣</span><span class="s-mode">Build</span><span class="faint">·</span><span>claude-opus-4-5</span><span class="faint">·</span><span class="num">12.4s</span></div>
+        </div>
+
+        <div class="user">Ok, make it loop the chain until the first chunk is written.<div class="att"><span class="chip"><b>gateway-chat.go</b> 18 KB</span></div></div>
+
+        <div class="asst" id="live">
+          <div class="tools">
+            <button class="tool ok" data-out="@@ -398,9 +398,24 @@&#10;-   if req.Stream {&#10;-       return s.handleStreamingChat(w, r, chain[0])&#10;-   }&#10;+   for i, target := range chain {&#10;+       committed, err := s.handleStreamingChat(w, r, target)&#10;+       if committed || !shouldFallback(err) { return err }&#10;+       clearStreamHeaders(w)&#10;+   }"><span class="g">✎</span><span class="n">Edit</span> internal/server/gateway-chat.go <span class="r diffstat">(<span class="a">+24</span> <span class="d">-9</span>)</span></button>
+            <button class="tool err" data-out="--- FAIL: TestStreamingFallback (0.02s)&#10;    gateway-chat_test.go:88: expected x-at-model-used=backup/model, got primary/model"><span class="g">$</span><span class="n">Bash</span> go test -race -run TestStreamingFallback ./internal/server <span class="r">(exit 1)</span></button>
+            <button class="tool ok" data-out="ok  	github.com/rakunlabs/at/internal/server	1.204s"><span class="g">$</span><span class="n">Bash</span> go test -race -run TestStreamingFallback ./internal/server <span class="r">(ok · 1.2s)</span></button>
+          </div>
+          <p>The streaming path now walks the chain while it is uncommitted. <code>committed</code> flips exactly once, right before the first chunk goes out, so a failure after that is reported on the open stream instead of retried.</p>
+          <a class="file" href="#"><span>▤ fallback-notes.md</span><span class="dim">artifact · 2.1 KB</span></a>
+          <div class="status"><span class="sq">▣</span><span class="s-mode">Build</span><span class="faint">·</span><span>claude-opus-4-5</span><span class="faint">·</span><span class="num">48.9s</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="queue" id="queue"></div>
+      <div class="composer" id="composer">
+        <textarea id="input" rows="1" placeholder="Write a message…  (/ for commands, @ to attach)" aria-label="Message"></textarea>
+        <div class="line">
+          <button class="mode" id="mode" data-cmd="cycle-preset" title="Preset (tab)">Build</button>
+          <button class="model" id="model" data-cmd="models" title="Model (ctrl+m)">Claude Opus 4.5</button>
+          <button class="dim" id="provider" data-cmd="models">anthropic</button>
+          <button class="dim" id="effort" data-cmd="cycle-effort" title="Reasoning effort (ctrl+t)">high</button>
+          <button class="attach" data-cmd="attach">+ attach</button>
+        </div>
+      </div>
+      <div class="hints">
+        <div><span class="spinner" id="spin">········</span><span id="leftHint"><kbd>enter</kbd>send</span></div>
+        <div class="wide"><span><kbd>ctrl+t</kbd>effort</span><span><kbd>tab</kbd>presets</span><span><kbd>ctrl+p</kbd>commands</span></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ======== session sidebar ======== -->
+  <aside class="right" aria-label="Session">
+    <section>
+      <h2>Context</h2>
+      <div class="kv"><span class="num" id="rTok">39,413 tokens</span><b class="num" id="rPct">20%</b></div>
+      <div class="bar"><i id="rBar"></i></div>
+      <div class="kv"><span>spent</span><b class="num" id="rCost">$0.29</b></div>
+    </section>
+    <section>
+      <h2>Workbench</h2>
+      <div class="li"><span class="dot">●</span><span>system prompt</span></div>
+      <div class="li"><span class="dot">●</span><span>repo-tools <span class="faint">mcp · 14</span></span></div>
+      <div class="li"><span class="dot">●</span><span>go-review <span class="faint">skill</span></span></div>
+      <div class="li"><span class="dot off">○</span><span>web connection</span></div>
+      <div class="li"><span class="dot">●</span><span>laptop-mcp <span class="faint">this device</span></span></div>
+    </section>
+    <section>
+      <h2>Todo</h2>
+      <div class="todo done"><span>[✓]</span><span>find streaming chain pick</span></div>
+      <div class="todo done"><span>[✓]</span><span>loop until committed</span></div>
+      <div class="todo doing"><span>[•]</span><span>streaming /responses too</span></div>
+      <div class="todo"><span>[ ]</span><span>update AGENTS.md</span></div>
+    </section>
+    <section>
+      <h2>Artifacts</h2>
+      <div class="kv"><span>fallback-notes.md</span><b>2.1 KB</b></div>
+    </section>
+    <section>
+      <h2>Modified</h2>
+      <div class="kv diffstat"><span>gateway-chat.go</span><b><span class="a">+24</span> <span class="d">-9</span></b></div>
+    </section>
+  </aside>
+</div>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-label="Commands">
+  <div class="palette">
+    <header><span id="pTitle" style="color:var(--text-strong);font-weight:700">Commands</span><span>esc</span></header>
+    <input id="pInput" placeholder="Search" aria-label="Search commands">
+    <div class="plist" id="plist" role="listbox"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const app = $('#app'), input = $('#input'), scroll = $('#scroll');
+
+/* ---------- synthetic data (prototype only) ---------- */
+const convs = [
+  ['Today', ['Gateway fallback for streaming requests', 'Shorts script JSON truncation', 'MinIO region 400s']],
+  ['Yesterday', ['Trace privacy rule globs', 'Keycloak nested role claims', 'Developer space apt failures']],
+  ['Last week', ['Bedrock tool_choice none', 'Copilot model discovery', 'Webhook HMAC tolerance', 'Passkey usernameless flow']],
+];
+let active = 'Gateway fallback for streaming requests';
+function renderConvs(q = '') {
+  const el = $('#convs'); el.innerHTML = '';
+  for (const [g, list] of convs) {
+    const m = list.filter(t => t.toLowerCase().includes(q.toLowerCase()));
+    if (!m.length) continue;
+    el.insertAdjacentHTML('beforeend', `<div class="group">${g}</div>`);
+    for (const t of m) {
+      const b = document.createElement('button');
+      b.className = 'conv' + (t === active ? ' active' : '');
+      b.innerHTML = `<span class="h">#</span>${t}`;
+      b.onclick = () => { active = t; $('#title').textContent = '# ' + t; renderConvs(q); if (innerWidth <= 720) app.classList.remove('show-left'); };
+      el.append(b);
+    }
+  }
+  if (!el.children.length) el.innerHTML = '<div class="group">no chats match</div>';
+}
+renderConvs();
+$('#convSearch').oninput = e => renderConvs(e.target.value);
+
+const presets = ['Build', 'Plan', 'Review'];
+const efforts = ['low', 'medium', 'high', 'max'];
+const models = [
+  ['anthropic', 'Claude Opus 4.5'], ['anthropic', 'Claude Sonnet 4.5'],
+  ['openai', 'GPT-5 Codex'], ['vertex-gemini', 'Gemini 3 Pro'],
+  ['laptop · this device', 'qwen3-coder:30b'],
+];
+let preset = 0, effort = 2, tokens = 39413, cost = 0.29;
+
+/* ---------- tool rows expand ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('.tool');
+  if (!t || !t.dataset.out) return;
+  const next = t.nextElementSibling;
+  if (next && next.classList.contains('tool-out')) { next.remove(); return; }
+  const pre = document.createElement('div'); pre.className = 'tool-out'; pre.textContent = t.dataset.out;
+  t.after(pre);
+});
+
+/* ---------- toast ---------- */
+let tt; function toast(m) { const el = $('#toast'); el.textContent = m; el.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => el.classList.remove('on'), 1600); }
+
+/* ---------- meta ---------- */
+function updateMeta() {
+  const pct = Math.min(99, Math.round(tokens / 200000 * 100));
+  $('#tok').textContent = tokens.toLocaleString('en-US');
+  $('#pct').textContent = pct + '%';
+  $('#cost').textContent = `($${cost.toFixed(2)})`;
+  $('#rTok').textContent = tokens.toLocaleString('en-US') + ' tokens';
+  $('#rPct').textContent = pct + '%';
+  $('#rBar').style.width = pct + '%';
+  $('#rCost').textContent = '$' + cost.toFixed(2);
+}
+updateMeta();
+
+/* ---------- streaming simulation ---------- */
+let busy = false, stop = false, queued = [];
+const frames = ['■·······','·■······','··■·····','···■····','····■···','·····■··','······■·','·······■'];
+let spinT;
+function setBusy(b) {
+  busy = b; $('#composer').classList.toggle('busy', b);
+  $('#leftHint').innerHTML = b ? '<kbd>esc</kbd>interrupt' : '<kbd>enter</kbd>send';
+  input.placeholder = b ? 'Queue a message for the agent…  (ctrl+enter interrupts)' : 'Write a message…  (/ for commands, @ to attach)';
+  clearInterval(spinT);
+  if (b) { let i = 0; spinT = setInterval(() => $('#spin').textContent = frames[i++ % 8], 90); }
+  else $('#spin').textContent = '········';
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function pinBottom() { scroll.scrollTop = scroll.scrollHeight; }
+
+async function send(text) {
+  const col = $('#col'); const now = new Date().toTimeString().slice(0, 5);
+  col.insertAdjacentHTML('beforeend', `<div class="user"><span class="time">${now}</span>${esc(text)}</div>`);
+  const a = document.createElement('div'); a.className = 'asst'; col.append(a); pinBottom();
+  setBusy(true); stop = false; const t0 = performance.now();
+
+  a.innerHTML = `<div class="think"><b>thinking</b> · <span class="cursor"></span></div>`;
+  await wait(700); if (stop) return interrupted(a, t0);
+  a.querySelector('.think').innerHTML = '<b>thinking</b> · the same commitment boundary applies to /responses: response.created is emitted before the upstream opens…';
+  const tools = document.createElement('div'); tools.className = 'tools'; a.append(tools);
+  const steps = [
+    ['*', 'Grep', '"response.created"', '(2 matches)', 'internal/server/gateway-responses.go:141: emit(w, "response.created", ...)'],
+    ['→', 'Read', 'internal/server/gateway-responses.go', '(lines 120–210)', 'func (s *Server) handleStreamingResponses(...) {\n    emit(w, "response.created", resp)\n    stream, err := target.provider.ChatStream(ctx, ...)'],
+    ['✎', 'Edit', 'internal/server/gateway-responses.go', '(+11 -4)', '-   emit(w, "response.created", resp)\n+   created := false // emitted lazily with the first chunk'],
+  ];
+  for (const [g, n, arg, res, out] of steps) {
+    const b = document.createElement('button'); b.className = 'tool run';
+    b.innerHTML = `<span class="g">${g}</span><span class="n">${n}</span> ${esc(arg)} <span class="r"></span>`;
+    tools.append(b); pinBottom();
+    await wait(650); if (stop) return interrupted(a, t0);
+    b.className = 'tool ok'; b.querySelector('.r').textContent = res; b.dataset.out = out;
+    tokens += 1800; cost += 0.02; updateMeta();
+  }
+  const p = document.createElement('p'); a.append(p);
+  const reply = '/responses had the same problem: response.created went out before the upstream opened, which committed the stream early. It is now emitted with the first chunk, so an open failure falls through to the next target.';
+  for (const w of reply.split(' ')) {
+    if (stop) return interrupted(a, t0);
+    p.innerHTML += (p.innerHTML ? ' ' : '') + esc(w).replace(/(\/responses|response\.created)/g, '<code>$1</code>');
+    pinBottom(); await wait(28);
+  }
+  finish(a, t0);
+}
+function finish(a, t0, note) {
+  a.insertAdjacentHTML('beforeend', `<div class="status"><span class="sq">▣</span><span class="s-mode">${presets[preset]}</span><span class="faint">·</span><span>${models.find(m => m[1] === $('#model').textContent)?.[1].toLowerCase().replace(/ /g, '-').replace('.', '-')}</span><span class="faint">·</span><span class="num">${((performance.now() - t0) / 1000).toFixed(1)}s</span>${note ? `<span class="faint">·</span><span style="color:var(--peach)">${note}</span>` : ''}</div>`);
+  setBusy(false); pinBottom();
+  if (queued.length) { const q = queued.splice(0).join('\n'); renderQueue(); send(q); }
+}
+function interrupted(a, t0) { a.querySelectorAll('.tool.run').forEach(t => { t.className = 'tool err'; t.querySelector('.r').textContent = '(interrupted)'; }); a.querySelector('.cursor')?.remove(); finish(a, t0, 'interrupted'); }
+function renderQueue() {
+  const q = $('#queue'); q.classList.toggle('on', queued.length > 0);
+  q.innerHTML = queued.map(m => `<div>queued · <span style="color:var(--text)">${esc(m)}</span></div>`).join('');
+}
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const v = input.value.trim(); if (!v) return;
+    if (v === '/') { input.value = ''; return openPalette(); }
+    input.value = '';
+    if (busy) { queued.push(v); renderQueue(); if (e.ctrlKey) stop = true; return; }
+    send(v);
+  }
+  if (e.key === 'Tab' && !e.shiftKey && !input.value) { e.preventDefault(); cycle('cycle-preset'); }
+});
+
+/* ---------- commands ---------- */
+function cycle(c) {
+  if (c === 'cycle-preset') { preset = (preset + 1) % presets.length; $('#mode').textContent = presets[preset]; toast('preset · ' + presets[preset]); }
+  if (c === 'cycle-effort') { effort = (effort + 1) % efforts.length; $('#effort').textContent = efforts[effort]; toast('reasoning effort · ' + efforts[effort]); }
+}
+function setModel(p, m) { $('#provider').textContent = p; $('#model').textContent = m; toast('model · ' + m); }
+
+const commands = () => [
+  ['Session', [
+    ['New chat', 'ctrl+n', () => { $('#col').querySelectorAll('.user,.asst').forEach(n => n.remove()); $('#title').textContent = '# New chat'; tokens = 0; cost = 0; updateMeta(); input.focus(); }],
+    ['Share snapshot', '', () => toast('share link copied')],
+    ['Copy last answer', '', () => toast('copied')],
+    ['Rename chat', '', () => toast('rename…')],
+  ]],
+  ['Model', [
+    ['Switch model', 'ctrl+m', () => openPalette('models')],
+    ['Cycle reasoning effort', 'ctrl+t', () => cycle('cycle-effort')],
+    ['Cycle preset', 'tab', () => cycle('cycle-preset')],
+  ]],
+  ['Workbench', [
+    ['Edit system prompt', '', () => toast('system prompt…')],
+    ['Skills & MCP sets', '', () => toast('workbench…')],
+    ['Toggle web connection', '', () => toast('web connection on')],
+    ['Save as preset', '', () => toast('preset saved')],
+  ]],
+  ['View', [
+    ['Toggle chats sidebar', 'ctrl+b', () => toggle('left')],
+    ['Toggle session sidebar', 'ctrl+.', () => toggle('right')],
+  ]],
+];
+const modelCommands = () => {
+  const by = {};
+  for (const [p, m] of models) (by[p] ||= []).push([m, $('#model').textContent === m ? '●' : '', () => setModel(p, m)]);
+  return Object.entries(by);
+};
+function toggle(side) {
+  if (side === 'left') { app.classList.toggle('no-left'); app.classList.toggle('show-left'); }
+  else app.classList.toggle('no-right');
+}
+
+let pMode = 'commands', pSel = 0, pFlat = [];
+function openPalette(mode = 'commands') {
+  pMode = mode; pSel = 0;
+  $('#pTitle').textContent = mode === 'models' ? 'Select model' : 'Commands';
+  $('#pInput').value = ''; renderPalette();
+  $('#overlay').classList.add('on'); $('#pInput').focus();
+}
+function closePalette() { $('#overlay').classList.remove('on'); input.focus(); }
+function renderPalette() {
+  const q = $('#pInput').value.toLowerCase();
+  const groups = (pMode === 'models' ? modelCommands() : commands())
+    .map(([g, items]) => [g, items.filter(i => i[0].toLowerCase().includes(q))]).filter(([, i]) => i.length);
+  pFlat = groups.flatMap(([, i]) => i);
+  pSel = Math.min(pSel, Math.max(0, pFlat.length - 1));
+  const el = $('#plist'); el.innerHTML = ''; let idx = 0;
+  if (!pFlat.length) { el.innerHTML = '<div class="pempty">no match</div>'; return; }
+  for (const [g, items] of groups) {
+    el.insertAdjacentHTML('beforeend', `<div class="pgroup">${g}</div>`);
+    for (const [label, k, fn] of items) {
+      const i = idx++;
+      const b = document.createElement('button');
+      b.className = 'pitem' + (i === pSel ? ' sel' : ''); b.setAttribute('role', 'option');
+      b.innerHTML = `<span>${label}</span><span class="${k === '●' ? 'cur' : 'k'}">${k}</span>`;
+      b.onmouseenter = () => { pSel = i; renderPalette(); };
+      b.onclick = () => { closePalette(); fn(); };
+      el.append(b);
+    }
+  }
+  el.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
+}
+$('#pInput').oninput = () => { pSel = 0; renderPalette(); };
+$('#pInput').onkeydown = e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); pSel = (pSel + 1) % pFlat.length; renderPalette(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); pSel = (pSel - 1 + pFlat.length) % pFlat.length; renderPalette(); }
+  if (e.key === 'Enter' && pFlat[pSel]) { const fn = pFlat[pSel][2]; closePalette(); fn(); }
+};
+$('#overlay').onclick = e => { if (e.target.id === 'overlay') closePalette(); };
+
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-cmd]')?.dataset.cmd; if (!c) return;
+  if (c === 'models') openPalette('models');
+  else if (c.startsWith('cycle')) cycle(c);
+  else if (c === 'toggle-left') toggle('left');
+  else if (c === 'new') commands()[0][1][0][2]();
+  else toast(c + '…');
+});
+
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (e.key === 'Escape') { if ($('#overlay').classList.contains('on')) closePalette(); else if (busy) stop = true; return; }
+  if (!e.ctrlKey && !e.metaKey) return;
+  const map = { p: () => openPalette(), m: () => openPalette('models'), t: () => cycle('cycle-effort'), b: () => toggle('left'), '.': () => toggle('right'), n: () => commands()[0][1][0][2]() };
+  if (map[k]) { e.preventDefault(); map[k](); }
+});
+pinBottom(); input.focus();
+if (location.hash === '#palette') openPalette();
+</script>
+</body>
+</html>

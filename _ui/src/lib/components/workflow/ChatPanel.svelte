@@ -702,20 +702,20 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="w-[26rem] max-w-full h-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col"
+  class="w-[26rem] max-w-full h-full bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col"
   onmousedown={(e) => e.stopPropagation()}
   onwheel={(e) => e.stopPropagation()}
   onkeydown={(e) => e.stopPropagation()}
 >
   <!-- Toolbar: same controls and sizing as Chats -->
-  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-1 flex items-center gap-1.5 shrink-0">
-    <Bot size={14} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
+  <div class="border-b border-dark-border bg-dark-surface px-3 py-1 flex items-center gap-1.5 shrink-0">
+    <Bot size={14} class="shrink-0 text-dark-text-muted" />
     <div class="relative min-w-0 flex-1">
       <select
         bind:value={selectedModel}
         aria-label="Model"
         disabled={loadingModels || models.length === 0 || streaming}
-        class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted"
+        class="h-9 w-full truncate border border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-dark-surface text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-dark-base disabled:text-dark-text-muted"
       >
         {#if loadingModels}
           <option value="">Loading…</option>
@@ -727,14 +727,14 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
           {/each}
         {/if}
       </select>
-      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-dark-text-muted" />
     </div>
     <button
       onclick={clearChat}
       disabled={messages.length === 0 || streaming}
       aria-label="Clear conversation"
       title="Clear conversation"
-      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-accent"
+      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary hover:text-dark-text disabled:opacity-30 focus-visible:outline-2 focus-visible:outline-accent"
     >
       <Trash2 size={14} />
     </button>
@@ -742,7 +742,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
       onclick={onclose}
       aria-label="Close AI assistant"
       title="Close"
-      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
+      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
     >
       <X size={14} />
     </button>
@@ -752,11 +752,11 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
   <div bind:this={chatContainer} class="flex-1 overflow-y-auto min-h-0 px-3 py-4 space-y-4">
     {#if messages.length === 0}
       <div class="text-center py-12">
-        <div class="text-sm text-gray-400 dark:text-dark-text-muted mb-1.5">Describe what to build or change</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+        <div class="text-sm text-dark-text-muted mb-1.5">Describe what to build or change</div>
+        <div class="text-xs text-dark-text-muted">
           The assistant can add, update, move and connect steps.
           {#if selectedModel}
-            <br />Using <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-600 dark:text-dark-text-secondary">{selectedModel}</code>
+            <br />Using <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-dark-text-secondary">{selectedModel}</code>
           {/if}
         </div>
       </div>
@@ -765,7 +765,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
     {#each messages as msg, i}
       {#if msg.role === 'user'}
         <div class="flex justify-end">
-          <div class="max-w-[85%] px-3 py-2 text-sm leading-relaxed bg-gray-900 dark:bg-[#2B2D42] text-white">
+          <div class="max-w-[85%] px-3 py-2 text-sm leading-relaxed bg-[#2B2D42] text-white">
             <MessageContent message={msg} workspace={workspaceTransport.selected} {formatSize} />
           </div>
         </div>
@@ -774,12 +774,12 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
         {@const thinking = streaming && i === messages.length - 1}
         {#if hasText || thinking || msg.tool_calls?.length}
           <div class="flex justify-start">
-            <div class="min-w-0 w-full px-3 py-2 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
+            <div class="min-w-0 w-full px-3 py-2 text-sm leading-relaxed bg-dark-elevated border border-dark-border-subtle shadow-sm text-dark-text">
               {#if hasText || (thinking && !msg.tool_calls?.length)}
                 <MessageContent message={msg} workspace={workspaceTransport.selected} {thinking} {formatSize} />
               {/if}
               {#if msg.tool_calls && msg.tool_calls.length > 0}
-                <div class={['space-y-1', hasText ? 'mt-2 pt-2 border-t border-gray-200 dark:border-dark-border' : '']}>
+                <div class={['space-y-1', hasText ? 'mt-2 pt-2 border-t border-dark-border' : '']}>
                   {#each msg.tool_calls as tc (tc.id)}
                     <ToolActivity
                       call={tc}
@@ -799,7 +799,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
   </div>
 
   <!-- Composer -->
-  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-3 py-3 shrink-0">
+  <div class="border-t border-dark-border bg-dark-elevated px-3 py-3 shrink-0">
     <div class="flex items-end gap-2">
       <textarea
         bind:value={userInput}
@@ -809,7 +809,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
         aria-label="Message"
         placeholder={models.length === 0 ? 'No models available' : 'Describe changes…'}
         disabled={!selectedModel || streaming}
-        class="min-w-0 min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-2 text-sm leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted"
+        class="min-w-0 min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-dark-border bg-dark-surface text-dark-text placeholder:text-dark-text-muted px-3 py-2 text-sm leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle disabled:bg-dark-base disabled:text-dark-text-muted"
       ></textarea>
       {#if streaming}
         <button
@@ -826,7 +826,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
           disabled={!userInput.trim() || !selectedModel}
           title="Send (Enter) — Shift+Enter for a new line"
           aria-label="Send message"
-          class="inline-flex size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
+          class="inline-flex size-10 shrink-0 items-center justify-center bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
         >
           <Send size={18} />
         </button>

@@ -286,7 +286,7 @@
             {#if testing}
               <p class="settings-note flex items-center gap-2"><Loader2 size={14} class="animate-spin shrink-0" />Testing the settings in this form…</p>
             {:else if testResult?.ok}
-              <p class="settings-note flex items-center gap-2 text-green-700 dark:text-green-300">
+              <p class="settings-note flex items-center gap-2 text-green-300">
                 <CheckCircle2 size={14} class="shrink-0" />Connection succeeded. These settings are not saved yet.
               </p>
             {:else if testResult}

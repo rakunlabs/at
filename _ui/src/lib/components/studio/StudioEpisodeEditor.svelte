@@ -133,50 +133,50 @@
 
 </script>
 
-<div class="border-y border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
-  <button onclick={toggle} aria-expanded={open} class="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated ">
-    <FilePenLine size={13} class="text-gray-500 dark:text-dark-text-muted" />
-    <span class="text-[11px] font-medium text-gray-800 dark:text-dark-text">Edit episode & references</span>
-    <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{references.length || episode.manifest.references?.length || 0} visual refs</span>
+<div class="border-y border-dark-border bg-dark-surface">
+  <button onclick={toggle} aria-expanded={open} class="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-dark-elevated">
+    <FilePenLine size={13} class="text-dark-text-muted" />
+    <span class="text-[11px] font-medium text-dark-text">Edit episode & references</span>
+    <span class="ml-auto text-[10px] text-dark-text-muted">{references.length || episode.manifest.references?.length || 0} visual refs</span>
   </button>
 
   {#if open}
-    <div class="border-t border-gray-100 dark:border-dark-border p-3 space-y-4">
+    <div class="border-t border-dark-border p-3 space-y-4">
       <div class="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2">
-        <label class="text-[10px] text-gray-500 dark:text-dark-text-muted">Title<input bind:value={title} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text" /></label>
-        <label class="text-[10px] text-gray-500 dark:text-dark-text-muted">Status<select bind:value={status} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text"><option value="draft">Draft</option><option value="scripted">Scripted</option><option value="generating">Generating</option><option value="assembled">Assembled</option><option value="published">Published</option></select></label>
+        <label class="text-[10px] text-dark-text-muted">Title<input bind:value={title} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text" /></label>
+        <label class="text-[10px] text-dark-text-muted">Status<select bind:value={status} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"><option value="draft">Draft</option><option value="scripted">Scripted</option><option value="generating">Generating</option><option value="assembled">Assembled</option><option value="published">Published</option></select></label>
       </div>
-      <label class="block text-[10px] text-gray-500 dark:text-dark-text-muted">Synopsis<textarea bind:value={synopsis} rows="2" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text resize-y"></textarea></label>
-      <label class="block text-[10px] text-gray-500 dark:text-dark-text-muted">Script<textarea bind:value={script} rows="8" placeholder="Full episode script" class="mt-0.5 w-full px-2 py-1.5 text-xs leading-5 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text resize-y"></textarea></label>
+      <label class="block text-[10px] text-dark-text-muted">Synopsis<textarea bind:value={synopsis} rows="2" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"></textarea></label>
+      <label class="block text-[10px] text-dark-text-muted">Script<textarea bind:value={script} rows="8" placeholder="Full episode script" class="mt-0.5 w-full px-2 py-1.5 text-xs leading-5 border border-dark-border bg-dark-base text-dark-text resize-y"></textarea></label>
 
       <div>
         <div class="flex items-center justify-between gap-3 mb-2">
-          <div><h4 class="text-[11px] font-semibold text-gray-800 dark:text-dark-text">Visual references</h4><p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Attach a location, prop, wardrobe or mood image and say how it should be used.</p></div>
-          <label class="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-200 dark:border-dark-border cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated"><ImagePlus size={11} /> Add images<input type="file" accept="image/*" multiple class="hidden" onchange={(e) => addPending((e.currentTarget as HTMLInputElement).files)} /></label>
+          <div><h4 class="text-[11px] font-semibold text-dark-text">Visual references</h4><p class="text-[10px] text-dark-text-muted">Attach a location, prop, wardrobe or mood image and say how it should be used.</p></div>
+          <label class="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-dark-border cursor-pointer hover:bg-dark-elevated"><ImagePlus size={11} /> Add images<input type="file" accept="image/*" multiple class="hidden" onchange={(e) => addPending((e.currentTarget as HTMLInputElement).files)} /></label>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {#each references as ref (ref.id)}
-            <div class="flex gap-2 border border-gray-200 dark:border-dark-border p-1.5">
-              <img src={fileServeUrl(ref.path, episode.manifest.updated_at)} alt={ref.note || 'Episode reference'} class="h-16 w-20 shrink-0 object-cover bg-gray-100 dark:bg-dark-elevated" />
-              <textarea bind:value={ref.note} aria-label={`How to use ${ref.note || ref.id}`} rows="2" placeholder="Use this as…" class="min-w-0 flex-1 px-1.5 py-1 text-[10px] border border-gray-100 dark:border-dark-border bg-white dark:bg-dark-base resize-none"></textarea>
-              <button onclick={() => removeReference(ref)} class="self-start p-2 text-gray-400 hover:text-red-500" title="Remove reference"><Trash2 size={11} /></button>
+            <div class="flex gap-2 border border-dark-border p-1.5">
+              <img src={fileServeUrl(ref.path, episode.manifest.updated_at)} alt={ref.note || 'Episode reference'} class="h-16 w-20 shrink-0 object-cover bg-dark-elevated" />
+              <textarea bind:value={ref.note} aria-label={`How to use ${ref.note || ref.id}`} rows="2" placeholder="Use this as…" class="min-w-0 flex-1 px-1.5 py-1 text-[10px] border border-dark-border bg-dark-base resize-none"></textarea>
+              <button onclick={() => removeReference(ref)} class="self-start p-2 text-dark-text-muted hover:text-red-500" title="Remove reference"><Trash2 size={11} /></button>
             </div>
           {/each}
           {#each pending as item, index (`${item.file.name}-${index}`)}
-            <div class="flex gap-2 border border-dashed border-gray-300 dark:border-dark-border p-1.5">
-              <div class="h-16 w-20 shrink-0 flex items-center justify-center bg-gray-100 dark:bg-dark-elevated text-gray-400"><ImagePlus size={16} /></div>
-              <div class="min-w-0 flex-1"><p class="text-[9px] text-gray-400 truncate">{item.file.name}</p><textarea bind:value={item.note} aria-label={`How to use ${item.file.name}`} rows="2" placeholder="e.g. Use this lighting for scene 2" class="mt-0.5 w-full px-1.5 py-1 text-[10px] border border-gray-100 dark:border-dark-border bg-white dark:bg-dark-base resize-none"></textarea></div>
-              <button onclick={() => (pending = pending.filter((_, i) => i !== index))} class="self-start p-2 text-gray-400 hover:text-red-500" title="Remove pending image"><X size={11} /></button>
+            <div class="flex gap-2 border border-dashed border-dark-border p-1.5">
+              <div class="h-16 w-20 shrink-0 flex items-center justify-center bg-dark-elevated text-dark-text-muted"><ImagePlus size={16} /></div>
+              <div class="min-w-0 flex-1"><p class="text-[9px] text-dark-text-muted truncate">{item.file.name}</p><textarea bind:value={item.note} aria-label={`How to use ${item.file.name}`} rows="2" placeholder="e.g. Use this lighting for scene 2" class="mt-0.5 w-full px-1.5 py-1 text-[10px] border border-dark-border bg-dark-base resize-none"></textarea></div>
+              <button onclick={() => (pending = pending.filter((_, i) => i !== index))} class="self-start p-2 text-dark-text-muted hover:text-red-500" title="Remove pending image"><X size={11} /></button>
             </div>
           {/each}
         </div>
       </div>
 
-      <div class="flex justify-end"><button onclick={save} disabled={saving || busy} class="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium bg-gray-900 dark:bg-accent text-white disabled:opacity-50">{#if saving}<Loader2 size={11} class="animate-spin" />{:else}<Save size={11} />{/if} Save changes</button></div>
+      <div class="flex justify-end"><button onclick={save} disabled={saving || busy} class="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium bg-accent text-dark-base disabled:opacity-50">{#if saving}<Loader2 size={11} class="animate-spin" />{:else}<Save size={11} />{/if} Save changes</button></div>
 
-      <div class="pt-3 border-t border-gray-100 dark:border-dark-border">
-        <label class="block text-[10px] text-gray-500 dark:text-dark-text-muted">Revise storyboard with AI<textarea bind:value={revisionBrief} rows="3" placeholder="Example: Make scene 2 take place at night like the first reference, keep the dialogue, and add a close-up before the reveal." class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text resize-y"></textarea></label>
-        <div class="mt-2 flex items-center justify-between gap-3"><p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Updates the script and shot plan; it does not spend credits generating media.</p><button onclick={reviseStoryboard} disabled={revising || busy || !revisionBrief.trim()} class="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium border border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text disabled:opacity-40">{#if revising}<Loader2 size={11} class="animate-spin" />{:else}<Sparkles size={11} />{/if} Revise storyboard</button></div>
+      <div class="pt-3 border-t border-dark-border">
+        <label class="block text-[10px] text-dark-text-muted">Revise storyboard with AI<textarea bind:value={revisionBrief} rows="3" placeholder="Example: Make scene 2 take place at night like the first reference, keep the dialogue, and add a close-up before the reveal." class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"></textarea></label>
+        <div class="mt-2 flex items-center justify-between gap-3"><p class="text-[10px] text-dark-text-muted">Updates the script and shot plan; it does not spend credits generating media.</p><button onclick={reviseStoryboard} disabled={revising || busy || !revisionBrief.trim()} class="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium border border-accent text-dark-text disabled:opacity-40">{#if revising}<Loader2 size={11} class="animate-spin" />{:else}<Sparkles size={11} />{/if} Revise storyboard</button></div>
       </div>
     </div>
   {/if}

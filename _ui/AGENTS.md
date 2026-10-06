@@ -165,6 +165,29 @@ Replay regressions: `tests/resumable-stream.test.mjs`,
 - **Skill edit form and the folder**: SKILL.md is generated from the skill record, so the edit form *is* SKILL.md. Editing shows a *Skill folder* panel listing SKILL.md and the resource files; opening the folder (or a file) with unsaved form edits saves them first, and folder changes refresh a clean form. `PUT /skills/{id}` replaces the record, so the form re-sends `version`/`author`/`license` it has no fields for — omitting them erased that frontmatter on every form update.
 - **Build output**: `make build-ui` → moves `_ui/dist/` to `internal/server/dist/` for Go embedding
 
+## Theme
+
+The UI has one dark, all-monospace theme modelled on the OpenCode TUI; the light
+theme and its toggle were removed. Tokens live in `@theme` in `style/global.css`
+(see the root AGENTS.md *Styling* section). `.dark` is always present on
+`<html>`, so existing `dark:` variants and `:global(.dark)` rules stay valid,
+but new code should use the unprefixed tokens. Keep the PWA colours
+(`index.html` theme-color, `manifest.webmanifest`, `public/offline.html`) on the
+same `#0f0d0d` ground; bump the offline cache version when `offline.html`
+changes.
+
+Chats (`pages/Chat.svelte`) was the first surface built in this style:
+conversations (left, an overlay below `lg`), transcript with a title block,
+user messages as blue-ruled blocks, assistant text on the ground with one-line
+tool rows (`ToolActivity compact`, summarised by `toolGlyph` /
+`toolArgSummary` / `toolResultSummary`), a composer whose status line opens the
+preset/model/effort pickers, and a session sidebar (right, an overlay below
+`xl`). `CommandPalette.svelte` serves ctrl+p (commands), ctrl+m (models),
+presets and effort; ctrl+b / ctrl+. toggle the sidebars, Tab on an empty
+composer cycles presets and a lone `/` + Enter opens the palette. Shortcuts
+are ignored while another dialog is open. `.oc-theme` remains only as Chats'
+hook for its select reset and link colours.
+
 ## Interaction style
 
 UI state changes are immediate: do not add Tailwind transition utilities, CSS

@@ -590,11 +590,11 @@
   }
 
   function diffLineClass(line: string) {
-    if (line.startsWith('+++') || line.startsWith('---')) return 'text-gray-500';
-    if (line.startsWith('+')) return 'bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-300';
-    if (line.startsWith('-')) return 'bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-300';
-    if (line.startsWith('@@')) return 'text-blue-700 dark:text-blue-300';
-    return 'text-gray-700 dark:text-dark-text-secondary';
+    if (line.startsWith('+++') || line.startsWith('---')) return 'text-dark-text-muted';
+    if (line.startsWith('+')) return 'bg-green-950/40 text-green-300';
+    if (line.startsWith('-')) return 'bg-red-950/40 text-red-300';
+    if (line.startsWith('@@')) return 'text-blue-300';
+    return 'text-dark-text-secondary';
   }
 
   // ─── Search ───
@@ -672,7 +672,7 @@
     if (status.startsWith('waiting')) return 'bg-amber-500';
     if (status === 'failed') return 'bg-red-500';
     if (status === 'completed') return 'bg-green-500';
-    return 'bg-gray-300 dark:bg-dark-border';
+    return 'bg-dark-border';
   }
 
   // Keep the default model for new sessions valid once the catalogue loads.
@@ -692,28 +692,28 @@
 {#if loadError}
   <div class="p-6"><p role="alert" class="settings-error">{loadError}</p><button class="settings-button mt-3" onclick={boot}>Try again</button></div>
 {:else}
-<div class="flex h-full min-h-0 flex-col bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text">
+<div class="flex h-full min-h-0 flex-col bg-dark-base text-dark-text">
   <!-- Top bar -->
-  <div class="flex h-10 shrink-0 items-center gap-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface px-2">
-    <button type="button" onclick={() => (showLeft = !showLeft)} class={['p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated', showLeft ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400']} title="Toggle side bar" aria-label="Toggle side bar" aria-pressed={showLeft}><PanelLeft size={15} /></button>
+  <div class="flex h-10 shrink-0 items-center gap-2 border-b border-dark-border bg-dark-surface px-2">
+    <button type="button" onclick={() => (showLeft = !showLeft)} class={['p-1.5 hover:bg-dark-elevated', showLeft ? 'text-dark-text' : 'text-dark-text-muted']} title="Toggle side bar" aria-label="Toggle side bar" aria-pressed={showLeft}><PanelLeft size={15} /></button>
 
     <div class="relative">
-      <button type="button" onclick={event => { event.stopPropagation(); projectMenu = !projectMenu; }} class="inline-flex max-w-72 items-center gap-1.5 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-base px-2.5 py-1 text-xs hover:bg-gray-50 dark:hover:bg-dark-elevated" aria-haspopup="menu" aria-expanded={projectMenu}>
-        <FolderGit2 size={13} class="shrink-0 text-gray-500" />
+      <button type="button" onclick={event => { event.stopPropagation(); projectMenu = !projectMenu; }} class="inline-flex max-w-72 items-center gap-1.5 border border-dark-border-subtle bg-dark-base px-2.5 py-1 text-xs hover:bg-dark-elevated" aria-haspopup="menu" aria-expanded={projectMenu}>
+        <FolderGit2 size={13} class="shrink-0 text-dark-text-muted" />
         <span class="truncate font-medium">{project || 'All files'}</span>
-        <ChevronDown size={12} class="shrink-0 text-gray-400" />
+        <ChevronDown size={12} class="shrink-0 text-dark-text-muted" />
       </button>
       {#if projectMenu}
-        <div role="menu" tabindex="-1" class="absolute left-0 top-full z-30 mt-1 w-72 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface py-1 text-xs shadow-lg" onclick={event => event.stopPropagation()} onkeydown={() => {}}>
-          <button type="button" role="menuitem" onclick={() => { project = ''; projectMenu = false; void refreshGitMarks(); }} class={['block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated', project === '' ? 'font-semibold' : '']}>All files <span class="text-gray-400">/workspace</span></button>
+        <div role="menu" tabindex="-1" class="absolute left-0 top-full z-30 mt-1 w-72 border border-dark-border bg-dark-surface py-1 text-xs shadow-lg" onclick={event => event.stopPropagation()} onkeydown={() => {}}>
+          <button type="button" role="menuitem" onclick={() => { project = ''; projectMenu = false; void refreshGitMarks(); }} class={['block w-full px-3 py-1.5 text-left hover:bg-dark-elevated', project === '' ? 'font-semibold' : '']}>All files <span class="text-dark-text-muted">/workspace</span></button>
           {#each projects as p (p.path)}
-            <button type="button" role="menuitem" onclick={() => openProject(p.path)} class={['flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated', project === p.path ? 'font-semibold' : '']}>
-              <FolderGit2 size={13} class="text-gray-400" /> <span class="truncate">{p.name}</span>
+            <button type="button" role="menuitem" onclick={() => openProject(p.path)} class={['flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-dark-elevated', project === p.path ? 'font-semibold' : '']}>
+              <FolderGit2 size={13} class="text-dark-text-muted" /> <span class="truncate">{p.name}</span>
             </button>
           {/each}
-          <div class="my-1 border-t border-gray-200 dark:border-dark-border"></div>
-          <button type="button" role="menuitem" onclick={() => { newProjectMode = 'folder'; projectMenu = false; }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated"><FolderPlus size={13} /> New empty project</button>
-          <button type="button" role="menuitem" onclick={() => { newProjectMode = 'clone'; projectMenu = false; }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated"><GitBranch size={13} /> Clone a Git repository</button>
+          <div class="my-1 border-t border-dark-border"></div>
+          <button type="button" role="menuitem" onclick={() => { newProjectMode = 'folder'; projectMenu = false; }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-dark-elevated"><FolderPlus size={13} /> New empty project</button>
+          <button type="button" role="menuitem" onclick={() => { newProjectMode = 'clone'; projectMenu = false; }} class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-dark-elevated"><GitBranch size={13} /> Clone a Git repository</button>
         </div>
       {/if}
     </div>
@@ -721,39 +721,39 @@
     <span class="flex-1"></span>
 
     {#if space}
-      <span class="hidden items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted sm:inline-flex" title={space.error || ''}>
-        <span class={['size-2 rounded-full', starting ? 'bg-blue-500 animate-pulse motion-reduce:animate-none' : space.status === 'ready' ? 'bg-green-500' : space.status === 'error' ? 'bg-red-500' : 'bg-gray-400']}></span>
+      <span class="hidden items-center gap-1.5 text-xs text-dark-text-muted sm:inline-flex" title={space.error || ''}>
+        <span class={['size-2 rounded-full', starting ? 'bg-blue-500 animate-pulse motion-reduce:animate-none' : space.status === 'ready' ? 'bg-green-500' : space.status === 'error' ? 'bg-red-500' : 'bg-dark-text-faint']}></span>
         {starting ? 'Starting…' : space.status === 'ready' ? 'Running' : space.status === 'error' ? 'Error' : space.status === 'stopped' ? 'Stopped' : 'Not started'}
       </span>
       {#if space.status === 'ready' && !starting}
-        <button type="button" onclick={stop} class="p-1.5 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated" title="Stop the container (files are kept)" aria-label="Stop the space"><Power size={14} /></button>
+        <button type="button" onclick={stop} class="p-1.5 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Stop the container (files are kept)" aria-label="Stop the space"><Power size={14} /></button>
       {:else if !starting}
-        <button type="button" onclick={start} class="inline-flex items-center gap-1 bg-gray-900 px-2.5 py-1 text-xs text-white hover:bg-gray-800 dark:bg-accent" title="Start the container">Start</button>
+        <button type="button" onclick={start} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-dark-base hover:bg-dark-highest bg-accent" title="Start the container">Start</button>
       {/if}
-      <button type="button" onclick={() => (settingsOpen ? (settingsOpen = false) : openSettings())} class={['p-1.5 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated', settingsOpen ? 'text-gray-900 dark:text-dark-text' : 'text-gray-500']} title="Space settings (image and resource limits)" aria-label="Space settings" aria-expanded={settingsOpen}><Settings size={14} /></button>
-      <button type="button" onclick={reset} class="p-1.5 text-gray-400 hover:bg-gray-200 hover:text-red-700 dark:hover:bg-dark-elevated" title="Reset the space (deletes everything)" aria-label="Reset the space"><Trash2 size={14} /></button>
+      <button type="button" onclick={() => (settingsOpen ? (settingsOpen = false) : openSettings())} class={['p-1.5 hover:text-dark-text hover:bg-dark-elevated', settingsOpen ? 'text-dark-text' : 'text-dark-text-muted']} title="Space settings (image and resource limits)" aria-label="Space settings" aria-expanded={settingsOpen}><Settings size={14} /></button>
+      <button type="button" onclick={reset} class="p-1.5 text-dark-text-muted hover:text-red-300 hover:bg-dark-elevated" title="Reset the space (deletes everything)" aria-label="Reset the space"><Trash2 size={14} /></button>
     {/if}
-    <button type="button" onclick={() => { showTerminal = !showTerminal; if (showTerminal && !terminals.length) newTerminal(); }} class={['p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated', showTerminal ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400']} title="Toggle terminal (Ctrl+`)" aria-label="Toggle terminal" aria-pressed={showTerminal}><PanelBottom size={15} /></button>
-    <button type="button" onclick={() => (rightView = rightView === 'git' ? 'none' : 'git')} class={['p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated', rightView !== 'none' ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400']} title="Toggle source control" aria-label="Toggle source control" aria-pressed={rightView !== 'none'}><PanelRight size={15} /></button>
+    <button type="button" onclick={() => { showTerminal = !showTerminal; if (showTerminal && !terminals.length) newTerminal(); }} class={['p-1.5 hover:bg-dark-elevated', showTerminal ? 'text-dark-text' : 'text-dark-text-muted']} title="Toggle terminal (Ctrl+`)" aria-label="Toggle terminal" aria-pressed={showTerminal}><PanelBottom size={15} /></button>
+    <button type="button" onclick={() => (rightView = rightView === 'git' ? 'none' : 'git')} class={['p-1.5 hover:bg-dark-elevated', rightView !== 'none' ? 'text-dark-text' : 'text-dark-text-muted']} title="Toggle source control" aria-label="Toggle source control" aria-pressed={rightView !== 'none'}><PanelRight size={15} /></button>
   </div>
 
   {#if space?.status === 'error' && !starting}
-    <p role="alert" class="flex items-start gap-2 border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-800 dark:text-red-300"><CircleAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
+    <p role="alert" class="flex items-start gap-2 border-b border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300"><CircleAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
   {/if}
 
   {#if settingsOpen && space}
-    <form class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void saveSettings(); }}>
+    <form class="border-b border-dark-border bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void saveSettings(); }}>
       <div class="flex flex-wrap items-end gap-2">
         <label class="min-w-64 flex-[2]">Base image
-          <input bind:value={settingsForm.image} placeholder={DEFAULT_DEVELOPER_IMAGE} spellcheck="false" autocomplete="off" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" />
+          <input bind:value={settingsForm.image} placeholder={DEFAULT_DEVELOPER_IMAGE} spellcheck="false" autocomplete="off" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" />
         </label>
-        <label class="w-24">CPU cores<input bind:value={settingsForm.cpu} placeholder="2" inputmode="decimal" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
-        <label class="w-24">Memory<input bind:value={settingsForm.memory} placeholder="4g" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
-        <label class="w-24">Disk (GiB)<input bind:value={settingsForm.diskGiB} placeholder="20" inputmode="decimal" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
-        <button type="submit" disabled={settingsSaving || starting} class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-accent">{#if settingsSaving}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{space.status === 'ready' ? 'Save & restart' : 'Save'}</button>
-        <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-gray-600 hover:bg-gray-200 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">Cancel</button>
+        <label class="w-24">CPU cores<input bind:value={settingsForm.cpu} placeholder="2" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
+        <label class="w-24">Memory<input bind:value={settingsForm.memory} placeholder="4g" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
+        <label class="w-24">Disk (GiB)<input bind:value={settingsForm.diskGiB} placeholder="20" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
+        <button type="submit" disabled={settingsSaving || starting} class="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-dark-base disabled:opacity-50 bg-accent">{#if settingsSaving}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{space.status === 'ready' ? 'Save & restart' : 'Save'}</button>
+        <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
       </div>
-      <p class="mt-1.5 text-gray-500 dark:text-dark-text-muted">
+      <p class="mt-1.5 text-dark-text-muted">
         Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT installs nothing: add whatever you need from the terminal.
         Installed packages stay while the container is stopped and are lost when the image or limits change; files in <code class="font-mono">/workspace</code> are always kept.
       </p>
@@ -762,48 +762,48 @@
   {/if}
 
   {#if newProjectMode}
-    <form class="flex flex-wrap items-end gap-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void createProject(); }}>
+    <form class="flex flex-wrap items-end gap-2 border-b border-dark-border bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void createProject(); }}>
       {#if newProjectMode === 'clone'}
-        <label class="min-w-64 flex-[2]">Repository URL<input bind:value={cloneRemote} required placeholder="https://github.com/org/repo.git" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
-        <label class="w-32">Branch<input bind:value={cloneBranch} placeholder="default" class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 font-mono text-sm dark:text-dark-text" /></label>
+        <label class="min-w-64 flex-[2]">Repository URL<input bind:value={cloneRemote} required placeholder="https://github.com/org/repo.git" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
+        <label class="w-32">Branch<input bind:value={cloneBranch} placeholder="default" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
       {/if}
-      <label class="min-w-40 flex-1">Folder name{newProjectMode === 'clone' ? ' (optional)' : ''}<input bind:value={newProjectName} required={newProjectMode === 'folder'} placeholder={newProjectMode === 'clone' ? 'from the URL' : 'my-project'} class="mt-1 block w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base px-2 py-1.5 text-sm dark:text-dark-text" /></label>
-      <button type="submit" disabled={creatingProject} class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 font-medium text-white disabled:opacity-50 dark:bg-accent">{#if creatingProject}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{newProjectMode === 'clone' ? 'Clone' : 'Create'}</button>
-      <button type="button" onclick={() => (newProjectMode = '')} class="px-2 py-1.5 text-gray-600 hover:bg-gray-200 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">Cancel</button>
+      <label class="min-w-40 flex-1">Folder name{newProjectMode === 'clone' ? ' (optional)' : ''}<input bind:value={newProjectName} required={newProjectMode === 'folder'} placeholder={newProjectMode === 'clone' ? 'from the URL' : 'my-project'} class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 text-sm text-dark-text" /></label>
+      <button type="submit" disabled={creatingProject} class="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-dark-base disabled:opacity-50 bg-accent">{#if creatingProject}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{newProjectMode === 'clone' ? 'Clone' : 'Create'}</button>
+      <button type="button" onclick={() => (newProjectMode = '')} class="px-2 py-1.5 text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
     </form>
   {/if}
 
   <div class="flex min-h-0 flex-1">
     <!-- Left: sessions + explorer -->
     {#if showLeft}
-      <aside class="flex min-h-0 shrink-0 flex-col border-r border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
-        <section class="flex max-h-[40%] min-h-0 flex-col border-b border-gray-200 dark:border-dark-border">
+      <aside class="flex min-h-0 shrink-0 flex-col border-r border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
+        <section class="flex max-h-[40%] min-h-0 flex-col border-b border-dark-border">
           <div class="flex items-center gap-1 px-2 py-1.5">
-            <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">Sessions</h3>
-            <button type="button" onclick={newSession} class="p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated dark:hover:text-dark-text" title={`New session in ${project || 'the space'}`} aria-label="New session"><Plus size={14} /></button>
+            <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-dark-text-muted">Sessions</h3>
+            <button type="button" onclick={newSession} class="p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text" title={`New session in ${project || 'the space'}`} aria-label="New session"><Plus size={14} /></button>
           </div>
           <ul class="min-h-0 overflow-y-auto pb-1">
             {#each projectSessions as s (s.id)}
               <li class="group flex items-center">
-                <button type="button" onclick={() => openSession(s.id)} class={['flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-gray-100 dark:hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-gray-200 dark:bg-dark-elevated' : '']} title={STATUS_LABELS[s.status]}>
+                <button type="button" onclick={() => openSession(s.id)} class={['flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']} title={STATUS_LABELS[s.status]}>
                   <span class={['size-1.5 shrink-0 rounded-full', statusDot(s.status)]}></span>
                   <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
                 </button>
-                <button type="button" onclick={() => removeSession(s)} class="mr-1 p-1 text-gray-400 opacity-0 hover:text-red-700 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100" aria-label={`Delete ${sessionTitle(s)}`}><Trash2 size={12} /></button>
+                <button type="button" onclick={() => removeSession(s)} class="mr-1 p-1 text-dark-text-muted opacity-0 hover:text-red-300 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100" aria-label={`Delete ${sessionTitle(s)}`}><Trash2 size={12} /></button>
               </li>
             {:else}
-              <li class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-dark-text"><MessageSquare size={12} /> Start a session in {project || 'the space'}</button>
+              <li class="px-3 py-1.5 text-xs text-dark-text-muted">
+                <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 hover:text-dark-text"><MessageSquare size={12} /> Start a session in {project || 'the space'}</button>
               </li>
             {/each}
             {#if otherSessions.length}
-              <li class="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-gray-400">Other projects</li>
+              <li class="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-dark-text-muted">Other projects</li>
               {#each otherSessions as s (s.id)}
                 <li>
-                  <button type="button" onclick={() => { if (s.project_path !== project) void openProject(s.project_path, false); openSession(s.id); }} class={['flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left text-xs text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-gray-200 dark:bg-dark-elevated' : '']}>
+                  <button type="button" onclick={() => { if (s.project_path !== project) void openProject(s.project_path, false); openSession(s.id); }} class={['flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left text-xs text-dark-text-secondary hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']}>
                     <span class={['size-1.5 shrink-0 rounded-full', statusDot(s.status)]}></span>
                     <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
-                    <span class="shrink-0 truncate text-[10px] text-gray-400">{s.project_path || '/'}</span>
+                    <span class="shrink-0 truncate text-[10px] text-dark-text-muted">{s.project_path || '/'}</span>
                   </button>
                 </li>
               {/each}
@@ -811,15 +811,15 @@
           </ul>
         </section>
 
-        <div class="flex items-center gap-0.5 border-b border-gray-200 dark:border-dark-border px-1 py-1">
-          <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'files' ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400 hover:text-gray-700']}>Files</button>
-          <button type="button" onclick={() => (sidebarView = 'search')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'search' ? 'text-gray-900 dark:text-dark-text' : 'text-gray-400 hover:text-gray-700']}>Search</button>
+        <div class="flex items-center gap-0.5 border-b border-dark-border px-1 py-1">
+          <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'files' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Files</button>
+          <button type="button" onclick={() => (sidebarView = 'search')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'search' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Search</button>
           <span class="flex-1"></span>
           {#if sidebarView === 'files'}
-            <button type="button" onclick={() => createEntry(project, 'file')} class="p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated" title="New file" aria-label="New file"><FilePlus size={13} /></button>
-            <button type="button" onclick={() => createEntry(project, 'dir')} class="p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated" title="New folder" aria-label="New folder"><FolderPlus size={13} /></button>
-            <button type="button" onclick={() => pickUpload(project)} class="p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated" title="Upload files" aria-label="Upload files"><Upload size={13} /></button>
-            <button type="button" onclick={refreshTree} class="p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-900 dark:hover:bg-dark-elevated" title="Refresh" aria-label="Refresh files"><RefreshCw size={13} /></button>
+            <button type="button" onclick={() => createEntry(project, 'file')} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="New file" aria-label="New file"><FilePlus size={13} /></button>
+            <button type="button" onclick={() => createEntry(project, 'dir')} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="New folder" aria-label="New folder"><FolderPlus size={13} /></button>
+            <button type="button" onclick={() => pickUpload(project)} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Upload files" aria-label="Upload files"><Upload size={13} /></button>
+            <button type="button" onclick={refreshTree} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Refresh" aria-label="Refresh files"><RefreshCw size={13} /></button>
           {/if}
         </div>
 
@@ -833,16 +833,16 @@
             ondrop={event => { event.preventDefault(); if (event.dataTransfer?.files.length) void uploadFiles(project, event.dataTransfer.files); }}
           >
             {#if space?.status !== 'ready' && !Object.keys(listings).length}
-              <p class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted">{starting ? 'Starting your space…' : 'Start the space to browse files.'}</p>
+              <p class="px-3 py-2 text-xs text-dark-text-muted">{starting ? 'Starting your space…' : 'Start the space to browse files.'}</p>
             {:else if project}
               <FileTree {listings} {expanded} loading={folderLoading} folder={project} selected={activeTab?.kind === 'file' ? activeTab.path : ''} {dirty} changed={gitChanged} ontoggle={toggleFolder} onopen={entry => openFile(entry.path)} onmenu={(event, entry) => showMenu(event, entry)} ondropfiles={(folder, files) => uploadFiles(folder, files)} />
             {:else}
               <FileTree {listings} {expanded} loading={folderLoading} folder="" selected={activeTab?.kind === 'file' ? activeTab.path : ''} {dirty} changed={gitChanged} ontoggle={toggleFolder} onopen={entry => openFile(entry.path)} onmenu={(event, entry) => showMenu(event, entry)} ondropfiles={(folder, files) => uploadFiles(folder, files)} />
               {#if listings['']?.length === 0}
-                <div class="px-3 py-3 text-xs text-gray-500 dark:text-dark-text-muted">
+                <div class="px-3 py-3 text-xs text-dark-text-muted">
                   <p>Your space is empty.</p>
-                  <button type="button" onclick={() => (newProjectMode = 'clone')} class="mt-2 inline-flex items-center gap-1.5 text-gray-800 underline-offset-2 hover:underline dark:text-dark-text"><GitBranch size={12} /> Clone a repository</button><br />
-                  <button type="button" onclick={() => (newProjectMode = 'folder')} class="mt-1 inline-flex items-center gap-1.5 text-gray-800 underline-offset-2 hover:underline dark:text-dark-text"><FolderPlus size={12} /> Create an empty project</button>
+                  <button type="button" onclick={() => (newProjectMode = 'clone')} class="mt-2 inline-flex items-center gap-1.5 underline-offset-2 hover:underline text-dark-text"><GitBranch size={12} /> Clone a repository</button><br />
+                  <button type="button" onclick={() => (newProjectMode = 'folder')} class="mt-1 inline-flex items-center gap-1.5 underline-offset-2 hover:underline text-dark-text"><FolderPlus size={12} /> Create an empty project</button>
                 </div>
               {/if}
             {/if}
@@ -850,19 +850,19 @@
         {:else}
           <div class="flex min-h-0 flex-1 flex-col">
             <form class="p-2" onsubmit={event => { event.preventDefault(); void runSearch(); }}>
-              <div class="flex border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-base">
-                <input bind:value={searchQuery} placeholder={`Search ${project || 'all files'} (regex)`} aria-label="Search text" class="min-w-0 flex-1 bg-transparent px-2 py-1 text-xs dark:text-dark-text focus:outline-none" />
-                <button type="submit" class="px-2 text-gray-500" aria-label="Search">{#if searching}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{:else}<Search size={13} />{/if}</button>
+              <div class="flex border border-dark-border bg-dark-base">
+                <input bind:value={searchQuery} placeholder={`Search ${project || 'all files'} (regex)`} aria-label="Search text" class="min-w-0 flex-1 bg-transparent px-2 py-1 text-xs text-dark-text focus:outline-none" />
+                <button type="submit" class="px-2 text-dark-text-muted" aria-label="Search">{#if searching}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{:else}<Search size={13} />{/if}</button>
               </div>
             </form>
             <ul class="min-h-0 flex-1 overflow-y-auto text-xs">
               {#each searchResults as match, i (i)}
-                <li><button type="button" onclick={() => openFile(joinPath(project, match.path))} class="block w-full px-3 py-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">
-                  <span class="block truncate font-mono text-gray-800 dark:text-dark-text">{match.path}<span class="text-gray-400">:{match.line}</span></span>
-                  <span class="block truncate font-mono text-gray-500 dark:text-dark-text-muted">{match.text.trim()}</span>
+                <li><button type="button" onclick={() => openFile(joinPath(project, match.path))} class="block w-full px-3 py-1 text-left hover:bg-dark-elevated">
+                  <span class="block truncate font-mono text-dark-text">{match.path}<span class="text-dark-text-muted">:{match.line}</span></span>
+                  <span class="block truncate font-mono text-dark-text-muted">{match.text.trim()}</span>
                 </button></li>
               {/each}
-              {#if searchTruncated}<li class="px-3 py-1 text-gray-500">Showing the first 2000 matches.</li>{/if}
+              {#if searchTruncated}<li class="px-3 py-1 text-dark-text-muted">Showing the first 2000 matches.</li>{/if}
             </ul>
           </div>
         {/if}
@@ -872,9 +872,9 @@
 
     <!-- Center: tabs + terminal -->
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div class="flex h-9 shrink-0 items-end overflow-x-auto border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface">
+      <div class="flex h-9 shrink-0 items-end overflow-x-auto border-b border-dark-border bg-dark-surface">
         {#each tabs as tab (tab.key)}
-          <div data-tab-key={tab.key} class={['group flex h-9 shrink-0 items-center gap-1.5 border-r border-gray-200 dark:border-dark-border pl-3 pr-1.5 text-xs', tab.key === activeKey ? 'bg-white text-gray-900 dark:bg-dark-base dark:text-dark-text' : 'text-gray-500 hover:bg-gray-100 dark:text-dark-text-muted dark:hover:bg-dark-elevated']}>
+          <div data-tab-key={tab.key} class={['group flex h-9 shrink-0 items-center gap-1.5 border-r border-dark-border pl-3 pr-1.5 text-xs', tab.key === activeKey ? 'bg-dark-base text-dark-text' : 'text-dark-text-muted hover:bg-dark-elevated']}>
             <button type="button" onclick={() => (activeKey = tab.key)} class="inline-flex max-w-52 items-center gap-1.5" title={tab.kind === 'file' ? tab.path : tab.kind === 'diff' ? tab.file : ''}>
               {#if tab.kind === 'chat'}
                 {@const s = sessions.find(x => x.id === tab.sessionId)}
@@ -887,9 +887,9 @@
               {/if}
               <span class="truncate">{tabLabel(tab)}</span>
             </button>
-            <button type="button" onclick={() => closeTab(tab.key)} class="flex size-5 items-center justify-center hover:bg-gray-200 dark:hover:bg-dark-elevated" aria-label={`Close ${tabLabel(tab)}`}>
+            <button type="button" onclick={() => closeTab(tab.key)} class="flex size-5 items-center justify-center hover:bg-dark-elevated" aria-label={`Close ${tabLabel(tab)}`}>
               {#if tab.kind === 'file' && tab.content !== tab.saved}
-                <span class="size-2 rounded-full bg-gray-600 group-hover:hidden dark:bg-dark-text-secondary"></span>
+                <span class="size-2 rounded-full group-hover:hidden bg-dark-text-secondary"></span>
                 <X size={12} class="hidden group-hover:block" />
               {:else}
                 <X size={12} class="opacity-50 group-hover:opacity-100" />
@@ -897,7 +897,7 @@
             </button>
           </div>
         {/each}
-        <button type="button" onclick={newSession} class="flex h-9 shrink-0 items-center gap-1 px-3 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-elevated dark:hover:text-dark-text" title="New chat session"><Plus size={13} /> Chat</button>
+        <button type="button" onclick={newSession} class="flex h-9 shrink-0 items-center gap-1 px-3 text-xs text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text" title="New chat session"><Plus size={13} /> Chat</button>
       </div>
 
       <div class="relative min-h-0 flex-1">
@@ -908,38 +908,38 @@
               {#if s}
                 <SessionChat session={s} {modelGroups} {agentChoices} revision={gitRevision} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} />
               {:else}
-                <p class="p-4 text-sm text-gray-500">This session no longer exists.</p>
+                <p class="p-4 text-sm text-dark-text-muted">This session no longer exists.</p>
               {/if}
             {:else if tab.kind === 'file'}
-              <div class="flex h-8 shrink-0 items-center gap-2 border-b border-gray-200 dark:border-dark-border px-3 text-xs text-gray-500 dark:text-dark-text-muted">
+              <div class="flex h-8 shrink-0 items-center gap-2 border-b border-dark-border px-3 text-xs text-dark-text-muted">
                 <span class="min-w-0 flex-1 truncate font-mono">{tab.path}</span>
                 {#if isMarkdownFile(tab.path) && !tab.binary}
-                  <button type="button" onclick={() => patchTab(tab.key, { preview: !tab.preview })} class="px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated">{tab.preview ? 'Edit' : 'Preview'}</button>
+                  <button type="button" onclick={() => patchTab(tab.key, { preview: !tab.preview })} class="px-1.5 py-0.5 hover:bg-dark-elevated">{tab.preview ? 'Edit' : 'Preview'}</button>
                 {/if}
                 {#if tab.content !== tab.saved && !tab.binary}
-                  <button type="button" onclick={() => saveTab(tab.key)} class="bg-gray-900 px-2 py-0.5 text-white dark:bg-accent" title="Save (Ctrl+S)">Save</button>
+                  <button type="button" onclick={() => saveTab(tab.key)} class="px-2 py-0.5 text-dark-base bg-accent" title="Save (Ctrl+S)">Save</button>
                 {/if}
-                <button type="button" onclick={() => download(tab.path)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated" title="Download" aria-label="Download file"><Download size={13} /></button>
-                <button type="button" onclick={() => loadFileTab(tab.key)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated" title="Reload from disk" aria-label="Reload file"><RefreshCw size={13} /></button>
+                <button type="button" onclick={() => download(tab.path)} class="p-1 hover:bg-dark-elevated" title="Download" aria-label="Download file"><Download size={13} /></button>
+                <button type="button" onclick={() => loadFileTab(tab.key)} class="p-1 hover:bg-dark-elevated" title="Reload from disk" aria-label="Reload file"><RefreshCw size={13} /></button>
               </div>
               {#if tab.stale}
-                <div class="flex flex-wrap items-center gap-2 border-b border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 text-xs text-amber-900 dark:text-amber-200">
+                <div class="flex flex-wrap items-center gap-2 border-b border-amber-800 bg-amber-950/40 px-3 py-1.5 text-xs text-amber-200">
                   <span class="flex-1">This file changed on disk{tab.content !== tab.saved ? ' while you were editing it' : ''}.</span>
-                  <button type="button" onclick={() => loadFileTab(tab.key)} class="border border-amber-400 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900">Load disk version</button>
-                  {#if tab.content !== tab.saved}<button type="button" onclick={() => overwrite(tab.key)} class="border border-amber-400 px-2 py-0.5 hover:bg-amber-100 dark:hover:bg-amber-900">Keep mine and overwrite</button>{/if}
+                  <button type="button" onclick={() => loadFileTab(tab.key)} class="border border-amber-400 px-2 py-0.5 hover:bg-amber-900">Load disk version</button>
+                  {#if tab.content !== tab.saved}<button type="button" onclick={() => overwrite(tab.key)} class="border border-amber-400 px-2 py-0.5 hover:bg-amber-900">Keep mine and overwrite</button>{/if}
                 </div>
               {/if}
               <div class="min-h-0 flex-1">
                 {#if tab.loading}
-                  <p class="p-4 text-sm text-gray-500">Loading…</p>
+                  <p class="p-4 text-sm text-dark-text-muted">Loading…</p>
                 {:else if tab.error}
-                  <p role="alert" class="p-4 text-sm text-red-700 dark:text-red-400">{tab.error}</p>
+                  <p role="alert" class="p-4 text-sm text-red-400">{tab.error}</p>
                 {:else if tab.imageURL}
-                  <div class="flex h-full items-center justify-center overflow-auto bg-[conic-gradient(#eee_25%,#fff_0_50%,#eee_0_75%,#fff_0)] bg-[length:16px_16px] p-4 dark:bg-none"><img src={tab.imageURL} alt={tab.path} class="max-h-full max-w-full" /></div>
+                  <div class="flex h-full items-center justify-center overflow-auto bg-[conic-gradient(#eee_25%,#fff_0_50%,#eee_0_75%,#fff_0)] bg-[length:16px_16px] p-4 bg-none"><img src={tab.imageURL} alt={tab.path} class="max-h-full max-w-full" /></div>
                 {:else if tab.binary || tab.tooLarge}
-                  <div class="p-4 text-sm text-gray-600 dark:text-dark-text-secondary">
+                  <div class="p-4 text-sm text-dark-text-secondary">
                     <p>{tab.tooLarge ? 'This file is larger than the 2 MiB editor limit.' : 'This is a binary file and cannot be edited here.'}</p>
-                    <button type="button" onclick={() => download(tab.path)} class="mt-2 inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-dark-border dark:hover:bg-dark-elevated"><Download size={13} /> Download</button>
+                    <button type="button" onclick={() => download(tab.path)} class="mt-2 inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs border-dark-border hover:bg-dark-elevated"><Download size={13} /> Download</button>
                   </div>
                 {:else if tab.preview}
                   <div class="h-full overflow-y-auto p-6"><div class="mx-auto max-w-3xl"><Markdown source={tab.content} enhance /></div></div>
@@ -948,16 +948,16 @@
                 {/if}
               </div>
             {:else}
-              <div class="flex h-8 shrink-0 items-center gap-2 border-b border-gray-200 dark:border-dark-border px-3 text-xs text-gray-500 dark:text-dark-text-muted">
+              <div class="flex h-8 shrink-0 items-center gap-2 border-b border-dark-border px-3 text-xs text-dark-text-muted">
                 <span class="min-w-0 flex-1 truncate font-mono">{tab.project}/{tab.file} · {tab.head ? 'all changes' : tab.staged ? 'staged' : tab.untracked ? 'new file' : 'working tree'}</span>
-                <button type="button" onclick={() => openFile(joinPath(tab.project, tab.file))} class="px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated">Open file</button>
-                <button type="button" onclick={() => loadDiff(tab.key)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated" aria-label="Reload diff"><RefreshCw size={13} /></button>
+                <button type="button" onclick={() => openFile(joinPath(tab.project, tab.file))} class="px-1.5 py-0.5 hover:bg-dark-elevated">Open file</button>
+                <button type="button" onclick={() => loadDiff(tab.key)} class="p-1 hover:bg-dark-elevated" aria-label="Reload diff"><RefreshCw size={13} /></button>
               </div>
-              <div class="min-h-0 flex-1 overflow-auto bg-white dark:bg-dark-base">
+              <div class="min-h-0 flex-1 overflow-auto bg-dark-base">
                 {#if tab.loading}
-                  <p class="p-4 text-sm text-gray-500">Loading…</p>
+                  <p class="p-4 text-sm text-dark-text-muted">Loading…</p>
                 {:else if !tab.diff.trim()}
-                  <p class="p-4 text-sm text-gray-500">No differences.</p>
+                  <p class="p-4 text-sm text-dark-text-muted">No differences.</p>
                 {:else}
                   <pre class="min-w-max py-2 font-mono text-xs leading-5">{#each tab.diff.split('\n') as line}<div class={['px-4', diffLineClass(line)]}>{line || ' '}</div>{/each}</pre>
                 {/if}
@@ -965,12 +965,12 @@
             {/if}
           </div>
         {:else}
-          <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-gray-500 dark:text-dark-text-muted">
-            <FolderGit2 size={32} class="text-gray-300 dark:text-dark-border" />
+          <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-dark-text-muted">
+            <FolderGit2 size={32} class="text-dark-border" />
             <p class="max-w-md">Pick a project from the top bar, open a file from the side bar, or start a chat with the coding agent.</p>
             <div class="flex flex-wrap justify-center gap-2">
-              <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 dark:bg-accent"><MessageSquare size={13} /> New chat{project ? ` in ${project}` : ''}</button>
-              <button type="button" onclick={() => (newProjectMode = 'clone')} class="inline-flex items-center gap-1.5 border border-gray-300 dark:border-dark-border px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-dark-elevated"><GitBranch size={13} /> Clone a repository</button>
+              <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base hover:bg-dark-highest bg-accent"><MessageSquare size={13} /> New chat{project ? ` in ${project}` : ''}</button>
+              <button type="button" onclick={() => (newProjectMode = 'clone')} class="inline-flex items-center gap-1.5 border border-dark-border px-3 py-1.5 text-xs hover:bg-dark-elevated"><GitBranch size={13} /> Clone a repository</button>
             </div>
           </div>
         {/each}
@@ -978,7 +978,7 @@
 
       {#if showTerminal}
         {#if !terminalMinimized || space?.status !== 'ready'}
-          <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize bg-gray-200 hover:bg-accent/50 dark:bg-dark-border" onpointerdown={resizeTerminal}></div>
+          <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize hover:bg-accent/50 bg-dark-border" onpointerdown={resizeTerminal}></div>
         {/if}
         {#if space?.status === 'ready'}
           <!-- Minimizing clips the panel to its tab strip instead of unmounting
@@ -989,7 +989,7 @@
             </div>
           </div>
         {:else}
-          <div class="flex shrink-0 items-center justify-center bg-[#1e1e1e] text-xs text-gray-400" style={`height:${terminalHeight}px`}>{starting ? 'Starting your space…' : 'Start the space to open a terminal.'}</div>
+          <div class="flex shrink-0 items-center justify-center bg-[#1e1e1e] text-xs text-dark-text-muted" style={`height:${terminalHeight}px`}>{starting ? 'Starting your space…' : 'Start the space to open a terminal.'}</div>
         {/if}
       {/if}
     </div>
@@ -997,15 +997,15 @@
     <!-- Right: source control -->
     {#if rightView === 'git'}
       <div role="separator" aria-orientation="vertical" aria-label="Resize source control" class="w-1 shrink-0 cursor-col-resize hover:bg-accent/40 max-md:hidden" onpointerdown={resizeRight}></div>
-      <aside class="flex min-h-0 shrink-0 flex-col border-l border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:right-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${rightWidth}px`}>
-        <div class="flex h-9 shrink-0 items-center border-b border-gray-200 dark:border-dark-border px-3">
-          <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
+      <aside class="flex min-h-0 shrink-0 flex-col border-l border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:right-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${rightWidth}px`}>
+        <div class="flex h-9 shrink-0 items-center border-b border-dark-border px-3">
+          <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
         </div>
         <div class="min-h-0 flex-1">
           {#if space?.status === 'ready'}
             <GitPanel project={project} revision={gitRevision} ondiff={openDiff} onchanged={() => { void refreshTree(); for (const t of tabs) if (t.kind === 'file' && t.content === t.saved) void loadFileTab(t.key); }} />
           {:else}
-            <p class="p-3 text-xs text-gray-500">Start the space to see changes.</p>
+            <p class="p-3 text-xs text-dark-text-muted">Start the space to see changes.</p>
           {/if}
         </div>
       </aside>
@@ -1015,25 +1015,25 @@
 {/if}
 
 {#if menu}
-  <div role="menu" tabindex="-1" class="fixed z-50 w-48 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface py-1 text-xs shadow-lg" style={`left:${menu.x}px;top:${menu.y}px`} onclick={event => event.stopPropagation()} onkeydown={() => {}}>
+  <div role="menu" tabindex="-1" class="fixed z-50 w-48 border border-dark-border bg-dark-surface py-1 text-xs shadow-lg" style={`left:${menu.x}px;top:${menu.y}px`} onclick={event => event.stopPropagation()} onkeydown={() => {}}>
     {#if menu.entry && menu.entry.type !== 'dir'}
-      <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openFile(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open</button>
-      <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void download(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Download</button>
+      <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openFile(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Open</button>
+      <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void download(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Download</button>
     {/if}
-    <button type="button" role="menuitem" onclick={() => createEntry(menu!.folder, 'file')} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">New file</button>
-    <button type="button" role="menuitem" onclick={() => createEntry(menu!.folder, 'dir')} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">New folder</button>
-    <button type="button" role="menuitem" onclick={() => pickUpload(menu!.folder)} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Upload files…</button>
+    <button type="button" role="menuitem" onclick={() => createEntry(menu!.folder, 'file')} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">New file</button>
+    <button type="button" role="menuitem" onclick={() => createEntry(menu!.folder, 'dir')} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">New folder</button>
+    <button type="button" role="menuitem" onclick={() => pickUpload(menu!.folder)} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Upload files…</button>
     {#if menu.entry?.type === 'dir'}
-      <div class="my-1 border-t border-gray-200 dark:border-dark-border"></div>
+      <div class="my-1 border-t border-dark-border"></div>
       {#if !menu.entry.path.includes('/')}
-        <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openProject(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open as project</button>
+        <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openProject(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Open as project</button>
       {/if}
-      <button type="button" role="menuitem" onclick={() => { const cwd = menu!.entry!.path; menu = null; terminals = [...terminals, { id: `t${Date.now()}`, cwd, generation: 0 }]; activeTerminal = terminals[terminals.length - 1].id; showTerminal = true; terminalMinimized = false; }} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Open terminal here</button>
+      <button type="button" role="menuitem" onclick={() => { const cwd = menu!.entry!.path; menu = null; terminals = [...terminals, { id: `t${Date.now()}`, cwd, generation: 0 }]; activeTerminal = terminals[terminals.length - 1].id; showTerminal = true; terminalMinimized = false; }} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Open terminal here</button>
     {/if}
     {#if menu.entry}
-      <div class="my-1 border-t border-gray-200 dark:border-dark-border"></div>
-      <button type="button" role="menuitem" onclick={() => renameEntry(menu!.entry!)} class="block w-full px-3 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated">Rename…</button>
-      <button type="button" role="menuitem" onclick={() => deleteEntry(menu!.entry!)} class="block w-full px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40">Delete</button>
+      <div class="my-1 border-t border-dark-border"></div>
+      <button type="button" role="menuitem" onclick={() => renameEntry(menu!.entry!)} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Rename…</button>
+      <button type="button" role="menuitem" onclick={() => deleteEntry(menu!.entry!)} class="block w-full px-3 py-1.5 text-left text-red-400 hover:bg-red-950/40">Delete</button>
     {/if}
   </div>
 {/if}

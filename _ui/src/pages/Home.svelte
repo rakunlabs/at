@@ -48,18 +48,18 @@
   <!-- Stats -->
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
     <!-- Providers count -->
-    <div class="min-w-0 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 sm:p-5">
+    <div class="min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
-        <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
-          <Cpu size={14} class="text-gray-500 dark:text-dark-text-muted" />
+        <div class="p-1.5 bg-dark-elevated">
+          <Cpu size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-gray-500 dark:text-dark-text-muted uppercase tracking-wider font-medium">Providers</span>
+        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Providers</span>
       </div>
       {#if loading}
-        <div class="text-2xl font-bold text-gray-200 dark:text-dark-text-faint">--</div>
+        <div class="text-2xl font-bold text-dark-text-faint">--</div>
       {:else}
-        <div class="text-2xl font-bold text-gray-900 dark:text-dark-text">{providers.length}</div>
-        <div class="break-words text-xs text-gray-500 dark:text-dark-text-muted mt-1">
+        <div class="text-2xl font-bold text-dark-text">{providers.length}</div>
+        <div class="break-words text-xs text-dark-text-muted mt-1">
           {#if providerTypes.length > 0}
             {providerTypes.join(', ')}
           {:else}
@@ -70,34 +70,34 @@
     </div>
 
     <!-- Models count -->
-    <div class="min-w-0 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 sm:p-5">
+    <div class="min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
-        <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
-          <Layers size={14} class="text-gray-500 dark:text-dark-text-muted" />
+        <div class="p-1.5 bg-dark-elevated">
+          <Layers size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-gray-500 dark:text-dark-text-muted uppercase tracking-wider font-medium">Models</span>
+        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Models</span>
       </div>
       {#if loading}
-        <div class="text-2xl font-bold text-gray-200 dark:text-dark-text-faint">--</div>
+        <div class="text-2xl font-bold text-dark-text-faint">--</div>
       {:else}
-        <div class="text-2xl font-bold text-gray-900 dark:text-dark-text">{totalModels}</div>
-        <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1">across {providers.length} provider{providers.length !== 1 ? 's' : ''}</div>
+        <div class="text-2xl font-bold text-dark-text">{totalModels}</div>
+        <div class="text-xs text-dark-text-muted mt-1">across {providers.length} provider{providers.length !== 1 ? 's' : ''}</div>
       {/if}
     </div>
 
     <!-- Store -->
-    <div class="col-span-2 sm:col-span-1 min-w-0 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 sm:p-5">
+    <div class="col-span-2 sm:col-span-1 min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
-        <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
-          <Database size={14} class="text-gray-500 dark:text-dark-text-muted" />
+        <div class="p-1.5 bg-dark-elevated">
+          <Database size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-gray-500 dark:text-dark-text-muted uppercase tracking-wider font-medium">Store</span>
+        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Store</span>
       </div>
       {#if loading}
-        <div class="text-2xl font-bold text-gray-200 dark:text-dark-text-faint">--</div>
+        <div class="text-2xl font-bold text-dark-text-faint">--</div>
       {:else}
-        <div class="text-2xl font-bold text-gray-900 dark:text-dark-text capitalize">{storeType}</div>
-        <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1">
+        <div class="text-2xl font-bold text-dark-text capitalize">{storeType}</div>
+        <div class="text-xs text-dark-text-muted mt-1">
           {storeType === 'postgres' || storeType === 'sqlite' ? 'persistent storage active' : storeType === 'memory' ? 'in-memory (non-persistent)' : 'YAML config only'}
         </div>
       {/if}
@@ -108,43 +108,43 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
     <a
       href="#/chats"
-      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group "
+      class="border border-dark-border bg-dark-surface p-4 hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group"
     >
       <div class="flex items-center gap-3">
-        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest ">
-          <MessageSquare size={16} class="text-gray-600 dark:text-dark-text-secondary" />
+        <div class="p-2 bg-dark-elevated group-hover:bg-dark-highest">
+          <MessageSquare size={16} class="text-dark-text-secondary" />
         </div>
         <div>
-          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Chats</div>
-          <div class="text-xs text-gray-500 dark:text-dark-text-muted">Test models with MCP servers, skills and tools</div>
+          <div class="font-medium text-sm text-dark-text">Chats</div>
+          <div class="text-xs text-dark-text-muted">Test models with MCP servers, skills and tools</div>
         </div>
       </div>
-      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted " />
+      <ArrowRight size={16} class="text-dark-text-faint group-hover:text-dark-text-muted" />
     </a>
 
     <a
       href="#/providers"
-      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group "
+      class="border border-dark-border bg-dark-surface p-4 hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group"
     >
       <div class="flex items-center gap-3">
-        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest ">
-          <Cpu size={16} class="text-gray-600 dark:text-dark-text-secondary" />
+        <div class="p-2 bg-dark-elevated group-hover:bg-dark-highest">
+          <Cpu size={16} class="text-dark-text-secondary" />
         </div>
         <div>
-          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Manage Providers</div>
-          <div class="text-xs text-gray-500 dark:text-dark-text-muted">Add, edit, or remove LLM providers</div>
+          <div class="font-medium text-sm text-dark-text">Manage Providers</div>
+          <div class="text-xs text-dark-text-muted">Add, edit, or remove LLM providers</div>
         </div>
       </div>
-      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted " />
+      <ArrowRight size={16} class="text-dark-text-faint group-hover:text-dark-text-muted" />
     </a>
   </div>
 
   <!-- Provider list -->
   <div class="flex items-center justify-between mb-2 mt-6 px-1">
-    <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Registered Providers</span>
+    <span class="text-sm font-medium text-dark-text">Registered Providers</span>
     <button
       onclick={load}
-      class="inline-flex size-11 sm:size-7 items-center justify-center hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 hover:text-gray-700 dark:text-dark-text-secondary dark:hover:text-dark-text rounded focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+      class="inline-flex size-11 sm:size-7 items-center justify-center hover:bg-dark-elevated text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
       title="Refresh"
       aria-label="Refresh providers"
       disabled={loading}
@@ -162,29 +162,29 @@
     emptyTitle="No providers registered"
   >
     {#snippet emptyAction()}
-      <a href="#/providers" class="text-sm text-gray-500 dark:text-accent-text hover:text-gray-900 dark:hover:text-accent underline underline-offset-2 ">
+      <a href="#/providers" class="text-sm text-accent-text hover:text-accent underline underline-offset-2">
         Add your first provider
       </a>
     {/snippet}
 
     {#snippet header()}
-      <th scope="col" class="w-[22%] text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Provider</th>
-      <th scope="col" class="w-[18%] text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Default Model</th>
-      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+      <th scope="col" class="w-[22%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Provider</th>
+      <th scope="col" class="w-[18%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
+      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Default Model</th>
+      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
     {/snippet}
 
     {#snippet row(p)}
-      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
-        <td class="px-4 py-2.5 break-all align-top font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}{#if p.shared}<span class="ml-2 font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared</span>{/if}</td>
+      <tr class="hover:bg-dark-elevated/50">
+        <td class="px-4 py-2.5 break-all align-top font-mono font-medium text-dark-text">{p.key}{#if p.shared}<span class="ml-2 font-sans text-xs font-normal text-dark-text-muted">Shared</span>{/if}</td>
         <td class="px-4 py-2.5 break-all align-top">
-          <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{p.type}</span>
+          <span class="px-2 py-0.5 text-xs bg-dark-elevated text-dark-text-secondary font-mono">{p.type}</span>
         </td>
-        <td class="px-4 py-2.5 break-all align-top font-mono text-sm sm:text-xs text-gray-600 dark:text-dark-text-secondary">{p.default_model}</td>
-        <td class="px-4 py-2.5 align-top text-sm sm:text-xs text-gray-600 dark:text-dark-text-secondary">
+        <td class="px-4 py-2.5 break-all align-top font-mono text-sm sm:text-xs text-dark-text-secondary">{p.default_model}</td>
+        <td class="px-4 py-2.5 align-top text-sm sm:text-xs text-dark-text-secondary">
           {#if p.models && p.models.length > 0}
             <details>
-              <summary class="min-h-11 sm:min-h-0 cursor-pointer rounded py-2.5 sm:py-0 font-medium text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent">{p.models.length} model{p.models.length !== 1 ? 's' : ''}</summary>
+              <summary class="min-h-11 sm:min-h-0 cursor-pointer py-2.5 sm:py-0 font-medium text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent">{p.models.length} model{p.models.length !== 1 ? 's' : ''}</summary>
               <ul class="mt-2 space-y-2 font-mono break-all">
                 {#each p.models as model}<li>{model}</li>{/each}
               </ul>
@@ -198,21 +198,21 @@
   </DataTable>
 
   <!-- API endpoint info -->
-  <div class="mt-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
-      <span class="text-sm font-medium text-gray-900 dark:text-dark-text">API Endpoints</span>
+  <div class="mt-4 border border-dark-border bg-dark-surface overflow-hidden">
+    <div class="px-4 py-3 border-b border-dark-border">
+      <span class="text-sm font-medium text-dark-text">API Endpoints</span>
     </div>
     <div class="p-4 space-y-2.5 text-sm font-mono">
       <div class="flex items-center gap-2.5">
-        <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 font-medium">POST</span>
-        <span class="min-w-0 break-all text-gray-700 dark:text-dark-text-secondary">{basePath}/gateway/v1/chat/completions</span>
+        <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-900/20 border border-green-800 text-green-300 font-medium">POST</span>
+        <span class="min-w-0 break-all text-dark-text-secondary">{basePath}/gateway/v1/chat/completions</span>
       </div>
       <div class="flex items-center gap-2.5">
-        <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-medium">GET</span>
-        <span class="min-w-0 break-all text-gray-700 dark:text-dark-text-secondary">{basePath}/gateway/v1/models</span>
+        <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-900/20 border border-blue-800 text-blue-300 font-medium">GET</span>
+        <span class="min-w-0 break-all text-dark-text-secondary">{basePath}/gateway/v1/models</span>
       </div>
-      <div class="break-words [overflow-wrap:anywhere] border-t border-gray-100 dark:border-dark-border pt-2.5 mt-2.5 text-xs text-gray-500 dark:text-dark-text-muted font-sans leading-relaxed">
-        Use the model format <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-700 dark:text-dark-text-secondary">provider_key/model_name</code> (e.g., <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-700 dark:text-dark-text-secondary">anthropic/claude-haiku-4-5</code>).
+      <div class="break-words [overflow-wrap:anywhere] border-t border-dark-border pt-2.5 mt-2.5 text-xs text-dark-text-muted font-sans leading-relaxed">
+        Use the model format <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-dark-text-secondary">provider_key/model_name</code> (e.g., <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-dark-text-secondary">anthropic/claude-haiku-4-5</code>).
       </div>
     </div>
   </div>

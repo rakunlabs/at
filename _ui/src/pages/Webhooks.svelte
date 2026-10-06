@@ -365,13 +365,13 @@
   }
 
   function statusClass(code: number): string {
-    if (code >= 500) return 'text-red-600 dark:text-red-400';
-    if (code >= 400) return 'text-amber-600 dark:text-amber-400';
-    return 'text-green-600 dark:text-green-400';
+    if (code >= 500) return 'text-red-400';
+    if (code >= 400) return 'text-amber-400';
+    return 'text-green-400';
   }
 
-  const inputClass = 'w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted';
-  const toggleTrack = "w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent";
+  const inputClass = 'w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted';
+  const toggleTrack = "w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 rounded-full peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:rounded-full after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent";
 </script>
 
 <svelte:head>
@@ -382,11 +382,11 @@
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
 
   {#if serversAvailable}
-    <div class="flex gap-1 mb-4 border-b border-gray-200 dark:border-dark-border" role="tablist">
-      <button role="tab" aria-selected={tab === 'webhooks'} onclick={() => (tab = 'webhooks')} class={['flex items-center gap-1.5 px-3 py-1.5 text-sm -mb-px border-b-2', tab === 'webhooks' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary']}>
+    <div class="flex gap-1 mb-4 border-b border-dark-border" role="tablist">
+      <button role="tab" aria-selected={tab === 'webhooks'} onclick={() => (tab = 'webhooks')} class={['flex items-center gap-1.5 px-3 py-1.5 text-sm -mb-px border-b-2', tab === 'webhooks' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary']}>
         <Globe size={14} /> Webhooks
       </button>
-      <button role="tab" aria-selected={tab === 'servers'} onclick={() => (tab = 'servers')} class={['flex items-center gap-1.5 px-3 py-1.5 text-sm -mb-px border-b-2', tab === 'servers' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary']}>
+      <button role="tab" aria-selected={tab === 'servers'} onclick={() => (tab = 'servers')} class={['flex items-center gap-1.5 px-3 py-1.5 text-sm -mb-px border-b-2', tab === 'servers' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary']}>
         <Server size={14} /> Servers
       </button>
     </div>
@@ -398,21 +398,21 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Globe size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Webhooks</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({triggers.length})</span>
+      <Globe size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Webhooks</h2>
+      <span class="text-xs text-dark-text-muted">({triggers.length})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Webhook
@@ -422,12 +422,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? 'Edit Webhook' : 'New Webhook'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -435,12 +435,12 @@
       <form novalidate onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Target Type -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-target-type" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Target Type</label>
+          <label for="form-target-type" class="text-sm font-medium text-dark-text-secondary">Target Type</label>
           <select
             id="form-target-type"
             bind:value={formTargetType}
             onchange={() => { formTargetId = ''; formEntryNodeId = ''; inputNodes = []; }}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="workflow">Workflow</option>
           </select>
@@ -448,12 +448,12 @@
 
         <!-- Target -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-target" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Target</label>
+          <label for="form-target" class="text-sm font-medium text-dark-text-secondary">Target</label>
           <select
             id="form-target"
             value={formTargetId}
             onchange={(e) => handleTargetIdChange((e.target as HTMLSelectElement).value)}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="">Select target...</option>
             {#each workflows as w}
@@ -465,20 +465,20 @@
         <!-- Entry Node (only for workflow) -->
         {#if formTargetType === 'workflow' && inputNodes.length > 1}
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-entry-node" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Entry Node</label>
+            <label for="form-entry-node" class="text-sm font-medium text-dark-text-secondary">Entry Node</label>
             <div class="col-span-3">
               <select
                 id="form-entry-node"
                 bind:value={formEntryNodeId}
                 disabled={loadingInputNodes}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
+                class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
               >
                 <option value="">All input nodes (default)</option>
                 {#each inputNodes as node}
                   <option value={node.id}>{node.data?.label || 'Input'} ({node.id.slice(0, 8)}...)</option>
                 {/each}
               </select>
-              <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
+              <div class="text-xs text-dark-text-muted mt-1">
                 Select a specific input node or leave empty to run all input nodes.
               </div>
             </div>
@@ -487,10 +487,10 @@
 
         <!-- Alias -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-alias" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Alias</label>
+          <label for="form-alias" class="text-sm font-medium text-dark-text-secondary">Alias</label>
           <div class="col-span-3">
             <input id="form-alias" type="text" bind:value={formAlias} placeholder="e.g., order-created (optional)" class={[inputClass, 'font-mono']} />
-            <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
+            <div class="text-xs text-dark-text-muted mt-1">
               Human-friendly URL slug, unique across the installation.
             </div>
           </div>
@@ -498,7 +498,7 @@
 
         <!-- Methods -->
         <div class="grid grid-cols-4 gap-3 items-start">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">Methods</span>
+          <span class="text-sm font-medium text-dark-text-secondary pt-1">Methods</span>
           <div class="col-span-3">
             <div class="flex flex-wrap gap-1.5">
               {#each METHODS as m}
@@ -506,11 +506,11 @@
                   type="button"
                   onclick={() => toggleMethod(m)}
                   aria-pressed={formMethods.includes(m)}
-                  class={['px-2 py-1 text-xs font-mono border', formMethods.includes(m) ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+                  class={['px-2 py-1 text-xs font-mono border', formMethods.includes(m) ? 'text-dark-base bg-accent border-accent' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated']}
                 >{m}</button>
               {/each}
             </div>
-            <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
+            <div class="text-xs text-dark-text-muted mt-1">
               Accepted on webhook servers. The main route always accepts POST.
             </div>
           </div>
@@ -518,13 +518,13 @@
 
         <!-- Public -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Public</span>
+          <span class="text-sm font-medium text-dark-text-secondary">Public</span>
           <div class="col-span-3 flex items-center gap-3">
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" bind:checked={formPublic} class="sr-only peer" />
               <div class={toggleTrack}></div>
             </label>
-            <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+            <span class="text-xs text-dark-text-muted">
               {formPublic ? (formSigScheme ? 'No token; the signature proves the sender' : 'No authentication required') : 'Requires Bearer token'}
             </span>
           </div>
@@ -532,7 +532,7 @@
 
         <!-- Enabled -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Enabled</span>
+          <span class="text-sm font-medium text-dark-text-secondary">Enabled</span>
           <div class="col-span-3 flex items-center gap-3">
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" bind:checked={formEnabled} class="sr-only peer" />
@@ -542,10 +542,10 @@
         </div>
 
         <!-- Signature -->
-        <div class="grid grid-cols-4 gap-3 items-start border-t border-gray-100 dark:border-dark-border pt-4">
-          <label for="form-sig" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Signature</label>
+        <div class="grid grid-cols-4 gap-3 items-start border-t border-dark-border pt-4">
+          <label for="form-sig" class="text-sm font-medium text-dark-text-secondary pt-1.5">Signature</label>
           <div class="col-span-3 space-y-2">
-            <select id="form-sig" bind:value={formSigScheme} class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text">
+            <select id="form-sig" bind:value={formSigScheme} class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text">
               <option value="">No signature check</option>
               <option value="github">GitHub (X-Hub-Signature-256)</option>
               <option value="stripe">Stripe (Stripe-Signature, 5 min tolerance)</option>
@@ -566,13 +566,13 @@
                 <div class="grid grid-cols-3 gap-2">
                   <input bind:value={formSigHeader} placeholder="Header" aria-label="Signature header" class={[inputClass, 'font-mono']} />
                   <input bind:value={formSigPrefix} placeholder="Prefix (e.g. sha256=)" aria-label="Signature prefix" class={[inputClass, 'font-mono']} />
-                  <select bind:value={formSigEncoding} aria-label="Signature encoding" class="border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text">
+                  <select bind:value={formSigEncoding} aria-label="Signature encoding" class="border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text">
                     <option value="hex">hex</option>
                     <option value="base64">base64</option>
                   </select>
                 </div>
               {/if}
-              <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+              <div class="text-xs text-dark-text-muted">
                 HMAC-SHA256 over the raw request body. Requests without a valid signature are refused before the workflow runs.
                 {#if formSigStored}Leave *** to keep the stored secret.{/if}
               </div>
@@ -582,22 +582,22 @@
 
         <!-- Webhook servers -->
         {#if serversAvailable}
-          <div class="grid grid-cols-4 gap-3 items-start border-t border-gray-100 dark:border-dark-border pt-4">
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">Servers</span>
+          <div class="grid grid-cols-4 gap-3 items-start border-t border-dark-border pt-4">
+            <span class="text-sm font-medium text-dark-text-secondary pt-1">Servers</span>
             <div class="col-span-3 space-y-2">
               {#if servers.length === 0}
-                <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                <p class="text-xs text-dark-text-muted">
                   No webhook server is open to this workspace. An installation administrator can add one under the Servers tab.
                 </p>
               {:else}
                 {#each servers as srv (srv.id)}
                   {@const route = formRoutes.find(r => r.server_id === srv.id)}
-                  <div class="border border-gray-200 dark:border-dark-border">
+                  <div class="border border-dark-border">
                     <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={!!route} onchange={() => toggleServer(srv.id)} />
-                      <span class="font-medium text-gray-800 dark:text-dark-text">{srv.name}</span>
-                      <span class="text-xs font-mono text-gray-400 dark:text-dark-text-muted">:{srv.port}{srv.base_path}</span>
-                      {#if !srv.enabled}<span class="text-xs text-amber-600 dark:text-amber-400">disabled</span>{/if}
+                      <span class="font-medium text-dark-text">{srv.name}</span>
+                      <span class="text-xs font-mono text-dark-text-muted">:{srv.port}{srv.base_path}</span>
+                      {#if !srv.enabled}<span class="text-xs text-amber-400">disabled</span>{/if}
                     </label>
                     {#if route}
                       <div class="px-3 pb-2 space-y-1">
@@ -608,7 +608,7 @@
                           aria-label={`Custom path on ${srv.name}`}
                           class={[inputClass, 'font-mono text-xs']}
                         />
-                        <div class="text-[11px] font-mono text-gray-400 dark:text-dark-text-muted break-all">
+                        <div class="text-[11px] font-mono text-dark-text-muted break-all">
                           {webhookServerUrl(srv, route.path || formAlias.trim() || editingId || '<id>')}
                         </div>
                       </div>
@@ -618,9 +618,9 @@
               {/if}
               <label class={['flex items-center gap-2 text-sm', formRoutes.length === 0 ? 'opacity-50' : '']}>
                 <input type="checkbox" bind:checked={formHideFromMain} disabled={formRoutes.length === 0} />
-                <span class="text-gray-700 dark:text-dark-text-secondary">Hide from the main server</span>
+                <span class="text-dark-text-secondary">Hide from the main server</span>
               </label>
-              <div class="text-xs text-gray-400 dark:text-dark-text-muted break-all">
+              <div class="text-xs text-dark-text-muted break-all">
                 {#if formRoutes.length > 0 && formHideFromMain}
                   Only reachable on the selected servers. {mainUrl(previewTrigger())} answers 404.
                 {:else}
@@ -632,11 +632,11 @@
         {/if}
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
-          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
+          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">
             Cancel
           </button>
-          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
             <Save size={14} />
             {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
           </button>
@@ -653,23 +653,23 @@
 
   <!-- Delivery history -->
   {#if historyFor}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Recent deliveries · {historyFor.alias || historyFor.id.slice(0, 12)}</span>
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">Recent deliveries · {historyFor.alias || historyFor.id.slice(0, 12)}</span>
         <div class="flex items-center gap-1">
-          <button onclick={loadHistory} title="Refresh" class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted"><RefreshCw size={14} /></button>
-          <button onclick={() => (historyFor = null)} title="Close" class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted"><X size={14} /></button>
+          <button onclick={loadHistory} title="Refresh" class="p-1 hover:bg-dark-elevated text-dark-text-muted"><RefreshCw size={14} /></button>
+          <button onclick={() => (historyFor = null)} title="Close" class="p-1 hover:bg-dark-elevated text-dark-text-muted"><X size={14} /></button>
         </div>
       </div>
       {#if loadingDeliveries}
-        <p class="p-4 text-sm text-gray-500 dark:text-dark-text-muted">Loading deliveries…</p>
+        <p class="p-4 text-sm text-dark-text-muted">Loading deliveries…</p>
       {:else if deliveries.length === 0}
-        <p class="p-4 text-sm text-gray-500 dark:text-dark-text-muted">No requests received yet. The latest 100 are kept.</p>
+        <p class="p-4 text-sm text-dark-text-muted">No requests received yet. The latest 100 are kept.</p>
       {:else}
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
-              <tr class="border-b border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">
+              <tr class="border-b border-dark-border text-dark-text-muted uppercase tracking-wider">
                 <th class="text-left px-4 py-2 font-medium">Time</th>
                 <th class="text-left px-4 py-2 font-medium">Status</th>
                 <th class="text-left px-4 py-2 font-medium">Request</th>
@@ -680,13 +680,13 @@
             </thead>
             <tbody>
               {#each deliveries as d (d.id)}
-                <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 align-top">
-                  <td class="px-4 py-1.5 whitespace-nowrap text-gray-600 dark:text-dark-text-secondary">{formatDate(d.created_at)}</td>
+                <tr class="border-b border-dark-border last:border-b-0 align-top">
+                  <td class="px-4 py-1.5 whitespace-nowrap text-dark-text-secondary">{formatDate(d.created_at)}</td>
                   <td class={['px-4 py-1.5 font-mono', statusClass(d.status)]}>{d.status}</td>
-                  <td class="px-4 py-1.5 font-mono text-gray-700 dark:text-dark-text-secondary">{d.method} {d.path} <span class="text-gray-400">· {d.body_bytes} B · {d.duration_ms} ms</span></td>
-                  <td class="px-4 py-1.5 text-gray-600 dark:text-dark-text-secondary">{d.server_id ? serverById(d.server_id)?.name || d.server_id.slice(0, 8) : 'Main'}</td>
-                  <td class="px-4 py-1.5 font-mono text-gray-500 dark:text-dark-text-muted">{d.client_ip || '—'}</td>
-                  <td class="px-4 py-1.5 text-gray-600 dark:text-dark-text-secondary break-all">
+                  <td class="px-4 py-1.5 font-mono text-dark-text-secondary">{d.method} {d.path} <span class="text-dark-text-muted">· {d.body_bytes} B · {d.duration_ms} ms</span></td>
+                  <td class="px-4 py-1.5 text-dark-text-secondary">{d.server_id ? serverById(d.server_id)?.name || d.server_id.slice(0, 8) : 'Main'}</td>
+                  <td class="px-4 py-1.5 font-mono text-dark-text-muted">{d.client_ip || '—'}</td>
+                  <td class="px-4 py-1.5 text-dark-text-secondary break-all">
                     {#if d.error}{d.error}{:else if d.run_id}<span class="font-mono">{d.run_id}</span>{/if}
                   </td>
                 </tr>
@@ -700,71 +700,71 @@
 
   <!-- List -->
   {#if pageLoad.loading('Webhooks')}
-    <div class="text-center py-12 text-gray-400 dark:text-dark-text-muted text-sm">Loading webhooks...</div>
+    <div class="text-center py-12 text-dark-text-muted text-sm">Loading webhooks...</div>
   {:else if pageLoad.error('Webhooks') && !triggers.length}
-    <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Webhooks could not be loaded. Retry above.</p>
+    <p class="text-sm text-dark-text-secondary">Webhooks could not be loaded. Retry above.</p>
   {:else if triggers.length === 0}
-    <div class="text-center py-12 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-      <Globe size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />
-      <p class="text-sm text-gray-500 dark:text-dark-text-muted">No webhooks configured</p>
-      <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create a webhook to trigger workflows via HTTP</p>
+    <div class="text-center py-12 border border-dark-border bg-dark-surface">
+      <Globe size={24} class="mx-auto mb-2 text-dark-text-muted" />
+      <p class="text-sm text-dark-text-muted">No webhooks configured</p>
+      <p class="text-xs text-dark-text-muted mt-1">Create a webhook to trigger workflows via HTTP</p>
     </div>
   {:else}
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+    <div class="border border-dark-border bg-dark-surface overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Webhook</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Auth</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
+          <tr class="border-b border-dark-border bg-dark-base">
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Webhook</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Auth</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
           </tr>
         </thead>
         <tbody>
           {#each triggers as t (t.id)}
-            <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 align-top">
+            <tr class="border-b border-dark-border last:border-b-0 hover:bg-dark-elevated/50 align-top">
               <td class="px-4 py-2.5">
                 <div class="flex items-center gap-2">
                   {#if t.alias}
-                    <span class="font-medium text-gray-900 dark:text-dark-text">{t.alias}</span>
+                    <span class="font-medium text-dark-text">{t.alias}</span>
                   {:else}
-                    <span class="font-mono text-xs text-gray-500 dark:text-dark-text-muted">{t.id.slice(0, 12)}...</span>
+                    <span class="font-mono text-xs text-dark-text-muted">{t.id.slice(0, 12)}...</span>
                   {/if}
                   {#if t.hide_from_main}
-                    <span class="inline-flex items-center gap-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted" title="Not reachable on the main server"><EyeOff size={10} /> servers only</span>
+                    <span class="inline-flex items-center gap-0.5 text-[10px] text-dark-text-muted" title="Not reachable on the main server"><EyeOff size={10} /> servers only</span>
                   {/if}
                 </div>
                 {#each webhookUrls(t) as u}
-                  <div class="flex items-center gap-1 text-[10px] font-mono text-gray-400 dark:text-dark-text-muted max-w-md">
-                    <span class="shrink-0 px-1 bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary">{u.label}</span>
+                  <div class="flex items-center gap-1 text-[10px] font-mono text-dark-text-muted max-w-md">
+                    <span class="shrink-0 px-1 bg-dark-elevated text-dark-text-secondary">{u.label}</span>
                     <span class="truncate" title={u.url}>{methodsOf(t).join('/')} {u.url}</span>
-                    <button onclick={() => copy(u.url)} class="p-0.5 shrink-0 hover:bg-gray-200 dark:hover:bg-dark-elevated hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Copy URL">
+                    <button onclick={() => copy(u.url)} class="p-0.5 shrink-0 hover:bg-dark-elevated hover:text-dark-text-secondary" title="Copy URL">
                       <Copy size={10} />
                     </button>
                   </div>
                 {/each}
               </td>
               <td class="px-4 py-2.5">
-                <span class="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+                <span class="text-xs px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary">
                   Workflow
                 </span>
-                <span class="ml-1.5 text-xs text-gray-700 dark:text-dark-text-secondary">{getTargetName(t)}</span>
+                <span class="ml-1.5 text-xs text-dark-text-secondary">{getTargetName(t)}</span>
               </td>
               <td class="px-4 py-2.5 space-y-0.5">
                 {#if t.public}
-                  <span class="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                  <span class="flex items-center gap-1 text-xs text-amber-400">
                     <ShieldOff size={12} />
                     Public
                   </span>
                 {:else}
-                  <span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                  <span class="flex items-center gap-1 text-xs text-green-400">
                     <ShieldCheck size={12} />
                     Token
                   </span>
                 {/if}
                 {#if t.signature?.scheme}
-                  <span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400" title="Requests must carry a valid HMAC signature">
+                  <span class="flex items-center gap-1 text-xs text-green-400" title="Requests must carry a valid HMAC signature">
                     <KeyRound size={12} />
                     {t.signature.scheme === 'hmac_sha256' ? 'HMAC' : t.signature.scheme === 'github' ? 'GitHub' : 'Stripe'}
                   </span>
@@ -773,7 +773,7 @@
               <td class="px-4 py-2.5">
                 <button
                   onclick={() => toggleEnabled(t)}
-                  class={['inline-flex items-center gap-1 text-xs', t.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-dark-text-muted']}
+                  class={['inline-flex items-center gap-1 text-xs', t.enabled ? 'text-green-400' : 'text-dark-text-muted']}
                   title={t.enabled ? 'Click to disable' : 'Click to enable'}
                 >
                   {#if t.enabled}
@@ -789,25 +789,25 @@
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => openHistory(t)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Recent deliveries"
                   >
                     <History size={14} />
                   </button>
                   <button
                     onclick={() => openEdit(t)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Edit"
                   >
                     <Pencil size={14} />
                   </button>
                   {#if deleteConfirm === t.id}
-                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 ">Confirm</button>
-                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700">Confirm</button>
+                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated">Cancel</button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = t.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                      class="p-1.5 hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                       title="Delete"
                     >
                       <Trash2 size={14} />

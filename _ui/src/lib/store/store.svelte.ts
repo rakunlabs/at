@@ -3,20 +3,10 @@ export const storeNavbar = $state({
   sideBarOpen: true
 });
 
-export const storeTheme = $state({
-  mode: (localStorage.getItem("theme") as "light" | "dark") || "light",
-});
-
-function applyTheme(mode: "light" | "dark") {
-  document.documentElement.classList.toggle("dark", mode === "dark");
-}
-
-$effect.root(() => {
-  $effect(() => {
-    applyTheme(storeTheme.mode);
-    localStorage.setItem("theme", storeTheme.mode);
-  });
-});
+// The interface has a single dark theme. `.dark` stays on <html> so `dark:`
+// variants and `:global(.dark)` rules keep applying everywhere.
+document.documentElement.classList.add("dark");
+localStorage.removeItem("theme");
 
 export const storeInfo = $state({
   name: "AT",

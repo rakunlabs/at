@@ -57,8 +57,8 @@
   const dirty = $derived(!locked && (JSON.stringify(brief) !== baseline || templateName !== templateNameBaseline));
   const output = $derived(selected?.output);
   const outputPath = $derived(output?.final_video ? (output.final_video.startsWith('/') ? output.final_video : `${selected?.dir}/${output.final_video}`) : '');
-  const inputClass = 'w-full px-3 py-2 text-xs bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-accent disabled:opacity-60';
-  const buttonClass = 'inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2';
+  const inputClass = 'w-full px-3 py-2 text-xs bg-dark-surface border border-dark-border text-dark-text focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-60';
+  const buttonClass = 'inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs border border-dark-border hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2';
 
   function autosave() {
     if (!recoveryReady || storageUnavailable) return;
@@ -358,19 +358,19 @@
 
 <svelte:window onbeforeunload={(event) => { if (dirty || busy || Object.keys(pendingReceipts).length) { event.preventDefault(); event.returnValue = ''; } }} />
 
-<section aria-label="Long videos" class="space-y-5 text-gray-700 dark:text-dark-text-secondary">
+<section aria-label="Long videos" class="space-y-5 text-dark-text-secondary">
   <header class="flex flex-wrap items-start justify-between gap-3">
-    <div><h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Long Videos</h2><p class="mt-1 text-xs">Shape a standalone video brief, save a draft, then launch production when ready.</p></div>
+    <div><h2 class="text-sm font-semibold text-dark-text">Long Videos</h2><p class="mt-1 text-xs">Shape a standalone video brief, save a draft, then launch production when ready.</p></div>
     <div class="flex gap-2">
       <button class={buttonClass} disabled={busy || loading || assistantStreaming} onclick={() => choose()}><Plus size={13} /> New draft</button>
       <button class={buttonClass} disabled={busy || loading || assistantStreaming} onclick={refresh}>{#if loading}<Loader2 size={13} class="animate-spin" />{:else}<RefreshCw size={13} />{/if} Refresh</button>
     </div>
   </header>
 
-  <section aria-label="Reusable video templates" class="space-y-3 border-y border-gray-200 dark:border-dark-border py-4">
+  <section aria-label="Reusable video templates" class="space-y-3 border-y border-dark-border py-4">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="max-w-3xl space-y-1 text-xs leading-5">
-        <h3 class="font-semibold text-gray-900 dark:text-dark-text">Reusable templates</h3>
+        <h3 class="font-semibold text-dark-text">Reusable templates</h3>
         <p>Build settings in the brief editor below, then save a named snapshot. Templates keep language, audience, duration, format, style, content guidance, and outline fixed; each Telegram request supplies a new topic. No placeholders are needed.</p>
       </div>
       <button class={buttonClass} disabled={busy || loading || assistantStreaming} onclick={documentaryStarter}>Documentary starter</button>
@@ -387,25 +387,25 @@
     {#if selectedTemplate}
       <p class="break-words text-xs leading-5">Saved settings: {selectedTemplate.brief.language} / {selectedTemplate.brief.duration_minutes} min / {selectedTemplate.brief.aspect_ratio} / Audience: {selectedTemplate.brief.audience || 'Not specified'}. Updated {new Date(selectedTemplate.updated_at).toLocaleString()}. Editing opens a new draft, not an existing production.</p>
     {/if}
-    {#if templateError}<p role="alert" class="text-xs text-red-700 dark:text-red-300">Could not load templates: {templateError}. Refresh to retry.</p>{/if}
-    {#if templateWarnings.length}<details class="break-words text-xs text-amber-800 dark:text-amber-300"><summary class="cursor-pointer">{templateWarnings.length} template(s) could not be loaded</summary>{#each templateWarnings as warning}<p class="mt-2">{warning}</p>{/each}</details>{/if}
+    {#if templateError}<p role="alert" class="text-xs text-red-300">Could not load templates: {templateError}. Refresh to retry.</p>{/if}
+    {#if templateWarnings.length}<details class="break-words text-xs text-amber-300"><summary class="cursor-pointer">{templateWarnings.length} template(s) could not be loaded</summary>{#each templateWarnings as warning}<p class="mt-2">{warning}</p>{/each}</details>{/if}
     <p class="text-xs leading-5">For Telegram, open <a href="#/bots" class="underline underline-offset-2">Bots &gt; Custom Commands</a>, choose the <strong>Long Video Studio</strong> organization and your saved template in the template dropdown. For example, bind <code>/belgesel</code>, then send <code>/belgesel New Zealand extinct animals</code>. The new topic replaces only the topic, not your full brief or production settings.</p>
   </section>
 
-  {#if !longVideoOrg}<p class="px-3 py-2 text-xs bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300">Long Video Studio is not installed. Use <strong>Sync studio</strong> to install its production team. You can still prepare and save drafts.</p>{/if}
-  {#if !assetsRoot}<p role="alert" class="text-xs text-red-700 dark:text-red-300">The asset library is unavailable. Reload Studio before saving or launching.</p>{/if}
-  {#if error}<p role="alert" class="break-words px-3 py-2 text-xs bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">{error}</p>{/if}
+  {#if !longVideoOrg}<p class="px-3 py-2 text-xs bg-amber-950 text-amber-300">Long Video Studio is not installed. Use <strong>Sync studio</strong> to install its production team. You can still prepare and save drafts.</p>{/if}
+  {#if !assetsRoot}<p role="alert" class="text-xs text-red-300">The asset library is unavailable. Reload Studio before saving or launching.</p>{/if}
+  {#if error}<p role="alert" class="break-words px-3 py-2 text-xs bg-red-950 text-red-300">{error}</p>{/if}
   {#if libraryWarnings.length}
-    <details class="text-xs break-words text-amber-800 dark:text-amber-300">
+    <details class="text-xs break-words text-amber-300">
       <summary class="cursor-pointer">{libraryWarnings.length} project(s) could not be loaded. Other drafts are still available.</summary>
       {#each libraryWarnings as warning}<p class="mt-2">{warning}</p>{/each}
     </details>
   {/if}
   {#if notice}<p role="status" class="text-xs">{notice}</p>{/if}
   {#if recoveryNotice}<p role="status" class="text-xs">{recoveryNotice}</p>{/if}
-  {#if recoveryError}<p role="alert" class="text-xs text-red-700 dark:text-red-300">{recoveryError}</p>{/if}
+  {#if recoveryError}<p role="alert" class="text-xs text-red-300">{recoveryError}</p>{/if}
   {#if Object.keys(pendingReceipts).length}
-    <div class="space-y-2 border-y border-gray-200 dark:border-dark-border py-3 text-xs">
+    <div class="space-y-2 border-y border-dark-border py-3 text-xs">
       <p>Accepted tasks with a pending saved link. These are already running; do not launch them again.</p>
       {#each Object.entries(pendingReceipts) as [id, task] (id)}
         <div class="flex flex-wrap items-center gap-3">
@@ -420,10 +420,10 @@
     <aside aria-label="Video projects" class="min-w-0">
       <h3 class="mb-2 text-xs font-semibold">Saved projects</h3>
       {#if loading}<p role="status" class="text-xs">Loading projects...</p>{:else if !libraryReady}<p class="text-xs">Projects could not be loaded. Refresh to retry.</p>{:else if !projects.length}<p class="text-xs leading-5">No saved videos yet. Start with a topic and save your first draft.</p>{/if}
-      <ul class="divide-y divide-gray-200 dark:divide-dark-border">
+      <ul class="divide-y divide-dark-border">
         {#each projects as project (project.brief.id)}
-          <li><button disabled={busy || loading || assistantStreaming} onclick={() => choose(project)} aria-current={project.brief.id === brief.id ? 'true' : undefined} class={['w-full text-left py-3 px-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2', project.brief.id === brief.id ? 'bg-gray-100 dark:bg-dark-elevated' : '']}>
-            <span class="block break-words font-medium text-gray-900 dark:text-dark-text">{project.brief.title || 'Untitled video'}</span>
+          <li><button disabled={busy || loading || assistantStreaming} onclick={() => choose(project)} aria-current={project.brief.id === brief.id ? 'true' : undefined} class={['w-full text-left py-3 px-2 text-xs hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2', project.brief.id === brief.id ? 'bg-dark-elevated' : '']}>
+            <span class="block break-words font-medium text-dark-text">{project.brief.title || 'Untitled video'}</span>
             <span class="mt-1 block">{project.output?.status || (project.task_id || receipts[project.brief.id] ? 'Submitted' : 'Draft')} - {project.brief.duration_minutes} min</span>
           </button></li>
         {/each}
@@ -432,7 +432,7 @@
 
     <div class="min-w-0 space-y-5">
       <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <h3 class="font-semibold text-gray-900 dark:text-dark-text">{locked ? 'Production brief (read-only)' : editingTemplateId ? 'Template draft' : 'Video brief'}</h3>
+        <h3 class="font-semibold text-dark-text">{locked ? 'Production brief (read-only)' : editingTemplateId ? 'Template draft' : 'Video brief'}</h3>
         <span>{dirty ? 'Unsaved changes' : editingTemplateId && !locked ? 'Template working draft' : selected ? 'Saved' : 'New draft'}</span>
       </div>
       {#if editingTemplateId && !locked}<p class="break-words text-xs leading-5">Editing template: <strong>{editingTemplate?.name || effectiveTemplateName || editingTemplateId}</strong>. Update it explicitly for future runs, or save a separate copy. Launching this draft creates a new project and does not update the template.</p>{/if}
@@ -457,29 +457,29 @@
        </div>
 
       {#if !locked}
-        <section aria-label="Save reusable template" class="space-y-3 border-t border-gray-200 dark:border-dark-border pt-4">
-          <h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text">Save as reusable template</h3>
+        <section aria-label="Save reusable template" class="space-y-3 border-t border-dark-border pt-4">
+          <h3 class="text-xs font-semibold text-dark-text">Save as reusable template</h3>
           <p class="text-xs leading-5">Save the current editor settings without launching production or approving paid generation. Updates affect future Telegram runs only, never old projects.</p>
           <label class="block max-w-xl space-y-1.5 text-xs"><span class="block">Template name (required)</span><input class={inputClass} value={effectiveTemplateName} oninput={(event) => templateName = event.currentTarget.value} disabled={disabled || assistantStreaming} required placeholder="For example: Research-led wildlife documentary" /></label>
           <div class="flex flex-wrap gap-2">
             {#if editingTemplateId}<button class={buttonClass} disabled={disabled || assistantStreaming || !assetsRoot || !templatesReady || !editingTemplate || !effectiveTemplateName.trim()} onclick={() => saveTemplate(true)}><Save size={13} /> Update existing template</button>{/if}
             <button class={buttonClass} disabled={disabled || assistantStreaming || !assetsRoot || !effectiveTemplateName.trim()} onclick={() => saveTemplate(false)}><Save size={13} /> {editingTemplateId ? 'Save copy as new template' : 'Save as reusable template'}</button>
           </div>
-          {#if editingTemplateId && templatesReady && !editingTemplate}<p role="status" class="text-xs text-amber-800 dark:text-amber-300">The original template is unavailable. Your recovered draft is safe; save a new copy instead.</p>{/if}
+          {#if editingTemplateId && templatesReady && !editingTemplate}<p role="status" class="text-xs text-amber-300">The original template is unavailable. Your recovered draft is safe; save a new copy instead.</p>{/if}
         </section>
-        <div class="space-y-3 border-t border-gray-200 dark:border-dark-border pt-4">
+        <div class="space-y-3 border-t border-dark-border pt-4">
           <p class="text-xs leading-5">Saving and AI brief editing do not launch production. Launching starts <strong>paid generation</strong> through your configured providers; longer videos can incur substantial costs. The submitted brief cannot be edited.</p>
           <label class="flex items-start gap-2 text-xs"><input type="checkbox" bind:checked={paidConfirmed} disabled={disabled} class="mt-0.5" /><span>I understand launching may incur provider charges.</span></label>
           <div class="flex flex-wrap gap-2">
             <button class={buttonClass} disabled={disabled || assistantStreaming || !assetsRoot || !libraryReady} onclick={save}><Save size={13} /> Save draft</button>
-            <button onclick={launch} disabled={disabled || assistantStreaming || !assetsRoot || !libraryReady || !longVideoOrg || !paidConfirmed || !brief.title.trim() || !brief.topic.trim() || !brief.content_brief.trim()} class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2">{#if busy}<Loader2 size={13} class="animate-spin" />{:else}<Video size={13} />{/if} Launch paid production</button>
+            <button onclick={launch} disabled={disabled || assistantStreaming || !assetsRoot || !libraryReady || !longVideoOrg || !paidConfirmed || !brief.title.trim() || !brief.topic.trim() || !brief.content_brief.trim()} class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2">{#if busy}<Loader2 size={13} class="animate-spin" />{:else}<Video size={13} />{/if} Launch paid production</button>
           </div>
         </div>
       {/if}
 
       {#if locked}
-        <section class="space-y-3 border-t border-gray-200 dark:border-dark-border pt-4" aria-label="Video output">
-          <h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text">Production output</h3>
+        <section class="space-y-3 border-t border-dark-border pt-4" aria-label="Video output">
+          <h3 class="text-xs font-semibold text-dark-text">Production output</h3>
            <p class="text-xs">{output?.status || 'Waiting for production updates'}. Use Refresh to check progress.{#if output?.duration_s != null} Duration: {output.duration_s} seconds.{/if}</p>
           {#if outputPath}
             <!-- Generated media may not have a captions track; retain native playback controls. -->

@@ -365,27 +365,27 @@
 
   function statusClasses(status: string): string {
     switch (status) {
-      case 'backlog': return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
+      case 'backlog': return 'bg-dark-elevated text-dark-text-muted';
       case 'open':
-      case 'todo': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
-      case 'in_progress': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+      case 'todo': return 'bg-blue-900/30 text-blue-400';
+      case 'in_progress': return 'bg-yellow-900/30 text-yellow-400';
       case 'in_review':
-      case 'review': return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
-      case 'blocked': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+      case 'review': return 'bg-purple-900/30 text-purple-400';
+      case 'blocked': return 'bg-red-900/30 text-red-400';
       case 'completed':
-      case 'done': return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
-      case 'cancelled': return 'bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted';
-      default: return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
+      case 'done': return 'bg-green-900/30 text-green-400';
+      case 'cancelled': return 'bg-dark-elevated text-dark-text-muted';
+      default: return 'bg-dark-elevated text-dark-text-muted';
     }
   }
 
   function priorityClasses(priority: string): string {
     switch (priority) {
-      case 'critical': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-      case 'high': return 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400';
-      case 'medium': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
-      case 'low': return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
-      default: return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
+      case 'critical': return 'bg-red-900/30 text-red-400';
+      case 'high': return 'bg-orange-900/30 text-orange-400';
+      case 'medium': return 'bg-yellow-900/30 text-yellow-400';
+      case 'low': return 'bg-dark-elevated text-dark-text-muted';
+      default: return 'bg-dark-elevated text-dark-text-muted';
     }
   }
 
@@ -929,12 +929,12 @@
 {#snippet delegationNode(node: TaskWithSubtasks, depth: number)}
   {@const isLive = activeTaskIds.has(node.id)}
   <div class="subtask-row {isLive ? 'subtask-row-live' : ''}" style="padding-left: {depth * 20}px">
-    <div class="subtask-inner flex items-center gap-2 px-3 py-2 ">
+    <div class="subtask-inner flex items-center gap-2 px-3 py-2">
       <!-- Expand/collapse toggle -->
       {#if node.sub_tasks?.length}
         <button
           onclick={() => toggleNode(node.id)}
-          class="p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary shrink-0"
+          class="p-0.5 text-dark-text-muted hover:text-dark-text-secondary shrink-0"
         >
           {#if expandedNodes.has(node.id)}
             <ChevronDown size={12} />
@@ -961,20 +961,20 @@
 
       <!-- Identifier -->
       {#if node.identifier}
-        <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted shrink-0">{node.identifier}</span>
+        <span class="text-[10px] font-mono text-dark-text-muted shrink-0">{node.identifier}</span>
       {/if}
 
       <!-- Title (clickable link) -->
       <a
         href="#/tasks/{node.id}"
-        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 truncate flex-1 {isLive ? 'font-medium' : ''}"
+        class="text-sm text-dark-text hover:text-blue-400 truncate flex-1 {isLive ? 'font-medium' : ''}"
       >
         {node.title}
       </a>
 
       <!-- Assigned agent -->
       {#if node.assigned_agent_id}
-        <span class="flex items-center gap-1 text-[10px] {isLive ? 'text-green-700 dark:text-green-400 font-medium' : 'text-gray-400 dark:text-dark-text-muted'} shrink-0" title="{isLive ? 'Currently working: ' : 'Assigned to '}{agentDisplayName(node.assigned_agent_id)}">
+        <span class="flex items-center gap-1 text-[10px] {isLive ? 'text-green-400 font-medium' : 'text-dark-text-muted'} shrink-0" title="{isLive ? 'Currently working: ' : 'Assigned to '}{agentDisplayName(node.assigned_agent_id)}">
           <User size={10} />
           <span class="max-w-[100px] truncate">{agentDisplayName(node.assigned_agent_id)}</span>
         </span>
@@ -982,7 +982,7 @@
 
       <!-- Child count indicator -->
       {#if node.sub_tasks?.length}
-        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0">
+        <span class="text-[10px] text-dark-text-muted shrink-0">
           {node.sub_tasks.length} sub
         </span>
       {/if}
@@ -999,7 +999,7 @@
 
 {#if loading}
   <div class="flex items-center justify-center h-full">
-    <div class="text-sm text-gray-400 dark:text-dark-text-muted">Loading task...</div>
+    <div class="text-sm text-dark-text-muted">Loading task...</div>
   </div>
 {:else if task}
   <div class="h-full overflow-y-auto">
@@ -1009,7 +1009,7 @@
       <div class="flex items-center justify-between mb-4">
         <button
           onclick={() => push('/tasks')}
-          class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+          class="flex items-center gap-1.5 text-xs text-dark-text-muted hover:text-dark-text-secondary"
         >
           <ArrowLeft size={14} />
           Back to Tasks
@@ -1017,7 +1017,7 @@
         <button
           onclick={() => { loadTask(); loadLabels(); loadSubTasks(); }}
           disabled={loading}
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 "
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-dark-text-muted hover:text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
           title="Refresh task"
         >
           <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
@@ -1036,27 +1036,27 @@
                   type="text"
                   bind:value={editTitle}
                   onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelEditTitle(); }}
-                  class="flex-1 text-xl font-semibold border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text "
+                  class="flex-1 text-xl font-semibold border border-dark-border-subtle px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text"
                 />
                 <button onclick={saveTitle} disabled={saving}
-                  class="p-1.5 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover " title="Save">
+                  class="p-1.5 text-dark-base bg-accent hover:bg-accent-hover" title="Save">
                   <Check size={14} />
                 </button>
                 <button onclick={cancelEditTitle}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 " title="Cancel">
+                  class="p-1.5 border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-muted" title="Cancel">
                   <X size={14} />
                 </button>
               </div>
             {:else}
               <div class="flex items-start gap-2">
-                <h1 class="text-xl font-semibold text-gray-900 dark:text-dark-text break-words flex-1">
+                <h1 class="text-xl font-semibold text-dark-text break-words flex-1">
                   {#if task.identifier}
-                    <span class="text-sm font-mono text-gray-400 dark:text-dark-text-muted mr-2">{task.identifier}</span>
+                    <span class="text-sm font-mono text-dark-text-muted mr-2">{task.identifier}</span>
                   {/if}
                   {task.title}
                 </h1>
                 <button onclick={startEditTitle}
-                  class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text shrink-0" title="Edit title">
+                  class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text shrink-0" title="Edit title">
                   <Pencil size={14} />
                 </button>
               </div>
@@ -1066,10 +1066,10 @@
           <!-- Description -->
           <div class="group">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</span>
+              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
               {#if !editingDescription}
                 <button onclick={startEditDescription}
-                  class="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text " title="Edit description">
+                  class="p-1 opacity-0 group-hover:opacity-100 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text" title="Edit description">
                   <Pencil size={12} />
                 </button>
               {/if}
@@ -1080,16 +1080,16 @@
                 <textarea
                   bind:value={editDescription}
                   rows="5"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"
+                  class="w-full border border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text resize-y"
                   placeholder="Add a description..."
                 ></textarea>
                 <div class="flex gap-2">
                   <button onclick={saveDescription} disabled={saving}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover ">
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-dark-base bg-accent hover:bg-accent-hover">
                     <Save size={12} /> Save
                   </button>
                   <button onclick={cancelEditDescription}
-                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
+                    class="px-3 py-1.5 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">
                     Cancel
                   </button>
                 </div>
@@ -1098,12 +1098,12 @@
               {#if task.description}
                 <Markdown
                   source={task.description}
-                  class="text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed min-h-[2rem]"
+                  class="text-sm text-dark-text-secondary leading-relaxed min-h-[2rem]"
                   enhance
                 />
               {:else}
                 <div class="text-sm min-h-[2rem]">
-                  <span class="text-gray-400 dark:text-dark-text-muted italic">No description</span>
+                  <span class="text-dark-text-muted italic">No description</span>
                 </div>
               {/if}
             {/if}
@@ -1111,14 +1111,14 @@
 
           <!-- Result -->
           {#if task.result}
-            <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-              <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Result</span>
+            <div class="border border-dark-border bg-dark-surface">
+              <div class="px-3 py-2 border-b border-dark-border">
+                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wider">Result</span>
               </div>
               <div class="px-3 py-3">
                 <Markdown
                   source={task.result}
-                  class="text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed break-words"
+                  class="text-sm text-dark-text-secondary leading-relaxed break-words"
                   enhance
                 />
               </div>
@@ -1126,11 +1126,11 @@
           {/if}
 
           <!-- Tabs -->
-          <div class="border-b border-gray-200 dark:border-dark-border">
+          <div class="border-b border-dark-border">
             <div class="flex gap-0">
               <button
                 onclick={() => (tabRoute.value = 'activity')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'activity' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'activity' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
               >
                 <Activity size={13} />
                 Activity
@@ -1140,19 +1140,19 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'comments')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'comments' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'comments' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
               >
                 <MessageSquare size={13} />
                 Comments
               </button>
               <button
                 onclick={() => (tabRoute.value = 'subtasks')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'subtasks' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'subtasks' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
               >
                 <ListTree size={13} />
                 Sub-tasks
                 {#if taskTree?.sub_tasks?.length}
-                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted">{taskTree.sub_tasks.length}</span>
+                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-dark-elevated text-dark-text-muted">{taskTree.sub_tasks.length}</span>
                 {/if}
                 {#if delegationActive}
                   <span class="relative flex w-1.5 h-1.5 ml-0.5" title="Live delegation in this tree">
@@ -1163,7 +1163,7 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'events')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'events' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'events' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
                 title="Live audit timeline for this task and its delegation tree"
               >
                 <Clock size={13} />
@@ -1177,12 +1177,12 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'labels')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'labels' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'labels' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
               >
                 <Tag size={13} />
                 Labels
                 {#if taskLabels.length > 0}
-                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted">{taskLabels.length}</span>
+                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-dark-elevated text-dark-text-muted">{taskLabels.length}</span>
                 {/if}
               </button>
             </div>
@@ -1192,28 +1192,28 @@
           <div class="min-h-[200px]">
             {#if activeTab === 'activity'}
               <!-- ─── Activity / Chat panel ─── -->
-              <div class="flex flex-col h-[550px] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+              <div class="flex flex-col h-[550px] border border-dark-border bg-dark-surface overflow-hidden">
                 <!-- Chat messages area -->
                 <div bind:this={chatMessagesContainer} onscroll={handleChatScroll} class="flex-1 overflow-y-auto min-h-0">
                   {#if chatLoading}
                     <div class="flex items-center justify-center h-full">
-                      <div class="flex items-center gap-2 text-xs text-gray-400 dark:text-dark-text-muted">
+                      <div class="flex items-center gap-2 text-xs text-dark-text-muted">
                         <Loader2 size={14} class="animate-spin" />
                         Loading chat session...
                       </div>
                     </div>
                   {:else if !chatSessionId}
                     <div class="flex flex-col items-center justify-center h-full text-center px-6">
-                      <Activity size={24} class="text-gray-300 dark:text-dark-text-faint mb-3" />
-                      <p class="text-sm text-gray-500 dark:text-dark-text-muted mb-1">No chat session available</p>
-                      <p class="text-[11px] text-gray-400 dark:text-dark-text-muted mb-4">
+                      <Activity size={24} class="text-dark-text-faint mb-3" />
+                      <p class="text-sm text-dark-text-muted mb-1">No chat session available</p>
+                      <p class="text-[11px] text-dark-text-muted mb-4">
                         This task needs an organization with an assigned agent to enable chat.
                       </p>
                       {#if task?.organization_id}
                         <button
                           onclick={handleOpenChat}
                           disabled={openingChat}
-                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
                         >
                           <MessageSquare size={12} />
                           {openingChat ? 'Starting...' : 'Start Chat Session'}
@@ -1223,21 +1223,21 @@
                   {:else}
                     <div class="px-4 py-3 space-y-1">
                       {#if chatLoadingOlder}
-                        <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
+                        <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-dark-text-muted">
                           <Loader2 size={12} class="animate-spin" /> Loading older messages…
                         </div>
                       {:else if chatHasOlder}
                         <div class="flex items-center justify-center py-1">
                           <button
                             onclick={loadOlderChatMessages}
-                            class="text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:underline"
+                            class="text-[11px] text-dark-text-muted hover:text-dark-text-secondary hover:underline"
                           >Load older messages</button>
                         </div>
                       {/if}
                       {#if chatMessages.length === 0 && !chatSending}
                         <div class="flex flex-col items-center justify-center py-12 text-center">
-                          <MessageSquare size={20} class="text-gray-300 dark:text-dark-text-faint mb-2" />
-                          <p class="text-xs text-gray-400 dark:text-dark-text-muted">
+                          <MessageSquare size={20} class="text-dark-text-faint mb-2" />
+                          <p class="text-xs text-dark-text-muted">
                             Send a message to start chatting with the agent.
                           </p>
                         </div>
@@ -1247,18 +1247,18 @@
                         {#if msg.role === 'user'}
                           <div class="py-1.5">
                             <div class="flex items-baseline gap-2">
-                              <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 select-none shrink-0">you</span>
-                              <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                              <span class="text-[11px] font-bold text-blue-400 select-none shrink-0">you</span>
+                              <span class="text-[10px] text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
                             </div>
-                            <div class="mt-0.5 text-[13px] text-gray-800 dark:text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
+                            <div class="mt-0.5 text-[13px] text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
                           </div>
                         {:else if msg.role === 'assistant'}
                           <div class="py-1.5">
                             <div class="flex items-baseline gap-2">
-                              <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none shrink-0">assistant</span>
-                              <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                              <span class="text-[11px] font-bold text-green-400 select-none shrink-0">assistant</span>
+                              <span class="text-[10px] text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
                               {#if msg.data.tool_calls}
-                                <span class="text-[10px] text-yellow-600 dark:text-yellow-400">
+                                <span class="text-[10px] text-yellow-400">
                                   [{Array.isArray(msg.data.tool_calls) ? msg.data.tool_calls.map((tc: any) => tc.Name || tc.name || tc.function?.name).join(', ') : 'tools'}]
                                 </span>
                               {/if}
@@ -1271,18 +1271,18 @@
                         {:else if msg.role === 'tool'}
                           {@const toolText = getMessageText(msg.data)}
                           {@const toolId = `tool-${msg.id}`}
-                          <div class="py-0.5 pl-4 border-l-2 border-gray-200 dark:border-dark-border">
+                          <div class="py-0.5 pl-4 border-l-2 border-dark-border">
                             <button
-                              class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                              class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
                               onclick={() => { chatExpandedTools[toolId] = !chatExpandedTools[toolId]; }}
                             >
-                              tool {#if msg.data.tool_call_id}<span class="text-gray-500">{msg.data.tool_call_id.slice(0, 12)}</span>{/if}
+                              tool {#if msg.data.tool_call_id}<span class="text-dark-text-muted">{msg.data.tool_call_id.slice(0, 12)}</span>{/if}
                               <span class="ml-1">{chatExpandedTools[toolId] ? '▼' : '▶'} {toolText.length > 150 ? `${toolText.length} chars` : ''}</span>
                             </button>
                             {#if chatExpandedTools[toolId]}
-                              <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 border border-gray-200 dark:border-dark-border">{toolText}</pre>
+                              <pre class="text-[11px] text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-96 overflow-y-auto bg-dark-base p-2 border border-dark-border">{toolText}</pre>
                             {:else}
-                              <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-8 overflow-hidden">{toolText.slice(0, 150)}{toolText.length > 150 ? '...' : ''}</pre>
+                              <pre class="text-[11px] text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-8 overflow-hidden">{toolText.slice(0, 150)}{toolText.length > 150 ? '...' : ''}</pre>
                             {/if}
                           </div>
                         {/if}
@@ -1290,10 +1290,10 @@
 
                       <!-- Streaming tool events -->
                       {#if chatToolEvents.length > 0}
-                        <div class="py-0.5 pl-4 border-l-2 border-yellow-300 dark:border-yellow-600">
+                        <div class="py-0.5 pl-4 border-l-2 border-yellow-600">
                           {#each chatToolEvents as evt}
                             {#if evt.type === 'call'}
-                              <div class="flex items-center gap-1 text-[11px] text-yellow-700 dark:text-yellow-400">
+                              <div class="flex items-center gap-1 text-[11px] text-yellow-400">
                                 <Loader2 size={10} class="animate-spin" />
                                 <span>{evt.name}</span>
                               </div>
@@ -1301,10 +1301,10 @@
                               {@const evtResult = evt.result || ''}
                               {@const evtId = `stream-${evt.id || evt.name}`}
                               <button
-                                class="text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary text-left"
+                                class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary text-left"
                                 onclick={() => { chatExpandedTools[evtId] = !chatExpandedTools[evtId]; }}
                               >
-                                <span class="text-green-600 dark:text-green-400">{evt.name}</span>
+                                <span class="text-green-400">{evt.name}</span>
                                 {#if chatExpandedTools[evtId]}
                                   <span class="ml-1">▼</span>
                                 {:else}
@@ -1313,7 +1313,7 @@
                                 {/if}
                               </button>
                               {#if chatExpandedTools[evtId]}
-                                <pre class="mt-0.5 text-[11px] font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 border border-gray-200 dark:border-dark-border">{evtResult}</pre>
+                                <pre class="mt-0.5 text-[11px] font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto bg-dark-base p-2 border border-dark-border">{evtResult}</pre>
                               {/if}
                             {/if}
                           {/each}
@@ -1324,9 +1324,9 @@
                       {#if chatStreamContent}
                         <div class="py-1.5">
                           <div class="flex items-baseline gap-2">
-                            <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none">assistant</span>
+                            <span class="text-[11px] font-bold text-green-400 select-none">assistant</span>
                             {#if chatSending}
-                              <Loader2 size={10} class="animate-spin text-gray-400" />
+                              <Loader2 size={10} class="animate-spin text-dark-text-muted" />
                             {/if}
                           </div>
                           <Markdown
@@ -1343,7 +1343,7 @@
 
                 <!-- Input bar -->
                 {#if chatSessionId}
-                  <div class="border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-2 shrink-0">
+                  <div class="border-t border-dark-border bg-dark-elevated px-3 py-2 shrink-0">
                     <div class="flex items-center gap-2">
                       <textarea
                         bind:this={chatInputEl}
@@ -1352,12 +1352,12 @@
                         placeholder="Message the agent... (Enter to send)"
                         rows={1}
                         disabled={chatSending}
-                        class="flex-1 resize-none bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border px-3 py-1.5 text-[13px] text-gray-800 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 disabled:opacity-50"
+                        class="flex-1 resize-none bg-dark-surface border border-dark-border px-3 py-1.5 text-[13px] text-dark-text placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
                       ></textarea>
                       {#if chatSending}
                         <button
                           onclick={stopChatGeneration}
-                          class="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
+                          class="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-900/20 shrink-0"
                           title="Stop generation"
                         >
                           <Square size={14} />
@@ -1366,7 +1366,7 @@
                         <button
                           onclick={handleChatSend}
                           disabled={!chatInput.trim()}
-                          class="p-1.5 text-gray-500 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-20 shrink-0"
+                          class="p-1.5 text-dark-text-muted hover:text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-20 shrink-0"
                           title="Send"
                         >
                           <Send size={14} />
@@ -1380,10 +1380,10 @@
               <CommentThread taskId={params.id} />
             {:else if activeTab === 'subtasks'}
               {#if subTasksLoading}
-                <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading delegation tree...</div>
+                <div class="text-sm text-dark-text-muted py-8 text-center">Loading delegation tree...</div>
               {:else if !taskTree?.sub_tasks?.length}
-                <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
-                  <ListTree size={20} class="text-gray-300 dark:text-dark-text-faint" />
+                <div class="text-sm text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
+                  <ListTree size={20} class="text-dark-text-faint" />
                   <span>No delegation chain</span>
                   <span class="text-[10px]">Sub-tasks created by delegation will appear here as a tree</span>
                 </div>
@@ -1396,12 +1396,12 @@
               {/if}
             {:else if activeTab === 'events'}
               <!-- ─── Live observation timeline for the whole delegation tree ─── -->
-              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-                <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Trace Timeline</span>
+              <div class="border border-dark-border bg-dark-surface">
+                <div class="px-3 py-2 border-b border-dark-border flex items-center justify-between">
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Trace Timeline</span>
                   <button
                     onclick={loadEvents}
-                    class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                    class="flex items-center gap-1 text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
                     title="Refresh"
                   >
                     <RefreshCw size={11} class={eventsLoading ? 'animate-spin' : ''} />
@@ -1409,10 +1409,10 @@
                   </button>
                 </div>
                 {#if eventsLoading && events.length === 0}
-                  <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading events...</div>
+                  <div class="text-sm text-dark-text-muted py-8 text-center">Loading events...</div>
                 {:else if events.length === 0}
-                  <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
-                    <Clock size={18} class="text-gray-300 dark:text-dark-text-faint" />
+                  <div class="text-sm text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
+                    <Clock size={18} class="text-dark-text-faint" />
                     <span>No events yet</span>
                     <span class="text-[10px]">LLM calls, tool calls, delegations, and status changes will appear here as the agent works</span>
                   </div>
@@ -1421,40 +1421,40 @@
                     {#each events as e (e.id)}
                       {@const isLive = activeTaskIds.has(e.task_id)}
                       {@const isErr = e.status === 'error' || e.level === 'error'}
-                      <div class="border-b border-gray-100 dark:border-dark-border-subtle {isLive ? 'bg-green-50/50 dark:bg-green-900/10' : ''} {isErr ? 'bg-red-50/50 dark:bg-red-900/10' : ''}">
+                      <div class="border-b border-dark-border-subtle {isLive ? 'bg-green-900/10' : ''} {isErr ? 'bg-red-900/10' : ''}">
                         <div class="px-3 py-2 flex items-start gap-2 text-xs">
-                          <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
+                          <span class="text-[10px] text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
                             {formatDateTime(e.created_at)}
                           </span>
-                          <span class="font-medium text-gray-700 dark:text-dark-text-secondary shrink-0 max-w-[140px] truncate">
+                          <span class="font-medium text-dark-text-secondary shrink-0 max-w-[140px] truncate">
                             {eventActor(e)}
                           </span>
                           {#if eventExpandable(e)}
                             <button
                               onclick={() => (expandedEvents[e.id] = !expandedEvents[e.id])}
-                              class="text-gray-500 dark:text-dark-text-muted shrink-0 hover:text-gray-700 dark:hover:text-dark-text-secondary hover:underline text-left"
+                              class="text-dark-text-muted shrink-0 hover:text-dark-text-secondary hover:underline text-left"
                               title="Show tool input/output"
                             >{eventLabel(e)}</button>
                           {:else}
-                            <span class="text-gray-500 dark:text-dark-text-muted shrink-0">{eventLabel(e)}</span>
+                            <span class="text-dark-text-muted shrink-0">{eventLabel(e)}</span>
                           {/if}
                           {#if isErr}
-                            <span class="text-[10px] text-red-600 dark:text-red-400 shrink-0">{e.error_code || 'error'}</span>
+                            <span class="text-[10px] text-red-400 shrink-0">{e.error_code || 'error'}</span>
                           {/if}
                           {#if e.task_id && e.task_id !== task.id}
                             <a
                               href="#/tasks/{e.task_id}"
-                              class="text-blue-600 dark:text-blue-400 hover:underline truncate flex-1 min-w-0"
+                              class="text-blue-400 hover:underline truncate flex-1 min-w-0"
                               title={eventTaskTitle(e) || e.task_id}
                             >
                               {eventTaskTitle(e) || e.task_id.slice(0, 12)}
                             </a>
                           {/if}
                           {#if eventStats(e)}
-                            <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0">{eventStats(e)}</span>
+                            <span class="ml-auto text-[10px] text-dark-text-muted whitespace-nowrap shrink-0">{eventStats(e)}</span>
                           {/if}
                           {#if e.trace_id}
-                            <a href={`#/traces/${encodeURIComponent(e.trace_id)}?obs=${encodeURIComponent(e.id)}`} class="{eventStats(e) ? '' : 'ml-auto'} shrink-0 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary" title="Open in trace explorer"><ExternalLink size={11} /></a>
+                            <a href={`#/traces/${encodeURIComponent(e.trace_id)}?obs=${encodeURIComponent(e.id)}`} class="{eventStats(e) ? '' : 'ml-auto'} shrink-0 text-dark-text-muted hover:text-dark-text-secondary" title="Open in trace explorer"><ExternalLink size={11} /></a>
                           {/if}
                           {#if isLive}
                             <span class="relative flex w-1.5 h-1.5 shrink-0 mt-1" title="In flight">
@@ -1467,14 +1467,14 @@
                           <div class="px-3 pb-2 space-y-1.5">
                             {#if e.input}
                               <div>
-                                <div class="text-[10px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider mb-0.5">Input</div>
-                                <pre class="text-[10px] leading-relaxed p-2 rounded bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border overflow-x-auto max-h-40 text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{e.input}</pre>
+                                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-0.5">Input</div>
+                                <pre class="text-[10px] leading-relaxed p-2 bg-dark-elevated border border-dark-border overflow-x-auto max-h-40 text-dark-text-secondary whitespace-pre-wrap break-words">{e.input}</pre>
                               </div>
                             {/if}
                             {#if e.output}
                               <div>
-                                <div class="text-[10px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider mb-0.5">Output</div>
-                                <pre class="text-[10px] leading-relaxed p-2 rounded bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border overflow-x-auto max-h-40 text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{e.output}</pre>
+                                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-0.5">Output</div>
+                                <pre class="text-[10px] leading-relaxed p-2 bg-dark-elevated border border-dark-border overflow-x-auto max-h-40 text-dark-text-secondary whitespace-pre-wrap break-words">{e.output}</pre>
                               </div>
                             {/if}
                           </div>
@@ -1484,26 +1484,26 @@
                   </div>
                 {/if}
               </div>
-              <p class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-2 italic">
+              <p class="text-[10px] text-dark-text-muted mt-2 italic">
                 Showing the most recent {events.length} trace observations across this task and its sub-tasks.
                 The list refreshes when you switch back to this tab; sub-tasks themselves auto-refresh while a delegation is running.
               </p>
             {:else if activeTab === 'labels'}
               {#if labelsLoading}
-                <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading labels...</div>
+                <div class="text-sm text-dark-text-muted py-8 text-center">Loading labels...</div>
               {:else}
                 <!-- Attached labels -->
                 {#if taskLabels.length > 0}
                   <div class="flex flex-wrap gap-2 mb-4">
                     {#each taskLabels as label}
-                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-dark-border bg-dark-surface">
                         {#if label.color}
                           <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
                         {/if}
                         {label.name}
                         <button
                           onclick={() => toggleLabel(label)}
-                          class="ml-1 p-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-red-500 "
+                          class="ml-1 p-0.5 hover:bg-dark-elevated text-dark-text-muted hover:text-red-500"
                           title="Remove label"
                         >
                           <X size={10} />
@@ -1516,7 +1516,7 @@
                 <!-- Add label -->
                 <button
                   onclick={() => (showLabelPicker = !showLabelPicker)}
-                  class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary mb-3"
+                  class="flex items-center gap-1.5 text-xs text-dark-text-muted hover:text-dark-text-secondary mb-3"
                 >
                   <Tag size={12} />
                   {showLabelPicker ? 'Hide label picker' : 'Add label'}
@@ -1524,31 +1524,31 @@
 
                 {#if showLabelPicker}
                   <!-- Inline create label -->
-                  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 mb-2">
+                  <div class="border border-dark-border bg-dark-surface p-3 mb-2">
                     <div class="flex items-center gap-2 mb-2">
                       <input
                         type="text"
                         bind:value={newLabelName}
                         placeholder="New label name..."
-                        class="flex-1 border border-gray-200 dark:border-dark-border px-2 py-1.5 text-xs bg-transparent dark:text-dark-text focus:outline-none focus:border-gray-400"
+                        class="flex-1 border border-dark-border px-2 py-1.5 text-xs bg-transparent text-dark-text focus:outline-none focus:border-dark-border-subtle"
                         onkeydown={(e) => { if (e.key === 'Enter') handleCreateLabel(); }}
                       />
                       <button
                         onclick={handleCreateLabel}
                         disabled={creatingLabel || !newLabelName.trim()}
-                        class="px-2.5 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+                        class="px-2.5 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
                       >
                         {creatingLabel ? '...' : 'Create'}
                       </button>
                     </div>
                     <div class="flex items-center gap-1.5">
-                      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted mr-1">Color:</span>
+                      <span class="text-[10px] text-dark-text-muted mr-1">Color:</span>
                       {#each LABEL_COLOR_PRESETS as color}
                         <button
                           onclick={() => (newLabelColor = color)}
                           class={[
                             'w-5 h-5 rounded-full border-2 ',
-                            newLabelColor === color ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-dark-border-subtle',
+                            newLabelColor === color ? 'border-white scale-110' : 'border-transparent hover:border-dark-border-subtle',
                           ]}
                           style="background-color: {color}"
                           title={color}
@@ -1559,18 +1559,18 @@
 
                   <!-- Existing labels list -->
                   {#if allLabels.length > 0}
-                    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface max-h-48 overflow-y-auto">
+                    <div class="border border-dark-border bg-dark-surface max-h-48 overflow-y-auto">
                       {#each allLabels as label}
                         <button
                           onclick={() => toggleLabel(label)}
-                          class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 {isLabelAttached(label.id) ? 'bg-gray-50 dark:bg-dark-elevated/30' : ''}"
+                          class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-dark-elevated/50 {isLabelAttached(label.id) ? 'bg-dark-elevated/30' : ''}"
                         >
                           {#if label.color}
                             <span class="w-3 h-3 rounded-full shrink-0" style="background-color: {label.color}"></span>
                           {/if}
-                          <span class="flex-1 text-gray-700 dark:text-dark-text-secondary">{label.name}</span>
+                          <span class="flex-1 text-dark-text-secondary">{label.name}</span>
                           {#if isLabelAttached(label.id)}
-                            <Check size={12} class="text-green-600 dark:text-green-400" />
+                            <Check size={12} class="text-green-400" />
                           {/if}
                         </button>
                       {/each}
@@ -1585,15 +1585,15 @@
         <!-- Side panel -->
         <div class="w-72 shrink-0 space-y-4">
           <!-- Status -->
-          <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-            <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Status</span>
+          <div class="border border-dark-border bg-dark-surface">
+            <div class="px-3 py-2 border-b border-dark-border">
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Status</span>
             </div>
             <div class="px-3 py-2">
               <select
                 value={task.status}
                 onchange={(e) => updateField('status', (e.target as HTMLSelectElement).value)}
-                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
+                class="w-full border border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text"
               >
                 {#each TASK_STATUSES as status}
                   <option value={status}>{TASK_STATUS_LABELS[status]}</option>
@@ -1606,15 +1606,15 @@
           </div>
 
           <!-- Priority -->
-          <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-            <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Priority</span>
+          <div class="border border-dark-border bg-dark-surface">
+            <div class="px-3 py-2 border-b border-dark-border">
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Priority</span>
             </div>
             <div class="px-3 py-2">
               <select
                 value={task.priority_level || ''}
                 onchange={(e) => updateField('priority_level', (e.target as HTMLSelectElement).value)}
-                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
+                class="w-full border border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text"
               >
                 <option value="">None</option>
                 {#each TASK_PRIORITIES as prio}
@@ -1625,19 +1625,19 @@
           </div>
 
           <!-- Properties -->
-          <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-            <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Properties</span>
+          <div class="border border-dark-border bg-dark-surface">
+            <div class="px-3 py-2 border-b border-dark-border">
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Properties</span>
             </div>
-            <div class="divide-y divide-gray-100 dark:divide-dark-border text-sm">
+            <div class="divide-y divide-dark-border text-sm">
               <!-- Organization -->
               <div class="px-3 py-2 flex items-center gap-2">
-                <Building2 size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Organization</span>
+                <Building2 size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Organization</span>
                 <select
                   value={task.organization_id || ''}
                   onchange={(e) => updateField('organization_id', (e.target as HTMLSelectElement).value)}
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
+                  class="flex-1 min-w-0 border border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none bg-dark-elevated text-dark-text"
                 >
                   <option value="">None</option>
                   {#each organizations as org}
@@ -1648,12 +1648,12 @@
 
               <!-- Assigned Agent -->
               <div class="px-3 py-2 flex items-center gap-2">
-                <User size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Agent</span>
+                <User size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Agent</span>
                 <select
                   value={task.assigned_agent_id || ''}
                   onchange={(e) => updateField('assigned_agent_id', (e.target as HTMLSelectElement).value)}
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
+                  class="flex-1 min-w-0 border border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none bg-dark-elevated text-dark-text"
                 >
                   <option value="">Unassigned</option>
                   {#each agents as agent}
@@ -1664,9 +1664,9 @@
 
               <!-- Project -->
               <div class="px-3 py-2 flex items-center gap-2">
-                <FolderOpen size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Project</span>
-                <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate"
+                <FolderOpen size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Project</span>
+                <span class="text-xs font-mono text-dark-text-secondary truncate"
                   title={task.project_id || ''}>
                   {task.project_id || '-'}
                 </span>
@@ -1674,9 +1674,9 @@
 
               <!-- Goal -->
               <div class="px-3 py-2 flex items-center gap-2">
-                <Layers size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Goal</span>
-                <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate"
+                <Layers size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Goal</span>
+                <span class="text-xs font-mono text-dark-text-secondary truncate"
                   title={task.goal_id || ''}>
                   {task.goal_id || '-'}
                 </span>
@@ -1685,9 +1685,9 @@
               <!-- Parent Task -->
               {#if task.parent_id}
                 <div class="px-3 py-2 flex items-center gap-2">
-                  <ListTree size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Parent</span>
-                  <a href="#/tasks/{task.parent_id}" class="text-xs font-mono text-blue-600 dark:text-blue-400 hover:underline truncate">
+                  <ListTree size={12} class="text-dark-text-muted shrink-0" />
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Parent</span>
+                  <a href="#/tasks/{task.parent_id}" class="text-xs font-mono text-blue-400 hover:underline truncate">
                     {task.parent_id}
                   </a>
                 </div>
@@ -1696,9 +1696,9 @@
               <!-- Billing Code -->
               {#if task.billing_code}
                 <div class="px-3 py-2 flex items-center gap-2">
-                  <CreditCard size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Billing</span>
-                  <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate">
+                  <CreditCard size={12} class="text-dark-text-muted shrink-0" />
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Billing</span>
+                  <span class="text-xs font-mono text-dark-text-secondary truncate">
                     {task.billing_code}
                   </span>
                 </div>
@@ -1707,27 +1707,27 @@
               <!-- Rolled-up cost across this task + all descendants. Loaded
                    lazily via a button (the BFS over sub-tasks isn't free). -->
               <div class="px-3 py-2 flex items-center gap-2">
-                <CreditCard size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Cost</span>
+                <CreditCard size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Cost</span>
                 <div class="flex-1 flex items-center gap-2 min-w-0">
                   {#if costRollup}
-                    <span class="text-xs font-mono text-gray-900 dark:text-dark-text font-medium" title={`${costRollup.event_count} events across ${costRollup.task_count} task(s)`}>
+                    <span class="text-xs font-mono text-dark-text font-medium" title={`${costRollup.event_count} events across ${costRollup.task_count} task(s)`}>
                       {formatCostCents(costRollup.cost_cents)}
                     </span>
-                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    <span class="text-[10px] text-dark-text-muted">
                       · {formatTokensShort(costRollup.total_tokens)} tok · {costRollup.event_count} ev
                     </span>
                     <button
                       onclick={loadCost}
                       disabled={costLoading}
-                      class="ml-auto p-0.5 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50 "
+                      class="ml-auto p-0.5 text-dark-text-muted hover:text-dark-text disabled:opacity-50"
                       title="Refresh cost"
                     >
                       <RefreshCw size={10} class={costLoading ? 'animate-spin' : ''} />
                     </button>
                     <a
                       href={costEventsUrl}
-                      class="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 "
+                      class="p-0.5 text-blue-400 hover:text-blue-300"
                       title="View traces for this task tree"
                     >
                       <Receipt size={10} />
@@ -1736,7 +1736,7 @@
                     <button
                       onclick={loadCost}
                       disabled={costLoading}
-                      class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                      class="text-xs text-blue-400 hover:underline disabled:opacity-50"
                     >
                       {costLoading ? 'Loading...' : 'Show cost'}
                     </button>
@@ -1749,9 +1749,9 @@
               <!-- Request Depth -->
               {#if task.request_depth}
                 <div class="px-3 py-2 flex items-center gap-2">
-                  <Hash size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Depth</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">
+                  <Hash size={12} class="text-dark-text-muted shrink-0" />
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Depth</span>
+                  <span class="text-xs text-dark-text-secondary">
                     {task.request_depth}
                   </span>
                 </div>
@@ -1760,8 +1760,8 @@
               <!-- Max Iterations (per-task override) -->
               <div class="px-3 py-2 flex items-center gap-2"
                 title="Per-task override of the agent's max_iterations. 0 = use agent default. Counter resets to 0 every time this task is processed.">
-                <Hash size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Max iter</span>
+                <Hash size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Max iter</span>
                 <input
                   type="number"
                   min="0"
@@ -1771,7 +1771,7 @@
                     updateField('max_iterations', Number.isFinite(n) && n >= 0 ? n : 0);
                   }}
                   placeholder="0 = agent default"
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
+                  class="flex-1 min-w-0 border border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none bg-dark-elevated text-dark-text"
                 />
               </div>
 
@@ -1779,8 +1779,8 @@
               {#if task.checked_out_by}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <AlertTriangle size={12} class="text-yellow-500 shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Checked out</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate"
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Checked out</span>
+                  <span class="text-xs text-dark-text-secondary truncate"
                     title={task.checked_out_by}>
                     {agentDisplayName(task.checked_out_by)}
                   </span>
@@ -1790,47 +1790,47 @@
           </div>
 
           <!-- Dates -->
-          <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-            <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Dates</span>
+          <div class="border border-dark-border bg-dark-surface">
+            <div class="px-3 py-2 border-b border-dark-border">
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Dates</span>
             </div>
-            <div class="divide-y divide-gray-100 dark:divide-dark-border text-sm">
+            <div class="divide-y divide-dark-border text-sm">
               <div class="px-3 py-2 flex items-center gap-2">
-                <Calendar size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Created</span>
-                <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.created_at)}</span>
+                <Calendar size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Created</span>
+                <span class="text-xs text-dark-text-secondary">{formatDateTime(task.created_at)}</span>
               </div>
               <div class="px-3 py-2 flex items-center gap-2">
-                <Clock size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Updated</span>
-                <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.updated_at)}</span>
+                <Clock size={12} class="text-dark-text-muted shrink-0" />
+                <span class="text-xs text-dark-text-muted w-20 shrink-0">Updated</span>
+                <span class="text-xs text-dark-text-secondary">{formatDateTime(task.updated_at)}</span>
               </div>
               {#if task.started_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Clock size={12} class="text-green-500 shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Started</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.started_at)}</span>
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Started</span>
+                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.started_at)}</span>
                 </div>
               {/if}
               {#if task.completed_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Check size={12} class="text-green-500 shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Completed</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.completed_at)}</span>
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Completed</span>
+                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.completed_at)}</span>
                 </div>
               {/if}
               {#if task.cancelled_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <X size={12} class="text-red-500 shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Cancelled</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.cancelled_at)}</span>
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Cancelled</span>
+                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.cancelled_at)}</span>
                 </div>
               {/if}
               {#if task.checked_out_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Clock size={12} class="text-yellow-500 shrink-0" />
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Checked out</span>
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">{formatDateTime(task.checked_out_at)}</span>
+                  <span class="text-xs text-dark-text-muted w-20 shrink-0">Checked out</span>
+                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.checked_out_at)}</span>
                 </div>
               {/if}
             </div>
@@ -1838,15 +1838,15 @@
 
           <!-- Actions -->
           {#if task.organization_id}
-            <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-              <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Actions</span>
+            <div class="border border-dark-border bg-dark-surface">
+              <div class="px-3 py-2 border-b border-dark-border">
+                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Actions</span>
               </div>
               <div class="px-3 py-2 space-y-2">
                 {#if delegationActive}
                   {@const activeAgent = activeDeepest ? agentDisplayName(activeDeepest.agent_id) : ''}
                   {@const isDescendant = !!activeDeepest && activeDeepest.task_id !== task.id}
-                  <div class="flex items-center gap-2 px-2 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/40 text-yellow-800 dark:text-yellow-400 text-[11px]">
+                  <div class="flex items-center gap-2 px-2 py-1.5 bg-yellow-900/20 border border-yellow-900/40 text-yellow-400 text-[11px]">
                     <Loader2 size={12} class="animate-spin shrink-0" />
                     <div class="flex-1 min-w-0">
                       <div class="font-medium truncate" title={activeAgent}>
@@ -1856,7 +1856,7 @@
                           Agent working
                         {/if}
                       </div>
-                      <div class="text-[10px] text-yellow-600 dark:text-yellow-500 flex items-center gap-1.5">
+                      <div class="text-[10px] text-yellow-500 flex items-center gap-1.5">
                         {#if delegationDuration}
                           <span>{delegationDuration} elapsed</span>
                         {/if}
@@ -1886,7 +1886,7 @@
                 <button
                   onclick={handleProcess}
                   disabled={processing || delegationActive}
-                  class="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 disabled:opacity-50"
+                  class="flex items-center gap-1.5 text-xs text-green-400 hover:text-green-300 disabled:opacity-50"
                 >
                   <Play size={12} />
                   {processing ? 'Processing...' : 'Process (Start Delegation)'}
@@ -1895,7 +1895,7 @@
                 <button
                   onclick={handleOpenChat}
                   disabled={openingChat}
-                  class="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:opacity-50"
+                  class="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50"
                 >
                   <Activity size={12} />
                   {openingChat ? 'Opening...' : 'Open Chat'}
@@ -1908,7 +1908,7 @@
                         bind:value={revisionFeedback}
                         rows="3"
                         placeholder="Describe what needs to change..."
-                        class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-xs bg-transparent dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:border-gray-400 dark:focus:border-accent/50 resize-y "
+                        class="w-full border border-dark-border-subtle px-2 py-1.5 text-xs bg-dark-elevated text-dark-text focus:outline-none focus:border-accent/50 resize-y"
                       ></textarea>
                       <div class="flex gap-1.5">
                         <button
@@ -1921,7 +1921,7 @@
                         </button>
                         <button
                           onclick={() => { showRevisionForm = false; revisionFeedback = ''; }}
-                          class="px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted "
+                          class="px-2 py-1.5 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-muted"
                         >
                           Cancel
                         </button>
@@ -1930,7 +1930,7 @@
                   {:else}
                     <button
                       onclick={() => (showRevisionForm = true)}
-                      class="flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 "
+                      class="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300"
                     >
                       <RotateCcw size={12} />
                       Request Revision
@@ -1942,23 +1942,23 @@
           {/if}
 
           <!-- Danger zone -->
-          <div class="border border-red-200 dark:border-red-900/30 bg-white dark:bg-dark-surface">
-            <div class="px-3 py-2 border-b border-red-100 dark:border-red-900/20">
-              <span class="text-[10px] font-medium text-red-500 dark:text-red-400 uppercase tracking-wider">Danger Zone</span>
+          <div class="border border-red-900/30 bg-dark-surface">
+            <div class="px-3 py-2 border-b border-red-900/20">
+              <span class="text-[10px] font-medium text-red-400 uppercase tracking-wider">Danger Zone</span>
             </div>
             <div class="px-3 py-2">
               {#if deleteConfirm}
                 <div class="flex items-center gap-2">
-                  <span class="text-xs text-red-600 dark:text-red-400">Delete this task?</span>
+                  <span class="text-xs text-red-400">Delete this task?</span>
                   <button
                     onclick={handleDelete}
-                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                   >
                     Confirm
                   </button>
                   <button
                     onclick={() => (deleteConfirm = false)}
-                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                    class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated"
                   >
                     Cancel
                   </button>
@@ -1966,7 +1966,7 @@
               {:else}
                 <button
                   onclick={() => (deleteConfirm = true)}
-                  class="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 "
+                  class="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300"
                 >
                   <Trash2 size={12} />
                   Delete task
@@ -1993,10 +1993,10 @@
     @apply font-semibold;
   }
   .markdown-body :global(code) {
-    @apply font-mono text-[0.85em] bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 rounded;
+    @apply font-mono text-[0.85em] bg-dark-elevated px-1.5 py-0.5;
   }
   .markdown-body :global(pre) {
-    @apply bg-gray-100 dark:bg-dark-elevated px-3 py-2 my-2 overflow-x-auto text-[0.85em] rounded;
+    @apply bg-dark-elevated px-3 py-2 my-2 overflow-x-auto text-[0.85em];
   }
   .markdown-body :global(pre code) {
     @apply bg-transparent px-0 py-0;
@@ -2011,7 +2011,7 @@
     @apply mb-0.5;
   }
   .markdown-body :global(blockquote) {
-    @apply border-l-2 border-gray-300 dark:border-dark-border pl-3 my-2 text-gray-600 dark:text-dark-text-secondary;
+    @apply border-l-2 border-dark-border pl-3 my-2 text-dark-text-secondary;
   }
   .markdown-body :global(h1) {
     @apply text-lg font-semibold mb-2;
@@ -2028,7 +2028,7 @@
     @apply text-sm font-medium mb-1;
   }
   .markdown-body :global(hr) {
-    @apply border-t border-gray-200 dark:border-dark-border my-3;
+    @apply border-t border-dark-border my-3;
   }
   .markdown-body :global(img) {
     @apply max-w-full my-2;
@@ -2038,21 +2038,21 @@
   }
   .markdown-body :global(th),
   .markdown-body :global(td) {
-    @apply border border-gray-200 dark:border-dark-border px-2 py-1 text-left;
+    @apply border border-dark-border px-2 py-1 text-left;
   }
   .markdown-body :global(th) {
-    @apply bg-gray-50 dark:bg-dark-elevated font-medium;
+    @apply bg-dark-elevated font-medium;
   }
 
   /* Sub-task tree: striped rows with hover highlight */
   :global(.subtask-row:nth-child(odd) > .subtask-inner) {
-    @apply bg-gray-50/70 dark:bg-dark-elevated/30;
+    @apply bg-dark-elevated/30;
   }
   :global(.subtask-row:nth-child(even) > .subtask-inner) {
-    @apply bg-white dark:bg-dark-surface;
+    @apply bg-dark-surface;
   }
   :global(.subtask-row > .subtask-inner:hover) {
-    @apply bg-gray-100 dark:bg-dark-elevated/70;
+    @apply bg-dark-elevated/70;
   }
   /* Live row: subtask has a running delegation goroutine right now.
      The pulse + bg tint flag the in-flight node in a multi-level tree
@@ -2060,10 +2060,10 @@
   :global(.subtask-row-live > .subtask-inner),
   :global(.subtask-row-live:nth-child(odd) > .subtask-inner),
   :global(.subtask-row-live:nth-child(even) > .subtask-inner) {
-    @apply bg-green-50 dark:bg-green-900/20;
+    @apply bg-green-900/20;
     border-left: 2px solid rgb(34 197 94);
   }
   :global(.subtask-row-live > .subtask-inner:hover) {
-    @apply bg-green-100 dark:bg-green-900/30;
+    @apply bg-green-900/30;
   }
 </style>

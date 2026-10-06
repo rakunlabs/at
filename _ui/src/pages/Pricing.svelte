@@ -416,11 +416,11 @@
 
   function statusClass(status: string): string {
     switch (status) {
-      case 'missing': return 'text-blue-700 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-900/20 dark:border-blue-900/50';
-      case 'update': return 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-900/50';
-      case 'override': return 'text-purple-700 bg-purple-50 border-purple-200 dark:text-purple-300 dark:bg-purple-900/20 dark:border-purple-900/50';
-      case 'current': return 'text-green-700 bg-green-50 border-green-200 dark:text-green-300 dark:bg-green-900/20 dark:border-green-900/50';
-      default: return 'text-gray-500 bg-gray-50 border-gray-200 dark:text-dark-text-muted dark:bg-dark-elevated dark:border-dark-border';
+      case 'missing': return 'text-blue-300 bg-blue-900/20 border-blue-900/50';
+      case 'update': return 'text-amber-300 bg-amber-900/20 border-amber-900/50';
+      case 'override': return 'text-purple-300 bg-purple-900/20 border-purple-900/50';
+      case 'current': return 'text-green-300 bg-green-900/20 border-green-900/50';
+      default: return 'text-dark-text-muted bg-dark-elevated border-dark-border';
     }
   }
 
@@ -436,18 +436,18 @@
 <div class="p-6 max-w-7xl mx-auto space-y-5">
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-2">
-      <CircleDollarSign size={18} class="text-gray-500 dark:text-dark-text-muted" />
+      <CircleDollarSign size={18} class="text-dark-text-muted" />
       <div>
-        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Model Pricing</h2>
-        <p class="text-xs text-gray-400 dark:text-dark-text-muted">Effective prices used by gateway cost tracking and token spend budgets.</p>
-        <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Prices are managed installation-wide; model suggestions and sync previews use your selected workspace. AT Pricing falls back to the catalog bundled with this server when the online catalog is unavailable.</p>
+        <h2 class="text-sm font-medium text-dark-text">Model Pricing</h2>
+        <p class="text-xs text-dark-text-muted">Effective prices used by gateway cost tracking and token spend budgets.</p>
+        <p class="mt-1 text-xs text-dark-text-secondary">Prices are managed installation-wide; model suggestions and sync previews use your selected workspace. AT Pricing falls back to the catalog bundled with this server when the online catalog is unavailable.</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center justify-end gap-2">
       <button
         onclick={downloadCatalog}
         disabled={exportingCatalog}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
       >
         <Download size={12} />
         {exportingCatalog ? 'Downloading...' : 'Download Catalog'}
@@ -455,7 +455,7 @@
       <button
         onclick={() => catalogImportFileInput.click()}
         disabled={importingCatalog}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
       >
         <Upload size={12} />
         {importingCatalog ? 'Importing...' : 'Upload Catalog'}
@@ -465,7 +465,7 @@
         bind:value={selectedSyncSource}
         disabled={previewLoading || applying}
         aria-label="Pricing source"
-        class="border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-xs focus:outline-none disabled:opacity-50"
+        class="border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-xs focus:outline-none disabled:opacity-50"
       >
         {#each pricingSources as source}
           <option value={source.source}>{source.label}</option>
@@ -474,7 +474,7 @@
       <button
         onclick={() => runPreview()}
         disabled={previewLoading || applying}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
       >
         <RefreshCw size={12} class={previewLoading ? 'animate-spin' : ''} />
         {previewLoading ? 'Loading...' : `Fetch ${sourceLabel(selectedSyncSource)}`}
@@ -482,37 +482,37 @@
     </div>
   </div>
 
-  <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4">
+  <section class="border border-dark-border bg-dark-surface p-4">
     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
       <div class="flex items-start gap-2 max-w-2xl">
-        <Bot size={18} class="text-gray-500 dark:text-dark-text-muted mt-0.5" />
+        <Bot size={18} class="text-dark-text-muted mt-0.5" />
         <div>
-          <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">AI Pricing Agent</h3>
-          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
+          <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">AI Pricing Agent</h3>
+          <p class="text-xs text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
         </div>
       </div>
-      <button onclick={runAgentPreview} disabled={previewLoading || applying || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+      <button onclick={runAgentPreview} disabled={previewLoading || applying || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
         <Bot size={12} />
         {previewLoading ? 'Previewing...' : 'Run Agent Preview'}
       </button>
     </div>
     <div class="mt-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
       <div>
-        <label for="pricing-agent-provider" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Agent Provider</label>
-        <select id="pricing-agent-provider" value={agent.provider_key} onchange={updateAgentProvider} disabled={providersLoading} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 disabled:opacity-50">
+        <label for="pricing-agent-provider" class="block text-xs text-dark-text-muted mb-1">Agent Provider</label>
+        <select id="pricing-agent-provider" value={agent.provider_key} onchange={updateAgentProvider} disabled={providersLoading} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle disabled:opacity-50">
           <option value="">{providersLoading ? 'Loading providers...' : 'Select provider'}</option>
           {#each providers as provider}
             <option value={provider.key}>{provider.key} ({provider.type}){provider.shared ? ' · shared' : ''}</option>
           {/each}
         </select>
         {#if !providersLoading && providers.length === 0}
-          <p class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Configure a provider before running the pricing agent.</p>
+          <p class="mt-1 text-[11px] text-amber-400">Configure a provider before running the pricing agent.</p>
         {/if}
       </div>
       <div>
-        <label for="pricing-agent-model" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Agent Model</label>
+        <label for="pricing-agent-model" class="block text-xs text-dark-text-muted mb-1">Agent Model</label>
         {#if selectedAgentProvider && (selectedAgentProvider.default_model || agentModels.length > 0)}
-          <select id="pricing-agent-model" bind:value={agent.model} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400">
+          <select id="pricing-agent-model" bind:value={agent.model} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle">
             <option value="">
               {selectedAgentProvider.default_model ? `Default (${selectedAgentProvider.default_model})` : 'Select model'}
             </option>
@@ -521,37 +521,37 @@
             {/each}
           </select>
         {:else}
-          <input id="pricing-agent-model" bind:value={agent.model} disabled={!selectedAgentProvider} placeholder={selectedAgentProvider ? 'Enter model name' : 'Select a provider first'} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 disabled:opacity-50" />
+          <input id="pricing-agent-model" bind:value={agent.model} disabled={!selectedAgentProvider} placeholder={selectedAgentProvider ? 'Enter model name' : 'Select a provider first'} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle disabled:opacity-50" />
         {/if}
       </div>
       <div class="lg:col-span-2">
-        <label for="pricing-agent-url" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Source URL</label>
-        <input id="pricing-agent-url" bind:value={agent.source_url} placeholder="https://provider.com/pricing or raw GitHub URL" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+        <label for="pricing-agent-url" class="block text-xs text-dark-text-muted mb-1">Source URL</label>
+        <input id="pricing-agent-url" bind:value={agent.source_url} placeholder="https://provider.com/pricing or raw GitHub URL" class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
       </div>
       <div class="lg:col-span-2">
-        <label for="pricing-agent-instruction" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Instruction</label>
-        <textarea id="pricing-agent-instruction" bind:value={agent.instruction} rows="4" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"></textarea>
+        <label for="pricing-agent-instruction" class="block text-xs text-dark-text-muted mb-1">Instruction</label>
+        <textarea id="pricing-agent-instruction" bind:value={agent.instruction} rows="4" class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle"></textarea>
       </div>
       <div class="lg:col-span-2">
         <div class="flex items-center justify-between mb-1">
-          <label for="pricing-agent-source" class="block text-xs text-gray-500 dark:text-dark-text-muted">Pasted Source Text</label>
-          <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
+          <label for="pricing-agent-source" class="block text-xs text-dark-text-muted">Pasted Source Text</label>
+          <label class="flex items-center gap-1.5 text-xs text-dark-text-muted">
             <input type="checkbox" bind:checked={agent.web_search} class="h-3 w-3" /> web search if supported
           </label>
         </div>
-        <textarea id="pricing-agent-source" bind:value={agent.source_text} rows="4" placeholder="Optional: paste docs, markdown, JSON, CSV, or copied pricing table text" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"></textarea>
+        <textarea id="pricing-agent-source" bind:value={agent.source_text} rows="4" placeholder="Optional: paste docs, markdown, JSON, CSV, or copied pricing table text" class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle"></textarea>
       </div>
     </div>
   </section>
 
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-    <section class="xl:col-span-1 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4">
+    <section class="xl:col-span-1 border border-dark-border bg-dark-surface p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">
+        <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">
           {editingID ? 'Edit Manual Override' : 'Add Manual Price'}
         </h3>
         {#if editingID}
-          <button onclick={resetForm} class="text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary">
+          <button onclick={resetForm} class="text-dark-text-muted hover:text-dark-text-secondary">
             <X size={14} />
           </button>
         {/if}
@@ -559,96 +559,96 @@
 
       <div class="space-y-3">
         <div>
-          <label for="pricing-provider" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Provider Key</label>
-          <input id="pricing-provider" list="pricing-provider-options" bind:value={form.provider_key} placeholder="Select or enter your provider" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <label for="pricing-provider" class="block text-xs text-dark-text-muted mb-1">Provider Key</label>
+          <input id="pricing-provider" list="pricing-provider-options" bind:value={form.provider_key} placeholder="Select or enter your provider" class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           <datalist id="pricing-provider-options">{#each providers as provider}<option value={provider.key}></option>{/each}</datalist>
         </div>
         <div>
-          <label for="pricing-model" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Model</label>
-          <input id="pricing-model" list="pricing-model-options" bind:value={form.model} placeholder="Select or enter your model" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <label for="pricing-model" class="block text-xs text-dark-text-muted mb-1">Model</label>
+          <input id="pricing-model" list="pricing-model-options" bind:value={form.model} placeholder="Select or enter your model" class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           <datalist id="pricing-model-options">{#each pricingModels as model}<option value={model}></option>{/each}</datalist>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label for="pricing-input" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Input $/M</label>
-            <input id="pricing-input" type="number" step="0.000001" min="0" bind:value={form.prompt_price_per_1m} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+            <label for="pricing-input" class="block text-xs text-dark-text-muted mb-1">Input $/M</label>
+            <input id="pricing-input" type="number" step="0.000001" min="0" bind:value={form.prompt_price_per_1m} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           </div>
           <div>
-            <label for="pricing-output" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Output $/M</label>
-            <input id="pricing-output" type="number" step="0.000001" min="0" bind:value={form.completion_price_per_1m} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+            <label for="pricing-output" class="block text-xs text-dark-text-muted mb-1">Output $/M</label>
+            <input id="pricing-output" type="number" step="0.000001" min="0" bind:value={form.completion_price_per_1m} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           </div>
           <div>
-            <label for="pricing-cache-read" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Cache Read $/M</label>
-            <input id="pricing-cache-read" type="number" step="0.000001" min="0" bind:value={form.cache_read_price_per_1m} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+            <label for="pricing-cache-read" class="block text-xs text-dark-text-muted mb-1">Cache Read $/M</label>
+            <input id="pricing-cache-read" type="number" step="0.000001" min="0" bind:value={form.cache_read_price_per_1m} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           </div>
           <div>
-            <label for="pricing-cache-write" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Cache Write $/M</label>
-            <input id="pricing-cache-write" type="number" step="0.000001" min="0" bind:value={form.cache_write_price_per_1m} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+            <label for="pricing-cache-write" class="block text-xs text-dark-text-muted mb-1">Cache Write $/M</label>
+            <input id="pricing-cache-write" type="number" step="0.000001" min="0" bind:value={form.cache_write_price_per_1m} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-dark-border-subtle" />
           </div>
         </div>
-        <button onclick={savePricing} disabled={saving} class="w-full px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+        <button onclick={savePricing} disabled={saving} class="w-full px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
           {saving ? 'Saving...' : editingID ? 'Save Override' : 'Add Price'}
         </button>
       </div>
     </section>
 
-    <section class="xl:col-span-2 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between gap-3 bg-gray-50 dark:bg-dark-base">
+    <section class="xl:col-span-2 border border-dark-border bg-dark-surface overflow-hidden">
+      <div class="px-4 py-3 border-b border-dark-border flex items-center justify-between gap-3 bg-dark-base">
         <div>
-          <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">Current Pricing</h3>
-          <p class="text-xs text-gray-400 dark:text-dark-text-muted">Manual rows are protected from source sync unless overwritten.</p>
+          <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">Current Pricing</h3>
+          <p class="text-xs text-dark-text-muted">Manual rows are protected from source sync unless overwritten.</p>
         </div>
-        <input bind:value={search} placeholder="Search provider/model" class="w-56 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-xs focus:outline-none focus:border-gray-400" />
+        <input bind:value={search} placeholder="Search provider/model" class="w-56 border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-xs focus:outline-none focus:border-dark-border-subtle" />
       </div>
 
       {#if loading}
-        <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
+        <div class="px-4 py-10 text-center text-dark-text-muted text-sm">Loading...</div>
       {:else if filteredPricing.length === 0}
-        <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">No pricing rows found</div>
+        <div class="px-4 py-10 text-center text-dark-text-muted text-sm">No pricing rows found</div>
       {:else}
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-                <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Model</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Input</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Output</th>
-                <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Cache R/W</th>
-                <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Source</th>
+              <tr class="border-b border-dark-border bg-dark-base">
+                <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Model</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Input</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Output</th>
+                <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Cache R/W</th>
+                <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Source</th>
                 <th class="w-24"></th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+            <tbody class="divide-y divide-dark-border">
               {#each filteredPricing as item}
-                <tr class="hover:bg-gray-50/60 dark:hover:bg-dark-elevated/50">
+                <tr class="hover:bg-dark-elevated/50">
                   <td class="px-3 py-2">
-                    <div class="font-mono text-xs text-gray-800 dark:text-dark-text">{item.provider_key}/{item.model}</div>
+                    <div class="font-mono text-xs text-dark-text">{item.provider_key}/{item.model}</div>
                     {#if item.manual_override}
-                      <span class="inline-flex mt-1 text-[10px] border px-1.5 py-0.5 text-purple-700 bg-purple-50 border-purple-200 dark:text-purple-300 dark:bg-purple-900/20 dark:border-purple-900/50">manual override</span>
+                      <span class="inline-flex mt-1 text-[10px] border px-1.5 py-0.5 text-purple-300 bg-purple-900/20 border-purple-900/50">manual override</span>
                     {/if}
                   </td>
-                  <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{price(item.prompt_price_per_1m)}</td>
-                  <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{price(item.completion_price_per_1m)}</td>
-                  <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{price(item.cache_read_price_per_1m)} / {price(item.cache_write_price_per_1m)}</td>
-                  <td class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted">
+                  <td class="px-3 py-2 text-right text-xs tabular-nums text-dark-text-secondary">{price(item.prompt_price_per_1m)}</td>
+                  <td class="px-3 py-2 text-right text-xs tabular-nums text-dark-text-secondary">{price(item.completion_price_per_1m)}</td>
+                  <td class="px-3 py-2 text-right text-xs tabular-nums text-dark-text-secondary">{price(item.cache_read_price_per_1m)} / {price(item.cache_write_price_per_1m)}</td>
+                  <td class="px-3 py-2 text-xs text-dark-text-muted">
                     {#if item.source}
                       <div>{item.source} · {item.source_provider}/{item.source_model}</div>
-                      {#if item.last_synced_at}<div class="text-gray-400 dark:text-dark-text-muted">{new Date(item.last_synced_at).toLocaleString()}</div>{/if}
+                      {#if item.last_synced_at}<div class="text-dark-text-muted">{new Date(item.last_synced_at).toLocaleString()}</div>{/if}
                     {:else}
-                      <span class="text-gray-400 dark:text-dark-text-muted">manual</span>
+                      <span class="text-dark-text-muted">manual</span>
                     {/if}
                   </td>
                   <td class="px-3 py-2">
                     <div class="flex items-center justify-end gap-1">
                       {#if item.source && item.manual_override}
-                        <button onclick={() => resetOverride(item.id)} title="Reset to source" class="p-1 text-gray-300 hover:text-green-600 dark:text-dark-text-faint dark:hover:text-green-400"><RotateCcw size={13} /></button>
+                        <button onclick={() => resetOverride(item.id)} title="Reset to source" class="p-1 text-dark-text-faint hover:text-green-400"><RotateCcw size={13} /></button>
                       {/if}
-                      <button onclick={() => startEdit(item)} title="Edit" class="p-1 text-gray-300 hover:text-gray-600 dark:text-dark-text-faint dark:hover:text-dark-text-secondary"><CircleDollarSign size={13} /></button>
+                      <button onclick={() => startEdit(item)} title="Edit" class="p-1 text-dark-text-faint hover:text-dark-text-secondary"><CircleDollarSign size={13} /></button>
                       {#if deleteConfirmID === item.id}
                         <button onclick={() => removePricing(item.id)} class="px-1.5 py-0.5 text-[10px] bg-red-600 text-white">Confirm</button>
-                        <button onclick={() => (deleteConfirmID = null)} class="p-1 text-gray-300 hover:text-gray-600"><X size={13} /></button>
+                        <button onclick={() => (deleteConfirmID = null)} class="p-1 text-dark-text-muted hover:text-dark-text-secondary"><X size={13} /></button>
                       {:else}
-                        <button onclick={() => (deleteConfirmID = item.id)} title="Delete" class="p-1 text-gray-300 hover:text-red-600 dark:text-dark-text-faint dark:hover:text-red-400"><Trash2 size={13} /></button>
+                        <button onclick={() => (deleteConfirmID = item.id)} title="Delete" class="p-1 text-dark-text-faint hover:text-red-400"><Trash2 size={13} /></button>
                       {/if}
                     </div>
                   </td>
@@ -661,79 +661,79 @@
     </section>
   </div>
 
-  <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex flex-wrap items-center justify-between gap-3">
+  <section class="border border-dark-border bg-dark-surface overflow-hidden">
+    <div class="px-4 py-3 border-b border-dark-border bg-dark-base flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
-        <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Your models come from the selected workspace, including shared providers. Price references come from the selected external catalog.</p>
+        <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
+        <p class="text-xs text-dark-text-secondary">Your models come from the selected workspace, including shared providers. Price references come from the selected external catalog.</p>
         {#if sourceCatalog.length > 0}
-          <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">For custom names or aliases, choose the catalog model whose price applies to your model. Apply Selected saves the price and remembers this match. A missing catalog entry does not mean your model is unavailable.</p>
+          <p class="mt-1 text-xs text-dark-text-secondary">For custom names or aliases, choose the catalog model whose price applies to your model. Apply Selected saves the price and remembers this match. A missing catalog entry does not mean your model is unavailable.</p>
         {/if}
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <select bind:value={statusFilter} class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus:outline-none">
+        <select bind:value={statusFilter} class="border border-dark-border-subtle bg-dark-elevated text-dark-text px-2 py-1.5 text-xs focus:outline-none">
           <option value="all">All</option>
           <option value="missing">Missing</option>
           <option value="update">Updates</option>
           <option value="override">Overrides</option>
           <option value="no_match">No match</option>
         </select>
-        <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
+        <label class="flex items-center gap-1.5 text-xs text-dark-text-muted">
           <input type="checkbox" bind:checked={overwriteOverrides} class="h-3 w-3" /> overwrite overrides
         </label>
-        <button onclick={applySelected} disabled={applying || previewLoading || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+        <button onclick={applySelected} disabled={applying || previewLoading || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
           <Check size={12} /> {applying ? 'Applying...' : `Apply Selected (${selectedPreview.length})`}
         </button>
       </div>
     </div>
 
     {#if preview.length === 0}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Fetch from a pricing source or run the AI pricing agent to preview model prices.</div>
+      <div class="px-4 py-10 text-center text-dark-text-muted text-sm">Fetch from a pricing source or run the AI pricing agent to preview model prices.</div>
     {:else if filteredPreview.length === 0}
-      <div class="px-4 py-10 text-center text-gray-500 dark:text-dark-text-muted text-sm">No models in this filter. Choose All to see the full preview.</div>
+      <div class="px-4 py-10 text-center text-dark-text-muted text-sm">No models in this filter. Choose All to see the full preview.</div>
     {:else}
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+            <tr class="border-b border-dark-border bg-dark-base">
               <th class="w-10 px-3 py-2"></th>
-              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Your Workspace Model</th>
-              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Price Reference</th>
-              <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Current</th>
-              <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Source</th>
-              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Status</th>
+              <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Your Workspace Model</th>
+              <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Price Reference</th>
+              <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Current</th>
+              <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Source</th>
+              <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Status</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
+          <tbody class="divide-y divide-dark-border">
             {#each filteredPreview as item (previewKey(item))}
               {@const key = previewKey(item)}
               {@const reference = sourceCatalog.find(entry => item.matched && entry.provider === item.source_provider && entry.model === item.source_model)}
-              <tr class="hover:bg-gray-50/60 dark:hover:bg-dark-elevated/50">
+              <tr class="hover:bg-dark-elevated/50">
                 <td class="px-3 py-2 text-center">
                   <input type="checkbox" aria-label={`Apply pricing for ${item.provider_key}/${item.model}`} checked={selectedPreview.includes(key)} disabled={!item.matched || applying || previewLoading} onchange={() => togglePreview(item)} class="h-3 w-3" />
                 </td>
                 <td class="px-3 py-2">
-                  <div class="font-mono text-xs text-gray-800 dark:text-dark-text">{item.provider_key}/{item.model}</div>
-                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">{item.provider_type}</div>
+                  <div class="font-mono text-xs text-dark-text">{item.provider_key}/{item.model}</div>
+                  <div class="text-[10px] text-dark-text-muted">{item.provider_type}</div>
                 </td>
-                <td class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted">
+                <td class="px-3 py-2 text-xs text-dark-text-muted">
                   {#if item.matched}
                     <div class="font-mono">{item.source_provider}/{item.source_model}</div>
                     {#if reference?.notes}
-                      <p class="mt-1 max-w-sm text-gray-600 dark:text-dark-text-secondary">{reference.notes}</p>
+                      <p class="mt-1 max-w-sm text-dark-text-secondary">{reference.notes}</p>
                       {#if reference.manual_only}
                         <p class="mt-1 max-w-sm">Fixed pricing profile; rates do not switch automatically per request.</p>
                       {/if}
                       <a href={reference.url} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">Official pricing · verified {reference.verified_at}</a>
                     {/if}
-                    <div class="text-gray-500 dark:text-dark-text-muted">{item.match_type === 'manual_mapping' ? 'Manual match · pending apply' : item.match_type === 'saved_mapping' ? 'Saved match' : `${item.match_type} · ${Math.round((item.confidence || 0) * 100)}%`}</div>
+                    <div class="text-dark-text-muted">{item.match_type === 'manual_mapping' ? 'Manual match · pending apply' : item.match_type === 'saved_mapping' ? 'Saved match' : `${item.match_type} · ${Math.round((item.confidence || 0) * 100)}%`}</div>
                   {:else}
-                    <span class="text-gray-400 dark:text-dark-text-muted">No source match</span>
+                    <span class="text-dark-text-muted">No source match</span>
                   {/if}
                   {#if sourceCatalog.length > 0}
                     <div class="mt-2 w-64 space-y-1.5">
-                      <input type="search" aria-label={`Search price references for ${item.provider_key}/${item.model}`} bind:value={matchSearch[key]} placeholder="Search pricing catalog" disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50" />
-                      <select aria-label={`Price reference for ${item.provider_key}/${item.model}`} value={manualMatches[key] || ''} onchange={(event) => selectManualMatch(item, event.currentTarget.value)} disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
+                      <input type="search" aria-label={`Search price references for ${item.provider_key}/${item.model}`} bind:value={matchSearch[key]} placeholder="Search pricing catalog" disabled={applying || previewLoading} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50" />
+                      <select aria-label={`Price reference for ${item.provider_key}/${item.model}`} value={manualMatches[key] || ''} onchange={(event) => selectManualMatch(item, event.currentTarget.value)} disabled={applying || previewLoading} class="w-full border border-dark-border-subtle bg-dark-elevated text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
                         <option value="">{item.matched ? 'Keep current price reference' : 'Select price reference from catalog'}</option>
                         {#each matchingCatalog(key) as entry}
                           <option value={catalogKey(entry)}>{entry.provider}/{entry.model} · {price(entry.prompt_price_per_1m)} / {price(entry.completion_price_per_1m)}</option>
@@ -745,14 +745,14 @@
                     </div>
                   {/if}
                 </td>
-                <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-500 dark:text-dark-text-muted">
+                <td class="px-3 py-2 text-right text-xs tabular-nums text-dark-text-muted">
                   {#if item.has_current}
                     {price(item.current_prompt_price_per_1m)} / {price(item.current_completion_price_per_1m)} / {price(item.current_cache_read_price_per_1m)} / {price(item.current_cache_write_price_per_1m)}
                   {:else}
-                    <span class="text-gray-400 dark:text-dark-text-muted">missing</span>
+                    <span class="text-dark-text-muted">missing</span>
                   {/if}
                 </td>
-                <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-700 dark:text-dark-text-secondary">
+                <td class="px-3 py-2 text-right text-xs tabular-nums text-dark-text-secondary">
                   {#if item.matched}
                     {price(item.source_prompt_price_per_1m)} / {price(item.source_completion_price_per_1m)} / {price(item.source_cache_read_price_per_1m)} / {price(item.source_cache_write_price_per_1m)}
                   {:else}

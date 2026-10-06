@@ -495,18 +495,18 @@
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div class="flex items-center gap-2">
-            <Package size={18} class="text-gray-500 dark:text-dark-text-muted" />
-            <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Marketplaces</h1>
+            <Package size={18} class="text-dark-text-muted" />
+            <h1 class="text-lg font-semibold text-dark-text">Marketplaces</h1>
           </div>
-          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1 max-w-2xl">
+          <p class="text-xs text-dark-text-muted mt-1 max-w-2xl">
             Create named Claude Code marketplace feeds from Skills, AT-hosted public MCP Servers, and direct/upstream MCP configs. JSON feeds point clients at downloadable plugin ZIPs.
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <button onclick={loadAll} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Refresh">
+          <button onclick={loadAll} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" title="Refresh">
             <RefreshCw size={14} />
           </button>
-          <button onclick={openCreate} class="flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover ">
+          <button onclick={openCreate} class="flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap font-medium text-dark-base bg-accent hover:bg-accent-hover">
             <Plus size={12} />
             New Marketplace
           </button>
@@ -514,50 +514,50 @@
       </div>
 
       {#if showForm}
-        <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-            <span class="text-sm font-medium text-gray-900 dark:text-dark-text">{editingId ? `Edit: ${formName}` : 'New Marketplace'}</span>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <div class="border border-dark-border bg-dark-surface overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+            <span class="text-sm font-medium text-dark-text">{editingId ? `Edit: ${formName}` : 'New Marketplace'}</span>
+            <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
 
           <form novalidate onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-5">
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-center">
-              <label for="market-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
-              <input id="market-name" type="text" bind:value={formName} placeholder="e.g., mymarket" class="md:col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+              <label for="market-name" class="text-sm font-medium text-dark-text-secondary">Name</label>
+              <input id="market-name" type="text" bind:value={formName} placeholder="e.g., mymarket" class="md:col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-center">
-              <label for="market-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
-              <input id="market-description" type="text" bind:value={formDescription} placeholder="What this marketplace contains" class="md:col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+              <label for="market-description" class="text-sm font-medium text-dark-text-secondary">Description</label>
+              <input id="market-description" type="text" bind:value={formDescription} placeholder="What this marketplace contains" class="md:col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
-              <div class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">
+              <div class="text-sm font-medium text-dark-text-secondary pt-1">
                 Skills
-                <div class="text-xs font-normal text-gray-400 dark:text-dark-text-muted mt-1">{formSkills.length} selected</div>
+                <div class="text-xs font-normal text-dark-text-muted mt-1">{formSkills.length} selected</div>
               </div>
               <div class="md:col-span-3 space-y-3">
                 <div class="relative">
-                  <Search size={13} class="absolute left-3 top-2.5 text-gray-400 dark:text-dark-text-muted" />
-                  <input type="text" bind:value={skillQuery} placeholder="Filter skills" class="w-full border border-gray-300 dark:border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                  <Search size={13} class="absolute left-3 top-2.5 text-dark-text-muted" />
+                  <input type="text" bind:value={skillQuery} placeholder="Filter skills" class="w-full border border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
                 </div>
-                <div class="border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 max-h-72 overflow-y-auto">
+                <div class="border border-dark-border bg-dark-base/30 max-h-72 overflow-y-auto">
                   {#if filteredSkills.length === 0}
-                    <div class="p-3 text-xs text-gray-400 dark:text-dark-text-muted">No skills found.</div>
+                    <div class="p-3 text-xs text-dark-text-muted">No skills found.</div>
                   {:else}
                     {#each filteredSkills as skill}
-                      <label class="flex items-start gap-3 p-3 border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-white dark:hover:bg-dark-elevated cursor-pointer ">
-                        <input type="checkbox" checked={formSkills.includes(skill.id)} onchange={() => (formSkills = toggleRef(formSkills, skill.id))} class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent" />
+                      <label class="flex items-start gap-3 p-3 border-b border-dark-border last:border-b-0 hover:bg-dark-elevated cursor-pointer">
+                        <input type="checkbox" checked={formSkills.includes(skill.id)} onchange={() => (formSkills = toggleRef(formSkills, skill.id))} class="mt-0.5 w-3.5 h-3.5 bg-dark-elevated border-dark-border-subtle accent-accent" />
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2">
-                            <WandSparkles size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                            <span class="text-xs font-mono font-medium text-gray-800 dark:text-dark-text">{skill.name}</span>
-                            <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">{(skill.resources || []).length} resources</span>
+                            <WandSparkles size={12} class="text-dark-text-muted" />
+                            <span class="text-xs font-mono font-medium text-dark-text">{skill.name}</span>
+                            <span class="text-[10px] text-dark-text-muted">{(skill.resources || []).length} resources</span>
                           </div>
                           {#if skill.description}
-                            <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 line-clamp-2">{skill.description}</p>
+                            <p class="text-xs text-dark-text-muted mt-1 line-clamp-2">{skill.description}</p>
                           {/if}
                         </div>
                       </label>
@@ -568,24 +568,24 @@
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
-              <div class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">
+              <div class="text-sm font-medium text-dark-text-secondary pt-1">
                 AT MCP Servers
-                <div class="text-xs font-normal text-gray-400 dark:text-dark-text-muted mt-1">{formMCPServers.length} selected</div>
+                <div class="text-xs font-normal text-dark-text-muted mt-1">{formMCPServers.length} selected</div>
               </div>
-              <div class="md:col-span-3 border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 max-h-64 overflow-y-auto">
+              <div class="md:col-span-3 border border-dark-border bg-dark-base/30 max-h-64 overflow-y-auto">
                 {#if publicMCPServers.length === 0}
-                  <div class="p-3 text-xs text-gray-400 dark:text-dark-text-muted">No public MCP Servers. Enable Public endpoint on MCP Servers first.</div>
+                  <div class="p-3 text-xs text-dark-text-muted">No public MCP Servers. Enable Public endpoint on MCP Servers first.</div>
                 {:else}
                   {#each publicMCPServers as server}
-                    <label class="flex items-start gap-3 p-3 border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-white dark:hover:bg-dark-elevated cursor-pointer ">
-                      <input type="checkbox" checked={formMCPServers.includes(server.id)} onchange={() => (formMCPServers = toggleRef(formMCPServers, server.id))} class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent" />
+                    <label class="flex items-start gap-3 p-3 border-b border-dark-border last:border-b-0 hover:bg-dark-elevated cursor-pointer">
+                      <input type="checkbox" checked={formMCPServers.includes(server.id)} onchange={() => (formMCPServers = toggleRef(formMCPServers, server.id))} class="mt-0.5 w-3.5 h-3.5 bg-dark-elevated border-dark-border-subtle accent-accent" />
                       <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-2">
-                          <Server size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                          <span class="text-xs font-mono font-medium text-gray-800 dark:text-dark-text">{server.name}</span>
+                          <Server size={12} class="text-dark-text-muted" />
+                          <span class="text-xs font-mono font-medium text-dark-text">{server.name}</span>
                         </div>
                         {#if server.config.description || server.description}
-                          <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 line-clamp-2">{server.config.description || server.description}</p>
+                          <p class="text-xs text-dark-text-muted mt-1 line-clamp-2">{server.config.description || server.description}</p>
                         {/if}
                       </div>
                     </label>
@@ -595,22 +595,22 @@
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
-              <div class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">
+              <div class="text-sm font-medium text-dark-text-secondary pt-1">
                 Direct MCP
-                <div class="text-xs font-normal text-gray-400 dark:text-dark-text-muted mt-1">{formDirectMCPServers.length} configured</div>
-                <div class="flex items-start gap-1 mt-2 p-2 border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/20 text-[10px] text-amber-700 dark:text-amber-300 leading-tight">
+                <div class="text-xs font-normal text-dark-text-muted mt-1">{formDirectMCPServers.length} configured</div>
+                <div class="flex items-start gap-1 mt-2 p-2 border border-amber-900/40 bg-amber-950/20 text-[10px] text-amber-300 leading-tight">
                   <AlertTriangle size={11} class="shrink-0 mt-0.5" />
                   <span>Direct MCP config is published verbatim in the public marketplace plugin ZIP. Strip secrets from headers/env before saving.</span>
                 </div>
               </div>
               <div class="md:col-span-3 space-y-3">
                 <!-- Mode toggle -->
-                <div class="inline-flex items-center gap-1 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base p-0.5">
-                  <button type="button" onclick={() => (directMode = 'pick')} class={["flex items-center gap-1.5 px-3 py-1 text-xs font-medium ", directMode === 'pick' ? 'bg-gray-900 text-white dark:bg-accent dark:text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated']}>
+                <div class="inline-flex items-center gap-1 border border-dark-border bg-dark-base p-0.5">
+                  <button type="button" onclick={() => (directMode = 'pick')} class={["flex items-center gap-1.5 px-3 py-1 text-xs font-medium ", directMode === 'pick' ? 'bg-accent text-dark-base' : 'text-dark-text-secondary hover:bg-dark-elevated']}>
                     <Layers size={12} />
                     From installed MCPs
                   </button>
-                  <button type="button" onclick={() => (directMode = 'manual')} class={["flex items-center gap-1.5 px-3 py-1 text-xs font-medium ", directMode === 'manual' ? 'bg-gray-900 text-white dark:bg-accent dark:text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated']}>
+                  <button type="button" onclick={() => (directMode = 'manual')} class={["flex items-center gap-1.5 px-3 py-1 text-xs font-medium ", directMode === 'manual' ? 'bg-accent text-dark-base' : 'text-dark-text-secondary hover:bg-dark-elevated']}>
                     <Plus size={12} />
                     Manual entry
                   </button>
@@ -619,38 +619,38 @@
                 {#if directMode === 'pick'}
                   <div class="space-y-2">
                     <div class="relative">
-                      <Search size={13} class="absolute left-3 top-2.5 text-gray-400 dark:text-dark-text-muted" />
-                      <input type="text" bind:value={mcpSetQuery} placeholder="Filter installed MCPs by name, URL, or command" class="w-full border border-gray-300 dark:border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                      <Search size={13} class="absolute left-3 top-2.5 text-dark-text-muted" />
+                      <input type="text" bind:value={mcpSetQuery} placeholder="Filter installed MCPs by name, URL, or command" class="w-full border border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
                     </div>
-                    <div class="border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 max-h-96 overflow-y-auto">
+                    <div class="border border-dark-border bg-dark-base/30 max-h-96 overflow-y-auto">
                       {#if mcpSetsWithUpstreams.length === 0}
-                        <div class="p-4 text-xs text-gray-400 dark:text-dark-text-muted text-center">
+                        <div class="p-4 text-xs text-dark-text-muted text-center">
                           No installed MCPs found.
                           <br />
-                          Configure them on the <a href="#/mcps" class="underline hover:text-gray-600 dark:hover:text-dark-text-secondary">MCPs page</a> with upstream URL or command.
+                          Configure them on the <a href="#/mcps" class="underline hover:text-dark-text-secondary">MCPs page</a> with upstream URL or command.
                         </div>
                       {:else if filteredMCPSetsWithUpstreams.length === 0}
-                        <div class="p-4 text-xs text-gray-400 dark:text-dark-text-muted text-center">No MCPs match the filter.</div>
+                        <div class="p-4 text-xs text-dark-text-muted text-center">No MCPs match the filter.</div>
                       {:else}
                         {#each filteredMCPSetsWithUpstreams as set}
                           {@const upstreams = set.config?.mcp_upstreams || []}
                           {@const addedCount = upstreams.filter((_, i) => isUpstreamAdded(set.id, i)).length}
-                          <div class="border-b border-gray-100 dark:border-dark-border last:border-b-0">
-                            <div class="flex items-center justify-between px-3 py-2 bg-white dark:bg-dark-elevated/60 border-b border-gray-100 dark:border-dark-border">
+                          <div class="border-b border-dark-border last:border-b-0">
+                            <div class="flex items-center justify-between px-3 py-2 bg-dark-elevated/60 border-b border-dark-border">
                               <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2">
-                                  <Layers size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                                  <span class="text-xs font-mono font-medium text-gray-800 dark:text-dark-text truncate">{set.name}</span>
-                                  <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">{upstreams.length} upstream{upstreams.length === 1 ? '' : 's'}</span>
+                                  <Layers size={12} class="text-dark-text-muted" />
+                                  <span class="text-xs font-mono font-medium text-dark-text truncate">{set.name}</span>
+                                  <span class="text-[10px] px-1.5 py-0.5 bg-dark-elevated text-dark-text-muted">{upstreams.length} upstream{upstreams.length === 1 ? '' : 's'}</span>
                                   {#if addedCount > 0}
-                                    <span class="text-[10px] px-1.5 py-0.5 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300">{addedCount} added</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 bg-green-950/30 text-green-300">{addedCount} added</span>
                                   {/if}
                                 </div>
                                 {#if set.description}
-                                  <p class="text-[11px] text-gray-500 dark:text-dark-text-muted mt-0.5 line-clamp-1">{set.description}</p>
+                                  <p class="text-[11px] text-dark-text-muted mt-0.5 line-clamp-1">{set.description}</p>
                                 {/if}
                               </div>
-                              <button type="button" onclick={() => addAllFromSet(set)} disabled={addedCount === upstreams.length} class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-40 disabled:cursor-not-allowed ">
+                              <button type="button" onclick={() => addAllFromSet(set)} disabled={addedCount === upstreams.length} class="flex items-center gap-1 px-2 py-1 text-[10px] font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-40 disabled:cursor-not-allowed">
                                 <ListPlus size={11} />
                                 Add all
                               </button>
@@ -659,24 +659,24 @@
                               {@const added = isUpstreamAdded(set.id, idx)}
                               {@const headerCount = Object.keys(upstream.headers || {}).length}
                               {@const envCount = Object.keys(upstream.env || {}).length}
-                              <label class="flex items-start gap-3 px-3 py-2 hover:bg-white dark:hover:bg-dark-elevated cursor-pointer ">
-                                <input type="checkbox" checked={added} onchange={() => toggleUpstream(set, idx)} class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent" />
+                              <label class="flex items-start gap-3 px-3 py-2 hover:bg-dark-elevated cursor-pointer">
+                                <input type="checkbox" checked={added} onchange={() => toggleUpstream(set, idx)} class="mt-0.5 w-3.5 h-3.5 bg-dark-elevated border-dark-border-subtle accent-accent" />
                                 <div class="flex-1 min-w-0">
                                   <div class="flex items-center gap-2">
                                     {#if upstream.url}
-                                      <Link size={11} class="text-gray-400 shrink-0" />
-                                      <span class="text-[10px] uppercase tracking-wide text-gray-400">http</span>
-                                      <code class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{upstream.url}</code>
+                                      <Link size={11} class="text-dark-text-muted shrink-0" />
+                                      <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">http</span>
+                                      <code class="text-xs text-dark-text-secondary truncate">{upstream.url}</code>
                                     {:else if upstream.command}
-                                      <Terminal size={11} class="text-gray-400 shrink-0" />
-                                      <span class="text-[10px] uppercase tracking-wide text-gray-400">stdio</span>
-                                      <code class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{upstream.command} {(upstream.args || []).join(' ')}</code>
+                                      <Terminal size={11} class="text-dark-text-muted shrink-0" />
+                                      <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">stdio</span>
+                                      <code class="text-xs text-dark-text-secondary truncate">{upstream.command} {(upstream.args || []).join(' ')}</code>
                                     {:else}
-                                      <span class="text-xs text-gray-400 italic">(empty upstream)</span>
+                                      <span class="text-xs text-dark-text-muted italic">(empty upstream)</span>
                                     {/if}
                                   </div>
                                   {#if headerCount > 0 || envCount > 0}
-                                    <div class="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
+                                    <div class="text-[10px] text-amber-400 mt-0.5 flex items-center gap-1">
                                       <AlertTriangle size={10} />
                                       <span>Includes {[headerCount > 0 ? `${headerCount} header${headerCount === 1 ? '' : 's'}` : '', envCount > 0 ? `${envCount} env var${envCount === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')} — review before publishing</span>
                                     </div>
@@ -690,34 +690,34 @@
                     </div>
                   </div>
                 {:else}
-                  <div class="border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 p-3 space-y-2">
+                  <div class="border border-dark-border bg-dark-base/30 p-3 space-y-2">
                     <div class="grid gap-2 sm:grid-cols-2">
-                      <input type="text" bind:value={directName} placeholder="name, e.g. docs-search" class="border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
-                      <input type="text" bind:value={directDescription} placeholder="description optional" class="border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                      <input type="text" bind:value={directName} placeholder="name, e.g. docs-search" class="border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
+                      <input type="text" bind:value={directDescription} placeholder="description optional" class="border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
                     </div>
                     <div class="grid gap-2 sm:grid-cols-2">
                       <div class="relative">
-                        <Link size={13} class="absolute left-3 top-2.5 text-gray-400 dark:text-dark-text-muted" />
-                        <input type="text" bind:value={directURL} placeholder="remote URL, e.g. https://.../mcp" class="w-full border border-gray-300 dark:border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                        <Link size={13} class="absolute left-3 top-2.5 text-dark-text-muted" />
+                        <input type="text" bind:value={directURL} placeholder="remote URL, e.g. https://.../mcp" class="w-full border border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
                       </div>
                       <div class="relative">
-                        <Terminal size={13} class="absolute left-3 top-2.5 text-gray-400 dark:text-dark-text-muted" />
-                        <input type="text" bind:value={directCommand} placeholder="stdio command, e.g. npx" class="w-full border border-gray-300 dark:border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                        <Terminal size={13} class="absolute left-3 top-2.5 text-dark-text-muted" />
+                        <input type="text" bind:value={directCommand} placeholder="stdio command, e.g. npx" class="w-full border border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
                       </div>
                     </div>
-                    <input type="text" bind:value={directArgs} placeholder="stdio args, space separated" class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+                    <input type="text" bind:value={directArgs} placeholder="stdio args, space separated" class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
 
                     {#if directURL}
                       <div class="space-y-1.5 pt-1">
                         <div class="flex items-center justify-between">
-                          <span class="text-[11px] font-medium text-gray-500 dark:text-dark-text-muted">Headers ({directHeaders.length})</span>
-                          <button type="button" onclick={() => (directHeaders = [...directHeaders, { key: '', value: '' }])} class="flex items-center gap-1 text-[11px] text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text"><Plus size={10} />Header</button>
+                          <span class="text-[11px] font-medium text-dark-text-muted">Headers ({directHeaders.length})</span>
+                          <button type="button" onclick={() => (directHeaders = [...directHeaders, { key: '', value: '' }])} class="flex items-center gap-1 text-[11px] text-dark-text-secondary hover:text-dark-text"><Plus size={10} />Header</button>
                         </div>
                         {#each directHeaders as header, i}
                           <div class="flex gap-1.5">
-                            <input type="text" bind:value={header.key} placeholder="Header name" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
-                            <input type="text" bind:value={header.value} placeholder="value" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
-                            <button type="button" onclick={() => (directHeaders = directHeaders.filter((_, x) => x !== i))} class="p-1 text-gray-400 hover:text-red-600"><X size={11} /></button>
+                            <input type="text" bind:value={header.key} placeholder="Header name" class="flex-1 border border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
+                            <input type="text" bind:value={header.value} placeholder="value" class="flex-1 border border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
+                            <button type="button" onclick={() => (directHeaders = directHeaders.filter((_, x) => x !== i))} class="p-1 text-dark-text-muted hover:text-red-600"><X size={11} /></button>
                           </div>
                         {/each}
                       </div>
@@ -726,21 +726,21 @@
                     {#if directCommand}
                       <div class="space-y-1.5 pt-1">
                         <div class="flex items-center justify-between">
-                          <span class="text-[11px] font-medium text-gray-500 dark:text-dark-text-muted">Env vars ({directEnv.length})</span>
-                          <button type="button" onclick={() => (directEnv = [...directEnv, { key: '', value: '' }])} class="flex items-center gap-1 text-[11px] text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text"><Plus size={10} />Env var</button>
+                          <span class="text-[11px] font-medium text-dark-text-muted">Env vars ({directEnv.length})</span>
+                          <button type="button" onclick={() => (directEnv = [...directEnv, { key: '', value: '' }])} class="flex items-center gap-1 text-[11px] text-dark-text-secondary hover:text-dark-text"><Plus size={10} />Env var</button>
                         </div>
                         {#each directEnv as env, i}
                           <div class="flex gap-1.5">
-                            <input type="text" bind:value={env.key} placeholder="VAR_NAME" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
-                            <input type="text" bind:value={env.value} placeholder="value" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
-                            <button type="button" onclick={() => (directEnv = directEnv.filter((_, x) => x !== i))} class="p-1 text-gray-400 hover:text-red-600"><X size={11} /></button>
+                            <input type="text" bind:value={env.key} placeholder="VAR_NAME" class="flex-1 border border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
+                            <input type="text" bind:value={env.value} placeholder="value" class="flex-1 border border-dark-border-subtle px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
+                            <button type="button" onclick={() => (directEnv = directEnv.filter((_, x) => x !== i))} class="p-1 text-dark-text-muted hover:text-red-600"><X size={11} /></button>
                           </div>
                         {/each}
                       </div>
                     {/if}
 
                     <div class="flex justify-end pt-1">
-                      <button type="button" onclick={addDirectMCP} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-white dark:hover:bg-dark-elevated ">
+                      <button type="button" onclick={addDirectMCP} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">
                         <Plus size={11} />
                         Add MCP
                       </button>
@@ -749,36 +749,36 @@
                 {/if}
 
                 {#if formDirectMCPServers.length > 0}
-                  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-                    <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border text-xs font-medium text-gray-600 dark:text-dark-text-secondary flex items-center justify-between">
+                  <div class="border border-dark-border bg-dark-surface">
+                    <div class="px-3 py-2 border-b border-dark-border text-xs font-medium text-dark-text-secondary flex items-center justify-between">
                       <span>Added direct MCPs ({formDirectMCPServers.length})</span>
                     </div>
                     {#each formDirectMCPServers as server}
-                      <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border last:border-b-0 flex items-start gap-2">
+                      <div class="px-3 py-2 border-b border-dark-border last:border-b-0 flex items-start gap-2">
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2 flex-wrap">
                             {#if server.url}
-                              <Link size={11} class="text-gray-400 shrink-0" />
+                              <Link size={11} class="text-dark-text-muted shrink-0" />
                             {:else}
-                              <Terminal size={11} class="text-gray-400 shrink-0" />
+                              <Terminal size={11} class="text-dark-text-muted shrink-0" />
                             {/if}
-                            <span class="text-xs font-mono font-medium text-gray-800 dark:text-dark-text">{server.name}</span>
-                            <span class="text-[10px] uppercase tracking-wide text-gray-400">{server.url ? 'http' : 'stdio'}</span>
+                            <span class="text-xs font-mono font-medium text-dark-text">{server.name}</span>
+                            <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">{server.url ? 'http' : 'stdio'}</span>
                             {#if directSources[server.name] && directSources[server.name] !== 'manual'}
-                              <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">{sourceLabel(server.name)}</span>
+                              <span class="text-[10px] px-1.5 py-0.5 bg-dark-elevated text-dark-text-muted">{sourceLabel(server.name)}</span>
                             {/if}
                           </div>
-                          <code class="text-[11px] text-gray-500 dark:text-dark-text-muted truncate block mt-0.5">
+                          <code class="text-[11px] text-dark-text-muted truncate block mt-0.5">
                             {server.url || `${server.command || ''} ${(server.args || []).join(' ')}`.trim()}
                           </code>
                           {#if hasSecrets(server)}
-                            <div class="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 flex items-center gap-1">
+                            <div class="text-[10px] text-amber-400 mt-0.5 flex items-center gap-1">
                               <AlertTriangle size={10} />
                               {secretSummary(server)} — will be published verbatim
                             </div>
                           {/if}
                         </div>
-                        <button type="button" onclick={() => removeDirectMCP(server.name)} class="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400 shrink-0" title="Remove">
+                        <button type="button" onclick={() => removeDirectMCP(server.name)} class="p-1 text-dark-text-muted hover:text-red-400 shrink-0" title="Remove">
                           <X size={12} />
                         </button>
                       </div>
@@ -788,9 +788,9 @@
               </div>
             </div>
 
-            <div class="flex justify-end gap-2 pt-2 border-t border-gray-200 dark:border-dark-border">
-              <button type="button" onclick={resetForm} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
-              <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-accent dark:hover:bg-accent-hover ">
+            <div class="flex justify-end gap-2 pt-2 border-t border-dark-border">
+              <button type="button" onclick={resetForm} class="px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
+              <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base disabled:opacity-50 bg-accent hover:bg-accent-hover">
                 <Save size={12} />
                 {saving ? 'Saving...' : 'Save Marketplace'}
               </button>
@@ -801,22 +801,22 @@
 
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="relative w-full sm:w-72">
-          <Search size={13} class="absolute left-3 top-2.5 text-gray-400 dark:text-dark-text-muted" />
-          <input type="text" bind:value={searchQuery} placeholder="Search marketplaces" class="w-full border border-gray-300 dark:border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
+          <Search size={13} class="absolute left-3 top-2.5 text-dark-text-muted" />
+          <input type="text" bind:value={searchQuery} placeholder="Search marketplaces" class="w-full border border-dark-border-subtle pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted" />
         </div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted">{filteredMarketplaces.length} of {marketplaces.length} marketplaces</div>
+        <div class="text-xs text-dark-text-muted">{filteredMarketplaces.length} of {marketplaces.length} marketplaces</div>
       </div>
 
       {#if pageLoad.loading('Marketplaces')}
-        <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center text-sm text-gray-400 dark:text-dark-text-muted">Loading marketplaces...</div>
+        <div class="border border-dark-border bg-dark-surface p-8 text-center text-sm text-dark-text-muted">Loading marketplaces...</div>
       {:else if pageLoad.error('Marketplaces') && !marketplaces.length}
-        <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Marketplaces could not be loaded. Retry above.</p>
+        <p class="text-sm text-dark-text-secondary">Marketplaces could not be loaded. Retry above.</p>
       {:else if filteredMarketplaces.length === 0}
-        <div class="border border-dashed border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center">
-          <Package size={24} class="mx-auto text-gray-300 dark:text-dark-text-muted mb-2" />
-          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">No marketplaces found</h2>
-          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create one to expose selected Skills and MCP servers as a direct-download marketplace.</p>
-          <button onclick={openCreate} class="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover ">
+        <div class="border border-dashed border-dark-border bg-dark-surface p-8 text-center">
+          <Package size={24} class="mx-auto text-dark-text-muted mb-2" />
+          <h2 class="text-sm font-medium text-dark-text">No marketplaces found</h2>
+          <p class="text-xs text-dark-text-muted mt-1">Create one to expose selected Skills and MCP servers as a direct-download marketplace.</p>
+          <button onclick={openCreate} class="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover">
             <Plus size={12} />
             New Marketplace
           </button>
@@ -824,36 +824,36 @@
       {:else}
         <div class="grid gap-3">
           {#each filteredMarketplaces as market}
-            <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+            <div class="border border-dark-border bg-dark-surface overflow-hidden">
               <div class="p-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2">
-                    <Package size={15} class="text-gray-400 dark:text-dark-text-muted" />
-                    <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text font-mono">{market.name}</h2>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary">{(market.skills || []).length} skills</span>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary">{(market.mcp_servers || []).length} at mcp</span>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary">{(market.direct_mcp_servers || []).length} direct mcp</span>
+                    <Package size={15} class="text-dark-text-muted" />
+                    <h2 class="text-sm font-semibold text-dark-text font-mono">{market.name}</h2>
+                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.skills || []).length} skills</span>
+                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.mcp_servers || []).length} at mcp</span>
+                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.direct_mcp_servers || []).length} direct mcp</span>
                   </div>
                   {#if market.description}
-                    <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1">{market.description}</p>
+                    <p class="text-xs text-dark-text-muted mt-1">{market.description}</p>
                   {/if}
                 </div>
 
                 <div class="flex items-center gap-1 shrink-0">
-                  <a href={marketplacePluginZipURL(market)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Download plugin ZIP">
+                  <a href={marketplacePluginZipURL(market)} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" title="Download plugin ZIP">
                     <Download size={14} />
                   </a>
-                  <button onclick={() => copyText(`url-${market.id}`, marketplaceURL(market))} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Copy JSON URL">
+                  <button onclick={() => copyText(`url-${market.id}`, marketplaceURL(market))} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" title="Copy JSON URL">
                     {#if copiedId === `url-${market.id}`}<Check size={14} />{:else}<Copy size={14} />{/if}
                   </button>
-                  <button onclick={() => openEdit(market)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Edit">
+                  <button onclick={() => openEdit(market)} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" title="Edit">
                     <Pencil size={14} />
                   </button>
                   {#if deleteConfirm === market.id}
-                    <button onclick={() => handleDelete(market.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 ">Confirm</button>
-                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+                    <button onclick={() => handleDelete(market.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700">Confirm</button>
+                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
                   {:else}
-                    <button onclick={() => (deleteConfirm = market.id)} class="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 " title="Delete">
+                    <button onclick={() => (deleteConfirm = market.id)} class="p-1.5 hover:bg-red-950/20 text-dark-text-muted hover:text-red-400" title="Delete">
                       <Trash2 size={14} />
                     </button>
                   {/if}
@@ -861,38 +861,38 @@
               </div>
 
               <div class="px-4 pb-4 space-y-3">
-                <button onclick={() => copyText(`url-${market.id}`, marketplaceURL(market))} class="w-full flex items-center gap-2 text-left border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 hover:bg-gray-100 dark:hover:bg-dark-elevated ">
-                  <Copy size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                  <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">{marketplaceURL(market)}</code>
+                <button onclick={() => copyText(`url-${market.id}`, marketplaceURL(market))} class="w-full flex items-center gap-2 text-left border border-dark-border bg-dark-base px-3 py-2 hover:bg-dark-elevated">
+                  <Copy size={13} class="text-dark-text-muted shrink-0" />
+                  <code class="text-xs text-dark-text-secondary truncate">{marketplaceURL(market)}</code>
                 </button>
 
-                <button onclick={() => copyText(`cmd-${market.id}`, installCommand(market))} class="w-full flex items-center gap-2 text-left border border-blue-100 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/20 px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-950/30 ">
-                  {#if copiedId === `cmd-${market.id}`}<Check size={13} class="text-blue-600 dark:text-blue-300 shrink-0" />{:else}<Copy size={13} class="text-blue-600 dark:text-blue-300 shrink-0" />{/if}
-                  <code class="text-xs text-blue-800 dark:text-blue-200 truncate">{installCommand(market)}</code>
+                <button onclick={() => copyText(`cmd-${market.id}`, installCommand(market))} class="w-full flex items-center gap-2 text-left border border-blue-900 bg-blue-950/20 px-3 py-2 hover:bg-blue-950/30">
+                  {#if copiedId === `cmd-${market.id}`}<Check size={13} class="text-blue-300 shrink-0" />{:else}<Copy size={13} class="text-blue-300 shrink-0" />{/if}
+                  <code class="text-xs text-blue-200 truncate">{installCommand(market)}</code>
                 </button>
 
-                <a href={marketplacePluginZipURL(market)} class="w-full flex items-center gap-2 text-left border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-elevated " title="Download plugin ZIP">
-                  <Download size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                  <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">{marketplacePluginZipURL(market)}</code>
+                <a href={marketplacePluginZipURL(market)} class="w-full flex items-center gap-2 text-left border border-dark-border bg-dark-surface px-3 py-2 hover:bg-dark-elevated" title="Download plugin ZIP">
+                  <Download size={13} class="text-dark-text-muted shrink-0" />
+                  <code class="text-xs text-dark-text-secondary truncate">{marketplacePluginZipURL(market)}</code>
                 </a>
 
                 <div class="grid gap-3 md:grid-cols-3">
                   <div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-dark-text-secondary mb-2">Skills</div>
+                    <div class="text-xs font-medium text-dark-text-secondary mb-2">Skills</div>
                     <div class="flex flex-wrap gap-1.5">
-                      {#each market.skills || [] as ref}<span class="px-2 py-1 text-xs border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-gray-700 dark:text-dark-text-secondary">{skillLabel(ref)}</span>{/each}
+                      {#each market.skills || [] as ref}<span class="px-2 py-1 text-xs border border-dark-border bg-dark-base text-dark-text-secondary">{skillLabel(ref)}</span>{/each}
                     </div>
                   </div>
                   <div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-dark-text-secondary mb-2">AT MCP Servers</div>
+                    <div class="text-xs font-medium text-dark-text-secondary mb-2">AT MCP Servers</div>
                     <div class="flex flex-wrap gap-1.5">
-                      {#each market.mcp_servers || [] as ref}<span class="px-2 py-1 text-xs border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-gray-700 dark:text-dark-text-secondary">{mcpServerLabel(ref)}</span>{/each}
+                      {#each market.mcp_servers || [] as ref}<span class="px-2 py-1 text-xs border border-dark-border bg-dark-base text-dark-text-secondary">{mcpServerLabel(ref)}</span>{/each}
                     </div>
                   </div>
                   <div>
-                    <div class="text-xs font-medium text-gray-500 dark:text-dark-text-secondary mb-2">Direct MCP</div>
+                    <div class="text-xs font-medium text-dark-text-secondary mb-2">Direct MCP</div>
                     <div class="flex flex-wrap gap-1.5">
-                      {#each market.direct_mcp_servers || [] as server}<span class="px-2 py-1 text-xs border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-gray-700 dark:text-dark-text-secondary">{server.name}</span>{/each}
+                      {#each market.direct_mcp_servers || [] as server}<span class="px-2 py-1 text-xs border border-dark-border bg-dark-base text-dark-text-secondary">{server.name}</span>{/each}
                     </div>
                   </div>
                 </div>

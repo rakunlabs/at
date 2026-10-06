@@ -234,33 +234,33 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onclick={(event) => { if (event.currentTarget === event.target) close(); }}>
-  <div class="flex h-[min(46rem,calc(100dvh-2rem))] w-full max-w-6xl flex-col border border-gray-200 bg-white shadow-xl dark:border-dark-border dark:bg-dark-surface" role="dialog" aria-modal="true" aria-label={`${skill.name} files`}>
-    <div class="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-dark-border dark:bg-dark-base">
+  <div class="flex h-[min(46rem,calc(100dvh-2rem))] w-full max-w-6xl flex-col border shadow-xl border-dark-border bg-dark-surface" role="dialog" aria-modal="true" aria-label={`${skill.name} files`}>
+    <div class="flex items-center justify-between border-b px-4 py-3 border-dark-border bg-dark-base">
       <div class="flex min-w-0 items-center gap-2">
-        <FolderOpen size={16} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
-        <div class="truncate text-sm font-medium text-gray-900 dark:text-dark-text">{skill.name}</div>
-        <span class="text-xs text-gray-400 dark:text-dark-text-muted">skill folder</span>
+        <FolderOpen size={16} class="shrink-0 text-dark-text-muted" />
+        <div class="truncate text-sm font-medium text-dark-text">{skill.name}</div>
+        <span class="text-xs text-dark-text-muted">skill folder</span>
       </div>
-      <button type="button" onclick={close} class="p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-dark-text-muted dark:hover:bg-dark-elevated dark:hover:text-dark-text"><X size={15} /></button>
+      <button type="button" onclick={close} class="p-1.5 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text"><X size={15} /></button>
     </div>
 
     <div class="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside class="flex min-h-0 flex-col border-b border-gray-200 dark:border-dark-border md:border-b-0 md:border-r">
-        <div class="flex items-center gap-1 border-b border-gray-200 px-2 py-2 dark:border-dark-border">
-          <button type="button" onclick={() => fileInput.click()} class="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated" title="Upload files"><Upload size={12} /> Files</button>
-          <button type="button" onclick={() => folderInput.click()} class="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated" title="Upload a folder"><Folder size={12} /> Folder</button>
-          <button type="button" onclick={() => showNewFile = !showNewFile} class="ml-auto p-1.5 text-gray-500 hover:bg-gray-100 dark:text-dark-text-muted dark:hover:bg-dark-elevated" title="New file"><FilePlus size={13} /></button>
+      <aside class="flex min-h-0 flex-col border-b border-dark-border md:border-b-0 md:border-r">
+        <div class="flex items-center gap-1 border-b px-2 py-2 border-dark-border">
+          <button type="button" onclick={() => fileInput.click()} class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary hover:bg-dark-elevated" title="Upload files"><Upload size={12} /> Files</button>
+          <button type="button" onclick={() => folderInput.click()} class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary hover:bg-dark-elevated" title="Upload a folder"><Folder size={12} /> Folder</button>
+          <button type="button" onclick={() => showNewFile = !showNewFile} class="ml-auto p-1.5 text-dark-text-muted hover:bg-dark-elevated" title="New file"><FilePlus size={13} /></button>
           <input bind:this={fileInput} class="hidden" type="file" multiple onchange={fromInput} />
           <input bind:this={folderInput} class="hidden" type="file" multiple webkitdirectory={true} onchange={fromInput} />
         </div>
         {#if showNewFile}
-          <form class="flex gap-1 border-b border-gray-200 p-2 dark:border-dark-border" onsubmit={(event) => { event.preventDefault(); void createFile(); }}>
-            <input bind:value={newPath} class="min-w-0 flex-1 border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" placeholder="references/notes.md" />
-            <button class="bg-gray-900 px-2 py-1 text-xs text-white dark:bg-accent" type="submit">Add</button>
+          <form class="flex gap-1 border-b p-2 border-dark-border" onsubmit={(event) => { event.preventDefault(); void createFile(); }}>
+            <input bind:value={newPath} class="min-w-0 flex-1 border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" placeholder="references/notes.md" />
+            <button class="px-2 py-1 text-xs text-dark-base bg-accent" type="submit">Add</button>
           </form>
         {/if}
         <div
-          class={['min-h-0 flex-1 overflow-y-auto p-2', dragging ? 'bg-blue-50 dark:bg-accent-muted' : '']}
+          class={['min-h-0 flex-1 overflow-y-auto p-2', dragging ? 'bg-accent-muted' : '']}
           role="region"
           aria-label="Skill files and upload drop zone"
           ondragover={(event) => { event.preventDefault(); dragging = true; }}
@@ -268,18 +268,18 @@
           ondrop={handleDrop}
         >
           {#if loading}
-            <div class="p-3 text-xs text-gray-400">Loading...</div>
+            <div class="p-3 text-xs text-dark-text-muted">Loading...</div>
           {:else}
             {#each treeRows as row}
               {#if row.kind === 'directory'}
-                <div class="flex items-center gap-1.5 py-1 text-xs font-medium text-gray-500 dark:text-dark-text-muted" style={`padding-left:${row.depth * 14 + 6}px`}><Folder size={13} /> {row.name}</div>
+                <div class="flex items-center gap-1.5 py-1 text-xs font-medium text-dark-text-muted" style={`padding-left:${row.depth * 14 + 6}px`}><Folder size={13} /> {row.name}</div>
               {:else}
-                <button type="button" onclick={() => selectFile(files.find((file) => file.path === row.path))} class={['flex w-full items-center gap-1.5 py-1 text-left text-xs', selectedPath === row.path ? 'bg-gray-100 text-gray-900 dark:bg-dark-elevated dark:text-dark-text' : 'text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-base']} style={`padding-left:${row.depth * 14 + 6}px`} title={row.path}>
+                <button type="button" onclick={() => selectFile(files.find((file) => file.path === row.path))} class={['flex w-full items-center gap-1.5 py-1 text-left text-xs', selectedPath === row.path ? 'bg-dark-elevated text-dark-text' : 'text-dark-text-secondary hover:bg-dark-base']} style={`padding-left:${row.depth * 14 + 6}px`} title={row.path}>
                   <File size={13} class="shrink-0" /><span class="truncate">{row.name}</span>
                 </button>
               {/if}
             {/each}
-            <div class={['mt-3 border border-dashed p-3 text-center text-[11px]', dragging ? 'border-blue-400 text-blue-600' : 'border-gray-300 text-gray-400 dark:border-dark-border-subtle dark:text-dark-text-muted']}>
+            <div class={['mt-3 border border-dashed p-3 text-center text-[11px]', dragging ? 'border-blue-400 text-blue-600' : 'border-dark-border-subtle text-dark-text-muted']}>
               Drop UTF-8 files or folders here<br />Same paths are replaced
             </div>
           {/if}
@@ -287,19 +287,19 @@
       </aside>
 
       <section class="flex min-h-0 flex-col">
-        <div class="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-dark-border">
-          <div class="min-w-0 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{selectedPath}{dirty ? ' • modified' : ''}</div>
+        <div class="flex items-center justify-between border-b px-3 py-2 border-dark-border">
+          <div class="min-w-0 font-mono text-xs text-dark-text-secondary">{selectedPath}{dirty ? ' • modified' : ''}</div>
           <div class="flex items-center gap-1">
             {#if selectedFile}
-              <div class="mr-1 flex border border-gray-300 dark:border-dark-border-subtle" role="group" aria-label="File view">
-                <button type="button" onclick={() => view = 'raw'} aria-pressed={view === 'raw'} title="Edit the source" class={['flex items-center gap-1 px-2 py-1 text-xs', view === 'raw' ? 'bg-gray-900 text-white dark:bg-accent dark:text-gray-950' : 'text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Code size={12} /> Raw</button>
-                <button type="button" onclick={() => view = 'preview'} aria-pressed={view === 'preview'} title={isMarkdownPath(selectedPath) ? 'Rendered markdown' : 'Read-only with syntax highlighting'} class={['flex items-center gap-1 border-l border-gray-300 px-2 py-1 text-xs dark:border-dark-border-subtle', view === 'preview' ? 'bg-gray-900 text-white dark:bg-accent dark:text-gray-950' : 'text-gray-600 hover:bg-gray-100 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Eye size={12} /> Preview</button>
+              <div class="mr-1 flex border border-dark-border-subtle" role="group" aria-label="File view">
+                <button type="button" onclick={() => view = 'raw'} aria-pressed={view === 'raw'} title="Edit the source" class={['flex items-center gap-1 px-2 py-1 text-xs', view === 'raw' ? 'bg-accent text-gray-950' : 'text-dark-text-secondary hover:bg-dark-elevated']}><Code size={12} /> Raw</button>
+                <button type="button" onclick={() => view = 'preview'} aria-pressed={view === 'preview'} title={isMarkdownPath(selectedPath) ? 'Rendered markdown' : 'Read-only with syntax highlighting'} class={['flex items-center gap-1 border-l px-2 py-1 text-xs border-dark-border-subtle', view === 'preview' ? 'bg-accent text-gray-950' : 'text-dark-text-secondary hover:bg-dark-elevated']}><Eye size={12} /> Preview</button>
               </div>
             {/if}
             {#if selectedPath !== 'SKILL.md'}
-              <button type="button" onclick={removeCurrent} class="p-1.5 text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20" title="Delete file"><Trash2 size={14} /></button>
+              <button type="button" onclick={removeCurrent} class="p-1.5 text-red-400 hover:bg-red-900/20" title="Delete file"><Trash2 size={14} /></button>
             {/if}
-            <button type="button" onclick={saveCurrent} disabled={!dirty || saving} class="flex items-center gap-1 bg-gray-900 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-accent"><Save size={12} />{saving ? 'Saving...' : 'Save'}</button>
+            <button type="button" onclick={saveCurrent} disabled={!dirty || saving} class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-dark-base disabled:opacity-40 bg-accent"><Save size={12} />{saving ? 'Saving...' : 'Save'}</button>
           </div>
         </div>
         {#if selectedFile && view === 'preview'}
@@ -310,9 +310,9 @@
             onopen={(path) => selectFile(files.find((file) => file.path === path))}
           />
         {:else if selectedFile}
-          <textarea bind:value={editorContent} spellcheck="false" class="min-h-0 flex-1 resize-none bg-white p-4 font-mono text-xs leading-5 text-gray-900 outline-none dark:bg-dark-surface dark:text-dark-text"></textarea>
+          <textarea bind:value={editorContent} spellcheck="false" class="min-h-0 flex-1 resize-none p-4 font-mono text-xs leading-5 outline-none bg-dark-surface text-dark-text"></textarea>
         {:else}
-          <div class="flex flex-1 items-center justify-center text-sm text-gray-400">Select a file</div>
+          <div class="flex flex-1 items-center justify-center text-sm text-dark-text-muted">Select a file</div>
         {/if}
       </section>
     </div>

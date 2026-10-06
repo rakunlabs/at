@@ -211,21 +211,21 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Route size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Routing Profiles</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+      <Route size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Routing Profiles</h2>
+      <span class="text-xs text-dark-text-muted">({total})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Profile
@@ -235,12 +235,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Routing Profile'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -248,48 +248,48 @@
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Name -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
+          <label for="form-name" class="text-sm font-medium text-dark-text-secondary">Name</label>
           <input
             id="form-name"
             type="text"
             bind:value={formName}
             placeholder="e.g., my-stack"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
           />
         </div>
 
         <!-- Description -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
+          <label for="form-description" class="text-sm font-medium text-dark-text-secondary">Description</label>
           <input
             id="form-description"
             type="text"
             bind:value={formDescription}
             placeholder="What this chain is for (optional)"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
           />
         </div>
 
         <!-- Targets -->
         <div class="grid grid-cols-4 gap-3 items-start">
-          <label for="form-target-0" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Targets</label>
+          <label for="form-target-0" class="text-sm font-medium text-dark-text-secondary pt-1.5">Targets</label>
           <div class="col-span-3 space-y-2">
             {#each formTargets as _, i}
               <div class="flex items-center gap-2">
-                <span class="text-xs text-gray-400 dark:text-dark-text-muted font-mono w-5 text-right">{i + 1}</span>
+                <span class="text-xs text-dark-text-muted font-mono w-5 text-right">{i + 1}</span>
                 <input
                   id={`form-target-${i}`}
                   type="text"
                   list="routing-profile-models"
                   bind:value={formTargets[i]}
                   placeholder="provider/model"
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+                  class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
                 />
                 <button
                   type="button"
                   onclick={() => moveTarget(i, -1)}
                   disabled={i === 0}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-30"
+                  class="p-1.5 border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary disabled:opacity-30"
                   title="Move up"
                 >
                   <ArrowUp size={14} />
@@ -298,7 +298,7 @@
                   type="button"
                   onclick={() => moveTarget(i, 1)}
                   disabled={i === formTargets.length - 1}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-30"
+                  class="p-1.5 border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary disabled:opacity-30"
                   title="Move down"
                 >
                   <ArrowDown size={14} />
@@ -306,7 +306,7 @@
                 <button
                   type="button"
                   onclick={() => removeTarget(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 border border-dark-border-subtle hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                   title="Remove"
                 >
                   <Trash2 size={14} />
@@ -316,7 +316,7 @@
             <button
               type="button"
               onclick={addTarget}
-              class="flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
+              class="flex items-center gap-1.5 px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
             >
               <Plus size={12} />
               Add target
@@ -327,7 +327,7 @@
         <!-- Usage hint -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <div></div>
-          <div class="col-span-3 text-xs text-gray-400 dark:text-dark-text-muted bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border px-3 py-2 space-y-1">
+          <div class="col-span-3 text-xs text-dark-text-muted bg-dark-base border border-dark-border px-3 py-2 space-y-1">
             <div>
               Send <code class="font-mono">"model": "{formName || 'name'}"</code> to the gateway and the request is tried against each target in order, falling back on rate limits and upstream errors.
             </div>
@@ -336,18 +336,18 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+            class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
           >
             <Save size={14} />
             {#if saving}
@@ -378,34 +378,34 @@
     >
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Chain</th>
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Chain</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
       {/snippet}
 
       {#snippet row(profile)}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
-          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{profile.name}</td>
-          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">
+        <tr class="hover:bg-dark-elevated/50">
+          <td class="px-4 py-2.5 font-mono font-medium text-dark-text">{profile.name}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-dark-text-muted">
             <div class="flex flex-wrap items-center gap-1">
               {#each profile.targets as target, i}
                 {#if i > 0}
-                  <span class="text-gray-300 dark:text-dark-text-muted">→</span>
+                  <span class="text-dark-text-muted">→</span>
                 {/if}
-                <span class="border border-gray-200 dark:border-dark-border px-1.5 py-0.5 text-gray-700 dark:text-dark-text-secondary">{target}</span>
+                <span class="border border-dark-border px-1.5 py-0.5 text-dark-text-secondary">{target}</span>
               {/each}
             </div>
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={profile.description}>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted max-w-48 truncate" title={profile.description}>
             {profile.description || '-'}
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(profile.updated_at)}</td>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted">{formatDate(profile.updated_at)}</td>
           <td class="px-4 py-2.5 text-right">
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openEdit(profile)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -413,20 +413,20 @@
               {#if deleteConfirm === profile.id}
                 <button
                   onclick={() => handleDelete(profile.id)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                  class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated"
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = profile.id)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                   title="Delete"
                 >
                   <Trash2 size={14} />

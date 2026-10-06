@@ -100,14 +100,14 @@
 {:else if authState === 'loading' || authState === 'error'}{#if authState === 'error' || connecting}<AuthShell title={authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'} subtitle={authState === 'loading' ? 'Checking your session with the server.' : ''}>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button w-full min-h-11 sm:min-h-0" onclick={initialize}>Retry connection</button>{:else}<p class="settings-note" role="status">One moment…</p>{/if}</AuthShell>{/if}
 {:else if router.location === '/mobile-authorize'}<MobileAuthorize query={router.querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
-<div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
+<div class={['grid h-full w-full min-w-0 bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}
   <dialog bind:this={mobileNavigation} class="mobile-navigation" aria-label="Navigation" onclose={closeNavigation} onclick={event => { if (event.target === mobileNavigation || (event.target instanceof Element && event.target.closest('a'))) closeNavigation(); }}>
-    <div class="flex h-full flex-col bg-white dark:bg-dark-surface">
+    <div class="flex h-full flex-col bg-dark-surface">
       <div class="min-h-0 flex-1"><Sidebar onclose={closeNavigation} /></div>
     </div>
   </dialog>
-  <div class="grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><div class="min-w-0"><Navbar onlogout={logout} {loggingOut} />{#if pwa.offline}<p role="status" class="border-b border-gray-200 dark:border-dark-border px-3 py-2 text-sm">You’re offline. Reconnect to send messages and save changes.</p>{/if}</div><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'relative overflow-y-auto']}>
+  <div class="grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><div class="min-w-0"><Navbar onlogout={logout} {loggingOut} />{#if pwa.offline}<p role="status" class="border-b border-dark-border px-3 py-2 text-sm">You’re offline. Reconnect to send messages and save changes.</p>{/if}</div><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'relative overflow-y-auto']}>
     {#if error}<p role="alert" class="settings-error px-5 py-2">{error}</p>{/if}
     {#if waiting}
       <div class="settings-page"><h1 class="settings-title">No workspace access yet</h1><p class="settings-note">You’re signed in, but your account is not a member of any workspace, so nothing in the application is available to you{router.location !== '/' ? ' — including the page you opened' : ''}. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>{isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT) ? ', or accept an invitation below' : ''}.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div>{#if isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT)}<WorkspaceSettings />{/if}

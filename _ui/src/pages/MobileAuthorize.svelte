@@ -78,13 +78,13 @@
   {:else if phase === 'error'}
     <p role="alert" class="settings-error">{message}</p>
   {:else if phase === 'finished'}
-    <div role="status" class="space-y-2 text-sm text-gray-600 dark:text-dark-text-secondary leading-relaxed">
+    <div role="status" class="space-y-2 text-sm text-dark-text-secondary leading-relaxed">
       <p>{message}</p>
       <p>If nothing opened, switch to the mobile app yourself. If sign-in did not finish, start a new request there. This page will not send the decision again.</p>
       <p>You can close this page.</p>
     </div>
   {:else if request}
-    <p class="text-sm text-gray-600 dark:text-dark-text-secondary leading-relaxed">Approve only if you just started this sign-in in the mobile app you intended to use. Approval lets that app sign in to this server as your account.</p>
+    <p class="text-sm text-dark-text-secondary leading-relaxed">Approve only if you just started this sign-in in the mobile app you intended to use. Approval lets that app sign in to this server as your account.</p>
     <dl class="settings-list">
       <div class="px-4 py-3"><dt class="settings-note">Signed in as</dt><dd class="mt-0.5 text-sm font-medium break-all"><bdi>{storeAuth.identity?.name || storeAuth.identity?.subject}</bdi></dd></div>
       <div class="px-4 py-3"><dt class="settings-note">Device name (unverified)</dt><dd class="mt-0.5 text-sm font-medium break-all"><bdi>{request.device_name || 'No device name supplied'}</bdi></dd></div>

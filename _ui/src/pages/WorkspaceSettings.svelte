@@ -77,6 +77,6 @@
     }); }}>
       <label>Type “{workspace.name}” to confirm<input bind:value={deleteConfirmation} autocomplete="off" required /></label>
       <div class="flex gap-2"><button class="settings-danger" disabled={busy || deleteConfirmation !== workspace.name}>Delete permanently</button><button type="button" class="settings-button" disabled={busy} onclick={() => { showDelete = false; deleteConfirmation = ''; }}>Cancel</button></div>
-    </form>{:else}<button class="settings-button text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30" disabled={busy} onclick={() => { showDelete = true; }}>Delete workspace…</button>{/if}
+    </form>{:else}<button class="settings-button text-red-400 hover:bg-red-900/30" disabled={busy} onclick={() => { showDelete = true; }}>Delete workspace…</button>{/if}
   </section>{:else if id === 'legacy-default'}<p class="settings-note settings-section">The default workspace is required by the installation and cannot be deleted.</p>{/if}
 </div>

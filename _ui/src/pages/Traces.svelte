@@ -227,27 +227,27 @@
   <div class="flex h-[calc(100dvh-3rem)] min-h-0 flex-col p-3 sm:p-4">
     <!-- Toolbar -->
     <div class="mb-2 flex flex-wrap items-center gap-2">
-      <Activity size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Traces</h2>
-      <div class="ml-2 flex border border-gray-200 dark:border-dark-border" role="tablist">
+      <Activity size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-semibold text-dark-text">Traces</h2>
+      <div class="ml-2 flex border border-dark-border" role="tablist">
         {#each tabs as { key, label, icon: Icon } (key)}
-          <button role="tab" aria-selected={tab === key} onclick={() => setTab(key)} class={['inline-flex items-center gap-1 px-2.5 py-1 text-xs', tab === key ? 'bg-gray-900 text-white dark:bg-dark-text dark:text-dark-base' : 'text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Icon size={12} />{label}</button>
+          <button role="tab" aria-selected={tab === key} onclick={() => setTab(key)} class={['inline-flex items-center gap-1 px-2.5 py-1 text-xs', tab === key ? 'bg-dark-text text-dark-base' : 'text-dark-text-secondary hover:bg-dark-elevated']}><Icon size={12} />{label}</button>
         {/each}
       </div>
       <div class="ml-auto flex flex-wrap items-center gap-2">
-        <form onsubmit={onSearch} class="flex items-center border border-gray-300 bg-white px-2 dark:border-dark-border-subtle dark:bg-dark-elevated">
-          <Search size={12} class="text-gray-400" />
-          <input bind:value={search} placeholder={tab === 'sessions' ? 'Search sessions…' : tab === 'generations' ? 'Trace ID…' : 'Search ID, name, input…'} class="w-52 bg-transparent px-1.5 py-1 text-xs text-gray-800 outline-none dark:text-dark-text" aria-label="Search" />
+        <form onsubmit={onSearch} class="flex items-center border px-2 border-dark-border-subtle bg-dark-elevated">
+          <Search size={12} class="text-dark-text-muted" />
+          <input bind:value={search} placeholder={tab === 'sessions' ? 'Search sessions…' : tab === 'generations' ? 'Trace ID…' : 'Search ID, name, input…'} class="w-52 bg-transparent px-1.5 py-1 text-xs outline-none text-dark-text" aria-label="Search" />
         </form>
-        <select value={range} onchange={(e) => setRange((e.target as HTMLSelectElement).value)} class="border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary" aria-label="Time range">
+        <select value={range} onchange={(e) => setRange((e.target as HTMLSelectElement).value)} class="border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text-secondary" aria-label="Time range">
           {#each timePresets as p}<option value={p.key}>{p.label}</option>{/each}
           <option value="all">All time</option>
           {#if range === 'custom'}<option value="custom">Custom</option>{/if}
         </select>
-        <label class="flex items-center gap-1 text-xs text-gray-600 dark:text-dark-text-secondary" title="Refresh every 10 seconds">
+        <label class="flex items-center gap-1 text-xs text-dark-text-secondary" title="Refresh every 10 seconds">
           <input type="checkbox" bind:checked={live} /> Live
         </label>
-        <button onclick={() => load()} class="border border-gray-300 p-1 text-gray-500 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-muted dark:hover:bg-dark-elevated" title="Refresh"><RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
+        <button onclick={() => load()} class="border p-1 border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated" title="Refresh"><RefreshCw size={13} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
       </div>
     </div>
 
@@ -256,7 +256,7 @@
         {#if tab === 'generations'}
           {#each ['provider', 'error_code'] as key}
             {#if query.get(key)}
-              <button onclick={() => setQuery({ [key]: null, offset: null })} class="border border-gray-300 bg-white px-2 py-0.5 text-[11px] text-gray-700 hover:line-through dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary" title="Remove filter">{key === 'provider' ? 'Provider' : 'Error'}: {query.get(key)} ×</button>
+              <button onclick={() => setQuery({ [key]: null, offset: null })} class="border px-2 py-0.5 text-[11px] hover:line-through border-dark-border-subtle bg-dark-elevated text-dark-text-secondary" title="Remove filter">{key === 'provider' ? 'Provider' : 'Error'}: {query.get(key)} ×</button>
             {/if}
           {/each}
         {/if}
@@ -268,10 +268,10 @@
       {#if tab === 'traces'}
         <TraceTable {traces} {loading} {error} sort={filters.sort || 'started_at'} order={filters.order} onsort={onSort} onopen={(t) => openTrace(t.trace_id)} onretry={load} />
       {:else if tab === 'sessions'}
-        <div class="max-h-[calc(100vh-13rem)] overflow-auto border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
+        <div class="max-h-[calc(100vh-13rem)] overflow-auto border border-dark-border bg-dark-surface">
           <table class="w-full text-xs">
-            <thead class="sticky top-0 bg-gray-50 dark:bg-dark-base">
-              <tr class="border-b border-gray-200 text-left text-[10px] uppercase tracking-wider text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+            <thead class="sticky top-0 bg-dark-base">
+              <tr class="border-b text-left text-[10px] uppercase tracking-wider border-dark-border text-dark-text-muted">
                 <th class="px-2.5 py-1.5 font-medium">Last activity</th><th class="px-2.5 py-1.5 font-medium">Session</th><th class="px-2.5 py-1.5 font-medium">User</th>
                 <th class="px-2.5 py-1.5 font-medium">Sources</th><th class="px-2.5 py-1.5 text-right font-medium">Traces</th><th class="px-2.5 py-1.5 text-right font-medium">Duration</th>
                 <th class="px-2.5 py-1.5 text-right font-medium">Tokens</th><th class="px-2.5 py-1.5 text-right font-medium">Cost</th><th class="px-2.5 py-1.5 font-medium">Status</th>
@@ -279,60 +279,60 @@
             </thead>
             <tbody>
               {#if error}
-                <tr><td colspan="9" class="py-8 text-center text-red-600 dark:text-red-400">{error} <button class="underline" onclick={load}>Retry</button></td></tr>
+                <tr><td colspan="9" class="py-8 text-center text-red-400">{error} <button class="underline" onclick={load}>Retry</button></td></tr>
               {:else if !loading && sessions.length === 0}
-                <tr><td colspan="9" class="py-10 text-center text-gray-400 dark:text-dark-text-muted">No sessions in this window. Gateway clients group traces with <code class="font-mono">x-at-session-id</code>; Sessions and organization runs group automatically.</td></tr>
+                <tr><td colspan="9" class="py-10 text-center text-dark-text-muted">No sessions in this window. Gateway clients group traces with <code class="font-mono">x-at-session-id</code>; Sessions and organization runs group automatically.</td></tr>
               {/if}
               {#each sessions as s (s.session_id + s.token_id)}
-                <tr tabindex="0" class="cursor-pointer border-b border-gray-100 hover:bg-gray-50 focus:bg-gray-100 focus:outline-none dark:border-dark-border/60 dark:hover:bg-dark-elevated/60" onclick={() => openSession(s.session_id, s.token_id || '')} onkeydown={(e) => e.key === 'Enter' && openSession(s.session_id, s.token_id || '')}>
-                  <td class="whitespace-nowrap px-2.5 py-1.5 font-mono text-[11px] text-gray-500 dark:text-dark-text-muted">{formatTraceTime(s.ended_at)}</td>
-                  <td class="max-w-64 px-2.5 py-1.5"><div class="truncate font-mono text-gray-900 dark:text-dark-text" title={s.session_id}>{s.session_id}</div>{#if s.name}<div class="truncate text-[11px] text-gray-500 dark:text-dark-text-muted">{s.name}</div>{/if}</td>
-                  <td class="max-w-32 truncate px-2.5 py-1.5 font-mono text-[11px] text-gray-500 dark:text-dark-text-muted">{s.end_user || s.user_id || '–'}</td>
-                  <td class="px-2.5 py-1.5 font-mono text-[11px] text-gray-500 dark:text-dark-text-muted">{s.sources.join(', ')}</td>
+                <tr tabindex="0" class="cursor-pointer border-b focus:bg-dark-elevated focus:outline-none border-dark-border/60 hover:bg-dark-elevated/60" onclick={() => openSession(s.session_id, s.token_id || '')} onkeydown={(e) => e.key === 'Enter' && openSession(s.session_id, s.token_id || '')}>
+                  <td class="whitespace-nowrap px-2.5 py-1.5 font-mono text-[11px] text-dark-text-muted">{formatTraceTime(s.ended_at)}</td>
+                  <td class="max-w-64 px-2.5 py-1.5"><div class="truncate font-mono text-dark-text" title={s.session_id}>{s.session_id}</div>{#if s.name}<div class="truncate text-[11px] text-dark-text-muted">{s.name}</div>{/if}</td>
+                  <td class="max-w-32 truncate px-2.5 py-1.5 font-mono text-[11px] text-dark-text-muted">{s.end_user || s.user_id || '–'}</td>
+                  <td class="px-2.5 py-1.5 font-mono text-[11px] text-dark-text-muted">{s.sources.join(', ')}</td>
                   <td class="px-2.5 py-1.5 text-right font-mono">{s.trace_count}</td>
                   <td class="whitespace-nowrap px-2.5 py-1.5 text-right font-mono">{formatDurationMs(Date.parse(s.ended_at) - Date.parse(s.started_at))}</td>
                   <td class="px-2.5 py-1.5 text-right font-mono">{formatTokens(s.input_tokens + s.output_tokens)}</td>
-                  <td class="px-2.5 py-1.5 text-right font-mono text-gray-900 dark:text-dark-text">{formatCost(s.cost_cents)}</td>
-                  <td class="px-2.5 py-1.5">{#if s.error_count}<span class="bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-900/30 dark:text-red-300">{s.error_count} errors</span>{:else}<span class="bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700 dark:bg-green-900/30 dark:text-green-300">ok</span>{/if}</td>
+                  <td class="px-2.5 py-1.5 text-right font-mono text-dark-text">{formatCost(s.cost_cents)}</td>
+                  <td class="px-2.5 py-1.5">{#if s.error_count}<span class="px-1.5 py-0.5 text-[10px] bg-red-900/30 text-red-300">{s.error_count} errors</span>{:else}<span class="px-1.5 py-0.5 text-[10px] bg-green-900/30 text-green-300">ok</span>{/if}</td>
                 </tr>
               {/each}
             </tbody>
           </table>
         </div>
       {:else}
-        <div class="flex h-full min-h-0 gap-0 border border-gray-200 dark:border-dark-border">
-          <div class="min-w-0 flex-1 overflow-auto bg-white dark:bg-dark-surface">
+        <div class="flex h-full min-h-0 gap-0 border border-dark-border">
+          <div class="min-w-0 flex-1 overflow-auto bg-dark-surface">
             <table class="w-full text-xs">
-              <thead class="sticky top-0 bg-gray-50 dark:bg-dark-base">
-                <tr class="border-b border-gray-200 text-left text-[10px] uppercase tracking-wider text-gray-500 dark:border-dark-border dark:text-dark-text-muted">
+              <thead class="sticky top-0 bg-dark-base">
+                <tr class="border-b text-left text-[10px] uppercase tracking-wider border-dark-border text-dark-text-muted">
                   <th class="px-2.5 py-1.5 font-medium">Time</th><th class="px-2.5 py-1.5 font-medium">Model</th><th class="px-2.5 py-1.5 font-medium">Source</th>
                   <th class="px-2.5 py-1.5 text-right font-medium">In → out</th><th class="px-2.5 py-1.5 text-right font-medium">Latency</th><th class="px-2.5 py-1.5 text-right font-medium">TTFT</th><th class="px-2.5 py-1.5 text-right font-medium">Cost</th>
                 </tr>
               </thead>
               <tbody>
                 {#if error}
-                  <tr><td colspan="7" class="py-8 text-center text-red-600 dark:text-red-400">{error}</td></tr>
+                  <tr><td colspan="7" class="py-8 text-center text-red-400">{error}</td></tr>
                 {:else if !loading && generations.length === 0}
-                  <tr><td colspan="7" class="py-10 text-center text-gray-400 dark:text-dark-text-muted">No generations match these filters.</td></tr>
+                  <tr><td colspan="7" class="py-10 text-center text-dark-text-muted">No generations match these filters.</td></tr>
                 {/if}
                 {#each generations as g (g.id)}
-                  <tr tabindex="0" class={['cursor-pointer border-b border-gray-100 hover:bg-gray-50 focus:bg-gray-100 focus:outline-none dark:border-dark-border/60 dark:hover:bg-dark-elevated/60', selectedGeneration?.id === g.id ? 'bg-gray-100 dark:bg-dark-highest' : '']} onclick={() => (selectedGeneration = g)} onkeydown={(e) => e.key === 'Enter' && (selectedGeneration = g)}>
-                    <td class="whitespace-nowrap px-2.5 py-1.5 font-mono text-[11px] text-gray-500 dark:text-dark-text-muted">{formatTraceTime(g.started_at || g.created_at)}</td>
+                  <tr tabindex="0" class={['cursor-pointer border-b focus:bg-dark-elevated focus:outline-none border-dark-border/60 hover:bg-dark-elevated/60', selectedGeneration?.id === g.id ? 'bg-dark-highest' : '']} onclick={() => (selectedGeneration = g)} onkeydown={(e) => e.key === 'Enter' && (selectedGeneration = g)}>
+                    <td class="whitespace-nowrap px-2.5 py-1.5 font-mono text-[11px] text-dark-text-muted">{formatTraceTime(g.started_at || g.created_at)}</td>
                     <td class="max-w-56 px-2.5 py-1.5"><span class="flex items-center gap-1"><ObservationIcon type={observationType(g)} error={isErrorObservation(g)} /><span class="truncate font-mono">{observationLabel(g)}</span></span></td>
-                    <td class="px-2.5 py-1.5 font-mono text-[11px] text-gray-500 dark:text-dark-text-muted">{g.source}</td>
+                    <td class="px-2.5 py-1.5 font-mono text-[11px] text-dark-text-muted">{g.source}</td>
                     <td class="whitespace-nowrap px-2.5 py-1.5 text-right font-mono">{formatTokens(g.input_tokens)} → {formatTokens(g.output_tokens)}</td>
                     <td class="px-2.5 py-1.5 text-right font-mono">{formatDurationMs(g.latency_ms)}</td>
-                    <td class="px-2.5 py-1.5 text-right font-mono text-gray-500 dark:text-dark-text-muted">{g.time_to_first_token_ms ? formatDurationMs(g.time_to_first_token_ms) : '–'}</td>
-                    <td class="px-2.5 py-1.5 text-right font-mono text-gray-900 dark:text-dark-text">{formatCost(g.cost_cents)}</td>
+                    <td class="px-2.5 py-1.5 text-right font-mono text-dark-text-muted">{g.time_to_first_token_ms ? formatDurationMs(g.time_to_first_token_ms) : '–'}</td>
+                    <td class="px-2.5 py-1.5 text-right font-mono text-dark-text">{formatCost(g.cost_cents)}</td>
                   </tr>
                 {/each}
               </tbody>
             </table>
           </div>
           {#if selectedGeneration}
-            <div class="w-[45%] shrink-0 border-l border-gray-200 dark:border-dark-border">
-              <div class="flex items-center justify-end border-b border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-dark-border dark:bg-dark-base">
-                <button class="text-[11px] text-blue-600 hover:underline dark:text-blue-400" onclick={() => push(`/traces/${encodeURIComponent(selectedGeneration!.trace_id)}?obs=${encodeURIComponent(selectedGeneration!.id)}`)}>Open in trace →</button>
+            <div class="w-[45%] shrink-0 border-l border-dark-border">
+              <div class="flex items-center justify-end border-b px-2 py-0.5 border-dark-border bg-dark-base">
+                <button class="text-[11px] hover:underline text-blue-400" onclick={() => push(`/traces/${encodeURIComponent(selectedGeneration!.trace_id)}?obs=${encodeURIComponent(selectedGeneration!.id)}`)}>Open in trace →</button>
               </div>
               <div class="h-[calc(100%-1.5rem)]">
                 <ObservationInspector observation={selectedGeneration} scores={[]} {scoreNames} onscoreschange={() => {}} onclose={() => (selectedGeneration = null)} onopentrace={openTrace} />

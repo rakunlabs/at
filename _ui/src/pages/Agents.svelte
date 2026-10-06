@@ -588,12 +588,12 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <Bot size={16} class="text-gray-500 dark:text-dark-text-muted" />
-          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Agents</h2>
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({filteredTotal})</span>
+          <Bot size={16} class="text-dark-text-muted" />
+          <h2 class="text-sm font-medium text-dark-text">Agents</h2>
+          <span class="text-xs text-dark-text-muted">({filteredTotal})</span>
           {#if Object.keys(activeByAgent).length > 0}
             {@const totalActive = Object.values(activeByAgent).reduce((s, a) => s + a.length, 0)}
-            <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="Active delegations right now">
+            <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="Active delegations right now">
               <span class="relative flex w-1.5 h-1.5">
                 <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
                 <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -605,14 +605,14 @@
         <div class="flex items-center gap-2">
           <button
             onclick={loadData}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+            class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={() => importFileInput.click()}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
             title="Import agent from .md file"
           >
             <Upload size={12} />
@@ -627,7 +627,7 @@
           />
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
           >
             <Plus size={12} />
             New Agent
@@ -637,26 +637,26 @@
 
       <!-- Inline Form -->
       {#if showForm}
-        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+        <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border bg-dark-base/50">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+              <span class="text-sm font-medium text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Agent'}
               </span>
               {#if !editingId}
                 <button
                   type="button"
                   onclick={pasteAgent}
-                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text "
+                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text"
                   title="Paste agent from clipboard"
                 >
                   <ClipboardPaste size={12} />
                   Paste
                 </button>
               {/if}
-              <button type="button" disabled={saving} aria-expanded={showAIBuilder} aria-controls="agent-ai-builder" onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
+              <button type="button" disabled={saving} aria-expanded={showAIBuilder} aria-controls="agent-ai-builder" onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent-text border-accent/30' : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
             </div>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
+            <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
@@ -670,14 +670,14 @@
                 <img
                   src={generateAvatar(formAvatarSeed || formName || 'agent', 200)}
                   alt="Agent avatar"
-                  class="w-24 h-24 bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border"
+                  class="w-24 h-24 bg-dark-elevated border border-dark-border"
                 />
                 <!-- Overlay buttons — visible on hover -->
-                <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 ">
+                <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100">
                   <button
                     type="button"
                     onclick={() => { showAvatarSeed = !showAvatarSeed; }}
-                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white "
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white"
                     title="Custom seed"
                   >
                     <Pencil size={13} />
@@ -685,7 +685,7 @@
                   <button
                     type="button"
                     onclick={() => { formAvatarSeed = (formName || 'agent') + '_' + Math.random().toString(36).slice(2, 8); }}
-                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white "
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white"
                     title="Randomize avatar"
                   >
                     <RefreshCcw size={13} />
@@ -698,7 +698,7 @@
                       type="text"
                       bind:value={formAvatarSeed}
                       placeholder="Custom seed..."
-                      class="w-full bg-black/30 border border-white/20 px-2 py-1 text-xs text-white placeholder:text-white/50 focus:outline-none focus:border-white/40"
+                      class="w-full bg-black/30 border border-dark-border px-2 py-1 text-xs text-white placeholder:text-white/50 focus:outline-none focus:border-dark-border"
                     />
                   </div>
                 {/if}
@@ -708,24 +708,24 @@
               <div class="w-full min-w-0 flex-1 space-y-3">
                 <!-- Name -->
                 <div>
-                  <label for="form-name" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Name</label>
+                  <label for="form-name" class="block text-xs font-medium text-dark-text-muted mb-1">Name</label>
                   <input
                     id="form-name"
                     type="text"
                     bind:value={formName}
                     placeholder="e.g., code_reviewer, data_analyst"
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                   />
                 </div>
 
                 <!-- Ownership tier (chosen at creation; no tier conversion) -->
                 <div>
-                  <label for="form-scope" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Availability</label>
+                  <label for="form-scope" class="block text-xs font-medium text-dark-text-muted mb-1">Availability</label>
                   <select
                     id="form-scope"
                     bind:value={formScope}
                     disabled={!!editingId}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text disabled:opacity-60"
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text disabled:opacity-60"
                   >
                     <option value="personal">Personal — only visible to you</option>
                     {#if mayPublish || formScope === 'workspace'}
@@ -736,33 +736,33 @@
                     {/if}
                   </select>
                   {#if !editingId}
-                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Cannot be changed after creation. Workspace requires agents.write; Global requires an installation administrator in the Default workspace.</p>
+                    <p class="mt-1 text-[10px] text-dark-text-muted">Cannot be changed after creation. Workspace requires agents.write; Global requires an installation administrator in the Default workspace.</p>
                   {/if}
                 </div>
 
                 <!-- Description -->
                 <div>
-                  <label for="form-description" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Description</label>
+                  <label for="form-description" class="block text-xs font-medium text-dark-text-muted mb-1">Description</label>
                   <input
                     id="form-description"
                     type="text"
                     bind:value={formDescription}
                     placeholder="What this agent does"
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                   />
                 </div>
 
                 <!-- Group + Provider + Model -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label for="form-group" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Group</label>
+                    <label for="form-group" class="block text-xs font-medium text-dark-text-muted mb-1">Group</label>
                     <input
                       id="form-group"
                       type="text"
                       list="agent-group-options"
                       bind:value={formGroup}
                       placeholder="e.g. YouTube Shorts"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                     />
                     <datalist id="agent-group-options">
                       {#each existingGroups as g}
@@ -771,11 +771,11 @@
                     </datalist>
                   </div>
                   <div>
-                    <label for="form-provider" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Provider</label>
+                    <label for="form-provider" class="block text-xs font-medium text-dark-text-muted mb-1">Provider</label>
                     <select
                       id="form-provider"
                       bind:value={formProvider}
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
+                      class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text"
                     >
                       <option value="">Select a provider...</option>
                       {#each providerGroups as group}
@@ -788,12 +788,12 @@
                     </select>
                   </div>
                   <div>
-                    <label for="form-model" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Model</label>
+                    <label for="form-model" class="block text-xs font-medium text-dark-text-muted mb-1">Model</label>
                     {#if availableModels.length > 0}
                       <select
                         id="form-model"
                         bind:value={formModel}
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
+                        class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text"
                       >
                         <option value="">Default ({selectedProviderConfig?.config.model})</option>
                         {#each availableModels as m}
@@ -806,7 +806,7 @@
                         type="text"
                         bind:value={formModel}
                         placeholder="Override default model"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                       />
                     {/if}
                   </div>
@@ -815,13 +815,13 @@
             </div>
 
             <div>
-              <label for="form-reasoning-effort" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Reasoning effort</label>
+              <label for="form-reasoning-effort" class="block text-xs font-medium text-dark-text-muted mb-1">Reasoning effort</label>
               <select
                 id="form-reasoning-effort"
                 bind:value={formReasoningEffort}
                 aria-describedby="form-reasoning-help form-reasoning-warning"
                 aria-invalid={!!reasoningEffortError}
-                class="w-full sm:w-64 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
+                class="w-full sm:w-64 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text"
               >
                 <option value="">Default</option>
                 {#each reasoningEffortOptions as effort}
@@ -831,7 +831,7 @@
                   <option value={formReasoningEffort}>{formReasoningEffort} (current, {reasoningEffortError ? 'unsupported' : 'unverified'})</option>
                 {/if}
               </select>
-              <p id="form-reasoning-help" class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
+              <p id="form-reasoning-help" class="mt-1 text-xs text-dark-text-secondary">
                 Default uses provider/model defaults; it does not disable thinking.
                 {#if reasoningUnsupported}
                   This adapter does not support reasoning effort overrides. Use Default.
@@ -845,7 +845,7 @@
                   Adapter support is unknown. Only Default is offered; existing values are retained but support cannot be verified.
                 {/if}
               </p>
-              <p id="form-reasoning-warning" aria-live="polite" class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+              <p id="form-reasoning-warning" aria-live="polite" class="mt-1 text-xs text-amber-400">
                 {#if reasoningEffortError}
                   {reasoningEffortError} Your selection has been retained.
                 {:else if unlistedReasoningEffort}
@@ -855,32 +855,32 @@
             </div>
 
             <!-- Separator -->
-            <div class="border-t border-gray-200 dark:border-dark-border"></div>
+            <div class="border-t border-dark-border"></div>
 
             <!-- System Prompt -->
             <div>
-              <label for="form-system-prompt" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">System Prompt</label>
+              <label for="form-system-prompt" class="block text-xs font-medium text-dark-text-muted mb-1">System Prompt</label>
               <textarea
                 id="form-system-prompt"
                 bind:value={formSystemPrompt}
                 rows={3}
                 placeholder="You are a helpful assistant..."
-                class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle resize-y text-dark-text placeholder:text-dark-text-muted"
               ></textarea>
             </div>
 
             <!-- Skills -->
             <div>
-              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Skills</span>
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+              <span class="block text-xs font-medium text-dark-text-muted mb-1">Skills</span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-dark-base/30 p-3 border border-dark-border">
                 {#each skills as skill}
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" bind:group={formSkills} value={skill.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={skill.name}>{skill.name}</span>
+                    <input type="checkbox" bind:group={formSkills} value={skill.name} class="text-accent focus:ring-accent/20 bg-dark-elevated border-dark-border-subtle" />
+                    <span class="text-xs text-dark-text-secondary truncate" title={skill.name}>{skill.name}</span>
                   </label>
                 {/each}
                 {#if skills.length === 0}
-                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No skills available</div>
+                  <div class="col-span-full text-xs text-dark-text-muted italic text-center">No skills available</div>
                 {/if}
               </div>
             </div>
@@ -889,17 +889,17 @@
             {#if connections.length > 0}
               {@const providersWithConnections = Array.from(new Set(connections.map((c) => c.provider))).sort()}
               <div>
-                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                <span class="block text-xs font-medium text-dark-text-muted mb-1">
                   Connections
-                  <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">
+                  <span class="text-dark-text-muted font-normal ml-1">
                     — which account this agent uses for each provider
                   </span>
                 </span>
-                <div class="space-y-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                <div class="space-y-2 bg-dark-base/30 p-3 border border-dark-border">
                   {#each providersWithConnections as provider (provider)}
                     {@const options = connections.filter((c) => c.provider === provider)}
                     <div class="flex items-center gap-2">
-                      <label for="form-conn-{provider}" class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary w-24 shrink-0 capitalize">
+                      <label for="form-conn-{provider}" class="text-xs font-medium text-dark-text-secondary w-24 shrink-0 capitalize">
                         {provider}
                       </label>
                       <select
@@ -915,7 +915,7 @@
                             formConnections = next;
                           }
                         }}
-                        class="flex-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                        class="flex-1 text-xs border border-dark-border-subtle bg-dark-elevated px-2 py-1 focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text"
                       >
                         <option value="">(fall back to global variables)</option>
                         {#each options as opt (opt.id)}
@@ -932,40 +932,40 @@
 
             <!-- MCP Servers -->
             <div>
-              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP Servers</span>
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+              <span class="block text-xs font-medium text-dark-text-muted mb-1">MCP Servers</span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-dark-base/30 p-3 border border-dark-border">
                 {#each mcpSets as server}
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" bind:group={formMCPSets} value={server.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={server.description || server.name}>{server.name}</span>
+                    <input type="checkbox" bind:group={formMCPSets} value={server.name} class="text-accent focus:ring-accent/20 bg-dark-elevated border-dark-border-subtle" />
+                    <span class="text-xs text-dark-text-secondary truncate" title={server.description || server.name}>{server.name}</span>
                   </label>
                 {/each}
                 {#if mcpSets.length === 0}
-                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No MCP servers available</div>
+                  <div class="col-span-full text-xs text-dark-text-muted italic text-center">No MCP servers available</div>
                 {/if}
               </div>
             </div>
 
             <!-- Workflows -->
             <div>
-              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+              <span class="block text-xs font-medium text-dark-text-muted mb-1">
                 <span class="inline-flex items-center gap-1.5">
                   <WorkflowIcon size={12} />
                   Workflows
                 </span>
-                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">
+                <span class="text-[10px] text-dark-text-muted font-normal ml-2">
                   Exposed to the agent as <code class="font-mono">wf_&lt;name&gt;</code> tools
                 </span>
               </span>
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-dark-base/30 p-3 border border-dark-border">
                 {#each workflows as wf}
                   <label class="flex items-center gap-2 cursor-pointer" title={wf.description || wf.name}>
-                    <input type="checkbox" bind:group={formWorkflows} value={wf.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{wf.name}</span>
+                    <input type="checkbox" bind:group={formWorkflows} value={wf.name} class="text-accent focus:ring-accent/20 bg-dark-elevated border-dark-border-subtle" />
+                    <span class="text-xs text-dark-text-secondary truncate">{wf.name}</span>
                   </label>
                 {/each}
                 {#if workflows.length === 0}
-                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No workflows available</div>
+                  <div class="col-span-full text-xs text-dark-text-muted italic text-center">No workflows available</div>
                 {/if}
               </div>
             </div>
@@ -973,26 +973,26 @@
             <!-- Subagents -->
 
             <div>
-              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+              <span class="block text-xs font-medium text-dark-text-muted mb-1">
                 Subagents
-                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">Isolated workers available through <code class="font-mono">agent_run</code></span>
+                <span class="text-[10px] text-dark-text-muted font-normal ml-2">Isolated workers available through <code class="font-mono">agent_run</code></span>
               </span>
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-dark-base/30 p-3 border border-dark-border">
                 {#each agents.filter((candidate) => candidate.id !== editingId) as candidate}
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" bind:group={formSubagents} value={candidate.id} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={candidate.config.description || candidate.name}>{candidate.name}</span>
+                    <input type="checkbox" bind:group={formSubagents} value={candidate.id} class="text-accent focus:ring-accent/20 bg-dark-elevated border-dark-border-subtle" />
+                    <span class="text-xs text-dark-text-secondary truncate" title={candidate.config.description || candidate.name}>{candidate.name}</span>
                   </label>
                 {/each}
                 {#if agents.filter((candidate) => candidate.id !== editingId).length === 0}
-                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No other agents available</div>
+                  <div class="col-span-full text-xs text-dark-text-muted italic text-center">No other agents available</div>
                 {/if}
               </div>
             </div>
 
             <!-- Builtin Tools -->
             <div>
-              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+              <span class="block text-xs font-medium text-dark-text-muted mb-1">
                 <span class="inline-flex items-center gap-1.5">
                   <Wrench size={12} />
                   Builtin Tools
@@ -1004,18 +1004,18 @@
             <!-- Confirmation Required Tools -->
             {#if formBuiltinTools.length > 0}
               <div>
-                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                <span class="block text-xs font-medium text-dark-text-muted mb-1">
                   <span class="inline-flex items-center gap-1.5">
                     <ShieldCheck size={12} />
                     Confirm Before Run
                   </span>
-                  <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">Tools requiring human approval</span>
+                  <span class="text-[10px] text-dark-text-muted font-normal ml-2">Tools requiring human approval</span>
                 </span>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-orange-50/50 dark:bg-orange-950/10 p-3 border border-orange-200 dark:border-orange-900/30">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-orange-950/10 p-3 border border-orange-900/30">
                   {#each formBuiltinTools as toolName}
                     <label class="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" bind:group={formConfirmationTools} value={toolName} class="text-orange-600 dark:text-orange-400 focus:ring-orange-500/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                      <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{toolName}</span>
+                      <input type="checkbox" bind:group={formConfirmationTools} value={toolName} class="text-orange-400 focus:ring-orange-500/20 bg-dark-elevated border-dark-border-subtle" />
+                      <span class="text-xs text-dark-text-secondary truncate">{toolName}</span>
                     </label>
                   {/each}
                 </div>
@@ -1025,7 +1025,7 @@
             <!-- MCP URLs (legacy) -->
             {#if formMCPs.some(u => u.trim() !== '')}
               <div>
-                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP URLs</span>
+                <span class="block text-xs font-medium text-dark-text-muted mb-1">MCP URLs</span>
                 <div class="space-y-2">
                   {#each formMCPs as url, i}
                     <div class="flex gap-2 items-center">
@@ -1033,13 +1033,13 @@
                         type="text"
                         value={url}
                         oninput={(e) => updateMcpInput(i, (e.target as HTMLInputElement).value)}
-                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="flex-1 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                         placeholder="https://mcp-server.example.com/mcp"
                       />
                       <button
                         type="button"
                         onclick={() => removeMcpInput(i)}
-                        class="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                        class="p-1 text-red-400 hover:bg-red-900/20 hover:text-red-300"
                         title="Remove URL"
                       >
                         <X size={14} />
@@ -1049,7 +1049,7 @@
                   <button
                     type="button"
                     onclick={addMcpInput}
-                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="flex items-center gap-1.5 text-sm text-dark-text-muted hover:text-dark-text"
                   >
                     <Plus size={12} />
                     Add URL
@@ -1060,18 +1060,18 @@
 
             {#if isNativeAdmin()}
             <!-- Agent Budget -->
-            <div class="border border-gray-200 dark:border-dark-border bg-gray-50/60 dark:bg-dark-base p-3 space-y-3">
+            <div class="border border-dark-border bg-dark-base p-3 space-y-3">
               <div class="flex items-center justify-between">
                 <div>
-                  <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Spending Budget</span>
-                  <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">Checked before each agent LLM call. Blank or 0 disables the limit.</span>
+                  <span class="block text-xs font-medium text-dark-text-secondary">Spending Budget</span>
+                  <span class="text-[10px] text-dark-text-muted">Checked before each agent LLM call. Blank or 0 disables the limit.</span>
                 </div>
                 {#if formAgentBudget}
                   <div class="text-right">
-                    <span class="block text-xs font-mono text-gray-700 dark:text-dark-text-secondary">
+                    <span class="block text-xs font-mono text-dark-text-secondary">
                       ${formAgentBudget.current_spend.toFixed(2)} / {formAgentBudget.monthly_limit > 0 ? `$${formAgentBudget.monthly_limit.toFixed(2)}` : 'Unlimited'}
                     </span>
-                    <span class="text-[9px] text-gray-400 dark:text-dark-text-muted">
+                    <span class="text-[9px] text-dark-text-muted">
                       Resets {new Date(formAgentBudget.period_end).toLocaleString(undefined, { timeZone: formAgentBudget.budget_timezone || 'UTC' })}
                     </span>
                   </div>
@@ -1079,14 +1079,14 @@
               </div>
 
               <label class="block w-56">
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   bind:value={formBudgetLimit}
                   placeholder="Unlimited"
-                  class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                  class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                 />
               </label>
 
@@ -1102,40 +1102,40 @@
             <!-- Max Iterations / Tool Timeout -->
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label for="form-max-iterations" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Max Iterations</label>
+                <label for="form-max-iterations" class="block text-xs font-medium text-dark-text-muted mb-1">Max Iterations</label>
                 <input
                   id="form-max-iterations"
                   type="number"
                   bind:value={formMaxIterations}
                   min="1"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
+                  class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text"
                 />
               </div>
               <div>
-                <label for="form-tool-timeout" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Tool Timeout (s)</label>
+                <label for="form-tool-timeout" class="block text-xs font-medium text-dark-text-muted mb-1">Tool Timeout (s)</label>
                 <input
                   id="form-tool-timeout"
                   type="number"
                   bind:value={formToolTimeout}
                   min="1"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
+                  class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text"
                 />
               </div>
             </div>
 
             <!-- Actions -->
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+            <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+                class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving || builderBusy}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -1169,24 +1169,24 @@
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
             <SortableHeader field="group" label="Group" {sorts} onsort={handleSort} />
             <SortableHeader field="provider" label="Provider / Model" {sorts} onsort={handleSort} />
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
 
           {#snippet row(agent)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
+            <tr class="hover:bg-dark-elevated/50">
               <td class="px-4 py-2.5">
                 <div class="flex items-center gap-2.5">
-                  <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                  <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-dark-elevated" />
                   <div class="flex flex-col gap-0.5 min-w-0">
                     <div class="flex items-center gap-1.5">
-                      <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                      <span class="font-mono font-medium text-dark-text">{agent.name}</span>
                       {#if agent.scope === 'personal'}
-                        <span class="px-1.5 py-0 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40" title="Personal agent — only visible to its owner">personal</span>
+                        <span class="px-1.5 py-0 text-[10px] font-medium bg-blue-900/20 text-blue-400 border border-blue-900/40" title="Personal agent — only visible to its owner">personal</span>
                       {:else if agent.scope === 'global'}
-                        <span class="px-1.5 py-0 text-[10px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900/40" title="Global agent — available in every workspace">global</span>
+                        <span class="px-1.5 py-0 text-[10px] font-medium bg-purple-900/20 text-purple-400 border border-purple-900/40" title="Global agent — available in every workspace">global</span>
                       {/if}
                       {#if activeByAgent[agent.id]?.length}
-                        <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="{activeByAgent[agent.id].length} active task{activeByAgent[agent.id].length === 1 ? '' : 's'}: {activeByAgent[agent.id].map(d => d.duration).join(', ')}">
+                        <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="{activeByAgent[agent.id].length} active task{activeByAgent[agent.id].length === 1 ? '' : 's'}: {activeByAgent[agent.id].map(d => d.duration).join(', ')}">
                           <span class="relative flex w-1.5 h-1.5">
                             <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
                             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -1196,7 +1196,7 @@
                       {/if}
                     </div>
                     {#if agent.config.description}
-                      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
+                      <span class="text-[10px] text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
                     {/if}
                   </div>
                 </div>
@@ -1204,20 +1204,20 @@
               <td class="px-4 py-2.5">
                 {#if agent.config.group}
                   <span
-                    class="inline-flex items-center px-2 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary border border-gray-200 dark:border-dark-border truncate max-w-40"
+                    class="inline-flex items-center px-2 py-0.5 text-[10px] font-medium bg-dark-elevated text-dark-text-secondary border border-dark-border truncate max-w-40"
                     title={agent.config.group}
                   >
                     {agent.config.group}
                   </span>
                 {:else}
-                  <span class="text-xs text-gray-300 dark:text-dark-text-faint">—</span>
+                  <span class="text-xs text-dark-text-faint">—</span>
                 {/if}
               </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+              <td class="px-4 py-2.5 text-xs text-dark-text-muted">
                 <div class="flex flex-col gap-0.5">
-                  <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{agent.config.provider}</span>
+                  <span class="font-mono text-dark-text-secondary">{agent.config.provider}</span>
                   {#if agent.config.model}
-                    <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.config.model}</span>
+                    <span class="font-mono text-dark-text-muted text-[10px]">{agent.config.model}</span>
                   {/if}
                 </div>
               </td>
@@ -1226,7 +1226,7 @@
                   {#if agent.owner_user_id === storeAuth.identity?.subject && mayPublish}
                     <button
                       onclick={() => handlePublish(agent)}
-                      class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-blue-500 hover:text-blue-700 dark:text-accent-text"
+                      class="p-1.5 hover:bg-accent-muted hover:text-blue-300 text-accent-text"
                       title="Copy to workspace agents"
                     >
                       <Share2 size={14} />
@@ -1234,14 +1234,14 @@
                   {/if}
                   <button
                     onclick={() => handleExport(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Export as .md"
                   >
                     <Download size={14} />
                   </button>
                   <button
                     onclick={() => copyAgent(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Copy agent"
                   >
                     <Copy size={14} />
@@ -1249,7 +1249,7 @@
                   {#if canManageAgent(agent)}
                   <button
                     onclick={() => openEdit(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1257,20 +1257,20 @@
                   {#if deleteConfirm === agent.id}
                     <button
                       onclick={() => handleDelete(agent.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
+                      class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = agent.id)}
-                      class="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                      class="p-1.5 text-red-400 hover:bg-red-900/20 hover:text-red-300"
                       title="Delete"
                     >
                       <Trash2 size={14} />

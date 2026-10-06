@@ -168,21 +168,21 @@
   function statusClasses(status: string): string {
     switch (status) {
       case 'backlog':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
+        return 'bg-dark-elevated text-dark-text-muted';
       case 'todo':
-        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+        return 'bg-blue-900/30 text-blue-400';
       case 'in_progress':
-        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+        return 'bg-yellow-900/30 text-yellow-400';
       case 'in_review':
-        return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
+        return 'bg-purple-900/30 text-purple-400';
       case 'blocked':
-        return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+        return 'bg-red-900/30 text-red-400';
       case 'done':
-        return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+        return 'bg-green-900/30 text-green-400';
       case 'cancelled':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted';
+        return 'bg-dark-elevated text-dark-text-muted';
       default:
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
+        return 'bg-dark-elevated text-dark-text-muted';
     }
   }
 
@@ -468,23 +468,23 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div class="flex items-center gap-2">
-      <ClipboardList size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Tasks</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+      <ClipboardList size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Tasks</h2>
+      <span class="text-xs text-dark-text-muted">({total})</span>
     </div>
     <div class="flex items-center gap-2">
       <!-- View mode toggle -->
-      <div class="flex border border-gray-200 dark:border-dark-border">
+      <div class="flex border border-dark-border">
         <button
           onclick={() => setViewMode('list')}
-          class="p-1.5 {viewMode === 'list' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+          class="p-1.5 {viewMode === 'list' ? 'text-dark-base bg-accent' : 'text-dark-text-muted hover:bg-dark-elevated'}"
           title="List view"
         >
           <List size={14} />
         </button>
         <button
           onclick={() => setViewMode('board')}
-          class="p-1.5 {viewMode === 'board' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+          class="p-1.5 {viewMode === 'board' ? 'text-dark-base bg-accent' : 'text-dark-text-muted hover:bg-dark-elevated'}"
           title="Board view"
         >
           <LayoutGrid size={14} />
@@ -496,7 +496,7 @@
         <button
           onclick={() => (showBoardEditor = true)}
           disabled={boardLoading}
-          class="flex items-center gap-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+          class="flex items-center gap-1 px-2 py-1.5 text-xs border border-dark-border text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           title="Choose which columns the board shows and which statuses each one collects"
         >
           <Columns3 size={12} />
@@ -507,7 +507,7 @@
       <!-- Sub-task toggle -->
       <button
         onclick={toggleSubTasks}
-        class="flex items-center gap-1 px-2 py-1.5 text-xs border {showSubTasks ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white' : 'border-gray-200 dark:border-dark-border text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+        class="flex items-center gap-1 px-2 py-1.5 text-xs border {showSubTasks ? 'border-accent bg-accent text-dark-base' : 'border-dark-border text-dark-text-muted hover:bg-dark-elevated'}"
         title={showSubTasks ? 'Showing sub-tasks — click to hide' : 'Sub-tasks hidden — click to show'}
       >
         <GitBranch size={12} />
@@ -518,7 +518,7 @@
       <select
         bind:value={filterStatus}
         onchange={handleFilterChange}
-        class="border border-gray-200 dark:border-dark-border px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+        class="border border-dark-border px-2 py-1 text-xs bg-dark-elevated text-dark-text"
       >
         <option value="">All statuses</option>
         {#each TASK_STATUSES as status}
@@ -529,7 +529,7 @@
       <select
         bind:value={filterPriority}
         onchange={handleFilterChange}
-        class="border border-gray-200 dark:border-dark-border px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+        class="border border-dark-border px-2 py-1 text-xs bg-dark-elevated text-dark-text"
       >
         <option value="">All priorities</option>
         {#each TASK_PRIORITIES as prio}
@@ -540,7 +540,7 @@
       <select
         bind:value={filterOrgId}
         onchange={handleFilterChange}
-        class="border border-gray-200 dark:border-dark-border px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+        class="border border-dark-border px-2 py-1 text-xs bg-dark-elevated text-dark-text"
       >
         <option value="">All organizations</option>
         {#each organizations as org}
@@ -550,14 +550,14 @@
 
       <button
         onclick={refresh}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Task
@@ -567,12 +567,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-4 bg-white dark:bg-dark-surface overflow-hidden shrink-0">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-4 bg-dark-surface overflow-hidden shrink-0">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formTitle}` : 'New Task'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -581,31 +581,31 @@
         <div class="grid grid-cols-2 gap-4">
           <!-- Title -->
           <div>
-            <label for="form-title" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Title</label>
+            <label for="form-title" class="block text-xs font-medium text-dark-text-secondary mb-1">Title</label>
             <input id="form-title" type="text" bind:value={formTitle} placeholder="e.g., Implement user auth"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text " />
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
           </div>
           <!-- Identifier -->
           <div>
-            <label for="form-identifier" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Identifier</label>
+            <label for="form-identifier" class="block text-xs font-medium text-dark-text-secondary mb-1">Identifier</label>
             <input id="form-identifier" type="text" bind:value={formIdentifier} placeholder="e.g., PROJ-123"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text " />
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
           </div>
         </div>
 
         <!-- Description -->
         <div>
-          <label for="form-description" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</label>
+          <label for="form-description" class="block text-xs font-medium text-dark-text-secondary mb-1">Description</label>
           <textarea id="form-description" bind:value={formDescription} placeholder="Describe the task (optional)" rows="2"
-            class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
+            class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text resize-y"></textarea>
         </div>
 
         <div class="grid grid-cols-5 gap-3">
           <!-- Status -->
           <div>
-            <label for="form-status" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Status</label>
+            <label for="form-status" class="block text-xs font-medium text-dark-text-secondary mb-1">Status</label>
             <select id="form-status" bind:value={formStatus}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text">
               {#each TASK_STATUSES as status}
                 <option value={status}>{TASK_STATUS_LABELS[status]}</option>
               {/each}
@@ -616,9 +616,9 @@
           </div>
           <!-- Priority Level -->
           <div>
-            <label for="form-priority-level" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Priority Level</label>
+            <label for="form-priority-level" class="block text-xs font-medium text-dark-text-secondary mb-1">Priority Level</label>
             <select id="form-priority-level" bind:value={formPriorityLevel}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text">
               <option value="">None</option>
               {#each TASK_PRIORITIES as prio}
                 <option value={prio}>{TASK_PRIORITY_LABELS[prio]}</option>
@@ -627,9 +627,9 @@
           </div>
           <!-- Organization -->
           <div>
-            <label for="form-organization" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Organization</label>
+            <label for="form-organization" class="block text-xs font-medium text-dark-text-secondary mb-1">Organization</label>
             <select id="form-organization" bind:value={formOrganizationId}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text">
               <option value="">None</option>
               {#each organizations as org}
                 <option value={org.id}>{org.name}</option>
@@ -638,9 +638,9 @@
           </div>
           <!-- Assigned Agent -->
           <div>
-            <label for="form-assigned-agent" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Assigned Agent</label>
+            <label for="form-assigned-agent" class="block text-xs font-medium text-dark-text-secondary mb-1">Assigned Agent</label>
             <select id="form-assigned-agent" bind:value={formAssignedAgentId}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text">
               <option value="">Unassigned</option>
               {#each agents as agent}
                 <option value={agent.id}>{agent.name}</option>
@@ -649,37 +649,37 @@
           </div>
           <!-- Project ID -->
           <div>
-            <label for="form-project-id" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Project ID</label>
+            <label for="form-project-id" class="block text-xs font-medium text-dark-text-secondary mb-1">Project ID</label>
             <input id="form-project-id" type="text" bind:value={formProjectId} placeholder="Project ID"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none dark:bg-dark-elevated dark:text-dark-text " />
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none bg-dark-elevated text-dark-text" />
           </div>
           <!-- Max Iterations (per-task override) -->
           <div>
-            <label for="form-max-iterations" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            <label for="form-max-iterations" class="block text-xs font-medium text-dark-text-secondary mb-1">
               Max Iterations
-              <span class="text-gray-400 dark:text-dark-text-muted font-normal">(0 = use agent default)</span>
+              <span class="text-dark-text-muted font-normal">(0 = use agent default)</span>
             </label>
             <input id="form-max-iterations" type="number" min="0" bind:value={formMaxIterations}
               placeholder="0"
               title="Per-task override of the agent's max_iterations. Counter resets to 0 every time this task runs."
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text " />
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none bg-dark-elevated text-dark-text" />
           </div>
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button type="button" onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
+            class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">
             Cancel
           </button>
           <button type="submit" disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">
             <Save size={14} />
             {#if saving}Saving...{:else}{editingId ? 'Update' : 'Create'}{/if}
           </button>
           <button type="button" onclick={() => handleSubmit(true)} disabled={saving || !formOrganizationId}
             title={!formOrganizationId ? 'Select an organization first' : 'Create the task and immediately send it to the organization head agent'}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-700 text-white hover:bg-green-800 dark:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50">
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-green-700 hover:bg-green-600 disabled:opacity-50">
             <Play size={14} />
             {#if saving}Saving...{:else}{editingId ? 'Update & Process' : 'Create & Process'}{/if}
           </button>
@@ -693,15 +693,15 @@
     <div class="flex-1 min-h-0 flex flex-col gap-2">
       <!-- The board could not be read: say which columns are on screen. -->
       {#if boardFailed}
-        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-          <TriangleAlert size={14} class="shrink-0 text-amber-600 dark:text-amber-400" />
-          <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">
+        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-dark-border bg-dark-base">
+          <TriangleAlert size={14} class="shrink-0 text-amber-400" />
+          <p class="text-xs leading-relaxed text-dark-text-secondary">
             The saved board columns could not be loaded, so this is the default layout.
           </p>
           <button
             onclick={loadBoard}
             disabled={boardLoading}
-            class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+            class="ml-auto px-2 py-1 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {boardLoading ? 'Retrying…' : 'Try again'}
           </button>
@@ -710,18 +710,18 @@
 
       <!-- Hidden work: never silent. -->
       {#if hidden.count > 0}
-        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-          <EyeOff size={14} class="shrink-0 text-gray-600 dark:text-dark-text-secondary" />
-          <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">{hiddenSentence()}</p>
+        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-dark-border bg-dark-base">
+          <EyeOff size={14} class="shrink-0 text-dark-text-secondary" />
+          <p class="text-xs leading-relaxed text-dark-text-secondary">{hiddenSentence()}</p>
           {#if mayEditBoard}
             <button
               onclick={() => (showBoardEditor = true)}
-              class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+              class="ml-auto px-2 py-1 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Edit columns
             </button>
           {:else}
-            <span class="ml-auto text-xs text-gray-600 dark:text-dark-text-secondary">
+            <span class="ml-auto text-xs text-dark-text-secondary">
               Changing the columns needs the tasks.write capability.
             </span>
           {/if}
@@ -731,7 +731,7 @@
       <div class="flex-1 min-h-0">
         {#if loading}
           <div class="flex items-center justify-center h-full">
-            <div class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading tasks...</div>
+            <div class="text-sm text-dark-text-secondary">Loading tasks...</div>
           </div>
         {:else}
           {#if !taskLoad.error('Tasks') || allTasks.length}<KanbanBoard
@@ -765,24 +765,24 @@
       >
         {#snippet header()}
           <SortableHeader field="title" label="Title" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Priority</th>
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Organization</th>
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Assigned Agent</th>
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Checked Out</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Priority</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Organization</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Assigned Agent</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Checked Out</th>
           <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-          <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
+          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
         {/snippet}
 
         {#snippet row(task)}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 " oncontextmenu={(e) => openContextMenu(e, task)}>
+          <tr class="hover:bg-dark-elevated/50" oncontextmenu={(e) => openContextMenu(e, task)}>
             <td class="px-4 py-2.5">
               <div class="flex items-center gap-2">
                 {#if task.identifier}
-                  <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{task.identifier}</span>
+                  <span class="text-[10px] font-mono text-dark-text-muted">{task.identifier}</span>
                 {/if}
-                <a href="#/tasks/{task.id}" class="font-medium text-gray-900 dark:text-dark-text hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+                <a href="#/tasks/{task.id}" class="font-medium text-dark-text hover:text-dark-text-secondary">
                   {task.title || task.identifier || task.id.slice(0, 12)}
                 </a>
               </div>
@@ -792,16 +792,16 @@
                 {TASK_STATUS_LABELS[task.status] || task.status.replace(/_/g, ' ')}
               </span>
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               {#if task.priority_level}
                 <span class="capitalize">{task.priority_level}</span>
               {:else}
                 {task.priority || '-'}
               {/if}
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               {#if task.organization_id}
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary">
                   <Building2 size={10} />
                   {orgName(task.organization_id)}
                 </span>
@@ -809,20 +809,20 @@
                 -
               {/if}
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               {task.assigned_agent_id ? agentName(task.assigned_agent_id) : '-'}
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               {task.checked_out_by ? agentName(task.checked_out_by) : '-'}
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(task.updated_at)}</td>
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">{formatDate(task.updated_at)}</td>
             <td class="px-4 py-2.5 text-right">
               <div class="flex justify-end gap-1">
                 {#if checkoutTaskId === task.id}
                   <!-- Inline checkout: agent selector + confirm/cancel -->
                   <select
                     bind:value={checkoutAgentId}
-                    class="border border-gray-200 dark:border-dark-border px-1.5 py-0.5 text-xs dark:bg-dark-elevated dark:text-dark-text max-w-[120px]"
+                    class="border border-dark-border px-1.5 py-0.5 text-xs bg-dark-elevated text-dark-text max-w-[120px]"
                   >
                     <option value="">Agent...</option>
                     {#each agents as agent}
@@ -832,27 +832,27 @@
                   <button
                     onclick={confirmCheckout}
                     disabled={!checkoutAgentId}
-                    class="px-2 py-0.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
+                    class="px-2 py-0.5 text-xs text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
                   >
                     OK
                   </button>
                   <button
                     onclick={cancelCheckout}
-                    class="px-2 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                    class="px-2 py-0.5 text-xs border border-dark-border-subtle hover:bg-dark-elevated"
                   >
                     Cancel
                   </button>
                 {:else}
                   <button
                     onclick={() => push(`/tasks/${task.id}`)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="View details"
                   >
                     <ExternalLink size={14} />
                   </button>
                   <button
                     onclick={() => openCheckout(task)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Checkout"
                   >
                     <UserCheck size={14} />
@@ -860,7 +860,7 @@
                   {#if task.checked_out_by}
                     <button
                       onclick={() => handleRelease(task)}
-                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                      class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                       title="Release"
                     >
                       <UserX size={14} />
@@ -868,7 +868,7 @@
                   {/if}
                   <button
                     onclick={() => openEdit(task)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -876,20 +876,20 @@
                   {#if deleteConfirm === task.id}
                     <button
                       onclick={() => handleDelete(task.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                      class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = task.id)}
-                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary hover:text-red-700 dark:hover:text-red-400 "
+                      class="p-1.5 hover:bg-dark-elevated text-dark-text-secondary hover:text-red-400"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -925,12 +925,12 @@
     oncontextmenu={(e) => { e.preventDefault(); closeContextMenu(); }}
   ></div>
   <div
-    class="fixed z-50 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg py-1 min-w-[180px]"
+    class="fixed z-50 bg-dark-surface border border-dark-border shadow-lg py-1 min-w-[180px]"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
   >
     <button
       onclick={() => { handleProcess(contextMenu!.task); closeContextMenu(); }}
-      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
+      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-dark-text hover:bg-dark-elevated"
     >
       <Play size={14} class="text-green-500" />
       Start Processing

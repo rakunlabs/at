@@ -26,8 +26,8 @@
   const autoProvider = $derived(providers.length === 1 ? providerRef(providers[0]) : '');
 
   const field =
-    'w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted';
-  const label = 'text-xs text-gray-500 dark:text-dark-text-muted';
+    'w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted';
+  const label = 'text-xs text-dark-text-muted';
 </script>
 
 <div class="space-y-2">
@@ -89,9 +89,9 @@
     </label>
   </div>
   {#if loaded && providers.length === 0}
-    <p class="text-xs text-amber-600 dark:text-amber-400">No image-capable provider (OpenAI or MiniMax) in this workspace yet; add one under Providers.</p>
+    <p class="text-xs text-amber-400">No image-capable provider (OpenAI or MiniMax) in this workspace yet; add one under Providers.</p>
   {/if}
-  <p class="text-xs text-gray-400 dark:text-dark-text-muted">
+  <p class="text-xs text-dark-text-muted">
     A chosen provider and model are removed from the tool's arguments, so clients such as OpenCode never have to guess them. Size, quality and background are defaults the caller may still override.
   </p>
 </div>

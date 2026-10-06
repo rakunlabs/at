@@ -11,11 +11,11 @@
 
 <div class="flex items-center justify-center h-full">
   <div class="text-center">
-    <div class="text-6xl font-bold text-gray-200 dark:text-dark-text-faint mb-2">404</div>
-    <div class="text-gray-500 dark:text-dark-text-muted mb-4">Page not found</div>
+    <div class="text-6xl font-bold text-dark-text-faint mb-2">404</div>
+    <div class="text-dark-text-muted mb-4">Page not found</div>
     <a
       href="#/"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover"
     >
       <Home size={14} />
       Back to Dashboard

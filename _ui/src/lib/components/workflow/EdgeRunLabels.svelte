@@ -35,8 +35,8 @@
         class={[
           'absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap border px-1.5 text-[11px] leading-[18px] tabular-nums',
           label.failure
-            ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300'
-            : 'border-green-200 bg-white text-green-700 dark:border-green-900 dark:bg-dark-surface dark:text-green-400',
+            ? 'border-red-900 bg-red-950 text-red-300'
+            : 'border-green-900 bg-dark-surface text-green-400',
         ]}
         style:left="{label.x}px"
         style:top="{label.y}px"

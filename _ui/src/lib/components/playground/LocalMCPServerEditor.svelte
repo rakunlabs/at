@@ -75,51 +75,51 @@
   }
 </script>
 
-<div class="mt-1.5 border border-gray-300 dark:border-dark-border-subtle p-2.5 space-y-2">
+<div class="mt-1.5 border border-dark-border-subtle p-2.5 space-y-2">
   <div class="grid grid-cols-4 gap-2 items-center">
     <label class="contents">
-      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">Name</span>
-      <input bind:value={name} placeholder="laptop" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text" />
+      <span class="text-xs text-dark-text-secondary">Name</span>
+      <input bind:value={name} placeholder="laptop" class="col-span-3 border border-dark-border-subtle px-2 py-1 text-xs bg-dark-elevated text-dark-text" />
     </label>
     <label class="contents">
-      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">URL</span>
-      <input bind:value={url} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text" />
+      <span class="text-xs text-dark-text-secondary">URL</span>
+      <input bind:value={url} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-dark-border-subtle px-2 py-1 text-xs font-mono bg-dark-elevated text-dark-text" />
     </label>
-    <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
+    <div class="col-start-2 col-span-3 text-[10px] text-dark-text-muted">
       Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
     </div>
   </div>
 
   <div class="grid grid-cols-4 gap-2 items-start">
-    <span class="text-xs text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
+    <span class="text-xs text-dark-text-secondary pt-1">Headers</span>
     <div class="col-span-3 space-y-1">
       {#each Object.entries(headers) as [hk, hv]}
         <div class="flex items-center gap-1">
-          <span class="text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
-          <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
+          <span class="text-[10px] font-mono text-dark-text-secondary">{hk}:</span>
+          <span class="text-[10px] font-mono text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
           <button
             onclick={() => removeHeader(hk)}
-            class="ml-auto p-0.5 text-gray-400 hover:text-red-500"
+            class="ml-auto p-0.5 text-dark-text-muted hover:text-red-500"
             aria-label={`Remove header ${hk}`}
           ><X size={10} /></button>
         </div>
       {/each}
       <div class="flex items-center gap-1">
-        <input bind:value={headerKey} placeholder="Authorization" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-        <input bind:value={headerValue} placeholder="value" type="password" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-        <button onclick={addHeader} class="px-2 py-1 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">Add</button>
+        <input bind:value={headerKey} placeholder="Authorization" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
+        <input bind:value={headerValue} placeholder="value" type="password" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
+        <button onclick={addHeader} class="px-2 py-1 text-[10px] border border-dark-border-subtle text-dark-text-muted">Add</button>
       </div>
-      <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Stored encrypted and never shown again.</p>
+      <p class="text-[10px] text-dark-text-muted">Stored encrypted and never shown again.</p>
     </div>
   </div>
 
   {#if error}
-    <p class="text-[11px] text-red-600 dark:text-red-400">{error}</p>
+    <p class="text-[11px] text-red-400">{error}</p>
   {/if}
   <div class="flex items-center gap-2">
-    <button onclick={save} disabled={saving} class="px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50">
+    <button onclick={save} disabled={saving} class="px-2.5 py-1 text-xs border border-accent bg-accent text-dark-base disabled:opacity-50">
       {saving ? 'Saving…' : 'Save'}
     </button>
-    <button onclick={oncancel} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary">Cancel</button>
+    <button onclick={oncancel} class="px-2.5 py-1 text-xs border border-dark-border-subtle text-dark-text-secondary">Cancel</button>
   </div>
 </div>

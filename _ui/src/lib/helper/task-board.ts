@@ -84,12 +84,12 @@ export const TASK_BOARD_COLOR_LABELS: Record<string, string> = {
 };
 
 const COLOR_DOT: Record<string, string> = {
-  blue: 'bg-blue-500 dark:bg-blue-400',
-  yellow: 'bg-yellow-500 dark:bg-yellow-400',
-  red: 'bg-red-500 dark:bg-red-400',
-  green: 'bg-green-600 dark:bg-green-400',
-  gray: 'bg-gray-400 dark:bg-gray-500',
-  purple: 'bg-purple-500 dark:bg-purple-400',
+  blue: 'bg-blue-400',
+  yellow: 'bg-yellow-400',
+  red: 'bg-red-400',
+  green: 'bg-green-400',
+  gray: 'bg-gray-500',
+  purple: 'bg-purple-400',
 };
 
 /** Swatch classes for a colour token. An unknown token reads as gray. */

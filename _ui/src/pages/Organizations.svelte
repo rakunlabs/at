@@ -174,12 +174,12 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Building2 size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Organizations</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+      <Building2 size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Organizations</h2>
+      <span class="text-xs text-dark-text-muted">({total})</span>
       {#if Object.keys(activeByOrg).length > 0}
         {@const totalActive = Object.values(activeByOrg).reduce((s, a) => s + a.length, 0)}
-        <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="Active delegations right now">
+        <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="Active delegations right now">
           <span class="relative flex w-1.5 h-1.5">
             <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
             <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -191,14 +191,14 @@
     <div class="flex items-center gap-2">
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
       >
         <Plus size={12} />
         New Organization
@@ -208,12 +208,12 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+    <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Organization'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
+        <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
           <X size={14} />
         </button>
       </div>
@@ -221,41 +221,41 @@
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Name -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
+          <label for="form-name" class="text-sm font-medium text-dark-text-secondary">Name</label>
           <input
             id="form-name"
             type="text"
             bind:value={formName}
             placeholder="e.g., Acme Corp, Engineering Team"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
           />
         </div>
 
         <!-- Description -->
         <div class="grid grid-cols-4 gap-3 items-start">
-          <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Description</label>
+          <label for="form-description" class="text-sm font-medium text-dark-text-secondary pt-1.5">Description</label>
           <textarea
             id="form-description"
             bind:value={formDescription}
             placeholder="What this organization is for (optional)"
             rows="3"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted resize-none"
+            class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted resize-none"
           ></textarea>
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+            class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
           >
             <Save size={14} />
             {#if saving}
@@ -286,18 +286,18 @@
     >
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
         <SortableHeader field="created_at" label="Created" {sorts} onsort={handleSort} />
-        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
       {/snippet}
 
       {#snippet row(organization)}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 cursor-pointer" onclick={() => push(`/organizations/${organization.id}`)}>
-          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">
+        <tr class="hover:bg-dark-elevated/50 cursor-pointer" onclick={() => push(`/organizations/${organization.id}`)}>
+          <td class="px-4 py-2.5 font-medium text-dark-text">
             <div class="flex items-center gap-2">
               <span class="hover:underline">{organization.name}</span>
               {#if activeByOrg[organization.id]?.length}
-                <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="{activeByOrg[organization.id].length} active task{activeByOrg[organization.id].length === 1 ? '' : 's'}">
+                <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="{activeByOrg[organization.id].length} active task{activeByOrg[organization.id].length === 1 ? '' : 's'}">
                   <span class="relative flex w-1.5 h-1.5">
                     <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
                     <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -307,15 +307,15 @@
               {/if}
             </div>
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={organization.description}>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted max-w-48 truncate" title={organization.description}>
             {organization.description || '-'}
           </td>
-          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(organization.created_at)}</td>
+          <td class="px-4 py-2.5 text-xs text-dark-text-muted">{formatDate(organization.created_at)}</td>
           <td class="px-4 py-2.5 text-right" onclick={(e) => e.stopPropagation()}>
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openEdit(organization)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+                class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -323,20 +323,20 @@
               {#if deleteConfirm === organization.id}
                 <button
                   onclick={() => handleDelete(organization.id)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                  class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated"
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = organization.id)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
+                  class="p-1.5 hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                   title="Delete"
                 >
                   <Trash2 size={14} />

@@ -64,12 +64,12 @@
   function stop() { controller?.abort(); }
 </script>
 
-<aside id="agent-ai-builder" class="settings-form w-80 max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface" aria-label="Agent Builder AI">
-  <header class="flex items-center justify-between gap-3 px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
-    <h3 class="flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-dark-text"><Bot size={14} class="text-gray-500 dark:text-dark-text-muted" />Agent Builder AI</h3>
-    <button type="button" class="text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text" aria-label="Close AI builder" onclick={onclose}><X size={14} /></button>
+<aside id="agent-ai-builder" class="settings-form w-80 max-w-[85vw] shrink-0 min-h-0 flex flex-col border-l border-dark-border bg-dark-surface" aria-label="Agent Builder AI">
+  <header class="flex items-center justify-between gap-3 px-3 py-2 border-b border-dark-border shrink-0">
+    <h3 class="flex items-center gap-1.5 text-xs font-medium text-dark-text"><Bot size={14} class="text-dark-text-muted" />Agent Builder AI</h3>
+    <button type="button" class="text-dark-text-muted hover:text-dark-text" aria-label="Close AI builder" onclick={onclose}><X size={14} /></button>
   </header>
-  <div class="px-4 py-3 space-y-2 border-b border-gray-200 dark:border-dark-border">
+  <div class="px-4 py-3 space-y-2 border-b border-dark-border">
     <label>Assistant model<select bind:value={model} disabled={loading || busy || !models.length}>{#if !models.length}<option value="">{loading ? 'Loading models…' : 'No models available'}</option>{/if}{#each models as name}<option value={name}>{name}</option>{/each}</select></label>
     <p class="settings-note">Describe your agent. Changes appear in the form; use Create or Update to save.</p>
     {#if contextLoading}<p role="status" class="settings-note">Loading available form resources…</p>{/if}
@@ -84,14 +84,14 @@
     {/if}
     {#each messages as message}
       {#if message.role === 'user' || message.role === 'assistant'}
-        <div class="space-y-1"><p class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">{message.role === 'user' ? 'You' : 'Assistant'}</p><p class="text-sm whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>
+        <div class="space-y-1"><p class="text-xs font-medium text-dark-text-muted">{message.role === 'user' ? 'You' : 'Assistant'}</p><p class="text-sm whitespace-pre-wrap break-words">{getTextContent(message.content)}</p>
           {#if message.tool_calls?.length}<p class="settings-note">{message.tool_calls.some(c => c.function.name === 'update_agent_form') ? 'Processing form changes' : 'Reading form context'}</p>{/if}
         </div>
       {/if}
     {/each}
     {#if busy}<p role="status" class="settings-note">Working…</p>{/if}
   </div>
-  <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border space-y-2">
+  <div class="px-4 py-3 border-t border-dark-border space-y-2">
     {#if updates.length}<p role="status" class="settings-note">Updated: {updates.join(', ')}. Not saved yet.</p>{/if}
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
     <label>Message<textarea rows="3" bind:value={input} placeholder="Describe an agent or ask for a change…" onkeydown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea></label>

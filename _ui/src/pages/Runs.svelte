@@ -83,10 +83,10 @@
 
   function sourceBadgeClass(source: string): string {
     switch (source) {
-      case 'api': return 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300';
-      case 'webhook': return 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300';
-      case 'cron': return 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300';
-      default: return 'bg-gray-100 dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary';
+      case 'api': return 'bg-blue-900/20 text-blue-300';
+      case 'webhook': return 'bg-purple-900/20 text-purple-300';
+      case 'cron': return 'bg-amber-900/20 text-amber-300';
+      default: return 'bg-dark-elevated text-dark-text-secondary';
     }
   }
 </script>
@@ -99,22 +99,22 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
-      <Activity size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Active Runs</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({runs.length})</span>
+      <Activity size={16} class="text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-dark-text">Active Runs</h2>
+      <span class="text-xs text-dark-text-muted">({runs.length})</span>
     </div>
     <div class="flex items-center gap-3">
-      <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted cursor-pointer">
+      <label class="flex items-center gap-1.5 text-xs text-dark-text-muted cursor-pointer">
         <input
           type="checkbox"
           bind:checked={autoRefresh}
-          class="accent-gray-900 dark:accent-accent"
+          class="accent-accent"
         />
         Auto-refresh
       </label>
       <button
         onclick={loadRuns}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
@@ -123,7 +123,7 @@
   </div>
 
   <!-- Info banner -->
-  <div class="mb-4 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-surface px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+  <div class="mb-4 border border-dark-border bg-dark-surface px-4 py-2.5 text-xs text-dark-text-muted">
     Shows workflows currently running. Cancelled runs may take a moment to stop at the next cancellation checkpoint.
   </div>
 
@@ -136,33 +136,33 @@
     emptyDescription="Workflows will appear here while executing"
   >
     {#snippet header()}
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Run ID</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Workflow</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Source</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Started</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Duration</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Run ID</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Workflow</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Source</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Started</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Duration</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
     {/snippet}
 
     {#snippet row(run)}
-      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
+      <tr class="hover:bg-dark-elevated/50">
         <td class="px-4 py-2.5">
-          <code class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{run.id}</code>
+          <code class="text-xs font-mono text-dark-text-secondary">{run.id}</code>
         </td>
         <td class="px-4 py-2.5">
-          <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{run.workflow_id}</code>
+          <code class="text-xs font-mono text-dark-text-muted bg-dark-elevated px-1.5 py-0.5">{run.workflow_id}</code>
         </td>
         <td class="px-4 py-2.5">
           <span class="px-2 py-0.5 text-xs font-medium {sourceBadgeClass(run.source)}">
             {sourceLabel(run.source)}
           </span>
         </td>
-        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+        <td class="px-4 py-2.5 text-xs text-dark-text-muted">
           {formatTime(run.started_at)}
         </td>
-        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+        <td class="px-4 py-2.5 text-xs text-dark-text-muted">
           <span class="flex items-center gap-1">
-            <Clock size={11} class="text-gray-400 dark:text-dark-text-muted" />
+            <Clock size={11} class="text-dark-text-muted" />
             {run.duration}
           </span>
         </td>
@@ -178,7 +178,7 @@
               </button>
               <button
                 onclick={() => (cancelConfirmId = null)}
-                class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
+                class="px-2 py-1 text-xs text-dark-text-muted hover:text-dark-text-secondary"
               >
                 No
               </button>
@@ -186,7 +186,7 @@
           {:else}
             <button
               onclick={() => (cancelConfirmId = run.id)}
-              class="flex items-center gap-1 px-2 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 "
+              class="flex items-center gap-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
               title="Cancel run"
             >
               <Square size={11} />

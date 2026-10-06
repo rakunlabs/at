@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
-  import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
+  import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, getWorkflow, updateWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { workflowRun, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
@@ -880,8 +880,8 @@
   // ─── Toolbar button styles (single variant set, uniform geometry) ───
 
   const toolbarBtn = 'inline-flex h-8 shrink-0 items-center gap-1.5 border px-2.5 text-xs leading-none disabled:opacity-50';
-  const toolbarBtnDefault = `${toolbarBtn} border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:bg-dark-surface dark:text-dark-text-secondary dark:hover:bg-dark-elevated`;
-  const toolbarBtnActive = `${toolbarBtn} border-gray-900 bg-gray-900 text-white hover:bg-gray-800 dark:border-accent dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover`;
+  const toolbarBtnDefault = `${toolbarBtn} border-dark-border-subtle bg-dark-surface text-dark-text-secondary hover:bg-dark-elevated`;
+  const toolbarBtnActive = `${toolbarBtn} border-accent bg-accent text-gray-950 hover:bg-accent-hover`;
   const toolbarBtnPrimary = `${toolbarBtn} border-green-600 bg-green-600 text-white hover:bg-green-700`;
 
   // ─── Init ───
@@ -904,30 +904,30 @@
 </svelte:head>
 
 {#if loading}
-  <div class="p-8 text-center text-sm text-gray-500 dark:text-dark-text-muted">Loading workflow...</div>
+  <div class="p-8 text-center text-sm text-dark-text-muted">Loading workflow...</div>
 {:else if workflow}
   <div class="workflow-workbench flex flex-col h-full overflow-hidden">
     <!-- Toolbar -->
-    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-dark-surface border-b border-dark-border shrink-0">
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/workflows')}
-          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+          class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text"
         >
           <ArrowLeft size={14} />
           Back
         </button>
-        <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
+        <div class="h-4 border-l border-dark-border"></div>
         <div class="flex flex-col">
           <div class="flex items-center gap-2">
             <input
               type="text"
               bind:value={workflow.name}
-              class="text-sm font-medium text-gray-900 dark:text-dark-text bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+              class="text-sm font-medium text-dark-text bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
               placeholder="Workflow name"
             />
             <div class="flex items-center gap-1 group relative">
-              <button type="button" class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
+              <button type="button" class="text-[10px] font-mono text-dark-text-faint cursor-pointer hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
                  {workflow.id}
               </button>
             </div>
@@ -935,14 +935,14 @@
             <input
             type="text"
             bind:value={workflow.description}
-            class="text-[10px] text-gray-400 dark:text-dark-text-faint bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+            class="text-[10px] text-dark-text-faint bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
             placeholder="Add description..."
           />
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         {#if workflow.active_version != null}
-          <span class="inline-flex h-8 shrink-0 items-center gap-1 border px-2 text-[11px] font-medium leading-none {viewingVersion != null ? 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated border-gray-200 dark:border-dark-border'}">
+          <span class="inline-flex h-8 shrink-0 items-center gap-1 border px-2 text-[11px] font-medium leading-none {viewingVersion != null ? 'text-amber-400 bg-amber-900/20 border-amber-800' : 'text-dark-text-muted bg-dark-elevated border-dark-border'}">
             {#if viewingVersion != null}
               v{viewingVersion}
               {#if viewingVersion === workflow.active_version}
@@ -996,13 +996,13 @@
 
     <!-- Version viewing banner -->
     {#if viewingVersion != null}
-      <div class="flex items-center justify-between px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 shrink-0">
-        <span class="text-xs text-amber-700 dark:text-amber-400">
+      <div class="flex items-center justify-between px-3 py-1 bg-amber-900/20 border-b border-amber-800 shrink-0">
+        <span class="text-xs text-amber-400">
           Viewing version {viewingVersion}{viewingVersion === workflow.active_version ? ' (active)' : ''} — canvas is read-only until you return to latest
         </span>
         <button
           onclick={loadCurrentToCanvas}
-          class="px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400 bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 "
+          class="px-2 py-0.5 text-xs text-amber-400 bg-dark-surface border border-amber-800 hover:bg-amber-900/30"
         >
           Back to latest
         </button>
@@ -1022,7 +1022,7 @@
       <!-- Double click opens the details view; keyboard users press Enter on the selected step (onCanvasKeyDown). -->
       <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_element_interactions -->
       <div
-        class="isolate flex-1 min-w-0 relative bg-gray-50 dark:bg-dark-base {storeTheme.mode === 'dark' ? 'kaykay-dark' : ''} {draggingOver ? 'ring-2 ring-inset ring-blue-400 dark:ring-accent' : ''}"
+        class="isolate flex-1 min-w-0 relative bg-dark-base kaykay-dark {draggingOver ? 'ring-2 ring-inset ring-accent' : ''}"
         role="application"
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
@@ -1046,19 +1046,19 @@
 
         </Canvas>
         {#if flow}
-          <div class="canvas-actions absolute top-3 left-3 z-[1000] flex items-center gap-[2px] bg-white p-1 dark:bg-dark-surface" aria-label="Canvas actions">
-            <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Undo2 size={16} /></button>
-            <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Redo2 size={16} /></button>
+          <div class="canvas-actions absolute top-3 left-3 z-[1000] flex items-center gap-[2px] p-1 bg-dark-surface" aria-label="Canvas actions">
+            <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="flex h-8 w-8 items-center justify-center disabled:opacity-40 text-dark-text hover:bg-dark-elevated"><Undo2 size={16} /></button>
+            <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="flex h-8 w-8 items-center justify-center disabled:opacity-40 text-dark-text hover:bg-dark-elevated"><Redo2 size={16} /></button>
           </div>
           {#if openHintVisible}
-            <div class="pointer-events-none absolute bottom-3 left-1/2 z-[1000] -translate-x-1/2 border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text-secondary">Double-click or press Enter to open this step</div>
+            <div class="pointer-events-none absolute bottom-3 left-1/2 z-[1000] -translate-x-1/2 border px-2.5 py-1 text-[11px] border-dark-border bg-dark-surface text-dark-text-secondary">Double-click or press Enter to open this step</div>
           {/if}
           {#if flow.nodes.length === 0 && !showPalette}
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div class="pointer-events-auto max-w-xs border border-gray-200 bg-white p-5 dark:border-dark-border dark:bg-dark-surface">
-                <h2 class="text-base font-semibold text-gray-900 dark:text-dark-text">Build your first step</h2>
-                <p class="mt-2 text-sm text-gray-600 dark:text-dark-text-secondary">Start with Input, add an action, then connect an Output to return the result.</p>
-                <button onclick={() => addNode('input')} disabled={viewingVersion != null} class="mt-4 flex items-center gap-2 bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-accent dark:text-gray-950"><Plus size={16} /> Add Input</button>
+              <div class="pointer-events-auto max-w-xs border p-5 border-dark-border bg-dark-surface">
+                <h2 class="text-base font-semibold text-dark-text">Build your first step</h2>
+                <p class="mt-2 text-sm text-dark-text-secondary">Start with Input, add an action, then connect an Output to return the result.</p>
+                <button onclick={() => addNode('input')} disabled={viewingVersion != null} class="mt-4 flex items-center gap-2 px-3 py-2 text-sm disabled:opacity-50 bg-accent text-gray-950"><Plus size={16} /> Add Input</button>
               </div>
             </div>
           {/if}
@@ -1072,24 +1072,24 @@
 
       <!-- Version History Panel -->
       {#if showVersionPanel}
-        <div class="w-64 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Version History</span>
-            <button onclick={() => { showVersionPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+        <div class="w-64 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
+            <span class="text-xs font-medium text-dark-text-secondary">Version History</span>
+            <button onclick={() => { showVersionPanel = false; }} class="text-dark-text-faint hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="overflow-y-auto min-h-0 flex-1">
             {#if loadingVersions}
-              <div class="p-3 text-xs text-gray-500 dark:text-dark-text-muted text-center">Loading...</div>
+              <div class="p-3 text-xs text-dark-text-muted text-center">Loading...</div>
             {:else if versions.length === 0}
-              <div class="p-3 text-xs text-gray-400 dark:text-dark-text-faint text-center">No versions yet. Save to create the first version.</div>
+              <div class="p-3 text-xs text-dark-text-faint text-center">No versions yet. Save to create the first version.</div>
             {:else}
               <!-- Return to latest button when viewing old version -->
               {#if viewingVersion != null}
                 <button
                   onclick={loadCurrentToCanvas}
-                  class="w-full px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b border-gray-100 dark:border-dark-border text-left "
+                  class="w-full px-3 py-2 text-xs text-blue-400 hover:bg-blue-900/20 border-b border-dark-border text-left"
                 >
                   Back to latest
                 </button>
@@ -1098,13 +1098,13 @@
                 {@const isActive = workflow.active_version === v.version}
                 {@const isViewing = viewingVersion === v.version}
                 <div
-                  class="px-3 py-2 border-b border-gray-100 dark:border-dark-border {isViewing ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'} "
+                  class="px-3 py-2 border-b border-dark-border {isViewing ? 'bg-amber-900/20' : 'hover:bg-dark-elevated'} "
                 >
                   <div class="flex items-center justify-between mb-0.5">
                     <div class="flex items-center gap-1.5">
-                      <span class="text-xs font-medium text-gray-800 dark:text-dark-text">v{v.version}</span>
+                      <span class="text-xs font-medium text-dark-text">v{v.version}</span>
                       {#if isActive}
-                        <span class="flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded">
+                        <span class="flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium text-green-400 bg-green-900/30 border border-green-800">
                           <Check size={8} />
                           active
                         </span>
@@ -1115,7 +1115,7 @@
                         <button
                           onclick={() => handleSetActiveVersion(v.version)}
                           disabled={settingActive}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-green-700 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
+                          class="px-1.5 py-0.5 text-[10px] text-dark-text-muted hover:text-green-400 hover:bg-green-900/30 disabled:opacity-50"
                           title="Set as active version"
                         >
                           Set active
@@ -1124,7 +1124,7 @@
                       {#if !isViewing}
                         <button
                           onclick={() => loadVersionToCanvas(v.version)}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded "
+                          class="px-1.5 py-0.5 text-[10px] text-dark-text-muted hover:text-blue-400 hover:bg-blue-900/20"
                           title="Load this version into canvas"
                         >
                           Load
@@ -1132,15 +1132,15 @@
                       {/if}
                     </div>
                   </div>
-                  <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                  <div class="flex items-center gap-1 text-[10px] text-dark-text-faint">
                     <Clock size={9} />
                     {new Date(v.created_at).toLocaleDateString()} {new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {#if v.created_by}
-                      <span class="ml-1 text-gray-300 dark:text-dark-text-faint">|</span> <span class="ml-1">by {v.created_by}</span>
+                      <span class="ml-1 text-dark-text-faint">|</span> <span class="ml-1">by {v.created_by}</span>
                     {/if}
                   </div>
                   {#if v.name && v.name !== workflow.name}
-                    <div class="text-[10px] text-gray-500 dark:text-dark-text-muted mt-0.5 truncate" title={v.name}>{v.name}</div>
+                    <div class="text-[10px] text-dark-text-muted mt-0.5 truncate" title={v.name}>{v.name}</div>
                   {/if}
                 </div>
               {/each}
@@ -1177,20 +1177,20 @@
             />
           {/snippet}
           {#snippet parameters()}
-            <nav aria-label="Step configuration" class="-mx-4 -mt-4 mb-4 flex border-b border-gray-200 dark:border-dark-border">
+            <nav aria-label="Step configuration" class="-mx-4 -mt-4 mb-4 flex border-b border-dark-border">
               {#each ['parameters', 'settings'] as tab}
-                <button onclick={() => inspectorTab = tab as typeof inspectorTab} aria-pressed={inspectorTab === tab} class="flex-1 border-b-2 px-2 py-2 text-xs font-medium {inspectorTab === tab ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated'}">{tab === 'parameters' ? 'Parameters' : 'Settings'}</button>
+                <button onclick={() => inspectorTab = tab as typeof inspectorTab} aria-pressed={inspectorTab === tab} class="flex-1 border-b-2 px-2 py-2 text-xs font-medium {inspectorTab === tab ? 'border-blue-400 text-blue-400' : 'border-transparent text-dark-text-secondary hover:bg-dark-elevated'}">{tab === 'parameters' ? 'Parameters' : 'Settings'}</button>
               {/each}
             </nav>
             <div class="space-y-3">
               {#if inspectorTab === 'parameters'}
                 <div>
                   <label class="block">
-                    <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Label</span>
+                    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Label</span>
                     <input
                       type="text"
                       bind:value={selectedNodeData.label}
-                      class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                      class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text"
                     />
                   </label>
                 </div>
@@ -1207,11 +1207,11 @@
                   />
                 {/if}
                 {#if outputHandles.length && viewingVersion == null}
-                  <div class="border-t border-gray-200 pt-3 dark:border-dark-border">
-                    <p class="mb-2 text-xs text-gray-600 dark:text-dark-text-secondary">Add the next step from an output:</p>
+                  <div class="border-t pt-3 border-dark-border">
+                    <p class="mb-2 text-xs text-dark-text-secondary">Add the next step from an output:</p>
                     <div class="flex flex-wrap gap-2">
                       {#each outputHandles as handle (handle.id)}
-                        <button onclick={() => { if (hasNodeEdits() && !applyNodeData()) return; pendingConnection = { nodeId: selectedNodeId!, handleId: handle.id }; showPalette = true; closePropertyEditor(); }} class="flex items-center gap-1 border border-gray-300 px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={14} />{handle.label || handle.id}</button>
+                        <button onclick={() => { if (hasNodeEdits() && !applyNodeData()) return; pendingConnection = { nodeId: selectedNodeId!, handleId: handle.id }; showPalette = true; closePropertyEditor(); }} class="flex items-center gap-1 border px-2 py-1.5 text-xs border-dark-border-subtle text-dark-text hover:bg-dark-elevated"><Plus size={14} />{handle.label || handle.id}</button>
                       {/each}
                     </div>
                   </div>
@@ -1237,27 +1237,27 @@
       <!-- Run Panel -->
       {#if showSavedRuns}<SavedWorkflowRuns workflowId={workflow.id} refreshKey={savedRunsRefresh} initialTab={runsTab} onclose={() => showSavedRuns = false} onselectnode={(nodeId) => { const flow = canvasRef?.getFlow(); if (flow?.getNode(nodeId)) { flow.selectNode(nodeId); selectNodeForEditor(nodeId); } else addToast(`Step ${nodeId} is not in this version of the workflow.`, 'info'); }} />{/if}
       {#if showRunPanel}
-        <div class="absolute inset-y-0 right-0 z-30 w-80 max-w-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto xl:static">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">{runTargetNodeId ? 'Test step' : 'Run Workflow'}</span>
-            <button onclick={() => { showRunPanel = false; }} aria-label="Close run panel" class="p-2 text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text">
+        <div class="absolute inset-y-0 right-0 z-30 w-80 max-w-full bg-dark-surface border-l border-dark-border shrink-0 overflow-y-auto xl:static">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-dark-border">
+            <span class="text-xs font-medium text-dark-text-secondary">{runTargetNodeId ? 'Test step' : 'Run Workflow'}</span>
+            <button onclick={() => { showRunPanel = false; }} aria-label="Close run panel" class="p-2 text-dark-text-secondary hover:text-dark-text">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3">
             {#if runTargetNodeId}
-              <div class="space-y-2 border border-gray-200 p-3 text-xs text-gray-700 dark:border-dark-border dark:text-dark-text-secondary">
-                <p class="font-semibold text-gray-900 dark:text-dark-text">{String(flow?.getNode(runTargetNodeId)?.data.label || runTargetNodeId)}</p>
+              <div class="space-y-2 border p-3 text-xs border-dark-border text-dark-text-secondary">
+                <p class="font-semibold text-dark-text">{String(flow?.getNode(runTargetNodeId)?.data.label || runTargetNodeId)}</p>
                 <p>Runs this step and its required upstream nodes. Later steps and unrelated branches will not run. The selected step executes even if its output is pinned.</p>
                 <button onclick={() => runTargetNodeId = null} disabled={running} class="underline">Switch to full workflow</button>
               </div>
             {/if}
             {#if Object.keys(pinnedNodes).length}
-              <div class="space-y-2 border border-blue-200 p-3 text-xs text-gray-700 dark:border-blue-900 dark:text-dark-text-secondary">
+              <div class="space-y-2 border p-3 text-xs border-blue-900 text-dark-text-secondary">
                 <label class="flex items-start gap-2"><input type="checkbox" bind:checked={usePinnedData} disabled={running} /> Use pinned outputs (test mode)</label>
                 <p>{Object.keys(pinnedNodes).length} pinned step(s). Upstream steps still run unless pinned too. Pins are checked against node configuration, upstream wiring and run inputs.</p>
                 {#each Object.keys(pinnedNodes) as id (id)}
-                  <div class="flex items-start justify-between gap-2"><span class="min-w-0 break-words">{String(flow?.getNode(id)?.data.label || id)}</span><button onclick={() => unpinNode(id)} disabled={running} class="shrink-0 text-blue-700 dark:text-blue-400">Unpin</button></div>
+                  <div class="flex items-start justify-between gap-2"><span class="min-w-0 break-words">{String(flow?.getNode(id)?.data.label || id)}</span><button onclick={() => unpinNode(id)} disabled={running} class="shrink-0 text-blue-400">Unpin</button></div>
                 {/each}
                 <button onclick={() => pinnedNodes = {}} disabled={running} class="underline">Clear all pins</button>
               </div>
@@ -1266,18 +1266,18 @@
 
             {#if versions.length > 0}
               <div>
-                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>
+                <label for="run-version-select" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Run Version</label>
                 <select
                   id="run-version-select"
                   bind:value={runVersion}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                 >
                   <option value={undefined}>Latest (save first)</option>
                   {#each versions as v}
                     <option value={v.version}>v{v.version}{workflow.active_version === v.version ? ' (active)' : ''}</option>
                   {/each}
                 </select>
-                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                <div class="mt-0.5 text-[10px] text-dark-text-faint">
                   {runVersion !== undefined ? `Run version ${runVersion}` : 'Saves then runs latest graph'}
                 </div>
               </div>
@@ -1285,32 +1285,32 @@
             <button
               onclick={handleRun}
               disabled={running}
-              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 "
+              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
             >
               <Play size={12} />
               {running ? 'Running...' : runTargetNodeId ? 'Run to this step' : usePinnedData && Object.keys(pinnedNodes).length ? 'Run test with pins' : 'Execute'}
             </button>
             {#if running}
-              <button onclick={stopRun} class="w-full border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">Stop run</button>
+              <button onclick={stopRun} class="w-full border px-3 py-2 text-sm border-red-900 text-red-400 hover:bg-red-950">Stop run</button>
             {/if}
 
             {#if runError}
-              <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">
+              <div class="p-2 bg-red-900/20 border border-red-800 text-xs text-red-400">
                 {runError}
               </div>
             {/if}
 
             {#if runResult}
               <div>
-                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
-                <pre class="p-2 bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
+                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
+                <pre class="p-2 bg-dark-elevated border border-dark-border text-[11px] font-mono text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
               </div>
             {/if}
 
             {#if runResult || runError || Object.keys(workflowRun.nodeRunStates).length > 0}
               <button
                 onclick={() => { clearRunState(); runResult = null; runError = null; }}
-                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated "
+                class="w-full px-2 py-1 text-[10px] text-dark-text-muted border border-dark-border-subtle hover:bg-dark-elevated"
               >
                 Clear Results
               </button>
@@ -1326,19 +1326,19 @@
             <!-- Entry Point selector (always show if multiple) -->
             {#if getInputNodes().length > 1}
               <div>
-                <label for="{idPrefix}-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
+                <label for="{idPrefix}-entry-select" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Entry Point</label>
                 <select
                   id="{idPrefix}-entry-select"
                   bind:value={runEntryNodeId}
                   onchange={() => syncEditorFormFromEntry()}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                 >
                   <option value="">All input nodes</option>
                   {#each getInputNodes() as node}
                     <option value={node.id}>{node.label} ({node.id.slice(0, 6)})</option>
                   {/each}
                 </select>
-                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                <div class="mt-0.5 text-[10px] text-dark-text-faint">
                   {runEntryNodeId ? 'Only the selected input node will run' : 'All input nodes will be triggered'}
                 </div>
               </div>
@@ -1350,25 +1350,25 @@
               {@const fields = selectedNode?.fields || []}
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</span>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
                   <button
                     onclick={() => { runUseForm = false; runInputMode = 'json'; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
-                    class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                    class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
                   >JSON</button>
                 </div>
                 {#each fields as field}
                   <label class="block">
-                    <span class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
+                    <span class="text-[10px] font-medium text-dark-text-secondary block mb-0.5">
                       {field.name}
                       {#if field.description}
-                        <span class="font-normal text-gray-400 dark:text-dark-text-muted ml-1">— {field.description}</span>
+                        <span class="font-normal text-dark-text-muted ml-1">— {field.description}</span>
                       {/if}
                     </span>
                     {#if field.type === 'select' && field.options}
                       <select
                         value={runFormValues[field.name] ?? field.default ?? ''}
                         onchange={(e) => { runFormValues[field.name] = (e.target as HTMLSelectElement).value; }}
-                        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                        class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                       >
                         {#each field.options as opt}
                           <option value={opt}>{opt}</option>
@@ -1379,7 +1379,7 @@
                         type="number"
                         value={runFormValues[field.name] ?? field.default ?? 0}
                         oninput={(e) => { runFormValues[field.name] = Number((e.target as HTMLInputElement).value); }}
-                        class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                        class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                       />
                     {:else if field.type === 'boolean'}
                       <label class="flex items-center gap-2 cursor-pointer">
@@ -1387,23 +1387,23 @@
                           type="checkbox"
                           checked={runFormValues[field.name] ?? field.default ?? false}
                           onchange={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).checked; }}
-                          class="w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                          class="w-3.5 h-3.5 bg-dark-elevated border-dark-border-subtle accent-accent"
                         />
-                        <span class="text-xs text-gray-600 dark:text-dark-text-secondary">{runFormValues[field.name] ? 'Yes' : 'No'}</span>
+                        <span class="text-xs text-dark-text-secondary">{runFormValues[field.name] ? 'Yes' : 'No'}</span>
                       </label>
                     {:else if field.type === 'textarea'}
                       <textarea
                         value={runFormValues[field.name] ?? field.default ?? ''}
                         oninput={(e) => { runFormValues[field.name] = (e.target as HTMLTextAreaElement).value; }}
                         rows={3}
-                        class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y"
+                        class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text resize-y"
                       ></textarea>
                     {:else}
                       <input
                         type="text"
                         value={runFormValues[field.name] ?? field.default ?? ''}
                         oninput={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).value; }}
-                        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                        class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
                       />
                     {/if}
                   </label>
@@ -1412,22 +1412,22 @@
             {:else}
               <div>
                 <div class="flex items-center justify-between mb-0.5">
-                  <label for="{idPrefix}-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
+                  <label for="{idPrefix}-inputs" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</label>
                   <div class="flex items-center gap-1">
                     {#if getInputNodes().find(n => n.id === runEntryNodeId)?.fields}
                       <button
                         onclick={() => syncEditorFormFromEntry()}
-                        class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary mr-1"
+                        class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary mr-1"
                       >Form</button>
                     {/if}
-                    <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
+                    <div class="flex overflow-hidden border border-dark-border-subtle">
                       <button
                         onclick={() => { runInputMode = 'text'; }}
-                        class="px-1.5 py-0.5 text-[10px] font-medium {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                        class="px-1.5 py-0.5 text-[10px] font-medium {runInputMode === 'text' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-muted hover:bg-dark-highest'}"
                       >Text</button>
                       <button
                         onclick={() => { runInputMode = 'json'; }}
-                        class="px-1.5 py-0.5 text-[10px] font-medium border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                        class="px-1.5 py-0.5 text-[10px] font-medium border-l border-dark-border-subtle {runInputMode === 'json' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-muted hover:bg-dark-highest'}"
                       >JSON</button>
                     </div>
                   </div>
@@ -1436,7 +1436,7 @@
                   id="{idPrefix}-inputs"
                   bind:value={runInputsJson}
                   rows={5}
-                  class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
+                  class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
                   placeholder={runInputMode === 'text' ? 'Type your input text...' : '{"key": "value"}'}
                 ></textarea>
               </div>
@@ -1461,16 +1461,12 @@
      the undo/redo group reads as the same class of canvas overlay. No opacity
      transition: this UI does not animate state changes. */
   .canvas-actions {
-    box-shadow: 0 2px 8px #00000026;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
     opacity: 0.4;
   }
 
   .canvas-actions:hover,
   .canvas-actions:focus-within {
     opacity: 1;
-  }
-
-  :global(.kaykay-dark) .canvas-actions {
-    box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
   }
 </style>

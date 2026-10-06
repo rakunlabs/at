@@ -48,16 +48,16 @@
         />
       {/each}
       {#if hovered}
-        <text y="-8" text-anchor="middle" class="text-[10px] fill-gray-500 dark:fill-dark-text-muted">
+        <text y="-8" text-anchor="middle" class="text-[10px] fill-dark-text-muted">
           {(hovered.label || '(none)').length > 16 ? `${(hovered.label || '(none)').slice(0, 15)}…` : hovered.label || '(none)'}
         </text>
-        <text y="6" text-anchor="middle" class="text-xs font-medium fill-gray-900 dark:fill-dark-text">{formatValue(hovered.value)}</text>
-        <text y="19" text-anchor="middle" class="text-[10px] fill-gray-500 dark:fill-dark-text-muted">{percent(hovered.value)}</text>
+        <text y="6" text-anchor="middle" class="text-xs font-medium fill-dark-text">{formatValue(hovered.value)}</text>
+        <text y="19" text-anchor="middle" class="text-[10px] fill-dark-text-muted">{percent(hovered.value)}</text>
       {:else}
         <text
           y="4"
           text-anchor="middle"
-          class="text-xs font-medium fill-gray-700 dark:fill-dark-text-secondary"
+          class="text-xs font-medium fill-dark-text-secondary"
         >
           {formatValue(total)}
         </text>
@@ -67,19 +67,19 @@
   <div class="flex flex-col gap-1 text-xs">
     {#each slices as s, index}
       <div
-        class={["flex items-center gap-2 px-1", hoverIndex === index ? 'bg-gray-100 dark:bg-dark-elevated' : '']}
+        class={["flex items-center gap-2 px-1", hoverIndex === index ? 'bg-dark-elevated' : '']}
         role="presentation"
         onmouseenter={() => (hoverIndex = index)}
         onmouseleave={() => (hoverIndex = null)}
       >
-        <span class="inline-block w-3 h-3 rounded-sm" style="background: {s.color}"></span>
-        <span class="font-mono text-gray-600 dark:text-dark-text-secondary truncate max-w-24" title={s.label}>
+        <span class="inline-block w-3 h-3" style="background: {s.color}"></span>
+        <span class="font-mono text-dark-text-secondary truncate max-w-24" title={s.label}>
           {s.label || '(none)'}
         </span>
-        <span class="ml-auto font-mono text-gray-900 dark:text-dark-text">{formatValue(s.value)}</span>
+        <span class="ml-auto font-mono text-dark-text">{formatValue(s.value)}</span>
       </div>
     {:else}
-      <div class="text-gray-400 dark:text-dark-text-muted">No data</div>
+      <div class="text-dark-text-muted">No data</div>
     {/each}
   </div>
 </div>

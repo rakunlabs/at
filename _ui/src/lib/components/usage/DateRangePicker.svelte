@@ -55,8 +55,8 @@
     class={[
       'px-2 py-1 border',
       preset === '24h'
-        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-        : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
+        ? 'text-dark-base bg-accent border-accent'
+        : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated',
     ]}
   >24h</button>
   <button
@@ -64,8 +64,8 @@
     class={[
       'px-2 py-1 border',
       preset === '7d'
-        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-        : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
+        ? 'text-dark-base bg-accent border-accent'
+        : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated',
     ]}
   >7d</button>
   <button
@@ -73,8 +73,8 @@
     class={[
       'px-2 py-1 border',
       preset === '30d'
-        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-        : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
+        ? 'text-dark-base bg-accent border-accent'
+        : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated',
     ]}
   >30d</button>
   <button
@@ -82,12 +82,12 @@
     class={[
       'px-2 py-1 border',
       preset === 'mtd'
-        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:border-accent'
-        : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
+        ? 'text-dark-base bg-accent border-accent'
+        : 'border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated',
     ]}
   >MTD</button>
 
-  <span class="mx-2 text-gray-300 dark:text-dark-border">|</span>
+  <span class="mx-2 text-dark-border">|</span>
 
   <input
     type="datetime-local"
@@ -96,9 +96,9 @@
       from = localToIso((e.currentTarget as HTMLInputElement).value);
       handleCustom();
     }}
-    class="px-1.5 py-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary"
+    class="px-1.5 py-1 border border-dark-border-subtle bg-dark-surface text-dark-text-secondary"
   />
-  <span class="text-gray-400 dark:text-dark-text-muted">→</span>
+  <span class="text-dark-text-muted">→</span>
   <input
     type="datetime-local"
     value={isoToLocal(to)}
@@ -106,6 +106,6 @@
       to = localToIso((e.currentTarget as HTMLInputElement).value);
       handleCustom();
     }}
-    class="px-1.5 py-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary"
+    class="px-1.5 py-1 border border-dark-border-subtle bg-dark-surface text-dark-text-secondary"
   />
 </div>

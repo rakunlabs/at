@@ -382,17 +382,17 @@ function basename(p: string): string {
 }
 
 export const SHOT_STATUS_COLORS: Record<string, string> = {
-  planned: 'bg-gray-100 text-gray-600 dark:bg-dark-elevated dark:text-dark-text-muted',
-  still_ready: 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300',
-  generated: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-  approved: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
-  failed: 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300',
+  planned: 'bg-dark-elevated text-dark-text-muted',
+  still_ready: 'bg-blue-950 text-blue-300',
+  generated: 'bg-amber-950 text-amber-300',
+  approved: 'bg-green-950 text-green-300',
+  failed: 'bg-red-950 text-red-300',
 };
 
 export const EPISODE_STATUS_COLORS: Record<string, string> = {
-  draft: 'text-gray-500 dark:text-dark-text-muted',
-  scripted: 'text-blue-600 dark:text-blue-400',
-  generating: 'text-amber-600 dark:text-amber-400',
-  assembled: 'text-green-600 dark:text-green-400',
-  published: 'text-green-700 dark:text-green-300',
+  draft: 'text-dark-text-muted',
+  scripted: 'text-blue-400',
+  generating: 'text-amber-400',
+  assembled: 'text-green-400',
+  published: 'text-green-300',
 };

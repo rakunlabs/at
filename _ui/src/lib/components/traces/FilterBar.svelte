@@ -107,54 +107,54 @@
 
 <div class="flex flex-wrap items-center gap-1.5">
   {#each chips as chip (chip.key + (chip.value || ''))}
-    <span class="inline-flex items-center gap-1 border border-gray-300 bg-white py-0.5 pl-2 pr-1 text-[11px] text-gray-700 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text-secondary">
+    <span class="inline-flex items-center gap-1 border py-0.5 pl-2 pr-1 text-[11px] border-dark-border-subtle bg-dark-elevated text-dark-text-secondary">
       <span class="max-w-60 truncate" title={chip.label}>{chip.label}</span>
-      <button onclick={() => remove(chip)} class="text-gray-400 hover:text-gray-800 dark:hover:text-dark-text" aria-label={`Remove ${chip.label}`}><X size={11} /></button>
+      <button onclick={() => remove(chip)} class="text-dark-text-muted hover:text-dark-text" aria-label={`Remove ${chip.label}`}><X size={11} /></button>
     </span>
   {/each}
   <div class="relative" bind:this={menu}>
-    <button onclick={(e) => { e.stopPropagation(); open = !open; field = null; }} class="inline-flex items-center gap-1 border border-dashed border-gray-300 px-2 py-0.5 text-[11px] text-gray-500 hover:border-gray-400 hover:text-gray-800 dark:border-dark-border-subtle dark:text-dark-text-muted dark:hover:text-dark-text">
+    <button onclick={(e) => { e.stopPropagation(); open = !open; field = null; }} class="inline-flex items-center gap-1 border border-dashed px-2 py-0.5 text-[11px] hover:border-dark-border-subtle border-dark-border-subtle text-dark-text-muted hover:text-dark-text">
       <Plus size={11} /> Add filter
     </button>
     {#if open}
-      <div class="absolute left-0 top-full z-30 mt-1 w-72 border border-gray-200 bg-white shadow-lg dark:border-dark-border dark:bg-dark-surface">
+      <div class="absolute left-0 top-full z-30 mt-1 w-72 border shadow-lg border-dark-border bg-dark-surface">
         {#if !field}
           <ul class="max-h-80 overflow-y-auto py-1">
             {#each fields as f (f.key)}
-              <li><button onclick={() => pick(f)} class="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">{f.label}</button></li>
+              <li><button onclick={() => pick(f)} class="w-full px-3 py-1.5 text-left text-xs text-dark-text-secondary hover:bg-dark-elevated">{f.label}</button></li>
             {/each}
           </ul>
         {:else}
           <form class="space-y-2 p-2" onsubmit={(e) => { e.preventDefault(); apply(); }}>
-            <div class="flex items-center justify-between text-[11px] font-medium text-gray-600 dark:text-dark-text-secondary">
+            <div class="flex items-center justify-between text-[11px] font-medium text-dark-text-secondary">
               {field.label}
-              <button type="button" class="text-gray-400 hover:text-gray-700" onclick={() => (field = null)}>Back</button>
+              <button type="button" class="text-dark-text-muted hover:text-dark-text-secondary" onclick={() => (field = null)}>Back</button>
             </div>
             {#if field.kind === 'list' || field.kind === 'text' || field.kind === 'score'}
               <!-- svelte-ignore a11y_autofocus -->
-              <input bind:value autofocus placeholder={field.kind === 'score' ? 'Score name' : 'Value (comma separated)'} class="w-full border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+              <input bind:value autofocus placeholder={field.kind === 'score' ? 'Score name' : 'Value (comma separated)'} class="w-full border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
               {#if suggestions.length}
-                <ul class="max-h-40 overflow-y-auto border border-gray-100 dark:border-dark-border">
+                <ul class="max-h-40 overflow-y-auto border border-dark-border">
                   {#each suggestions as s}
-                    <li><button type="button" onclick={() => (field?.kind === 'score' ? (value = s) : apply(s))} class="w-full truncate px-2 py-1 text-left font-mono text-[11px] text-gray-700 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated">{s}</button></li>
+                    <li><button type="button" onclick={() => (field?.kind === 'score' ? (value = s) : apply(s))} class="w-full truncate px-2 py-1 text-left font-mono text-[11px] text-dark-text-secondary hover:bg-dark-elevated">{s}</button></li>
                   {/each}
                 </ul>
               {/if}
             {/if}
             {#if field.kind === 'range' || field.kind === 'score'}
               <div class="flex items-center gap-1.5 text-xs">
-                <input bind:value={min} type="number" step="any" min={field.kind === 'range' ? 0 : undefined} placeholder="min" class="w-full border border-gray-300 bg-white px-2 py-1 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
-                <span class="text-gray-400">–</span>
-                <input bind:value={max} type="number" step="any" min={field.kind === 'range' ? 0 : undefined} placeholder="max" class="w-full border border-gray-300 bg-white px-2 py-1 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text" />
+                <input bind:value={min} type="number" step="any" min={field.kind === 'range' ? 0 : undefined} placeholder="min" class="w-full border px-2 py-1 border-dark-border-subtle bg-dark-elevated text-dark-text" />
+                <span class="text-dark-text-muted">–</span>
+                <input bind:value={max} type="number" step="any" min={field.kind === 'range' ? 0 : undefined} placeholder="max" class="w-full border px-2 py-1 border-dark-border-subtle bg-dark-elevated text-dark-text" />
               </div>
             {/if}
             {#if field.kind === 'status'}
-              <select bind:value={status} class="w-full border border-gray-300 bg-white px-2 py-1 text-xs dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text">
+              <select bind:value={status} class="w-full border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text">
                 <option value="error">Has errors</option>
                 <option value="ok">No errors</option>
               </select>
             {/if}
-            <button type="submit" class="w-full border border-gray-900 bg-gray-900 py-1 text-xs text-white hover:bg-gray-800 dark:border-dark-text dark:bg-dark-text dark:text-dark-base">Apply</button>
+            <button type="submit" class="w-full border py-1 text-xs hover:bg-dark-highest border-dark-text bg-dark-text text-dark-base">Apply</button>
           </form>
         {/if}
       </div>

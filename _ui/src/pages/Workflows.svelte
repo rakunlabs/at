@@ -249,11 +249,11 @@
 
   function eventColor(type: string): string {
     switch (type) {
-      case 'node_started': return 'text-blue-500 dark:text-blue-400';
-      case 'node_completed': return 'text-green-500 dark:text-green-400';
-      case 'node_error': case 'error': return 'text-red-500 dark:text-red-400';
-      case 'run_completed': return 'text-green-600 dark:text-green-300';
-      default: return 'text-gray-400 dark:text-dark-text-muted';
+      case 'node_started': return 'text-blue-400';
+      case 'node_completed': return 'text-green-400';
+      case 'node_error': case 'error': return 'text-red-400';
+      case 'run_completed': return 'text-green-300';
+      default: return 'text-dark-text-muted';
     }
   }
 
@@ -266,21 +266,21 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <WorkflowIcon size={16} class="text-gray-500 dark:text-dark-text-muted" />
-          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Workflows</h2>
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+          <WorkflowIcon size={16} class="text-dark-text-muted" />
+          <h2 class="text-sm font-medium text-dark-text">Workflows</h2>
+          <span class="text-xs text-dark-text-muted">({total})</span>
         </div>
         <div class="flex items-center gap-2">
           <button
             onclick={() => loadWorkflows()}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
+            class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={() => (showCreateForm = !showCreateForm)}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
           >
             <Plus size={12} />
             New Workflow
@@ -290,47 +290,47 @@
 
       <!-- Create Form -->
       {#if showCreateForm}
-        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-            <span class="text-sm font-medium text-gray-900 dark:text-dark-text">New Workflow</span>
-            <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
+        <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+            <span class="text-sm font-medium text-dark-text">New Workflow</span>
+            <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <Plus size={14} class="rotate-45" />
             </button>
           </div>
           <div class="p-4 space-y-4">
             <div class="grid grid-cols-4 gap-3 items-center">
               <label class="contents">
-                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</span>
+                <span class="text-sm font-medium text-dark-text-secondary">Name</span>
                 <input
                   type="text"
                   bind:value={newName}
                   placeholder="Workflow name"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                 />
               </label>
             </div>
             <div class="grid grid-cols-4 gap-3 items-center">
               <label class="contents">
-                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</span>
+                <span class="text-sm font-medium text-dark-text-secondary">Description</span>
                 <input
                   type="text"
                   bind:value={newDescription}
                   placeholder="Description (optional)"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="col-span-3 border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
                 />
               </label>
             </div>
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
+            <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
               <button
                 onclick={() => (showCreateForm = false)}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
+                class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
               >
                 Cancel
               </button>
               <button
                 onclick={handleCreate}
                 disabled={creating}
-                class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 "
+                class="px-3 py-1.5 text-sm bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
               >
                 {creating ? 'Creating...' : 'Create'}
               </button>
@@ -355,28 +355,28 @@
       >
         {#snippet header()}
           <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
           <SortableHeader field="active_version" label="Version" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Nodes</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Nodes</th>
           <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-          <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Actions</th>
+          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Actions</th>
         {/snippet}
 
         {#snippet row(wf)}
-          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
+          <tr class="hover:bg-dark-elevated/50">
             <td class="px-4 py-2.5">
               <div>
                 <button
                   onclick={() => push(`/workflows/${wf.id}`)}
-                  class="text-left font-medium text-blue-600 dark:text-accent-text hover:text-blue-800 dark:hover:text-accent hover:underline block"
+                  class="text-left font-medium text-accent-text hover:text-accent hover:underline block"
                 >
                   {wf.name}
                 </button>
-                <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted mt-0.5 group">
+                <div class="flex items-center gap-1 text-[10px] text-dark-text-muted mt-0.5 group">
                   <span class="font-mono">{wf.id}</span>
                   <button
                     onclick={(e) => copyID(wf.id, e)}
-                    class="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted"
+                    class="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-dark-elevated text-dark-text-muted"
                     title="Copy ID"
                   >
                     <Copy size={10} />
@@ -384,48 +384,48 @@
                 </div>
               </div>
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={wf.description}>{wf.description || '-'}</td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted max-w-64 truncate" title={wf.description}>{wf.description || '-'}</td>
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               {#if wf.active_version != null}
-                <span class="px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800">v{wf.active_version}</span>
+                <span class="px-1.5 py-0.5 text-[10px] font-medium text-green-300 bg-green-900/30 border border-green-800">v{wf.active_version}</span>
               {:else}
-                <span class="text-gray-400 dark:text-dark-text-muted">-</span>
+                <span class="text-dark-text-muted">-</span>
               {/if}
             </td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{wf.graph?.nodes?.length ?? 0}</td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">{wf.graph?.nodes?.length ?? 0}</td>
+            <td class="px-4 py-2.5 text-xs text-dark-text-muted">
               <div>{formatDateTime(wf.updated_at)}</div>
               {#if wf.updated_by}
-                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">by {wf.updated_by}</div>
+                <div class="text-[10px] text-dark-text-muted">by {wf.updated_by}</div>
               {/if}
             </td>
             <td class="px-4 py-2.5 text-right">
               <div class="flex items-center justify-end gap-1">
                 <button
                   onclick={() => push(`/workflows/${wf.id}`)}
-                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                  class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
                   title="Edit"
                 >
                   <Pencil size={14} />
                 </button>
                 {#if deletingId === wf.id}
-                  <span class="text-xs text-red-600 dark:text-red-400 mr-1">Delete?</span>
+                  <span class="text-xs text-red-400 mr-1">Delete?</span>
                   <button
                     onclick={() => handleDelete(wf.id)}
-                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700"
                   >
                     Yes
                   </button>
                   <button
                     onclick={() => (deletingId = null)}
-                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
+                    class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"
                   >
                     No
                   </button>
                 {:else}
                   <button
                     onclick={() => (deletingId = wf.id)}
-                    class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                    class="p-1.5 hover:bg-red-900/20 text-dark-text-muted hover:text-red-400"
                     title="Delete"
                   >
                     <Trash2 size={14} />
@@ -441,29 +441,29 @@
 
   <!-- Run Panel (slide-in from right) -->
   {#if runPanelWorkflow}
-    <div class="w-[480px] border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col shrink-0">
+    <div class="w-[480px] border-l border-dark-border bg-dark-surface flex flex-col shrink-0">
       <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 shrink-0">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50 shrink-0">
         <div class="min-w-0">
-          <div class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">Run: {runPanelWorkflow.name}</div>
-          <div class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono">{runPanelWorkflow.id}</div>
+          <div class="text-sm font-medium text-dark-text truncate">Run: {runPanelWorkflow.name}</div>
+          <div class="text-[10px] text-dark-text-muted font-mono">{runPanelWorkflow.id}</div>
         </div>
-        <button onclick={closeRunPanel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text shrink-0">
+        <button onclick={closeRunPanel} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text shrink-0">
           <X size={14} />
         </button>
       </div>
 
       <!-- Form -->
-      <div class="p-4 space-y-3 border-b border-gray-200 dark:border-dark-border shrink-0">
+      <div class="p-4 space-y-3 border-b border-dark-border shrink-0">
         <!-- Entry node selector -->
         {#if runInputNodes.length > 0}
           <label class="block">
-            <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-1">Entry Point</span>
+            <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-1">Entry Point</span>
             <select
               bind:value={runSelectedEntry}
               onchange={() => syncFormFromEntry()}
               disabled={runRunning}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text "
+              class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text"
             >
               {#each runInputNodes as node}
                 <option value={node.id}>{getInputNodeLabel(node)}</option>
@@ -471,7 +471,7 @@
             </select>
           </label>
         {:else}
-          <div class="text-xs text-gray-400 dark:text-dark-text-muted">No input nodes found in this workflow.</div>
+          <div class="text-xs text-dark-text-muted">No input nodes found in this workflow.</div>
         {/if}
 
         <!-- Inputs: Form or JSON -->
@@ -480,18 +480,18 @@
           {@const fields = node ? getInputNodeFields(node) : []}
           <div class="space-y-2.5">
             <div class="flex items-center justify-between">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
               <button
                 onclick={() => { runUseForm = false; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
-                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+                class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
               >Switch to JSON</button>
             </div>
             {#each fields as field}
               <label class="block">
-                <span class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
+                <span class="text-[10px] font-medium text-dark-text-secondary block mb-0.5">
                   {field.name}
                   {#if field.description}
-                    <span class="font-normal text-gray-400 dark:text-dark-text-muted ml-1">— {field.description}</span>
+                    <span class="font-normal text-dark-text-muted ml-1">— {field.description}</span>
                   {/if}
                 </span>
                 {#if field.type === 'select' && field.options}
@@ -499,7 +499,7 @@
                     value={runFormValues[field.name] ?? field.default ?? ''}
                     onchange={(e) => { runFormValues[field.name] = (e.target as HTMLSelectElement).value; }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent/20 text-dark-text"
                   >
                     {#each field.options as opt}
                       <option value={opt}>{opt}</option>
@@ -511,7 +511,7 @@
                     value={runFormValues[field.name] ?? field.default ?? 0}
                     oninput={(e) => { runFormValues[field.name] = Number((e.target as HTMLInputElement).value); }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-accent/20 text-dark-text"
                   />
                 {:else if field.type === 'boolean'}
                   <label class="flex items-center gap-2 cursor-pointer">
@@ -520,9 +520,9 @@
                       checked={runFormValues[field.name] ?? field.default ?? false}
                       onchange={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).checked; }}
                       disabled={runRunning}
-                      class="w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                      class="w-3.5 h-3.5 bg-dark-elevated border-dark-border-subtle accent-accent"
                     />
-                    <span class="text-xs text-gray-600 dark:text-dark-text-secondary">{runFormValues[field.name] ? 'Yes' : 'No'}</span>
+                    <span class="text-xs text-dark-text-secondary">{runFormValues[field.name] ? 'Yes' : 'No'}</span>
                   </label>
                 {:else if field.type === 'textarea'}
                   <textarea
@@ -530,7 +530,7 @@
                     oninput={(e) => { runFormValues[field.name] = (e.target as HTMLTextAreaElement).value; }}
                     disabled={runRunning}
                     rows={3}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-2.5 py-1 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-accent/20 text-dark-text"
                   ></textarea>
                 {:else}
                   <input
@@ -538,7 +538,7 @@
                     value={runFormValues[field.name] ?? field.default ?? ''}
                     oninput={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).value; }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
+                    class="w-full border border-dark-border-subtle bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent/20 text-dark-text"
                   />
                 {/if}
               </label>
@@ -547,11 +547,11 @@
         {:else}
           <label class="block">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs (JSON)</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs (JSON)</span>
               {#if runInputNodes.find(n => n.id === runSelectedEntry)?.data?.fields}
                 <button
                   onclick={() => { syncFormFromEntry(); }}
-                  class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+                  class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
                 >Switch to Form</button>
               {/if}
             </div>
@@ -559,7 +559,7 @@
               bind:value={runInputsJson}
               disabled={runRunning}
               rows={6}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted "
+              class="w-full border border-dark-border-subtle bg-dark-surface px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted"
               placeholder={'{"key": "value"}'}
             ></textarea>
           </label>
@@ -570,12 +570,12 @@
           {#if runRunning}
             <button
               onclick={stopRun}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-700 "
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-700"
             >
               <X size={12} />
               Stop
             </button>
-            <span class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted">
+            <span class="flex items-center gap-1 text-xs text-dark-text-muted">
               <Loader2 size={12} class="animate-spin" />
               Running...
             </span>
@@ -583,18 +583,18 @@
             <button
               onclick={handleRun}
               disabled={!runPanelWorkflow || runInputNodes.length === 0}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 "
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
             >
               <Play size={12} />
               Run
             </button>
             {#if runStatus === 'completed'}
-              <span class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+              <span class="flex items-center gap-1 text-xs text-green-400">
                 <CheckCircle2 size={12} />
                 Completed
               </span>
             {:else if runStatus === 'error'}
-              <span class="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+              <span class="flex items-center gap-1 text-xs text-red-400">
                 <AlertTriangle size={12} />
                 Error
               </span>
@@ -602,7 +602,7 @@
             {#if runStatus === 'completed' || runStatus === 'error'}
               <button
                 onclick={() => { runEvents = []; runStatus = 'idle'; }}
-                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ml-auto"
+                class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary ml-auto"
               >Clear</button>
             {/if}
           {/if}
@@ -612,16 +612,16 @@
       <!-- Output -->
       <div
         bind:this={runOutputEl}
-        class="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-dark-base"
+        class="flex-1 overflow-y-auto p-4 bg-dark-base"
       >
         {#if runStatus === 'idle' && runEvents.length === 0}
-          <div class="text-xs text-gray-400 dark:text-dark-text-muted text-center py-8">
+          <div class="text-xs text-dark-text-muted text-center py-8">
             Select an entry point, provide inputs, and click Run.
           </div>
         {:else if runStatus === 'running'}
           <div class="flex items-center justify-center gap-2 py-8">
-            <Loader2 size={16} class="animate-spin text-gray-400 dark:text-dark-text-muted" />
-            <span class="text-sm text-gray-500 dark:text-dark-text-muted">Running...</span>
+            <Loader2 size={16} class="animate-spin text-dark-text-muted" />
+            <span class="text-sm text-dark-text-muted">Running...</span>
           </div>
         {:else if runStatus === 'completed'}
           {@const outputEvent = runEvents.findLast(e => e.outputs)}
@@ -629,19 +629,19 @@
           <div class="space-y-3">
             <div class="flex items-center gap-2">
               <CheckCircle2 size={16} class="text-green-500" />
-              <span class="text-sm font-medium text-green-700 dark:text-green-400">Done</span>
+              <span class="text-sm font-medium text-green-400">Done</span>
             </div>
             {#if outputEvent?.outputs}
-              <div class="p-3 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded">
-                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-2">Output</div>
-                <pre class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all max-h-80 overflow-y-auto">{JSON.stringify(outputEvent.outputs, null, 2)}</pre>
+              <div class="p-3 bg-dark-surface border border-dark-border">
+                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-2">Output</div>
+                <pre class="text-xs font-mono text-dark-text-secondary whitespace-pre-wrap break-all max-h-80 overflow-y-auto">{JSON.stringify(outputEvent.outputs, null, 2)}</pre>
               </div>
             {/if}
             {#if errorEvents.length > 0}
-              <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-                <div class="text-[10px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider mb-1">Errors</div>
+              <div class="p-3 bg-red-900/20 border border-red-800">
+                <div class="text-[10px] font-medium text-red-400 uppercase tracking-wider mb-1">Errors</div>
                 {#each errorEvents as err}
-                  <div class="text-xs text-red-600 dark:text-red-400 break-all">{err.error}</div>
+                  <div class="text-xs text-red-400 break-all">{err.error}</div>
                 {/each}
               </div>
             {/if}
@@ -651,10 +651,10 @@
           <div class="space-y-3">
             <div class="flex items-center gap-2">
               <AlertTriangle size={16} class="text-red-500" />
-              <span class="text-sm font-medium text-red-700 dark:text-red-400">Failed</span>
+              <span class="text-sm font-medium text-red-400">Failed</span>
             </div>
             {#each errorEvents as err}
-              <div class="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-600 dark:text-red-400 break-all">
+              <div class="p-3 bg-red-900/20 border border-red-800 text-xs text-red-400 break-all">
                 {err.error}
               </div>
             {/each}

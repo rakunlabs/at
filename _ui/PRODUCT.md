@@ -21,6 +21,6 @@ host reboots end running processes but preserve saved tab metadata.
 
 ## Constraints
 
-Extend the existing Svelte UI and its light/dark theme. Keep terminal management
+Extend the existing Svelte UI and its single dark theme. Keep terminal management
 administrator-only and personal to the signed-in administrator. Use xterm.js for
 the terminal display. Host terminals are independent of selected workspaces.

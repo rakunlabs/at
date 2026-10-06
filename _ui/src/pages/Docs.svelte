@@ -343,7 +343,7 @@
   }
 
   const toolbarButton =
-    'inline-flex items-center gap-1.5 border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent';
+    'inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent';
 </script>
 
 <svelte:head>
@@ -352,34 +352,34 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="flex h-full min-h-0 bg-gray-50 dark:bg-dark-base">
+<div class="flex h-full min-h-0 bg-dark-base">
   {#if navOpen}
     <!-- Mobile scrim. Desktop keeps the sidebar in flow, so it is hidden there. -->
     <button
       type="button"
       aria-label="Close navigation"
       onclick={closeNav}
-      class="fixed inset-0 z-30 bg-gray-900/50 lg:hidden"
+      class="fixed inset-0 z-30 bg-dark-elevated/50 lg:hidden"
     ></button>
   {/if}
 
   <aside
     id="docs-nav"
     class={[
-      'z-40 flex-col border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface',
+      'z-40 flex-col border-dark-border bg-dark-surface',
       'lg:static lg:z-auto lg:flex lg:w-64 lg:shrink-0 lg:border-r lg:shadow-none',
       navOpen ? 'fixed inset-y-0 left-0 flex w-72 max-w-[85vw] border-r shadow-xl' : 'hidden',
     ]}
   >
     <div
-      class="flex shrink-0 items-center justify-between border-b border-gray-200 px-3 py-2 lg:hidden dark:border-dark-border"
+      class="flex shrink-0 items-center justify-between border-b px-3 py-2 lg:hidden border-dark-border"
     >
-      <span class="text-xs font-semibold text-gray-900 dark:text-dark-text">Contents</span>
+      <span class="text-xs font-semibold text-dark-text">Contents</span>
       <button
         type="button"
         onclick={closeNav}
         aria-label="Close navigation"
-        class="p-1 text-gray-700 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:text-dark-text-secondary dark:hover:text-dark-text dark:focus-visible:outline-accent"
+        class="p-1 focus-visible:outline-2 focus-visible:outline-offset-2 text-dark-text-secondary hover:text-dark-text focus-visible:outline-accent"
       >
         <X size={14} aria-hidden="true" />
       </button>
@@ -403,7 +403,7 @@
 
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     <div
-      class="flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-surface"
+      class="flex shrink-0 items-center gap-2 border-b px-3 py-2 border-dark-border bg-dark-surface"
     >
       <button
         type="button"
@@ -416,9 +416,9 @@
         <Menu size={13} aria-hidden="true" />
         Contents
       </button>
-      <p class="min-w-0 flex-1 truncate text-xs text-gray-600 dark:text-dark-text-secondary">
+      <p class="min-w-0 flex-1 truncate text-xs text-dark-text-secondary">
         <span class="hidden sm:inline">{groupLabel} <span aria-hidden="true">/</span> </span>
-        <span class="font-medium text-gray-900 dark:text-dark-text">{currentTitle}</span>
+        <span class="font-medium text-dark-text">{currentTitle}</span>
       </p>
       <button type="button" onclick={refreshAll} class={toolbarButton} aria-label="Refresh gateway data and guides">
         <RefreshCw
@@ -489,19 +489,19 @@
         </div>
       {:else if guidesLoading}
         <div class="mx-auto w-full max-w-5xl px-5 py-10">
-          <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading guide…</p>
+          <p class="text-sm text-dark-text-secondary">Loading guide…</p>
         </div>
       {:else}
         <div class="mx-auto w-full max-w-5xl px-5 py-10 text-center">
           <BookOpen
             size={22}
-            class="mx-auto text-gray-600 dark:text-dark-text-secondary"
+            class="mx-auto text-dark-text-secondary"
             aria-hidden="true"
           />
-          <h1 class="mt-3 text-base font-semibold text-gray-900 dark:text-dark-text">
+          <h1 class="mt-3 text-base font-semibold text-dark-text">
             Guide not found
           </h1>
-          <p class="mt-1 text-sm leading-relaxed text-gray-600 dark:text-dark-text-secondary">
+          <p class="mt-1 text-sm leading-relaxed text-dark-text-secondary">
             {guidesError
               ? guidesError
               : 'This guide no longer exists, or the link points at another workspace.'}

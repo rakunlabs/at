@@ -29,19 +29,19 @@
 </script>
 
 {#if !content.trim()}
-  <div class="flex flex-1 items-center justify-center p-6 text-sm text-gray-400 dark:text-dark-text-muted">This file is empty.</div>
+  <div class="flex flex-1 items-center justify-center p-6 text-sm text-dark-text-muted">This file is empty.</div>
 {:else if parts}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="min-h-0 flex-1 overflow-y-auto" onclick={handleClick}>
     <div class="mx-auto max-w-3xl px-6 py-5">
       {#if parts.frontmatter}
-        <div class="mb-5 border border-gray-200 dark:border-dark-border">
-          <div class="border-b border-gray-200 bg-gray-50 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-500 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-muted">Frontmatter</div>
+        <div class="mb-5 border border-dark-border">
+          <div class="border-b px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider border-dark-border bg-dark-base text-dark-text-muted">Frontmatter</div>
           {#if parts.frontmatter.fields}
             <dl class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 gap-y-1.5 px-3 py-2.5 text-xs">
               {#each parts.frontmatter.fields as [key, value] (key)}
-                <dt class="truncate font-mono text-gray-500 dark:text-dark-text-muted" title={key}>{key}</dt>
-                <dd class="whitespace-pre-wrap break-words text-gray-900 dark:text-dark-text">{value}</dd>
+                <dt class="truncate font-mono text-dark-text-muted" title={key}>{key}</dt>
+                <dd class="whitespace-pre-wrap break-words text-dark-text">{value}</dd>
               {/each}
             </dl>
           {:else}
@@ -55,7 +55,7 @@
 {:else}
   <div class="min-h-0 flex-1 overflow-auto">
     <div class="skill-code flex min-h-full min-w-max font-mono text-xs leading-5">
-      <div aria-hidden="true" class="select-none border-r border-gray-200 bg-gray-50 px-3 py-4 text-right text-gray-400 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-faint">
+      <div aria-hidden="true" class="select-none border-r px-3 py-4 text-right border-dark-border bg-dark-base text-dark-text-faint">
         {#each { length: lineCount } as _, index}<div>{index + 1}</div>{/each}
       </div>
       <pre class="flex-1 px-4 py-4"><code class="hljs{language ? ` language-${language}` : ''}">{@html highlightCode(content, language)}</code></pre>
@@ -77,23 +77,18 @@
   .skill-markdown :global(h1) {
     font-size: 1.5rem;
     padding-bottom: 0.3em;
-    border-bottom: 1px solid var(--color-gray-200);
+    border-bottom: 1px solid var(--color-dark-border);
   }
 
   .skill-markdown :global(h2) {
     font-size: 1.2rem;
     margin-top: 1.6em;
     padding-bottom: 0.25em;
-    border-bottom: 1px solid var(--color-gray-200);
+    border-bottom: 1px solid var(--color-dark-border);
   }
 
   .skill-markdown :global(h3) {
     font-size: 1.05rem;
-  }
-
-  :global(.dark) .skill-markdown :global(h1),
-  :global(.dark) .skill-markdown :global(h2) {
-    border-bottom-color: var(--color-dark-border);
   }
 
   .skill-markdown :global(li:has(> input[type='checkbox'])) {

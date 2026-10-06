@@ -69,7 +69,7 @@
   {/snippet}
   {#if sessionNotice}<p role="status" class="settings-note">{sessionNotice}</p>{/if}
   {#if wrongOrigin}
-    <div role="alert" class="border border-amber-300 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+    <div role="alert" class="border border-amber-900/40 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
       <p class="font-medium">This address is not configured for sign-in</p>
       <p class="mt-1 break-words">You opened {location.origin}. The primary address is {authOrigins.primary}. Ask an administrator to update Authentication settings from an existing session.</p>
     </div>
@@ -97,14 +97,14 @@
       <button type="button" class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy || !isWebAuthnSupported()} onclick={passkeyLogin}>Sign in with passkey</button>
     {/if}
     {#if secondaryOrigin}
-      <div class="border-t border-gray-100 dark:border-dark-border pt-4 space-y-2">
+      <div class="border-t border-dark-border pt-4 space-y-2">
         <p class="settings-note">Passkeys and external sign-in providers use the primary address.</p>
         <a class="settings-button w-full min-h-11 sm:min-h-0 break-all" href={`${authOrigins.primary}${new URL('.', document.baseURI).pathname}${location.hash}`}>Open primary sign-in</a>
       </div>
     {:else if providers.length}
-      <div class="border-t border-gray-100 dark:border-dark-border pt-4 space-y-2">{#each providers as provider}<button class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy} onclick={() => external(provider.id)}>Continue with {provider.label}</button>{/each}</div>
+      <div class="border-t border-dark-border pt-4 space-y-2">{#each providers as provider}<button class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy} onclick={() => external(provider.id)}>Continue with {provider.label}</button>{/each}</div>
     {/if}
     {#if providerError}<div class="space-y-2"><p role="alert" class="settings-error">{providerError}</p><button class="settings-button" onclick={() => loadLoginProviders(true)}>Reload providers</button></div>{/if}
-    <p class="settings-note border-t border-gray-100 dark:border-dark-border pt-4">Need account recovery? Use a backup code after your normal sign-in. If you have lost every sign-in method, ask an installation administrator for a recovery link.</p>
+    <p class="settings-note border-t border-dark-border pt-4">Need account recovery? Use a backup code after your normal sign-in. If you have lost every sign-in method, ask an installation administrator for a recovery link.</p>
   {/if}
 </AuthShell>

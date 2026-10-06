@@ -464,45 +464,45 @@
 </svelte:head>
 
 {#if loading}
-  <div class="p-8 text-center text-sm text-gray-500 dark:text-dark-text-muted">Loading organization...</div>
+  <div class="p-8 text-center text-sm text-dark-text-muted">Loading organization...</div>
 {:else if organization}
   <div class="flex flex-col h-full overflow-hidden">
     <!-- Toolbar -->
-    <div class="flex items-center justify-between px-3 py-1.5 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shrink-0">
+    <div class="flex items-center justify-between px-3 py-1.5 bg-dark-surface border-b border-dark-border shrink-0">
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/organizations')}
-          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+          class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text"
         >
           <ArrowLeft size={14} />
           Back
         </button>
-        <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
+        <div class="h-4 border-l border-dark-border"></div>
         {#if editingOrg}
           <div class="flex items-center gap-2">
             <input
               type="text"
               bind:value={editName}
-              class="text-sm font-medium text-gray-900 dark:text-dark-text bg-transparent border border-gray-300 dark:border-dark-border-subtle rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 w-48"
+              class="text-sm font-medium text-dark-text bg-transparent border border-dark-border-subtle px-2 py-0.5 outline-none focus:ring-1 focus:ring-accent/20 w-48"
               placeholder="Organization name"
             />
             <input
               type="text"
               bind:value={editDescription}
-              class="text-xs text-gray-500 dark:text-dark-text-muted bg-transparent border border-gray-300 dark:border-dark-border-subtle rounded px-2 py-0.5 outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 w-64"
+              class="text-xs text-dark-text-muted bg-transparent border border-dark-border-subtle px-2 py-0.5 outline-none focus:ring-1 focus:ring-accent/20 w-64"
               placeholder="Description..."
             />
             <button
               onclick={saveOrg}
               disabled={saving}
-              class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+              class="flex items-center gap-1 px-2 py-1 text-xs text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
             >
               <Save size={12} />
               Save
             </button>
             <button
               onclick={() => { editingOrg = false; }}
-              class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
+              class="px-2 py-1 text-xs text-dark-text-muted hover:text-dark-text"
             >
               Cancel
             </button>
@@ -510,25 +510,25 @@
         {:else}
           <div class="flex flex-col">
             <button onclick={startEditOrg} class="text-left group">
-              <span class="text-sm font-medium text-gray-900 dark:text-dark-text group-hover:underline">{organization.name}</span>
+              <span class="text-sm font-medium text-dark-text group-hover:underline">{organization.name}</span>
             </button>
             {#if organization.description}
-              <span class="text-[10px] text-gray-400 dark:text-dark-text-faint">{organization.description}</span>
+              <span class="text-[10px] text-dark-text-faint">{organization.description}</span>
             {/if}
           </div>
         {/if}
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-[10px] text-gray-400 dark:text-dark-text-faint">{memberships.length} agent{memberships.length !== 1 ? 's' : ''}</span>
+        <span class="text-[10px] text-dark-text-faint">{memberships.length} agent{memberships.length !== 1 ? 's' : ''}</span>
         {#if !editingOrg && memberships.length > 0}
-          <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
+          <div class="h-4 border-l border-dark-border"></div>
           <div class="flex items-center gap-1.5">
             <Crown size={12} class="text-amber-500" />
-            <span class="text-[10px] text-gray-500 dark:text-dark-text-muted">Head:</span>
+            <span class="text-[10px] text-dark-text-muted">Head:</span>
             <select
               value={organization.head_agent_id || ''}
               onchange={handleHeadAgentChange}
-              class="text-xs border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20"
+              class="text-xs border border-dark-border-subtle px-1.5 py-0.5 bg-dark-elevated text-dark-text focus:outline-none focus:ring-1 focus:ring-accent/20"
             >
               <option value="">None</option>
               {#each memberships as m (m.agent_id)}
@@ -538,17 +538,17 @@
             </select>
           </div>
         {/if}
-        <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
+        <div class="h-4 border-l border-dark-border"></div>
         <button
           onclick={() => { load(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
+          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
         >
           <RefreshCw size={12} />
           Refresh
         </button>
         <button
           onclick={handleExportBundle}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
+          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
           title="Export organization bundle as ZIP"
         >
           <Download size={12} />
@@ -556,7 +556,7 @@
         </button>
         <button
           onclick={() => bundleImportFileInput?.click()}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
+          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
           title="Import organization bundle from ZIP"
         >
           <Upload size={12} />
@@ -571,7 +571,7 @@
         />
         <button
           onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
+          class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
         >
           <UserPlus size={12} />
           Add Agent
@@ -580,14 +580,14 @@
           onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
           disabled={!organization.head_agent_id}
           title={organization.head_agent_id ? 'Submit a task to this organization' : 'Set a head agent first'}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Send size={12} />
           Submit Task
         </button>
         <button
           onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
+          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
         >
           <Container size={12} />
           Container
@@ -597,7 +597,7 @@
         </button>
         <button
           onclick={() => { showBudgetPanel = !showBudgetPanel; showAddPanel = false; showTaskPanel = false; showContainerPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
+          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
           title="Configure the organization spending limit"
         >
           <DollarSign size={12} />
@@ -613,35 +613,35 @@
       {@const spentCents = organizationBudget?.spend_cents || 0}
       {@const limitCents = organizationBudget?.limit_cents ?? organization.budget_monthly_cents ?? 0}
       {@const usagePercent = organizationBudget?.usage_percent ?? (limitCents > 0 ? (spentCents / limitCents) * 100 : 0)}
-      <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
+      <div class="border-b border-dark-border bg-dark-surface px-4 py-3 shrink-0">
         <div class="flex items-center justify-between mb-3">
           <div>
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Organization Budget</span>
-            <p class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-0.5">Checked against this organization's cost events before every delegation LLM call.</p>
+            <span class="text-xs font-medium text-dark-text-secondary">Organization Budget</span>
+            <p class="text-[10px] text-dark-text-muted mt-0.5">Checked against this organization's cost events before every delegation LLM call.</p>
           </div>
-          <button onclick={() => { showBudgetPanel = false; }} class="text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text">
+          <button onclick={() => { showBudgetPanel = false; }} class="text-dark-text-muted hover:text-dark-text">
             <X size={14} />
           </button>
         </div>
 
         <div class="grid grid-cols-4 gap-2 mb-3">
-          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Spent</span>
-            <span class="text-sm font-mono font-medium text-gray-900 dark:text-dark-text">{formatBudget(spentCents)}</span>
+          <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Spent</span>
+            <span class="text-sm font-mono font-medium text-dark-text">{formatBudget(spentCents)}</span>
           </div>
-          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Limit</span>
-            <span class="text-sm font-mono font-medium text-gray-900 dark:text-dark-text">{limitCents > 0 ? formatBudget(limitCents) : 'Unlimited'}</span>
+          <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Limit</span>
+            <span class="text-sm font-mono font-medium text-dark-text">{limitCents > 0 ? formatBudget(limitCents) : 'Unlimited'}</span>
           </div>
-          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Remaining</span>
-            <span class="text-sm font-mono font-medium" class:text-red-600={limitCents > 0 && spentCents >= limitCents} class:dark:text-red-400={limitCents > 0 && spentCents >= limitCents} class:text-gray-900={limitCents === 0 || spentCents < limitCents} class:dark:text-dark-text={limitCents === 0 || spentCents < limitCents}>
+          <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Remaining</span>
+            <span class="text-sm font-mono font-medium" class:text-red-400={limitCents > 0 && spentCents >= limitCents} class:text-dark-text={limitCents === 0 || spentCents < limitCents}>
               {limitCents > 0 ? formatBudget(Math.max(0, limitCents - spentCents)) : 'Unlimited'}
             </span>
           </div>
-          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Period</span>
-            <span class="text-[11px] font-medium text-gray-700 dark:text-dark-text-secondary">
+          <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Period</span>
+            <span class="text-[11px] font-medium text-dark-text-secondary">
               {organizationBudget ? `Resets ${formatBudgetReset(organizationBudget.next_reset_at)}` : 'Unavailable'}
             </span>
           </div>
@@ -650,12 +650,12 @@
         {#if limitCents > 0}
           <div class="mb-3">
             <div class="flex items-center justify-between text-[10px] mb-1">
-              <span class="text-gray-400 dark:text-dark-text-muted">Current {budgetPeriod} period</span>
-              <span class="font-mono" class:text-red-600={usagePercent >= 100} class:dark:text-red-400={usagePercent >= 100}>{usagePercent.toFixed(1)}%</span>
+              <span class="text-dark-text-muted">Current {budgetPeriod} period</span>
+              <span class="font-mono" class:text-red-400={usagePercent >= 100}>{usagePercent.toFixed(1)}%</span>
             </div>
-            <div class="h-1.5 bg-gray-100 dark:bg-dark-elevated overflow-hidden">
+            <div class="h-1.5 bg-dark-elevated overflow-hidden">
               <div
-                class="h-full "
+                class="h-full"
                 class:bg-emerald-500={usagePercent < 80}
                 class:bg-amber-500={usagePercent >= 80 && usagePercent < 100}
                 class:bg-red-500={usagePercent >= 100}
@@ -665,7 +665,7 @@
           </div>
         {/if}
 
-        <div class="mb-3 pb-3 border-b border-gray-100 dark:border-dark-border">
+        <div class="mb-3 pb-3 border-b border-dark-border">
           <BudgetScheduleFields
             bind:period={budgetPeriod}
             bind:resetDay={budgetResetDay}
@@ -676,38 +676,38 @@
 
         <div class="flex items-end gap-3">
           <label class="block w-56">
-            <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+            <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
             <div class="relative">
-              <DollarSign size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" />
+              <DollarSign size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-muted" />
               <input
                 type="number"
                 min="0"
                 step="0.01"
                 bind:value={budgetMonthlyUsd}
                 placeholder="Unlimited"
-                class="w-full pl-6 pr-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                class="w-full pl-6 pr-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
               />
             </div>
           </label>
           <button
             onclick={saveBudget}
             disabled={saving}
-            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded disabled:opacity-50"
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
           >
             <Save size={12} />
             Save
           </button>
-          <span class="pb-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Blank or 0 disables the limit.</span>
+          <span class="pb-1 text-[10px] text-dark-text-muted">Blank or 0 disables the limit.</span>
         </div>
       </div>
     {/if}
 
     <!-- Container Config Panel -->
     {#if showContainerPanel}
-      <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
+      <div class="border-b border-dark-border bg-dark-surface px-4 py-3 shrink-0">
         <div class="flex items-center justify-between mb-3">
-          <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Container Isolation</span>
-          <button onclick={() => { showContainerPanel = false; }} class="text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text">
+          <span class="text-xs font-medium text-dark-text-secondary">Container Isolation</span>
+          <button onclick={() => { showContainerPanel = false; }} class="text-dark-text-muted hover:text-dark-text">
             <X size={14} />
           </button>
         </div>
@@ -718,42 +718,42 @@
             <input
               type="checkbox"
               bind:checked={containerConfig.enabled}
-              class="w-3.5 h-3.5 dark:accent-accent"
+              class="w-3.5 h-3.5 accent-accent"
             />
-            <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Enable Docker container isolation</span>
+            <span class="text-xs text-dark-text-secondary">Enable Docker container isolation</span>
           </label>
 
           {#if containerConfig.enabled}
             <!-- Image -->
             <label class="block col-span-2">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
               <input
                 type="text"
                 bind:value={containerConfig.image}
                 placeholder="at-agent-runtime:latest"
-                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
               />
             </label>
 
             <!-- CPU -->
             <label class="block">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.cpu}
                 placeholder="2"
-                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
               />
             </label>
 
             <!-- Memory -->
             <label class="block">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.memory}
                 placeholder="4g"
-                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
               />
             </label>
 
@@ -762,17 +762,17 @@
               <input
                 type="checkbox"
                 bind:checked={containerConfig.network}
-                class="w-3.5 h-3.5 dark:accent-accent"
+                class="w-3.5 h-3.5 accent-accent"
               />
-              <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Allow network access</span>
+              <span class="text-xs text-dark-text-secondary">Allow network access</span>
             </label>
           {/if}
         </div>
 
-        <div class="flex justify-end mt-3 pt-2 border-t border-gray-100 dark:border-dark-border">
+        <div class="flex justify-end mt-3 pt-2 border-t border-dark-border">
           <button
             onclick={saveContainerConfig}
-            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded "
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
           >
             <Save size={12} />
             Save
@@ -780,9 +780,9 @@
         </div>
 
         {#if containerConfig.enabled}
-          <div class="mt-2 text-[10px] text-gray-400 dark:text-dark-text-muted">
+          <div class="mt-2 text-[10px] text-dark-text-muted">
             All agents in this org will execute commands inside an isolated Docker container.
-            Supply your own runtime image with the tools your agents need. Make sure <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">{containerConfig.image}</code> is available to Docker on the AT host.
+            Supply your own runtime image with the tools your agents need. Make sure <code class="font-mono bg-dark-elevated px-1">{containerConfig.image}</code> is available to Docker on the AT host.
           </div>
         {/if}
       </div>
@@ -791,7 +791,7 @@
     <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Org Chart -->
-      <div class="flex-1 relative bg-gray-50 dark:bg-dark-base">
+      <div class="flex-1 relative bg-dark-base">
         <OrgChart
           agents={chartAgents()}
           {selectedAgentId}
@@ -801,8 +801,8 @@
         {#if memberships.length === 0}
           <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div class="text-center">
-              <p class="text-sm text-gray-400 dark:text-dark-text-muted">No agents in this organization</p>
-              <p class="text-xs text-gray-300 dark:text-dark-text-faint mt-1">Use "Add Agent" to assign agents</p>
+              <p class="text-sm text-dark-text-muted">No agents in this organization</p>
+              <p class="text-xs text-dark-text-faint mt-1">Use "Add Agent" to assign agents</p>
             </div>
           </div>
         {/if}
@@ -810,28 +810,28 @@
 
       <!-- Submit Task Panel -->
       {#if showTaskPanel}
-        <div class="w-64 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Submit Task</span>
-            <button onclick={() => { showTaskPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+        <div class="w-64 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
+            <span class="text-xs font-medium text-dark-text-secondary">Submit Task</span>
+            <button onclick={() => { showTaskPanel = false; }} class="text-dark-text-faint hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3 overflow-y-auto flex-1">
             <label class="block">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title *</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Title *</span>
               <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
-                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
             </label>
             <label class="block">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
               <textarea bind:value={taskDescription} rows="3" placeholder="Additional context..."
-                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text resize-y"></textarea>
             </label>
             <label class="block">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Priority</span>
+              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Priority</span>
               <select bind:value={taskPriority}
-                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text">
                 <option value="">None</option>
                 {#each TASK_PRIORITIES as prio}
                   <option value={prio}>{TASK_PRIORITY_LABELS[prio]}</option>
@@ -840,9 +840,9 @@
             </label>
             {#if orgGoals.length > 0}
               <label class="block">
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Goal</span>
+                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Goal</span>
                 <select bind:value={taskGoalId}
-                  class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
+                  class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text">
                   <option value="">None</option>
                   {#each orgGoals as goal}
                     <option value={goal.id}>{goal.name}</option>
@@ -853,15 +853,15 @@
             <button
               onclick={handleSubmitTask}
               disabled={submittingTask || !taskTitle.trim()}
-              class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+              class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50"
             >
               <Send size={12} />
               {submittingTask ? 'Submitting...' : 'Submit'}
             </button>
             {#if lastTaskResult}
-              <div class="p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-xs">
-                <span class="font-medium text-green-700 dark:text-green-400">{lastTaskResult.identifier}</span>
-                <span class="text-green-600 dark:text-green-500"> created — delegation in progress</span>
+              <div class="p-2 bg-green-900/20 border border-green-800 text-xs">
+                <span class="font-medium text-green-400">{lastTaskResult.identifier}</span>
+                <span class="text-green-500"> created — delegation in progress</span>
               </div>
             {/if}
           </div>
@@ -870,35 +870,35 @@
 
       <!-- Add Agent Panel -->
       {#if showAddPanel}
-        <div class="w-64 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Add Agent</span>
-            <button onclick={() => { showAddPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+        <div class="w-64 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
+            <span class="text-xs font-medium text-dark-text-secondary">Add Agent</span>
+            <button onclick={() => { showAddPanel = false; }} class="text-dark-text-faint hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="overflow-y-auto min-h-0 flex-1">
             {#if availableAgents().length === 0}
-              <div class="p-3 text-xs text-gray-400 dark:text-dark-text-faint text-center">
+              <div class="p-3 text-xs text-dark-text-faint text-center">
                 All agents are already in this organization
               </div>
             {:else}
               {#each availableAgents() as agent (agent.id)}
                 <div
-                  class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated "
+                  class="flex items-center justify-between px-3 py-2 border-b border-dark-border hover:bg-dark-elevated"
                 >
                   <div class="flex items-center gap-2 min-w-0">
-                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 rounded-full shrink-0 bg-dark-elevated" />
                     <div class="min-w-0">
-                      <div class="text-xs font-medium text-gray-800 dark:text-dark-text truncate">{agent.name}</div>
+                      <div class="text-xs font-medium text-dark-text truncate">{agent.name}</div>
                       {#if agent.config.model}
-                        <div class="text-[10px] text-gray-400 dark:text-dark-text-faint font-mono truncate">{agent.config.model}</div>
+                        <div class="text-[10px] text-dark-text-faint font-mono truncate">{agent.config.model}</div>
                       {/if}
                     </div>
                   </div>
                   <button
                     onclick={() => handleAddAgent(agent)}
-                    class="shrink-0 ml-2 p-1 text-gray-400 dark:text-dark-text-muted hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded "
+                    class="shrink-0 ml-2 p-1 text-dark-text-muted hover:text-green-400 hover:bg-green-900/20"
                     title="Add to organization"
                   >
                     <Plus size={14} />
@@ -914,54 +914,54 @@
       {#if selectedAgentId && selectedMembership()}
         {@const membership = selectedMembership()}
         {@const agent = selectedAgent()}
-        <div class="w-60 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Agent Details</span>
-            <button onclick={() => { selectedAgentId = null; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+        <div class="w-60 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
+            <span class="text-xs font-medium text-dark-text-secondary">Agent Details</span>
+            <button onclick={() => { selectedAgentId = null; }} class="text-dark-text-faint hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
             {#if membership && agent}
               <div class="flex items-center gap-2.5">
-                <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 rounded-full shrink-0 bg-dark-elevated" />
                 <div>
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Name</span>
-                  <div class="text-xs font-medium text-gray-900 dark:text-dark-text mt-0.5">{agent.name}</div>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Name</span>
+                  <div class="text-xs font-medium text-dark-text mt-0.5">{agent.name}</div>
                 </div>
               </div>
               {#if membership.title}
                 <div>
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title</span>
-                  <div class="text-xs text-gray-700 dark:text-dark-text-secondary mt-0.5">{membership.title}</div>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Title</span>
+                  <div class="text-xs text-dark-text-secondary mt-0.5">{membership.title}</div>
                 </div>
               {/if}
               {#if membership.role}
                 <div>
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Role</span>
-                  <div class="text-xs text-gray-700 dark:text-dark-text-secondary mt-0.5">{membership.role}</div>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Role</span>
+                  <div class="text-xs text-dark-text-secondary mt-0.5">{membership.role}</div>
                 </div>
               {/if}
               {#if agent.config.model}
                 <div>
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Model</span>
-                  <div class="text-xs text-gray-700 dark:text-dark-text-secondary font-mono mt-0.5">{agent.config.model}</div>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Model</span>
+                  <div class="text-xs text-dark-text-secondary font-mono mt-0.5">{agent.config.model}</div>
                 </div>
               {/if}
               {#if agent.config.description}
                 <div>
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</span>
-                  <div class="text-xs text-gray-600 dark:text-dark-text-muted mt-0.5">{agent.config.description}</div>
+                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
+                  <div class="text-xs text-dark-text-muted mt-0.5">{agent.config.description}</div>
                 </div>
               {/if}
 
               <!-- Parent selector -->
               <div>
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Reports To</span>
+                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Reports To</span>
                 <select
                   value={membership.parent_agent_id || ''}
                   onchange={(e) => setAgentParent(membership.agent_id, (e.target as HTMLSelectElement).value || null)}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text"
                 >
                   <option value="">None (root)</option>
                   {#each memberships.filter((m) => m.agent_id !== membership.agent_id) as candidate (candidate.agent_id)}
@@ -973,26 +973,26 @@
 
               <!-- Heartbeat schedule -->
               <div>
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Heartbeat Schedule</span>
+                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Heartbeat Schedule</span>
                 <input
                   type="text"
                   value={membership.heartbeat_schedule || ''}
                   onchange={(e) => handleUpdateHeartbeatSchedule(membership.agent_id, (e.target as HTMLInputElement).value)}
                   placeholder="Cron (e.g., */5 * * * *)"
-                  class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
                 />
               </div>
 
             {:else if membership}
-              <div class="text-xs text-gray-400 dark:text-dark-text-faint">
+              <div class="text-xs text-dark-text-faint">
                 Agent data unavailable (may have been deleted)
               </div>
             {/if}
           </div>
-          <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
+          <div class="px-3 py-2 border-t border-dark-border shrink-0">
             <button
               onclick={() => { if (selectedAgentId) handleRemoveAgent(selectedAgentId); }}
-              class="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/20 "
+              class="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-red-400 border border-red-800 hover:bg-red-900/20"
             >
               <Trash2 size={12} />
               Remove from Org

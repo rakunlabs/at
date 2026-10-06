@@ -160,7 +160,7 @@
       case 'high': return 'text-orange-500';
       case 'medium': return 'text-yellow-500';
       case 'low': return 'text-blue-400';
-      default: return 'text-gray-400';
+      default: return 'text-dark-text-muted';
     }
   }
 
@@ -168,21 +168,21 @@
   function statusBadgeClasses(status: string): string {
     switch (status) {
       case 'backlog':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
+        return 'bg-dark-elevated text-dark-text-secondary';
       case 'todo':
-        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+        return 'bg-blue-900/30 text-blue-400';
       case 'in_progress':
-        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+        return 'bg-yellow-900/30 text-yellow-400';
       case 'in_review':
-        return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
+        return 'bg-purple-900/30 text-purple-400';
       case 'blocked':
-        return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+        return 'bg-red-900/30 text-red-400';
       case 'done':
-        return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+        return 'bg-green-900/30 text-green-400';
       case 'cancelled':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
+        return 'bg-dark-elevated text-dark-text-secondary';
       default:
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
+        return 'bg-dark-elevated text-dark-text-secondary';
     }
   }
 
@@ -190,21 +190,21 @@
   function statusStripeColor(status: string): string {
     switch (status) {
       case 'backlog':
-        return 'border-l-gray-300 dark:border-l-gray-600';
+        return 'border-l-gray-600';
       case 'todo':
-        return 'border-l-blue-400 dark:border-l-blue-500';
+        return 'border-l-blue-500';
       case 'in_progress':
-        return 'border-l-yellow-400 dark:border-l-yellow-500';
+        return 'border-l-yellow-500';
       case 'in_review':
-        return 'border-l-purple-400 dark:border-l-purple-500';
+        return 'border-l-purple-500';
       case 'blocked':
-        return 'border-l-red-400 dark:border-l-red-500';
+        return 'border-l-red-500';
       case 'done':
-        return 'border-l-green-400 dark:border-l-green-500';
+        return 'border-l-green-500';
       case 'cancelled':
-        return 'border-l-gray-300 dark:border-l-gray-600';
+        return 'border-l-gray-600';
       default:
-        return 'border-l-gray-300 dark:border-l-gray-600';
+        return 'border-l-gray-600';
     }
   }
 
@@ -224,12 +224,12 @@
 <div class="flex gap-4 overflow-x-auto pb-4 h-full min-h-0">
   {#each cols as col (col.id || col.label)}
     {@const count = columnData[col.id]?.length || 0}
-    <div class="flex flex-col min-w-[300px] flex-1 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border">
+    <div class="flex flex-col min-w-[300px] flex-1 bg-dark-base border border-dark-border">
       <!-- Column header -->
-      <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 dark:border-dark-border">
+      <div class="flex items-center gap-2 px-3 py-2.5 border-b border-dark-border">
         <div class="w-2.5 h-2.5 shrink-0 {columnDotClass(col.color)}"></div>
-        <h3 class="text-xs font-semibold text-gray-700 dark:text-dark-text-secondary tracking-wide truncate" title="Dropping a card here sets it to {TASK_STATUS_LABELS[dropStatus(col)] || dropStatus(col)}">{col.label}</h3>
-        <span class="text-xs text-gray-500 dark:text-dark-text-secondary ml-auto font-mono tabular-nums">
+        <h3 class="text-xs font-semibold text-dark-text-secondary tracking-wide truncate" title="Dropping a card here sets it to {TASK_STATUS_LABELS[dropStatus(col)] || dropStatus(col)}">{col.label}</h3>
+        <span class="text-xs text-dark-text-secondary ml-auto font-mono tabular-nums">
           {count}<span class="sr-only"> {count === 1 ? 'task' : 'tasks'} in {col.label}</span>
         </span>
       </div>
@@ -246,7 +246,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class={[
-              'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border border-l-3 p-3.5 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm ',
+              'bg-dark-surface border border-dark-border border-l-3 p-3.5 hover:border-dark-border-subtle hover:shadow-sm ',
               statusStripeColor(item.task.status),
               isFailedStatus(item.task.status) ? 'opacity-70' : '',
               'cursor-grab active:cursor-grabbing',
@@ -257,9 +257,9 @@
             <div class="flex items-center justify-between mb-1.5">
               <div class="flex items-center gap-2">
                 {#if item.task.identifier}
-                  <span class="text-[10px] font-mono text-gray-500 dark:text-dark-text-secondary">{item.task.identifier}</span>
+                  <span class="text-[10px] font-mono text-dark-text-secondary">{item.task.identifier}</span>
                 {:else}
-                  <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{item.task.id.slice(0, 8)}</span>
+                  <span class="text-[10px] font-mono text-dark-text-muted">{item.task.id.slice(0, 8)}</span>
                 {/if}
                 <span class="inline-block px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide {statusBadgeClasses(item.task.status)}">
                   {TASK_STATUS_LABELS[item.task.status] || item.task.status.replace(/_/g, ' ')}
@@ -278,10 +278,10 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class={[
-                'text-sm font-medium leading-snug mb-1.5 cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary',
+                'text-sm font-medium leading-snug mb-1.5 cursor-pointer hover:text-dark-text-secondary',
                 item.task.status === 'cancelled'
-                  ? 'line-through text-gray-500 dark:text-dark-text-secondary'
-                  : 'text-gray-900 dark:text-dark-text',
+                  ? 'line-through text-dark-text-secondary'
+                  : 'text-dark-text',
               ]}
               onclick={() => push(`/tasks/${item.task.id}`)}
             >
@@ -292,7 +292,7 @@
             {#if item.task.description}
               {@const preview = descriptionPreview(item.task.description)}
               {#if preview}
-                <p class="text-xs text-gray-500 dark:text-dark-text-secondary leading-relaxed mb-2 line-clamp-2">
+                <p class="text-xs text-dark-text-secondary leading-relaxed mb-2 line-clamp-2">
                   {preview}
                 </p>
               {/if}
@@ -301,13 +301,13 @@
             <!-- Bottom row: agent + org + result indicator -->
             <div class="flex items-center gap-2 flex-wrap">
               {#if item.task.assigned_agent_id}
-                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-secondary">
+                <div class="flex items-center gap-1 text-[10px] text-dark-text-secondary">
                   <Circle size={8} />
                   <span class="truncate max-w-[100px]">{agentName(item.task.assigned_agent_id)}</span>
                 </div>
               {/if}
               {#if item.task.organization_id}
-                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-secondary">
+                <div class="flex items-center gap-1 text-[10px] text-dark-text-secondary">
                   <Building2 size={8} />
                   <span class="truncate max-w-[100px]">{orgName(item.task.organization_id)}</span>
                 </div>
@@ -315,9 +315,9 @@
               {#if item.task.result}
                 <div class="flex items-center gap-1 text-[10px] ml-auto" title="Has result">
                   {#if isFailedStatus(item.task.status)}
-                    <FileText size={10} class="text-gray-400 dark:text-dark-text-muted" />
+                    <FileText size={10} class="text-dark-text-muted" />
                   {:else}
-                    <CheckCircle2 size={10} class="text-green-500 dark:text-green-400" />
+                    <CheckCircle2 size={10} class="text-green-400" />
                   {/if}
                 </div>
               {/if}
@@ -339,12 +339,12 @@
     oncontextmenu={(e) => { e.preventDefault(); closeContextMenu(); }}
   ></div>
   <div
-    class="fixed z-50 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-lg py-1 min-w-[180px]"
+    class="fixed z-50 bg-dark-surface border border-dark-border shadow-lg py-1 min-w-[180px]"
     style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
   >
     <button
       onclick={handleContextProcess}
-      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
+      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-dark-text hover:bg-dark-elevated"
     >
       <Play size={14} class="text-green-500" />
       Start Processing

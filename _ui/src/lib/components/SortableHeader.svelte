@@ -22,13 +22,13 @@
 </script>
 
 <th
-  class={`px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider select-none cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary hover:bg-gray-100/50 dark:hover:bg-dark-elevated/50 ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+  class={`px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider select-none cursor-pointer hover:text-dark-text-secondary hover:bg-dark-elevated/50 ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
   onclick={(e) => onsort(field, e.shiftKey)}
 >
   <div class={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
     <span>{label}</span>
     {#if currentSort}
-      <span class="flex items-center text-gray-700 dark:text-dark-text-secondary">
+      <span class="flex items-center text-dark-text-secondary">
         {#if currentSort.desc}
           <ArrowDown size={12} />
         {:else}
@@ -39,7 +39,7 @@
         {/if}
       </span>
     {:else}
-      <span class="text-gray-300 dark:text-dark-text-faint opacity-0 group-hover:opacity-100">
+      <span class="text-dark-text-faint opacity-0 group-hover:opacity-100">
         <ArrowUpDown size={10} />
       </span>
     {/if}

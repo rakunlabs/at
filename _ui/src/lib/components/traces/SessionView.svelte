@@ -68,19 +68,19 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  <div class="border-b border-gray-200 bg-white px-4 py-2.5 dark:border-dark-border dark:bg-dark-surface">
+  <div class="border-b px-4 py-2.5 border-dark-border bg-dark-surface">
     <div class="flex flex-wrap items-center gap-2">
-      <button onclick={onback} class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text"><ArrowLeft size={14} /> Sessions</button>
-      <span class="text-gray-300 dark:text-dark-border">/</span>
-      <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Session</span>
-      <h2 class="min-w-0 truncate font-mono text-sm font-semibold text-gray-900 dark:text-dark-text">{sessionID}</h2>
-      <button onclick={() => copy(sessionID)} class="p-1 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted" title="Copy session ID"><Copy size={12} /></button>
-      <div class="ml-auto flex border border-gray-200 dark:border-dark-border" role="tablist">
+      <button onclick={onback} class="inline-flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text"><ArrowLeft size={14} /> Sessions</button>
+      <span class="text-dark-border">/</span>
+      <span class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Session</span>
+      <h2 class="min-w-0 truncate font-mono text-sm font-semibold text-dark-text">{sessionID}</h2>
+      <button onclick={() => copy(sessionID)} class="p-1 hover:text-dark-text-secondary text-dark-text-muted" title="Copy session ID"><Copy size={12} /></button>
+      <div class="ml-auto flex border border-dark-border" role="tablist">
         {#each [['conversation', 'Conversation', MessagesSquare], ['timeline', 'Timeline', ChartGantt]] as const as [key, label, Icon] (key)}
-          <button role="tab" aria-selected={view === key} onclick={() => setView(key)} class={['inline-flex items-center gap-1 px-2.5 py-1 text-xs', view === key ? 'bg-gray-900 text-white dark:bg-dark-text dark:text-dark-base' : 'text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}><Icon size={12} />{label}</button>
+          <button role="tab" aria-selected={view === key} onclick={() => setView(key)} class={['inline-flex items-center gap-1 px-2.5 py-1 text-xs', view === key ? 'bg-dark-text text-dark-base' : 'text-dark-text-secondary hover:bg-dark-elevated']}><Icon size={12} />{label}</button>
         {/each}
       </div>
-      <button onclick={() => load(sessionID, tokenID)} class="p-1 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted" title="Refresh"><RefreshCw size={14} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
+      <button onclick={() => load(sessionID, tokenID)} class="p-1 hover:text-dark-text-secondary text-dark-text-muted" title="Refresh"><RefreshCw size={14} class={loading ? 'animate-spin motion-reduce:animate-none' : ''} /></button>
     </div>
     {#if s}
       <dl class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px]">
@@ -94,21 +94,21 @@
           ['Errors', String(s.error_count)],
           ['Sources', s.sources.join(', ')],
         ] as [label, value]}
-          <div><dt class="text-gray-400 dark:text-dark-text-muted">{label}</dt><dd class="max-w-56 truncate font-mono text-gray-800 dark:text-dark-text-secondary" title={value}>{value}</dd></div>
+          <div><dt class="text-dark-text-muted">{label}</dt><dd class="max-w-56 truncate font-mono text-dark-text-secondary" title={value}>{value}</dd></div>
         {/each}
       </dl>
     {/if}
   </div>
 
-  <div class="min-h-0 flex-1 overflow-y-auto bg-gray-50 p-4 dark:bg-dark-base">
+  <div class="min-h-0 flex-1 overflow-y-auto p-4 bg-dark-base">
     {#if failed}
-      <div class="border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{failed}</div>
+      <div class="border p-3 text-xs border-red-900/40 bg-red-950/20 text-red-300">{failed}</div>
     {:else if !detail}
-      <p class="text-center text-xs text-gray-400 dark:text-dark-text-muted">Loading session…</p>
+      <p class="text-center text-xs text-dark-text-muted">Loading session…</p>
     {:else}
       {#if view === 'timeline'}
-        <div class="border border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
-          <div class="flex border-b border-gray-200 bg-gray-50 text-[10px] text-gray-400 dark:border-dark-border dark:bg-dark-base dark:text-dark-text-muted">
+        <div class="border border-dark-border bg-dark-surface">
+          <div class="flex border-b text-[10px] border-dark-border bg-dark-base text-dark-text-muted">
             <div class="w-72 shrink-0 px-2.5 py-1 font-medium uppercase tracking-wider">Turn</div>
             <div class="relative min-w-0 flex-1">
               {#each ticks as tick}
@@ -119,31 +119,31 @@
           {#each detail.traces as t, i (t.trace_id)}
             {@const start = Date.parse(t.started_at)}
             {@const g = barGeometry(timeline, start, Math.max(Date.parse(t.ended_at), start + (t.duration_ms || 0)))}
-            <button class="flex w-full items-center border-b border-gray-100 text-left text-xs hover:bg-gray-50 dark:border-dark-border/60 dark:hover:bg-dark-elevated/60" onclick={() => onopentrace(t.trace_id)} title={t.input || t.name || t.trace_id}>
+            <button class="flex w-full items-center border-b text-left text-xs border-dark-border/60 hover:bg-dark-elevated/60" onclick={() => onopentrace(t.trace_id)} title={t.input || t.name || t.trace_id}>
               <div class="w-72 shrink-0 px-2.5 py-1.5">
-                <div class="truncate text-gray-900 dark:text-dark-text"><span class="mr-1 font-mono text-gray-400 dark:text-dark-text-muted">#{i + 1}</span>{t.input || t.name || t.trace_id}</div>
-                <div class="truncate font-mono text-[10px] text-gray-500 dark:text-dark-text-muted">{formatTraceTime(t.started_at)} · {t.generation_count} calls · {formatTokens(t.total_tokens)} tok · {formatCost(t.cost_cents)}</div>
+                <div class="truncate text-dark-text"><span class="mr-1 font-mono text-dark-text-muted">#{i + 1}</span>{t.input || t.name || t.trace_id}</div>
+                <div class="truncate font-mono text-[10px] text-dark-text-muted">{formatTraceTime(t.started_at)} · {t.generation_count} calls · {formatTokens(t.total_tokens)} tok · {formatCost(t.cost_cents)}</div>
               </div>
               <div class="relative h-6 min-w-0 flex-1 px-1">
-                <div class={['absolute top-1.5 h-3', t.error_count ? 'bg-red-400 dark:bg-red-500/70' : 'bg-blue-400 dark:bg-blue-500/70']} style:left="{g.left}%" style:width="{g.width}%"></div>
-                <span class="absolute top-1 font-mono text-[10px] text-gray-500 dark:text-dark-text-muted" style:left="min(calc({g.left + g.width}% + 4px), calc(100% - 3.5rem))">{formatDurationMs(t.duration_ms)}</span>
+                <div class={['absolute top-1.5 h-3', t.error_count ? 'bg-red-500/70' : 'bg-blue-500/70']} style:left="{g.left}%" style:width="{g.width}%"></div>
+                <span class="absolute top-1 font-mono text-[10px] text-dark-text-muted" style:left="min(calc({g.left + g.width}% + 4px), calc(100% - 3.5rem))">{formatDurationMs(t.duration_ms)}</span>
               </div>
             </button>
           {/each}
         </div>
       {:else}
       {#if missingIO}
-        <p class="mb-3 border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-700 dark:border-amber-900/30 dark:bg-amber-900/10 dark:text-amber-400">Conversation text is captured only while trace body capture is on and is removed with bodies after the retention window. The traces below remain available.</p>
+        <p class="mb-3 border p-2 text-[11px] border-amber-900/30 bg-amber-900/10 text-amber-400">Conversation text is captured only while trace body capture is on and is removed with bodies after the retention window. The traces below remain available.</p>
       {/if}
       <ol class="mx-auto max-w-4xl space-y-4">
         {#each detail.traces as t, i (t.trace_id)}
           <li>
-            <div class="mb-1 flex items-center gap-2 text-[11px] text-gray-500 dark:text-dark-text-muted">
+            <div class="mb-1 flex items-center gap-2 text-[11px] text-dark-text-muted">
               <span class="font-mono">#{i + 1}</span>
               <span>{formatTraceTime(t.started_at)}</span>
               <span class="font-mono">{formatDurationMs(t.duration_ms)} · {formatTokens(t.total_tokens)} tok · {formatCost(t.cost_cents)}</span>
-              {#if t.error_count}<span class="text-red-600 dark:text-red-400">{t.error_count} error{t.error_count === 1 ? '' : 's'}</span>{/if}
-              <button class="ml-auto inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400" onclick={() => onopentrace(t.trace_id)}><ExternalLink size={11} /> {t.name || 'Open trace'}</button>
+              {#if t.error_count}<span class="text-red-400">{t.error_count} error{t.error_count === 1 ? '' : 's'}</span>{/if}
+              <button class="ml-auto inline-flex items-center gap-1 hover:underline text-blue-400" onclick={() => onopentrace(t.trace_id)}><ExternalLink size={11} /> {t.name || 'Open trace'}</button>
             </div>
             {#if t.input || t.output}
               <ChatMessages messages={[
@@ -151,14 +151,14 @@
                 ...(t.output ? [{ role: 'assistant', text: t.output, toolCalls: [], toolResults: [], attachments: [] }] : []),
               ]} />
             {:else}
-              <button class="w-full border border-dashed border-gray-300 bg-white p-2 text-left text-xs text-gray-500 hover:bg-gray-50 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text-muted" onclick={() => onopentrace(t.trace_id)}>{t.observation_count} observations — open the trace to inspect them.</button>
+              <button class="w-full border border-dashed p-2 text-left text-xs hover:bg-dark-surface border-dark-border bg-dark-surface text-dark-text-muted" onclick={() => onopentrace(t.trace_id)}>{t.observation_count} observations — open the trace to inspect them.</button>
             {/if}
           </li>
         {/each}
       </ol>
       {/if}
       {#if s && s.trace_count > detail.traces.length}
-        <p class="mt-4 text-center text-[11px] text-gray-400 dark:text-dark-text-muted">Showing the first {detail.traces.length} of {s.trace_count} traces.</p>
+        <p class="mt-4 text-center text-[11px] text-dark-text-muted">Showing the first {detail.traces.length} of {s.trace_count} traces.</p>
       {/if}
     {/if}
   </div>

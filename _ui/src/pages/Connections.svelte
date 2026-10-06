@@ -516,20 +516,20 @@
 <div class="p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
-  <div class="flex items-start justify-between mb-6">
+  <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
     <div>
-      <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Connections</h1>
-      <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">
+      <h1 class="text-lg font-semibold text-dark-text">Connections</h1>
+      <p class="text-sm text-dark-text-muted mt-0.5">
         Named external-service accounts. Providers are data-driven — add your own from "Add provider".
       </p>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+      <span class="text-xs text-dark-text-muted">
         {connections.length} account{connections.length === 1 ? '' : 's'} across {sections().length} provider{sections().length === 1 ? '' : 's'}
       </span>
     </div>
     <div class="flex items-center gap-2 shrink-0">
       <button
         onclick={() => load()}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+        class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
         aria-label="Refresh"
       >
@@ -537,7 +537,7 @@
       </button>
       <button
         onclick={runImport}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
         title="Import from existing global variables (youtube_client_id, etc.)"
       >
         <Download size={14} />
@@ -545,7 +545,7 @@
       </button>
       <button
         onclick={openConnectorCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
         title="Add a new provider type (connector)"
       >
         <Cable size={14} />
@@ -555,16 +555,16 @@
   </div>
 
   {#if pageLoad.loading('Connections')}
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-10 text-center text-sm text-gray-400 dark:text-dark-text-muted">
+    <div class="border border-dark-border bg-dark-surface px-4 py-10 text-center text-sm text-dark-text-muted">
       Loading connections…
     </div>
   {:else if pageLoad.error('Connections') && !connections.length}
-    <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
+    <p class="text-sm text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
   {:else if sections().length === 0}
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-10 text-center">
-      <Cable size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-      <div class="text-gray-400 dark:text-dark-text-muted mb-1">No providers yet</div>
-      <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+    <div class="border border-dark-border bg-dark-surface px-4 py-10 text-center">
+      <Cable size={24} class="mx-auto text-dark-text-faint mb-2" />
+      <div class="text-dark-text-muted mb-1">No providers yet</div>
+      <div class="text-xs text-dark-text-muted">
         Add a provider type to start storing external-service credentials.
       </div>
     </div>
@@ -572,32 +572,32 @@
     <div class="space-y-4">
     {#each sections() as section (section.provider)}
       {@const connector = section.connector}
-      <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+      <section class="border border-dark-border bg-dark-surface overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">{providerLabel(section.provider)}</h2>
+              <h2 class="text-sm font-medium text-dark-text">{providerLabel(section.provider)}</h2>
               {#if connector}
-                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-dark-border-subtle bg-dark-elevated text-dark-text-muted">
                   {connector.auth_kind}
                 </span>
                 {#if connector.builtin}
-                  <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">built-in</span>
+                  <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-blue-800 bg-blue-900/20 text-blue-400">built-in</span>
                 {/if}
               {:else}
-                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400">no connector</span>
+                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-amber-800 bg-amber-900/20 text-amber-400">no connector</span>
               {/if}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">({section.items.length})</span>
+              <span class="text-xs text-dark-text-muted">({section.items.length})</span>
             </div>
             {#if connector?.description}
-              <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{connector.description}</p>
+              <p class="text-xs text-dark-text-muted mt-0.5">{connector.description}</p>
             {/if}
           </div>
           <div class="flex items-center gap-2 shrink-0">
             {#if connector}
               <button
                 onclick={() => openConnectorEdit(connector)}
-                class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
+                class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
                 title="Edit provider definition"
                 aria-label="Edit provider definition"
               >
@@ -606,7 +606,7 @@
             {/if}
             <button
               onclick={() => connector ? openCreate(connector) : openCreate({ slug: section.provider, name: section.provider, auth_kind: 'custom' } as Connector)}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
             >
               <Plus size={12} />
               Add account
@@ -616,12 +616,12 @@
 
         {#if section.items.length === 0}
           <div class="px-4 py-8 text-center">
-            <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+            <div class="text-xs text-dark-text-muted">
               No {providerLabel(section.provider)} accounts yet — use "Add account" to create one.
             </div>
           </div>
         {:else}
-          <div class="divide-y divide-gray-100 dark:divide-dark-border">
+          <div class="divide-y divide-dark-border">
             {#each section.items as c (c.id)}
               {@const connectionVerified = isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
               <div>
@@ -630,48 +630,48 @@
                     <div class={[
                       'mt-0.5 w-8 h-8 border flex items-center justify-center shrink-0',
                       connectionVerified
-                        ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900/40'
+                        ? 'bg-green-900/20 border-green-900/40'
                         : isOAuth(connector) && isConnected(c, connector)
-                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
-                          : 'bg-gray-50 dark:bg-dark-elevated border-gray-200 dark:border-dark-border',
+                          ? 'bg-amber-900/20 border-amber-800'
+                          : 'bg-dark-elevated border-dark-border',
                     ]}>
                       {#if connectionVerified}
-                        <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
+                        <CheckCircle2 size={18} class="text-green-400" />
                       {:else if isOAuth(connector) && isConnected(c, connector)}
-                        <AlertCircle size={18} class="text-amber-600 dark:text-amber-400" />
+                        <AlertCircle size={18} class="text-amber-400" />
                       {:else}
-                        <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
+                        <XCircle size={18} class="text-dark-text-muted" />
                       {/if}
                     </div>
                     <div class="min-w-0">
-                      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">{c.name}</h3>
+                      <h3 class="text-sm font-medium text-dark-text truncate">{c.name}</h3>
                       {#if c.account_label}
-                        <p class="text-xs text-gray-600 dark:text-dark-text-secondary mt-0.5 truncate">{c.account_label}</p>
+                        <p class="text-xs text-dark-text-secondary mt-0.5 truncate">{c.account_label}</p>
                       {/if}
                       {#if c.description}
-                        <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{c.description}</p>
+                        <p class="text-xs text-dark-text-muted mt-0.5">{c.description}</p>
                       {/if}
                       <div class="mt-2 flex flex-wrap items-center gap-2">
                         {#if isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-900/20 text-green-400 border">
                             <CheckCircle2 size={10} /> {isOAuth(connector) ? 'Verified' : 'Connected'}
                           </span>
                         {:else if isOAuth(connector) && isConnected(c, connector)}
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800" title="Stored credentials have not been verified by refreshing an access token">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-900/20 text-amber-400 border border-amber-800" title="Stored credentials have not been verified by refreshing an access token">
                             <AlertCircle size={10} /> Stored — re-authorize to verify
                           </span>
                         {:else if isSetupComplete(c, connector)}
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 border">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-900/20 text-yellow-400 border">
                             <AlertCircle size={10} /> Ready to connect
                           </span>
                         {:else}
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted border">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-dark-elevated text-dark-text-muted border">
                             <XCircle size={10} /> Not configured
                           </span>
                         {/if}
                         {#if c.used_by_agents && c.used_by_agents.length > 0}
                           <span
-                            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border"
+                            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-blue-900/20 text-blue-400 border"
                             title={c.used_by_agents.map((a) => a.name).join(', ')}
                           >
                             <Users size={10} />
@@ -685,7 +685,7 @@
                     {#if isOAuth(connector) && isSetupComplete(c, connector) && !isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
-                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
                       >
                         <Plug size={12} /> Connect
                       </button>
@@ -693,7 +693,7 @@
                     {#if isOAuth(connector) && isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
-                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated"
                         title="Re-authorize"
                       >
                         <RefreshCw size={12} />
@@ -701,14 +701,14 @@
                     {/if}
                     <button
                       onclick={() => openEdit(c)}
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated"
                       title="Edit"
                     >
                       <Pencil size={12} />
                     </button>
                     <button
                       onclick={() => remove(c)}
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 "
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-900/20"
                       title="Delete"
                     >
                       <Trash2 size={12} />
@@ -718,10 +718,10 @@
 
                 <!-- Manual OAuth flow panel -->
                 {#if isOAuth(connector) && oauthStep[c.id]}
-                  <div class="border-t border-gray-100 dark:border-dark-border p-3 bg-gray-50/50 dark:bg-dark-base/50">
+                  <div class="border-t border-dark-border p-3 bg-dark-base/50">
                     {#if oauthStep[c.id] === 'authorize'}
                       <div class="space-y-2">
-                        <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">
+                        <p class="text-xs font-medium text-dark-text-secondary">
                           Open the link below, sign in, and authorize. Then paste the code here.
                         </p>
                         <div class="flex items-center gap-2">
@@ -729,19 +729,19 @@
                             href={oauthAuthURL[c.id]}
                             target="_blank"
                             rel="noopener"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
                           >
                             <ExternalLink size={12} /> Open authorization
                           </a>
                           <button
                             onclick={() => (oauthStep[c.id] = 'paste-code')}
-                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated"
                           >
                             <ClipboardPaste size={12} /> I have the code
                           </button>
                           <button
                             onclick={() => cancelManualOAuth(c)}
-                            class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                            class="text-xs text-dark-text-muted hover:text-dark-text-secondary"
                           >
                             Cancel
                           </button>
@@ -749,25 +749,25 @@
                       </div>
                     {:else if oauthStep[c.id] === 'paste-code'}
                       <div class="space-y-2">
-                        <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste the authorization code:</p>
+                        <p class="text-xs font-medium text-dark-text-secondary">Paste the authorization code:</p>
                         <div class="flex items-center gap-2">
                           <input
                             type="text"
                             value={oauthCode[c.id] ?? ''}
                             oninput={(e) => (oauthCode[c.id] = (e.target as HTMLInputElement).value)}
                             placeholder="Paste code here"
-                            class="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
+                            class="flex-1 px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle font-mono"
                           />
                           <button
                             onclick={() => submitOAuthCode(c)}
                             disabled={saving}
-                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover disabled:opacity-50"
                           >
                             <Plug size={12} /> {saving ? 'Connecting…' : 'Connect'}
                           </button>
                           <button
                             onclick={() => cancelManualOAuth(c)}
-                            class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                            class="text-xs text-dark-text-muted hover:text-dark-text-secondary"
                           >
                             Cancel
                           </button>
@@ -776,10 +776,10 @@
                     {/if}
                   </div>
                 {:else if isOAuth(connector) && isSetupComplete(c, connector)}
-                  <div class="border-t border-gray-100 dark:border-dark-border px-3 py-2">
+                  <div class="border-t border-dark-border px-3 py-2">
                     <button
                       onclick={() => startManualOAuth(c)}
-                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-blue-600 dark:hover:text-blue-400 "
+                      class="text-xs text-dark-text-muted hover:text-blue-400"
                     >
                       Popup blocked? Use manual connection
                     </button>
@@ -798,46 +798,46 @@
 <!-- Connection editor modal -->
 {#if editor}
   {@const fields = editorFields()}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 dark:bg-black/60">
-    <div class="bg-white dark:bg-dark-surface shadow-xl dark:border dark:border-dark-border max-w-md w-full max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+    <div class="bg-dark-surface shadow-xl border border-dark-border max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <h2 class="text-sm font-medium text-dark-text">
           {editor.kind === 'create' ? `Add ${providerLabel(editorProvider())} account` : `Edit ${providerLabel(editorProvider())} account`}
         </h2>
-        <button onclick={closeEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " aria-label="Close">
+        <button onclick={closeEditor} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" aria-label="Close">
           <X size={16} />
         </button>
       </div>
 
       <div class="p-4 space-y-3">
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Name <span class="text-red-500">*</span></span>
+          <span class="block text-xs font-medium text-dark-text-secondary mb-1">Name <span class="text-red-500">*</span></span>
           <input
             type="text"
             bind:value={formName}
             placeholder="e.g. Main Channel"
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
           />
         </label>
 
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</span>
+          <span class="block text-xs font-medium text-dark-text-secondary mb-1">Description</span>
           <input
             type="text"
             bind:value={formDescription}
             placeholder="Optional note for future-you"
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
           />
         </label>
 
         {#if fields.length > 0}
-          <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+          <div class="pt-2 border-t border-dark-border">
             <div class="flex items-center justify-between mb-2">
-              <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Credentials</h3>
+              <h3 class="text-xs font-medium text-dark-text-secondary">Credentials</h3>
               <button
                 type="button"
                 onclick={() => (showSecrets = !showSecrets)}
-                class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                class="text-dark-text-muted hover:text-dark-text-secondary"
                 title={showSecrets ? 'Hide' : 'Show'}
               >
                 {#if showSecrets}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
@@ -848,22 +848,22 @@
               {#each fields as f (f.key)}
                 {@const stored = editor.kind === 'edit' && fieldIsSet(editor.connection, f.key)}
                 <label class="block">
-                  <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+                  <span class="block text-xs text-dark-text-muted mb-1">
                     {f.label || f.key}
                     {#if f.required}<span class="text-red-500">*</span>{/if}
-                    {#if stored && f.type === 'secret'}<span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>{/if}
+                    {#if stored && f.type === 'secret'}<span class="text-green-400 font-normal ml-1">(stored)</span>{/if}
                   </span>
                   <input
                     type={f.type === 'secret' && !showSecrets ? 'password' : 'text'}
                     bind:value={formFields[f.key]}
                     placeholder={stored && f.type === 'secret' ? '(leave blank to keep stored value)' : (f.placeholder ?? '')}
-                    class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
+                    class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle font-mono"
                   />
-                  {#if f.help}<span class="block text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">{f.help}</span>{/if}
+                  {#if f.help}<span class="block text-[11px] text-dark-text-muted mt-0.5">{f.help}</span>{/if}
                 </label>
               {/each}
               {#if isOAuth(editorConnector())}
-                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                <p class="text-[11px] text-dark-text-muted">
                   The refresh token is obtained automatically — save, then click "Connect".
                 </p>
               {/if}
@@ -872,12 +872,12 @@
         {/if}
       </div>
 
-      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <button onclick={closeEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base">
+        <button onclick={closeEditor} class="px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
         <button
           onclick={saveEditor}
           disabled={saving || !formName.trim()}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover disabled:opacity-50"
         >
           {saving ? 'Saving…' : editor.kind === 'create' ? 'Create' : 'Save'}
         </button>
@@ -888,23 +888,23 @@
 
 <!-- Connector (provider type) editor modal -->
 {#if connectorEditor}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 dark:bg-black/60">
-    <div class="bg-white dark:bg-dark-surface shadow-xl dark:border dark:border-dark-border max-w-lg w-full max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+    <div class="bg-dark-surface shadow-xl border border-dark-border max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <h2 class="text-sm font-medium text-dark-text">
           {connectorEditor.kind === 'create' ? 'Add provider' : `Edit provider: ${cName || cSlug}`}
         </h2>
         <div class="flex items-center gap-2">
           {#if connectorEditor.kind === 'edit'}
             <button
               onclick={() => removeConnector((connectorEditor as { connector: Connector }).connector)}
-              class="text-red-500 hover:text-red-700"
+              class="text-red-500 hover:text-red-300"
               title="Delete connector"
             >
               <Trash2 size={15} />
             </button>
           {/if}
-          <button onclick={closeConnectorEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " aria-label="Close">
+          <button onclick={closeConnectorEditor} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" aria-label="Close">
             <X size={16} />
           </button>
         </div>
@@ -913,40 +913,40 @@
       <div class="p-4 space-y-3">
         <div class="grid grid-cols-2 gap-3">
           <label class="block">
-            <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Slug <span class="text-red-500">*</span></span>
+            <span class="block text-xs font-medium text-dark-text-secondary mb-1">Slug <span class="text-red-500">*</span></span>
             <input
               type="text"
               bind:value={cSlug}
               disabled={connectorEditor.kind === 'edit'}
               placeholder="e.g. spotify"
-              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono disabled:opacity-60"
+              class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle font-mono disabled:opacity-60"
             />
           </label>
           <label class="block">
-            <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Name</span>
+            <span class="block text-xs font-medium text-dark-text-secondary mb-1">Name</span>
             <input
               type="text"
               bind:value={cName}
               placeholder="Spotify"
-              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder-dark-text-muted placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
             />
           </label>
         </div>
 
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</span>
+          <span class="block text-xs font-medium text-dark-text-secondary mb-1">Description</span>
           <input
             type="text"
             bind:value={cDescription}
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
           />
         </label>
 
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Auth kind</span>
+          <span class="block text-xs font-medium text-dark-text-secondary mb-1">Auth kind</span>
           <select
             bind:value={cAuthKind}
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle"
           >
             <option value="oauth2">OAuth2</option>
             <option value="token">Token / API key</option>
@@ -955,46 +955,46 @@
         </label>
 
         {#if cAuthKind === 'oauth2'}
-          <div class="pt-2 border-t border-gray-100 dark:border-dark-border space-y-2">
-            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">OAuth2 endpoints</h3>
-            <input bind:value={cAuthURL} placeholder="Authorize URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cTokenURL} placeholder="Token URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cScopes} placeholder="Scopes (space or comma separated)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+          <div class="pt-2 border-t border-dark-border space-y-2">
+            <h3 class="text-xs font-medium text-dark-text-secondary">OAuth2 endpoints</h3>
+            <input bind:value={cAuthURL} placeholder="Authorize URL *" class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+            <input bind:value={cTokenURL} placeholder="Token URL *" class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+            <input bind:value={cScopes} placeholder="Scopes (space or comma separated)" class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
             <div class="grid grid-cols-2 gap-2">
-              <input bind:value={cAccessType} placeholder="access_type (e.g. offline)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-              <input bind:value={cPrompt} placeholder="prompt (e.g. consent)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+              <input bind:value={cAccessType} placeholder="access_type (e.g. offline)" class="px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+              <input bind:value={cPrompt} placeholder="prompt (e.g. consent)" class="px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
             </div>
-            <input bind:value={cUserinfoURL} placeholder="Userinfo URL (optional, for account label)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cAccountLabelPath} placeholder="Account label path (e.g. email)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-text-secondary">
+            <input bind:value={cUserinfoURL} placeholder="Userinfo URL (optional, for account label)" class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+            <input bind:value={cAccountLabelPath} placeholder="Account label path (e.g. email)" class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+            <label class="flex items-center gap-2 text-xs text-dark-text-secondary">
               <input type="checkbox" bind:checked={cUsePKCE} /> Use PKCE (for public clients / X / Twitter)
             </label>
           </div>
         {/if}
 
-        <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+        <div class="pt-2 border-t border-dark-border">
           <div class="flex items-center justify-between mb-2">
-            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Credential fields</h3>
-            <button onclick={addConnectorField} class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary">
+            <h3 class="text-xs font-medium text-dark-text-secondary">Credential fields</h3>
+            <button onclick={addConnectorField} class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text-secondary">
               <Plus size={12} /> Add field
             </button>
           </div>
           {#if cFields.length === 0}
-            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted italic">No fields yet. For OAuth2, add client_id and client_secret.</p>
+            <p class="text-[11px] text-dark-text-muted italic">No fields yet. For OAuth2, add client_id and client_secret.</p>
           {/if}
           <div class="space-y-2">
             {#each cFields as f, i (i)}
               <div class="flex items-center gap-2">
-                <input bind:value={f.key} placeholder="key (e.g. spotify_client_id)" class="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-                <input bind:value={f.label} placeholder="label" class="w-24 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-                <select bind:value={f.type} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle">
+                <input bind:value={f.key} placeholder="key (e.g. spotify_client_id)" class="flex-1 px-2 py-1 text-xs border border-dark-border-subtle bg-dark-elevated text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+                <input bind:value={f.label} placeholder="label" class="w-24 px-2 py-1 text-xs border border-dark-border-subtle bg-dark-elevated text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle" />
+                <select bind:value={f.type} class="px-2 py-1 text-xs border border-dark-border-subtle bg-dark-elevated text-dark-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle">
                   <option value="text">text</option>
                   <option value="secret">secret</option>
                 </select>
-                <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-dark-text-muted" title="Required">
+                <label class="flex items-center gap-1 text-[11px] text-dark-text-muted" title="Required">
                   <input type="checkbox" bind:checked={f.required} /> req
                 </label>
-                <button onclick={() => removeConnectorField(i)} class="text-red-500 hover:text-red-700" title="Remove field">
+                <button onclick={() => removeConnectorField(i)} class="text-red-500 hover:text-red-300" title="Remove field">
                   <X size={13} />
                 </button>
               </div>
@@ -1003,12 +1003,12 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base">
+        <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
         <button
           onclick={saveConnector}
           disabled={cSaving || !cSlug.trim()}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover disabled:opacity-50"
         >
           {cSaving ? 'Saving…' : connectorEditor.kind === 'create' ? 'Create' : 'Save'}
         </button>
