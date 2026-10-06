@@ -23,6 +23,7 @@
   import { isChatTodoTool, initialWorkbenchSetup, newWorkbenchSetup, normalizeWorkbenchSetup, workbenchSetupsEqual, type WorkbenchSetup } from '@/lib/helper/chat-tool-selections';
   import { createDebouncedSave } from '@/lib/helper/debounced-save';
   import { createChatTurnLifecycle, runChatIterations, type ChatTurn } from '@/lib/helper/chat-turn';
+  import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, queuedPreview, takeQueued, unansweredToolCalls, userMessageContent, type QueuedChatMessage } from '@/lib/helper/chat-queue';
   import { dispatchChatTool } from '@/lib/helper/chat-tools';
   import { createTranscriptWriter } from '@/lib/helper/chat-persistence';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
@@ -119,7 +120,7 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { Send, Trash2, ChevronDown, Square, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText, Paperclip, FileAudio, FileVideo } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Share2, Copy, Check, Code, FileText, Paperclip, FileAudio, FileVideo, SkipForward } from 'lucide-svelte';
   import { onDestroy, untrack, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -163,6 +164,10 @@
     tools: ToolDefinition[];
     sources: Record<string, ToolSource>;
     sessionId: string;
+    /** Set when the turn ended in an error; queued messages then wait for the user. */
+    failed?: boolean;
+    /** Stopped by "interrupt & send": the queue starts the next turn at once. */
+    interrupted?: boolean;
   }
 
   const turnLifecycle = createChatTurnLifecycle();
@@ -362,6 +367,9 @@
   let abortController = $state<AbortController | null>(null);
   let chatContainer: HTMLDivElement | undefined = $state();
   let pendingImages = $state<PendingAttachment[]>([]);
+  /** Messages written while a turn runs; delivered at its next step boundary. */
+  let queuedMessages = $state<QueuedChatMessage<PendingAttachment>[]>([]);
+  let activeTurn: TurnContext | null = null;
   let fileInput: HTMLInputElement | undefined = $state();
   let dragging = $state(false);
 
@@ -1184,6 +1192,7 @@
     meta = [];
     systemPrompt = '';
     pendingImages = [];
+    queuedMessages = [];
     todos = [];
     pendingQuestion = null;
     contextTokens = 0;
@@ -2436,35 +2445,135 @@
     if (chatRecording || chatTranscribing) return;
     const text = userInput.trim();
     if ((!text && pendingImages.length === 0) || !selectedModel) return;
-    if (streaming) return;
-    if (!setupReady()) return;
     if (pendingRefusals.length > 0) {
       addToast(pendingRefusals[0], 'alert');
       return;
     }
-    const turn = beginTurn();
-    if (!turn) return;
-    try {
-      // Build user message content
-      const images = pendingImages;
-      let userContent: string | ContentPart[];
-      if (images.length > 0) {
-        const parts: ContentPart[] = [];
-        for (const img of images) {
-          parts.push(attachmentPart(img) as ContentPart);
-        }
-        if (text) parts.push({ type: 'text', text });
-        userContent = parts;
-      } else {
-        userContent = text;
-      }
-
-      // Add user message to chat
-      const pair = splitModel(turn.model);
-      messages = [...messages, { role: 'user', content: userContent }];
-      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.filter(i => i.modality !== 'text').map(i => i.name) }];
+    const item = queuedMessage(text, pendingImages);
+    // A running turn takes the message at its next step boundary, so the
+    // composer stays usable while the agent works.
+    if (streaming) {
+      queuedMessages = [...queuedMessages, item];
       userInput = '';
       pendingImages = [];
+      return;
+    }
+    if (!setupReady()) return;
+    userInput = '';
+    pendingImages = [];
+    // Messages left waiting by a stopped turn go first, in the order written.
+    const items = [...queuedMessages, item];
+    queuedMessages = [];
+    await runUserTurn(items);
+  }
+
+  /** Append queued entries as user messages, in the order they were written. */
+  function appendUserMessages(items: QueuedChatMessage<PendingAttachment>[], model: string) {
+    const pair = splitModel(model);
+    for (const item of items) {
+      const content = userMessageContent(item.text, item.attachments, a => attachmentPart(a) as ContentPart) as string | ContentPart[];
+      messages = [...messages, { role: 'user', content }];
+      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: item.attachments.filter(i => i.modality !== 'text').map(i => i.name) }];
+    }
+  }
+
+  /**
+   * Deliver everything queued into the running turn. Called between steps —
+   * after tool results or once the model has answered — so the next model
+   * call sees the new messages. Returns whether anything was delivered.
+   */
+  async function drainQueue(turn: TurnContext): Promise<boolean> {
+    if (queuedMessages.length === 0) return false;
+    const items = queuedMessages;
+    queuedMessages = [];
+    appendUserMessages(items, turn.model);
+    scrollToBottom();
+    await persistPending();
+    turnLifecycle.assert(turn);
+    return true;
+  }
+
+  /** After a turn: a message queued too late to join it starts the next one. */
+  function continueWithQueue(turn: TurnContext) {
+    if ((turn.controller.signal.aborted && !turn.interrupted) || turn.failed || disposed) return;
+    if (turnLifecycle.generation() !== turn.generation) return;
+    if (queuedMessages.length === 0 || streaming) return;
+    const items = queuedMessages;
+    queuedMessages = [];
+    void runUserTurn(items);
+  }
+
+  /**
+   * Stop the running step and continue at once with everything queued (and
+   * whatever is in the composer). Unlike waiting for the next step boundary,
+   * this cuts a long generation or tool call short.
+   */
+  function interruptAndSend() {
+    if (chatRecording || chatTranscribing) return;
+    if (userInput.trim() || pendingImages.length > 0) {
+      if (pendingRefusals.length > 0) { addToast(pendingRefusals[0], 'alert'); return; }
+      queuedMessages = [...queuedMessages, queuedMessage(userInput.trim(), pendingImages)];
+      userInput = '';
+      pendingImages = [];
+    }
+    if (queuedMessages.length === 0) return;
+    if (!streaming || !activeTurn) { sendQueuedNow(); return; }
+    activeTurn.interrupted = true;
+    activeTurn.controller.abort();
+  }
+
+  /**
+   * Close what an interrupted turn left open so the next model call is valid:
+   * unanswered tool calls get an explicit "interrupted" result (providers
+   * reject unpaired calls) and an empty unsaved placeholder is dropped.
+   */
+  function repairInterruptedTail(model: string) {
+    const last = messages.length - 1;
+    if (isEmptyAssistant(messages[last]) && meta[last]?.sequence === null) {
+      messages = messages.slice(0, -1);
+      meta = meta.slice(0, -1);
+    }
+    const open = unansweredToolCalls(messages);
+    if (open.length === 0) return;
+    const pair = splitModel(model);
+    for (const id of open) {
+      messages = [...messages, { role: 'tool', content: INTERRUPTED_TOOL_RESULT, tool_call_id: id }];
+      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [] }];
+    }
+  }
+
+  function removeQueued(id: string) {
+    queuedMessages = takeQueued(queuedMessages, id)[0];
+  }
+
+  /** Move a queued entry back into the composer for editing. */
+  function editQueued(id: string) {
+    const [rest, item] = takeQueued(queuedMessages, id);
+    if (!item) return;
+    queuedMessages = rest;
+    userInput = userInput.trim() ? `${userInput}\n${item.text}` : item.text;
+    pendingImages = [...pendingImages, ...item.attachments];
+  }
+
+  /** Send what is queued now — after Stop or a failed turn left it waiting. */
+  function sendQueuedNow() {
+    if (streaming || queuedMessages.length === 0 || !selectedModel) return;
+    if (!setupReady()) return;
+    const items = queuedMessages;
+    queuedMessages = [];
+    void runUserTurn(items);
+  }
+
+  async function runUserTurn(items: QueuedChatMessage<PendingAttachment>[]) {
+    const turn = beginTurn();
+    if (!turn) {
+      queuedMessages = [...items, ...queuedMessages];
+      return;
+    }
+    const first = items[0];
+    try {
+      repairInterruptedTail(turn.model);
+      appendUserMessages(items, turn.model);
       confirmClear = false;
       scrollToBottom();
 
@@ -2472,7 +2581,7 @@
       // turn still runs, it just stays unsaved.
       if (!conversationId) {
         try {
-          await ensureConversation(text || images[0]?.name || 'Chat conversation');
+          await ensureConversation(first?.text || first?.attachments[0]?.name || 'Chat conversation');
         } catch (e) {
           turnLifecycle.assert(turn);
           addToast(playgroundErrorMessage(e, 'Could not start a saved conversation — this turn runs unsaved'), 'alert');
@@ -2490,8 +2599,14 @@
       if (!turnLifecycle.current(turn)) return;
       await persistPending();
     } catch (e) {
-      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') addToast((e as Error).message || 'Chat request failed', 'alert');
-    } finally { finishTurn(turn); }
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') {
+        turn.failed = true;
+        addToast((e as Error).message || 'Chat request failed', 'alert');
+      }
+    } finally {
+      finishTurn(turn);
+      continueWithQueue(turn);
+    }
   }
 
   /**
@@ -2554,6 +2669,7 @@
     turnSkillRuns = []; skillRunProgress = {}; turnArtifacts = [];
     streaming = true;
     abortController = turn.controller;
+    activeTurn = turn;
     return turn;
   }
 
@@ -2562,6 +2678,7 @@
     streaming = false;
     abortController = null;
     activeTool = null;
+    activeTurn = null;
     turnLifecycle.finish(turn);
   }
 
@@ -2776,6 +2893,8 @@
         }
         activeTool = null;
         scrollToBottom();
+        // Messages written while the tools ran join before the next model call.
+        await drainQueue(turn);
 
         return true;
       }
@@ -2792,6 +2911,7 @@
         skillRunProgress = Object.fromEntries(Object.entries(skillRunProgress).filter(([k]) => k !== waitKey));
         messages = [...messages, { role: 'user', content: `Background skill runs finished:\n\n${report}\n\nReply to me using these results.` }];
         meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
+        await drainQueue(turn);
         return true;
       }
 
@@ -2811,11 +2931,15 @@
         }
         turnArtifacts = [];
       }
+
+      // The model answered; anything queued meanwhile continues this turn.
+      if (await drainQueue(turn)) return true;
     } catch (e: any) {
       if (!turnLifecycle.current(turn)) throw e;
       if (controller.signal.aborted || e.name === 'AbortError') {
         // User cancelled — don't show error
       } else {
+        turn.failed = true;
         addToast(e.message || 'Chat request failed', 'alert');
         // Remove empty assistant message on error
         const lastIdx = messages.length - 1;
@@ -2886,14 +3010,37 @@
       if (!turnLifecycle.current(turn)) return;
       await persistPending();
     } catch (e) {
-      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') addToast((e as Error).message || 'Chat retry failed', 'alert');
-    } finally { finishTurn(turn); }
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') {
+        turn.failed = true;
+        addToast((e as Error).message || 'Chat retry failed', 'alert');
+      }
+    } finally {
+      finishTurn(turn);
+      continueWithQueue(turn);
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    // Ctrl/Cmd+Enter while the agent works: stop it and continue with the queue.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && streaming && !e.isComposing) {
+      e.preventDefault();
+      if (!e.repeat) interruptAndSend();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!e.repeat) void sendMessage();
+      return;
+    }
+    // Recall the newest queued message for editing, like a shell history.
+    if (e.key === 'ArrowUp' && !userInput && pendingImages.length === 0 && queuedMessages.length > 0) {
+      e.preventDefault();
+      editQueued(queuedMessages[queuedMessages.length - 1].id);
+      return;
+    }
+    if (e.key === 'Escape' && streaming && !e.isComposing) {
+      e.preventDefault();
+      stopStreaming();
     }
   }
 
@@ -4014,6 +4161,39 @@
       {/if}
     {/if}
 
+    <!-- Messages waiting for the running turn -->
+    {#if queuedMessages.length > 0}
+      <div class="mb-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base" aria-live="polite">
+        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 dark:border-dark-border text-xs text-gray-600 dark:text-dark-text-secondary">
+          <ListChecks size={13} class="shrink-0" />
+          <span class="font-medium">{queuedMessages.length} queued</span>
+          <span class="text-gray-400 dark:text-dark-text-muted">
+            {streaming ? '· sent to the agent at its next step' : '· waiting — the last turn stopped'}
+          </span>
+          {#if !streaming}
+            <button onclick={sendQueuedNow} disabled={!selectedModel || loadingTools} class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent">
+              <Send size={11} /> Send now
+            </button>
+          {:else}
+            <button onclick={interruptAndSend} class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent" title="Stop the current step and continue with the queued messages now (Ctrl+Enter)">
+              <SkipForward size={11} /> Interrupt &amp; send
+            </button>
+          {/if}
+          <button onclick={() => (queuedMessages = [])} class="px-2 py-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">Clear</button>
+        </div>
+        <ol class="max-h-40 overflow-y-auto divide-y divide-gray-200 dark:divide-dark-border">
+          {#each queuedMessages as item, i (item.id)}
+            <li class="flex items-center gap-2 px-3 py-1 text-xs">
+              <span class="shrink-0 w-4 text-gray-400 dark:text-dark-text-muted">{i + 1}.</span>
+              <span class="min-w-0 flex-1 truncate text-gray-700 dark:text-dark-text-secondary" title={item.text}>{queuedPreview(item)}</span>
+              <button onclick={() => editQueued(item.id)} class="shrink-0 px-1.5 py-0.5 text-gray-500 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" title="Move back to the composer">Edit</button>
+              <button onclick={() => removeQueued(item.id)} aria-label="Remove queued message" class="shrink-0 p-0.5 text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={12} /></button>
+            </li>
+          {/each}
+        </ol>
+      </div>
+    {/if}
+
     <div class="flex flex-wrap sm:flex-nowrap items-end gap-2">
       <!-- Hidden file input -->
       <input
@@ -4042,18 +4222,27 @@
         onkeydown={handleKeydown}
         onpaste={handlePaste}
         aria-label="Message"
-        placeholder={models.length === 0 ? 'No models available' : 'Write a message…'}
+        placeholder={models.length === 0 ? 'No models available' : streaming ? 'Queue a message for the agent…' : 'Write a message…'}
         disabled={models.length === 0}
         rows={1}
         class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-11 sm:min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-[9px] sm:py-2 text-base sm:text-sm leading-6 sm:leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
       ></textarea>
-      <VoiceInput contextKey={voiceContext} disabled={models.length === 0 || streaming} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
+      <VoiceInput contextKey={voiceContext} disabled={models.length === 0} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 
       {#if streaming}
         <button
+          onclick={sendMessage}
+          disabled={(!userInput.trim() && pendingImages.length === 0) || chatRecording || chatTranscribing}
+          class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-accent"
+          title="Queue (Enter) — delivered to the agent at its next step. Ctrl+Enter interrupts and sends now."
+          aria-label="Queue message"
+        >
+          <ListChecks size={18} />
+        </button>
+        <button
           onclick={stopStreaming}
           class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent"
-          title="Stop"
+          title="Stop (Esc) — queued messages are kept"
           aria-label="Stop response"
         >
           <Square size={18} />

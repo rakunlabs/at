@@ -70,6 +70,30 @@ and serializes appends, while `serial-queue.ts` also orders defaults writes.
 Regressions: `tests/chat-runtime.test.mjs`, `tests/chat-turn.test.mjs`,
 `tests/chat-persistence.test.mjs` and `tests/chat-stream.test.mjs`.
 
+Sending while a turn runs **queues** the message (`lib/helper/chat-queue.ts`)
+instead of refusing it. The running turn takes everything queued at its next
+step boundary: after tool results (before the next model call), after the
+background-skill wait, or once the model has answered, in which case the same
+turn continues with one more model call on the same trace. Queued messages
+become ordinary user messages, persisted before the call that reads them.
+Stop (button or Esc) and a failed turn leave the queue waiting; it is sent on
+**Send now** or together with the next message, never silently dropped.
+Navigation discards it with the rest of the buffer. Entries can be edited
+(moved back into the composer, also ↑ on an empty composer) or removed.
+
+**Interrupt & send** (queue header button, or Ctrl/Cmd+Enter while running)
+does not wait for the step boundary: it queues the composer text, aborts the
+running step and immediately starts a new turn (new trace) with the queue —
+OpenCode's "interrupt and continue". Partial assistant text is kept. Before
+that turn's first model call, `repairInterruptedTail` closes what the abort
+left open: every unanswered tool call of the last assistant step gets an
+explicit `INTERRUPTED_TOOL_RESULT` (providers reject unpaired calls, and the
+model is told the tool may or may not have taken effect), and an empty unsaved
+assistant placeholder is dropped. A tool result arriving after the abort is
+discarded. Abort cannot undo a side effect a tool already caused.
+Regressions: the queue cases in `tests/chat-runtime.test.mjs`,
+`tests/chat-queue.test.mjs`.
+
 `components/playground/MessageContent.svelte` owns text/Markdown/raw and media
 presentation, with the selected workspace passed explicitly for media URLs.
 It never runs tools, persists history or owns turn state. `chat-media-cache.ts`

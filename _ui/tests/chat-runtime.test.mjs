@@ -7,21 +7,24 @@ import { moduleURL } from './typescript-module.mjs';
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
 const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer'];
+const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast));
 assert.equal(functions.length, names.length);
 const writer = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'transcriptWriter')).getText(ast);
 const turnURL = await moduleURL(new URL('../src/lib/helper/chat-turn.ts', import.meta.url));
 const toolsURL = await moduleURL(new URL('../src/lib/helper/chat-tools.ts', import.meta.url));
 const persistenceURL = await moduleURL(new URL('../src/lib/helper/chat-persistence.ts', import.meta.url));
+const queueURL = await moduleURL(new URL('../src/lib/helper/chat-queue.ts', import.meta.url));
 const harness = `
 import { createChatTurnLifecycle, runChatIterations } from '${turnURL}';
 import { dispatchChatTool } from '${toolsURL}';
 import { createTranscriptWriter } from '${persistenceURL}';
+import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, unansweredToolCalls, userMessageContent } from '${queueURL}';
 export function fixture() {
   const turnLifecycle = createChatTurnLifecycle();
   let userInput = 'Hello', selectedModel = 'p/m', systemPrompt = 'Prompt', effectiveReasoningEffort = 'high';
-  let streaming = false, saving = false, disposed = false, abortController = null;
+  let streaming = false, saving = false, disposed = false, abortController = null, loadingTools = false;
+  let queuedMessages = [], activeTurn = null;
   let conversationId = '', scratchSessionId = '', routedId = '', conversation = null, savedSettings = null;
   let historyTruncated = false;
   let messages = [], meta = [], conversations = [], rawMessages = {}, pendingImages = [], pendingRefusals = [];
@@ -29,7 +32,7 @@ export function fixture() {
   let discoveredTools = [{ type: 'function', function: { name: 'test', parameters: {} } }], toolSourceMap = { test: { type: 'frontend' } };
   let activeTool = null, contextTokens = 0, completionTokens = 0, totalTokens = 0, confirmClear = false;
   let chatRecording = false, chatTranscribing = false, voiceContext = 0, todos = [], pendingQuestion = null;
-  let createImpl = async input => ({ id: 'created', ...input }), streamImpl, uploadImpl = async data => data;
+  let createImpl = async input => ({ id: 'created', ...input }), streamImpl, toolImpl, uploadImpl = async data => data;
   const creates = [], appends = [], streams = [], tools = [], toasts = [], routes = [];
   const MAX_TOOL_ITERATIONS = 20, PLAYGROUND_MESSAGE_BATCH_MAX = 200, INLINE_IMAGE_TYPES = [];
   const setupReady = () => true, scrollToBottom = () => {};
@@ -57,7 +60,7 @@ export function fixture() {
     callbacks.onDelta('Answer');
   };
   const assertStrict = value => { if (!value) throw new Error('tool execution must require a complete stream'); };
-  const executeFrontendTool = async (name, args) => { tools.push([name, args]); return 'Tool result'; };
+  const executeFrontendTool = async (name, args) => { tools.push([name, args]); return toolImpl ? await toolImpl(name, args) : 'Tool result'; };
   const executeSkillTool = async () => '', callMCPSetTool = async () => ({}), callBuiltinTool = async () => ({ result: '' });
   const executeLocalTool = async () => '', executeExtensionTool = async () => '', collectSkillRuns = async () => '';
   const isLocalModelRef = ref => ref.startsWith('local:');
@@ -70,13 +73,14 @@ export function fixture() {
   ${writer}
   ${functions.join('\n')}
   return {
-    sendMessage, persistPending,
-    setCreate(value) { createImpl = value; }, setStream(value) { streamImpl = value; }, setUpload(value) { uploadImpl = value; },
+    sendMessage, persistPending, sendQueuedNow, interruptAndSend,
+    stop() { abortController?.abort(); },
+    setCreate(value) { createImpl = value; }, setStream(value) { streamImpl = value; }, setTool(value) { toolImpl = value; }, setUpload(value) { uploadImpl = value; },
     type(text) { userInput = text; },
     select(model) { selectedModel = model; },
     truncateHistory() { historyTruncated = true; },
     navigate(id) { resetBuffer(); conversationId = id; messages = [{ role: 'user', content: 'Other chat' }]; meta = [{ sequence: 1, created_at: 'other', imageNames: [] }]; },
-    snapshot() { return { streaming, messages, meta, conversationId, creates, appends, streams, tools, toasts, routes }; },
+    snapshot() { return { streaming, messages, meta, conversationId, creates, appends, streams, tools, toasts, routes, queuedMessages, userInput }; },
   };
 }
 `;
@@ -88,7 +92,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-test('the actual send handler claims the turn before lazy conversation creation', async () => {
+test('a message sent during lazy creation is queued and joins the same turn', async () => {
   const chat = fixture(), create = deferred();
   chat.setCreate(async () => await create.promise);
   const first = chat.sendMessage();
@@ -97,16 +101,25 @@ test('the actual send handler claims the turn before lazy conversation creation'
   assert.equal(chat.snapshot().streaming, true);
   assert.equal(chat.snapshot().creates.length, 1);
   assert.equal(chat.snapshot().messages.length, 1);
+  assert.equal(chat.snapshot().queuedMessages.length, 1);
+  assert.equal(chat.snapshot().userInput, '');
   create.resolve({ id: 'saved' });
   await first;
-  assert.equal(chat.snapshot().streams.length, 1);
-  assert.equal(chat.snapshot().streaming, false);
-  assert.equal(chat.snapshot().streams[0].body.at_conversation_id, 'saved');
-  assert.deepEqual(chat.snapshot().streams[0].body.messages.at(-1), { at_message_id: 'stored-1-0' });
-  assert.ok(chat.snapshot().appends[0][1][0].client_id);
+  const s = chat.snapshot();
+  assert.equal(s.streaming, false);
+  assert.equal(s.queuedMessages.length, 0);
+  assert.equal(s.streams.length, 2);
+  assert.equal(s.streams[0].body.at_conversation_id, 'saved');
+  assert.deepEqual(s.streams[0].body.messages.at(-1), { at_message_id: 'stored-1-0' });
+  assert.ok(s.appends[0][1][0].client_id);
+  // The queued message follows the first answer, and the follow-up call sees it.
+  assert.deepEqual(s.messages.map(m => [m.role, m.content]), [['user', 'Hello'], ['assistant', 'Answer'], ['user', 'Second Enter'], ['assistant', 'Answer']]);
+  assert.equal(s.streams[1].body.messages.length, 4);
+  // One trace: the queued message continued the turn rather than starting another.
+  assert.equal(s.streams[0].headers['x-at-trace-id'], s.streams[1].headers['x-at-trace-id']);
 });
 
-test('the send lock also covers attachment persistence before the first generation', async () => {
+test('the send lock still covers attachment persistence before the first generation', async () => {
   const chat = fixture(), upload = deferred();
   chat.navigate('saved');
   chat.setUpload(async data => { await upload.promise; return data; });
@@ -115,9 +128,136 @@ test('the send lock also covers attachment persistence before the first generati
   chat.type('Second Enter');
   await chat.sendMessage();
   assert.equal(chat.snapshot().streams.length, 0);
+  assert.equal(chat.snapshot().queuedMessages.length, 1);
   upload.resolve();
   await first;
+  assert.equal(chat.snapshot().streams.length, 2);
+});
+
+test('queued messages are delivered after tool results, before the next model call', async () => {
+  const chat = fixture(), gate = deferred();
+  chat.setStream(async (callbacks, _signal, count) => {
+    if (count === 1) {
+      callbacks.onToolCalls([{ id: 'c1', type: 'function', function: { name: 'test', arguments: '{}' } }]);
+      await gate.promise;
+      return;
+    }
+    callbacks.onDelta('Done');
+  });
+  const send = chat.sendMessage();
+  await Promise.resolve();
+  chat.type('Also check X');
+  await chat.sendMessage();
+  gate.resolve();
+  await send;
+  const s = chat.snapshot();
+  assert.deepEqual(s.messages.map(m => m.role), ['user', 'assistant', 'tool', 'user', 'assistant']);
+  assert.equal(s.messages[3].content, 'Also check X');
+  assert.equal(s.streams.length, 2);
+});
+
+test('Stop keeps queued messages waiting until the user sends them', async () => {
+  const chat = fixture(), gate = deferred();
+  chat.setStream(async (_callbacks, signal) => {
+    await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+  });
+  const send = chat.sendMessage();
+  await Promise.resolve();
+  chat.type('Queued');
+  await chat.sendMessage();
+  chat.stop();
+  await send;
+  assert.equal(chat.snapshot().streaming, false);
+  assert.equal(chat.snapshot().queuedMessages.length, 1);
+  chat.setStream(async callbacks => { callbacks.onDelta('Later'); });
+  chat.sendQueuedNow();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(chat.snapshot().queuedMessages.length, 0);
+  assert.equal(chat.snapshot().messages.at(-2).content, 'Queued');
+  assert.equal(chat.snapshot().messages.at(-1).content, 'Later');
+  gate.resolve();
+});
+
+test('interrupt & send cuts a generation short and continues with the queue', async () => {
+  const chat = fixture();
+  chat.setStream(async (callbacks, signal, count) => {
+    if (count === 1) {
+      callbacks.onDelta('Partial');
+      await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+    }
+    callbacks.onDelta('Redirected');
+  });
+  const send = chat.sendMessage();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  chat.type('Change of plan');
+  chat.interruptAndSend();
+  await send;
+  for (let i = 0; i < 5 && chat.snapshot().streams.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const s = chat.snapshot();
+  assert.equal(s.queuedMessages.length, 0);
+  assert.equal(s.userInput, '');
+  assert.deepEqual(s.messages.map(m => [m.role, m.content]), [['user', 'Hello'], ['assistant', 'Partial'], ['user', 'Change of plan'], ['assistant', 'Redirected']]);
+  assert.equal(s.streams.length, 2);
+  assert.notEqual(s.streams[0].headers['x-at-trace-id'], s.streams[1].headers['x-at-trace-id']);
+});
+
+test('interrupting a tool call closes it with an explicit result before continuing', async () => {
+  const chat = fixture(), tool = deferred(), started = deferred();
+  chat.setTool(async () => { started.resolve(); await tool.promise; return 'late result'; });
+  chat.setStream(async (callbacks, _signal, count) => {
+    if (count === 1) {
+      callbacks.onToolCalls([{ id: 'c1', type: 'function', function: { name: 'test', arguments: '{}' } }]);
+      return;
+    }
+    callbacks.onDelta('After interrupt');
+  });
+  const send = chat.sendMessage();
+  await started.promise;
+  chat.type('Stop that');
+  chat.interruptAndSend();
+  tool.resolve();
+  await send;
+  for (let i = 0; i < 10 && chat.snapshot().streams.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const s = chat.snapshot();
+  assert.deepEqual(s.messages.map(m => m.role), ['user', 'assistant', 'tool', 'user', 'assistant']);
+  assert.equal(s.messages[2].tool_call_id, 'c1');
+  assert.match(s.messages[2].content, /Interrupted by the user/);
+  assert.equal(s.messages[3].content, 'Stop that');
+  assert.equal(s.messages[4].content, 'After interrupt');
+  // The late tool output never entered the transcript.
+  assert.ok(!s.messages.some(m => m.content === 'late result'));
+});
+
+test('interrupt with nothing queued does nothing, and Stop alone still waits', async () => {
+  const chat = fixture(), opened = deferred();
+  chat.setStream(async (_callbacks, signal) => {
+    opened.resolve();
+    await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+  });
+  const send = chat.sendMessage();
+  await opened.promise;
+  chat.type('');
+  chat.interruptAndSend();
+  assert.equal(chat.snapshot().streaming, true);
+  chat.stop();
+  await send;
   assert.equal(chat.snapshot().streams.length, 1);
+});
+
+test('navigation discards the queue of the abandoned chat', async () => {
+  const chat = fixture(), create = deferred();
+  chat.setCreate(async () => await create.promise);
+  const send = chat.sendMessage();
+  chat.type('Queued');
+  await chat.sendMessage();
+  chat.navigate('other');
+  create.resolve({ id: 'abandoned' });
+  await send;
+  assert.equal(chat.snapshot().queuedMessages.length, 0);
+  assert.equal(chat.snapshot().streams.length, 0);
 });
 
 test('late lazy creation cannot select or route back to the abandoned chat', async () => {
