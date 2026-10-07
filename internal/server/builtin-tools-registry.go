@@ -126,6 +126,7 @@ var builtinToolBindings = []builtinToolBinding{
 	{Name: "trigger_delete", Execute: (*Server).execTriggerDelete, Class: builtinHost},
 	{Name: "decide", Execute: (*Server).execDecide, Class: builtinNonHost},
 	{Name: "generate_image", Execute: (*Server).execGenerateImage, Class: builtinNonHost},
+	{Name: "telegram_notify", Execute: (*Server).execTelegramNotify, Class: builtinNonHost},
 	{Name: "current_time", Execute: (*Server).execCurrentTime, Class: builtinNonHost},
 	{Name: "whoami", Execute: (*Server).execWhoami, Class: builtinNonHost},
 	{Name: "set_user_preference", Execute: (*Server).execSetUserPreference, Class: builtinNonHost},

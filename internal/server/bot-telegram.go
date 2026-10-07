@@ -772,6 +772,9 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 	}
 
 	slog.Info("telegram bot started", "user", bot.Self.UserName)
+	if rb := s.getBotRunningInfo(botID); rb != nil {
+		rb.telegram.Store(bot)
+	}
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 30
@@ -783,6 +786,12 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 		defaultAgentID:  cfg.DefaultAgentID,
 		chatAgents:      cfg.ChatAgents,
 		allowedAgentIDs: cfg.AllowedAgentIDs,
+	}
+
+	if s.botConfigStore != nil {
+		if stored, err := s.botConfigStore.GetBotConfig(ctx, botID); err == nil && stored != nil {
+			s.startTelegramCommandSchedules(ctx, bot, tgCtx, stored.CustomCommands)
+		}
 	}
 
 	go func() {

@@ -17,6 +17,10 @@ export interface BotCustomCommand {
   brief?: string;           // task description template; "{args}" gets replaced with user args
   title_prefix?: string;    // optional prefix for the resulting task title
   max_iterations?: number;  // optional per-task override
+  schedule?: string;          // cron (Telegram only); runs as if schedule_chat_id typed the command
+  schedule_timezone?: string; // IANA timezone, default UTC
+  schedule_chat_id?: string;  // allowed user's Telegram ID
+  schedule_args?: string;     // text after the command
 }
 
 export interface BotConfig {

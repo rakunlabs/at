@@ -19,7 +19,7 @@ func TestBuiltinRegistryComplete(t *testing.T) {
 	if len(builtinToolRegistry.byName) != len(builtinToolSchemas) || !reflect.DeepEqual(builtinTools, builtinToolSchemas) {
 		t.Fatal("discovery schemas/order differ from the validated registry")
 	}
-	nonHost := []string{"file_read", "file_write", "file_list", "batch_execute", "todo_read", "todo_write", "current_time", "whoami", "get_user_preferences", "set_user_preference", "guide_list", "guide_get", "agent_run", "agent_run_status", "agent_run_cancel", "decide", "generate_image"}
+	nonHost := []string{"file_read", "file_write", "file_list", "batch_execute", "todo_read", "todo_write", "current_time", "whoami", "get_user_preferences", "set_user_preference", "guide_list", "guide_get", "agent_run", "agent_run_status", "agent_run_cancel", "decide", "generate_image", "telegram_notify"}
 	hostFiles := []string{"file_edit", "file_multiedit", "file_patch", "file_glob", "file_grep"}
 	workflowDefs := (&Server{}).builtinToolDefsForWorkflow()
 	for i, def := range builtinTools {

@@ -441,7 +441,14 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 
 	syncMode, _ := args["sync"].(bool)
 
-	engine := s.buildWorkflowEngine(ctx)
+	// Async runs outlive this tool call; build the engine on a context that
+	// keeps the identity but not the call's cancellation, or every lazy
+	// lookup (skills, providers, variables) fails with "context canceled".
+	engineCtx := ctx
+	if !syncMode {
+		engineCtx = context.WithoutCancel(ctx)
+	}
+	engine := s.buildWorkflowEngine(engineCtx)
 
 	// Find input nodes as entry points.
 	var entryNodeIDs []string
@@ -795,7 +802,10 @@ func (s *Server) chatMessageCreatorFunc() workflow.ChatMessageCreatorFunc {
 				Content: content,
 			},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		return s.deliverChatReplyToPlatform(ctx, sessionID, content)
 	}
 }
 

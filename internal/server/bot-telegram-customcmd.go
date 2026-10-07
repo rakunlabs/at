@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -146,7 +147,11 @@ func (s *Server) dispatchTelegramCustomCommand(
 	// agent receives the brief and delegates). Otherwise fall back to the
 	// configured agent, or the bot's current default agent.
 	chatID := msg.Chat.ID
+	var channelTask atomic.Value
 	onDone := func(ident, status, result string) {
+		if id, ok := channelTask.Load().(string); ok {
+			s.unregisterTelegramTaskChannel(id)
+		}
 		switch status {
 		case "done", "completed":
 			sendTelegramCompletedResult(bot, chatID, ident, result, "Task")
@@ -202,6 +207,13 @@ func (s *Server) dispatchTelegramCustomCommand(
 		"org", cmd.OrganizationID, "agent", cmd.AgentID)
 
 	s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, platformSessionID, &service.Task{ID: taskID, Identifier: identifier})
+	channelTask.Store(taskID)
+	s.registerTelegramTaskChannel(ctx, bot, chatID, taskID, identifier)
+	if s.taskStore != nil {
+		if t, err := s.taskStore.GetTask(ctx, taskID); err == nil && t != nil && isFinishedTaskStatus(t.Status) {
+			s.unregisterTelegramTaskChannel(taskID)
+		}
+	}
 
 	ack := fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nCommand: /%s\nTitle: %s\n\nI'll notify you when it's done.\n/status to check",
 		sanitizeUTF8(identifier),

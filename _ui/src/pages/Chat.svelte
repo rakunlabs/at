@@ -456,6 +456,11 @@
   let presets = $derived([...personalPresets, ...workspacePresets]);
   /** The preset last applied. Only *reported* while the setup still matches. */
   let appliedPresetId = $state('');
+  /**
+   * The reader's own unsaved setup, captured the moment a preset replaces it,
+   * so cycling or picking presets can always come back to it.
+   */
+  let customSetup = $state<WorkbenchSetup | null>(null);
   let presetDraftName = $state('');
   let presetSaveScope = $state<'personal' | 'workspace'>('personal');
   let presetSaving = $state(false);
@@ -1247,6 +1252,7 @@
     savedSettings = null;
     historyLoading = false;
     appliedPresetId = '';
+    customSetup = null;
     if (!id) {
       legacyMcpUrls = [];
       legacyMcpHeaders = {};
@@ -1645,6 +1651,9 @@
       return;
     }
 
+    // Leaving a setup that matches no saved preset: keep it so it can be restored.
+    if (!presets.some(presetMatchesCurrent)) customSetup = currentSetup();
+
     // A missing model is named rather than silently replacing the current one.
     if (preset.model && !models.includes(preset.model)) {
       addToast(`"${preset.name}" names the model ${preset.model}, which this workspace does not offer — kept ${selectedModel}.`, 'warn');
@@ -1665,6 +1674,18 @@
       presetSaveScope = preset.scope;
       presetDraftName = preset.name;
     }
+    void refreshTools();
+    scheduleSettingsSave();
+  }
+
+  /** Whether the current setup is the captured unsaved one. */
+  let onCustomSetup = $derived(!!customSetup && !activePresetId && workbenchSetupsEqual(customSetup, currentSetup()));
+
+  /** Returns to the unsaved setup the reader had before applying a preset. */
+  function restoreCustomSetup() {
+    if (!customSetup) return;
+    applySetup(customSetup);
+    appliedPresetId = '';
     void refreshTools();
     scheduleSettingsSave();
   }
@@ -1771,13 +1792,16 @@
   }
 
   // Content also grows without a delta (images loading, Markdown/diagrams
-  // rendering, tool cards); keep the end in view while following.
+  // rendering, tool cards); keep the end in view while following. The
+  // viewport shrinks too when the composer area grows (queue, notices,
+  // multi-line input), which changes no content size but hides the end.
   $effect(() => {
-    if (!chatContent) return;
+    if (!chatContent || !chatContainer) return;
     const observer = new ResizeObserver(() => {
       if (chatContainer && followLatest) chatContainer.scrollTop = chatContainer.scrollHeight;
     });
     observer.observe(chatContent);
+    observer.observe(chatContainer);
     return () => observer.disconnect();
   });
 
@@ -2808,7 +2832,9 @@
       repairInterruptedTail(turn.model);
       appendUserMessages(items, turn.model);
       confirmClear = false;
-      scrollToBottom();
+      // Sending is a request to see the answer: follow it even if the reader
+      // had scrolled up.
+      scrollToBottom(true);
 
       // Lazily promote the scratch buffer. A failure here is survivable: the
       // turn still runs, it just stays unsaved.
@@ -3296,8 +3322,8 @@
       if (!e.repeat) void sendMessage();
       return;
     }
-    // Tab on an empty composer cycles presets; otherwise it keeps moving focus.
-    if (e.key === 'Tab' && !e.shiftKey && !userInput && pendingImages.length === 0 && presets.length > 0) {
+    // Shift+Tab on an empty composer cycles presets; plain Tab keeps moving focus.
+    if (e.key === 'Tab' && e.shiftKey && !userInput && pendingImages.length === 0 && presets.length > 0) {
       e.preventDefault();
       cyclePreset();
       return;
@@ -3351,8 +3377,18 @@
 
   function cyclePreset() {
     if (presets.length === 0) return;
-    const index = presets.findIndex(p => p.id === activePresetId);
-    applyPreset(presets[(index + 1) % presets.length].id);
+    // An unsaved setup is a stop in the cycle, so cycling never loses it.
+    const stops: string[] = [...(customSetup ? [''] : []), ...presets.map(p => p.id)];
+    let index = activePresetId ? stops.indexOf(activePresetId) : onCustomSetup ? 0 : -1;
+    if (index < 0 && !presets.some(presetMatchesCurrent)) {
+      // A setup changed since the last capture: it becomes the unsaved stop.
+      customSetup = currentSetup();
+      if (stops[0] !== '') stops.unshift('');
+      index = 0;
+    }
+    const next = stops[(index + 1) % stops.length];
+    if (next) applyPreset(next);
+    else restoreCustomSetup();
   }
 
   function openWorkbench(tab: WorkbenchTab = 'prompt') {
@@ -3372,6 +3408,7 @@
     if (palette === 'presets') {
       const toItem = (p: ChatPreset) => ({ label: p.name, current: p.id === activePresetId, run: () => applyPreset(p.id) });
       return [
+        ...(customSetup ? [{ label: 'Current', items: [{ label: 'My unsaved setup', current: onCustomSetup, run: restoreCustomSetup }] }] : []),
         { label: 'My presets', items: personalPresets.map(toItem) },
         { label: 'Workspace presets', items: workspacePresets.map(toItem) },
         { label: 'Manage', items: [{ label: 'Save or edit presets…', run: () => openWorkbench('prompt') }] },
@@ -3406,7 +3443,7 @@
         items: [
           { label: 'Switch model', hint: 'ctrl+m', disabled: models.length === 0, run: () => (palette = 'models') },
           { label: 'Reasoning effort', hint: 'ctrl+t', disabled: reasoningEffortOptions.length === 0, run: () => (palette = 'effort') },
-          { label: 'Apply preset', hint: 'tab', disabled: presets.length === 0, run: () => (palette = 'presets') },
+          { label: 'Apply preset', hint: 'shift+tab', disabled: presets.length === 0, run: () => (palette = 'presets') },
         ],
       },
       {
@@ -4440,7 +4477,7 @@
       <div class="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-[2ch] gap-y-1">
         <button
           onclick={() => (presets.length > 0 ? (palette = 'presets') : openWorkbench('prompt'))}
-          title={presets.length > 0 ? 'Preset (tab on an empty composer cycles)' : 'Save the current setup as a preset in the workbench'}
+          title={presets.length > 0 ? 'Preset (shift+tab on an empty composer cycles)' : 'Save the current setup as a preset in the workbench'}
           class={['shrink-0 hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent', streaming ? 'text-[var(--oc-peach)]' : 'text-accent']}
         >{activePresetName || 'Chat'}</button>
         <button
@@ -4517,7 +4554,7 @@
       </div>
       <div class="flex gap-[2ch]">
         {#if reasoningEffortOptions.length > 0}<span class="hidden lg:inline"><kbd class="text-dark-text">ctrl+t</kbd> effort</span>{/if}
-        {#if presets.length > 0}<span class="hidden lg:inline"><kbd class="text-dark-text">tab</kbd> presets</span>{/if}
+        {#if presets.length > 0}<span class="hidden lg:inline"><kbd class="text-dark-text">shift+tab</kbd> presets</span>{/if}
         <span><kbd class="text-dark-text">ctrl+m</kbd> model</span>
         <span><kbd class="text-dark-text">ctrl+p</kbd> commands</span>
       </div>

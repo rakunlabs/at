@@ -251,6 +251,10 @@
             brief: (c.brief || '').trim() || undefined,
             title_prefix: (c.title_prefix || '').trim() || undefined,
             max_iterations: c.max_iterations && c.max_iterations > 0 ? c.max_iterations : undefined,
+            schedule: (c.schedule || '').trim() || undefined,
+            schedule_timezone: (c.schedule || '').trim() ? (c.schedule_timezone || '').trim() || undefined : undefined,
+            schedule_chat_id: (c.schedule || '').trim() ? (c.schedule_chat_id || '').trim() || undefined : undefined,
+            schedule_args: (c.schedule || '').trim() ? (c.schedule_args || '').trim() || undefined : undefined,
           }))
           .filter((c) => c.command.length > 0),
       };
@@ -964,6 +968,52 @@
                           />
                         </label>
                       </div>
+                      {#if formPlatform === 'telegram'}
+                        <div class="grid grid-cols-2 gap-2">
+                          <label class="block">
+                            <span class="text-[11px] text-dark-text-muted block mb-0.5">Schedule (cron, optional)</span>
+                            <input
+                              type="text"
+                              bind:value={cmd.schedule}
+                              placeholder="0 7 * * *"
+                              class="w-full border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-dark-border-subtle text-dark-text placeholder:text-dark-text-muted"
+                            />
+                          </label>
+                          <label class="block">
+                            <span class="text-[11px] text-dark-text-muted block mb-0.5">Timezone</span>
+                            <input
+                              type="text"
+                              bind:value={cmd.schedule_timezone}
+                              disabled={!cmd.schedule}
+                              placeholder="Europe/Amsterdam"
+                              class="w-full border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-dark-border-subtle text-dark-text placeholder:text-dark-text-muted disabled:opacity-50"
+                            />
+                          </label>
+                          <label class="block">
+                            <span class="text-[11px] text-dark-text-muted block mb-0.5">Run as chat (allowed user ID)</span>
+                            <input
+                              type="text"
+                              bind:value={cmd.schedule_chat_id}
+                              disabled={!cmd.schedule}
+                              placeholder="123456789"
+                              class="w-full border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-dark-border-subtle text-dark-text placeholder:text-dark-text-muted disabled:opacity-50"
+                            />
+                          </label>
+                          <label class="block">
+                            <span class="text-[11px] text-dark-text-muted block mb-0.5">Arguments</span>
+                            <input
+                              type="text"
+                              bind:value={cmd.schedule_args}
+                              disabled={!cmd.schedule}
+                              placeholder="text after the command"
+                              class="w-full border border-dark-border-subtle bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-dark-border-subtle text-dark-text placeholder:text-dark-text-muted disabled:opacity-50"
+                            />
+                          </label>
+                        </div>
+                        <p class="text-[11px] text-dark-text-muted">
+                          The scheduled run behaves as if that chat typed the command: it receives the start message, progress notifications and the result.
+                        </p>
+                      {/if}
                     </div>
                   {/each}
                   <button

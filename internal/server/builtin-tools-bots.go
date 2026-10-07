@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -236,6 +237,12 @@ func (s *Server) execBotUpdate(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("bot config %q not found after update", id)
 	}
 	redactBotToken(record)
+	if s.isBotRunning(id) && !sameCommandSchedules(existing.CustomCommands, record.CustomCommands) {
+		// Schedules are loaded when the adapter starts; restart to apply.
+		if err := s.startBotFromConfig(s.ctx, record); err != nil {
+			slog.Warn("bot_update: restart for schedule change failed", "bot_id", id, "error", err)
+		}
+	}
 
 	out, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {

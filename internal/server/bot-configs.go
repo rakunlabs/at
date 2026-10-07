@@ -39,7 +39,7 @@ func validateBotVideoCommands(cfg service.BotConfig) error {
 			return fmt.Errorf("video command requires a valid organization_id")
 		}
 	}
-	return nil
+	return validateBotCommandSchedules(cfg)
 }
 
 // ListBotConfigsAPI handles GET /api/v1/bots.
@@ -206,8 +206,8 @@ func (s *Server) UpdateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	} else if !record.Enabled && wasRunning {
 		// Enabled was turned off — stop the bot.
 		s.stopBot(id)
-	} else if wasRunning && previous != nil && (previous.Token != record.Token || previous.Platform != record.Platform) {
-		// Token or platform changed while running — restart.
+	} else if wasRunning && previous != nil && (previous.Token != record.Token || previous.Platform != record.Platform || !sameCommandSchedules(previous.CustomCommands, record.CustomCommands)) {
+		// Token, platform or command schedules changed while running — restart.
 		s.stopBot(id)
 		if record.Enabled && record.Token != "" {
 			s.startBotFromConfig(s.ctx, record)

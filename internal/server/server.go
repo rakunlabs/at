@@ -340,6 +340,9 @@ type Server struct {
 	// map key: bot config ID (string), value: *runningBot
 	runningBots sync.Map
 
+	// telegramTaskChannels maps a Telegram-started root task ID to the chat
+	// that receives its telegram_notify progress messages.
+	telegramTaskChannels sync.Map
 	// stdioManager manages stdio-based MCP subprocess lifecycles.
 	stdioManager *service.StdioProcessManager
 

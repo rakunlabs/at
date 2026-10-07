@@ -455,6 +455,8 @@ func builtinToolFeatureKey(name string) string {
 		return service.FeatureTasks
 	case "lsp_query":
 		return service.FeatureFiles
+	case "telegram_notify":
+		return service.FeatureBots
 	}
 
 	// Longest prefix first: mcp_server_/mcp_set_ must be tested before any

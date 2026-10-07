@@ -7,7 +7,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -179,6 +182,9 @@ type runningBot struct {
 	platform  string
 	startedAt string
 	runID     string
+	// telegram is the live API client, set once the adapter connects; used
+	// to deliver workflow chat_reply messages to the session's chat.
+	telegram atomic.Pointer[tgbotapi.BotAPI]
 }
 
 // stopBot stops a running bot by cancelling its context.

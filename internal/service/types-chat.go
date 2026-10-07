@@ -149,6 +149,15 @@ type BotCustomCommand struct {
 	Brief           string `json:"brief,omitempty"`             // task description template ({args} replaced)
 	TitlePrefix     string `json:"title_prefix,omitempty"`      // optional title prefix (e.g. "[ASMR]")
 	MaxIterations   int    `json:"max_iterations,omitempty"`    // optional per-task override
+	// Schedule runs the command automatically (Telegram only) as if
+	// ScheduleChatID had typed "/<command> <ScheduleArgs>". Standard 5-field
+	// cron; ScheduleTimezone is an IANA name (default UTC). The chat must be
+	// a private chat of an allowed user, so a schedule cannot push work or
+	// notifications to anyone the bot does not already admit.
+	Schedule         string `json:"schedule,omitempty"`
+	ScheduleTimezone string `json:"schedule_timezone,omitempty"`
+	ScheduleChatID   string `json:"schedule_chat_id,omitempty"`
+	ScheduleArgs     string `json:"schedule_args,omitempty"`
 }
 
 // BotConfig represents a Discord or Telegram bot configuration stored in the database.
