@@ -81,6 +81,8 @@ func (m *memoryMediaStore) GetGatewayMediaObjectByKey(_ context.Context, id, key
 type fileWritingProvider struct {
 	files         map[string][]byte
 	largeFileSize int64
+	// answer, when set, is formatted with the run directory (%[1]s).
+	answer string
 }
 
 func (p *fileWritingProvider) Chat(ctx context.Context, _ string, _ []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
@@ -112,6 +114,9 @@ func (p *fileWritingProvider) Chat(ctx context.Context, _ string, _ []service.Me
 		if err != nil {
 			return nil, err
 		}
+	}
+	if p.answer != "" {
+		return &service.LLMResponse{Content: fmt.Sprintf(p.answer, dir), Finished: true}, nil
 	}
 	return &service.LLMResponse{Content: "Here is your drawing.", Finished: true}, nil
 }
@@ -262,5 +267,30 @@ func TestChatSkillRunReportsUndeliverableFiles(t *testing.T) {
 	note, _ := payload["artifacts_note"].(string)
 	if len(artifacts) != 0 || !strings.Contains(note, "storage is disabled") || !strings.Contains(note, "tree.png") {
 		t.Fatalf("missing storage was not explained: %+v", payload)
+	}
+}
+
+func TestChatSkillRunRewritesServerPathsInAnswer(t *testing.T) {
+	provider := &fileWritingProvider{
+		files:  map[string][]byte{"out/tree.png": pngBytes, "notes.csv": []byte("a,b\n")},
+		answer: "Done: ![tree](%[1]s/out/tree.png) and the data is in %[1]s/notes.csv.",
+	}
+	s, _ := artifactServer(t, provider, true)
+
+	resp := postSkillRun(t, s, `{"skill":"draw","task":"draw a tree"}`)
+	if resp.Error != "" {
+		t.Fatalf("run failed: %s", resp.Error)
+	}
+	payload, artifacts := decodeArtifactResult(t, resp)
+	ids := map[string]string{}
+	for _, a := range artifacts {
+		ids[a.Name] = a.MediaID
+	}
+	want := "Done: ![tree](media:" + ids["tree.png"] + ") and the data is in notes.csv."
+	if payload["result"] != want {
+		t.Fatalf("result = %q, want %q", payload["result"], want)
+	}
+	if note, _ := payload["note"].(string); !strings.Contains(note, "markdown") {
+		t.Fatalf("note does not explain placement: %+v", payload)
 	}
 }

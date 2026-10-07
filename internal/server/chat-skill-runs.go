@@ -135,8 +135,14 @@ func withArtifacts(result string, collected chatArtifactCollection) string {
 	if strings.TrimSpace(result) != "" && json.Unmarshal([]byte(result), &payload) != nil {
 		payload = map[string]any{"result": result}
 	}
+	if text, ok := payload["result"].(string); ok {
+		payload["result"] = collected.rewriteText(text)
+	}
 	if len(collected.Artifacts) > 0 {
 		payload["artifacts"] = collected.Artifacts
+		if _, set := payload["note"]; !set && collected.Artifacts[0].Markdown != "" {
+			payload["note"] = artifactMarkdownNote
+		}
 	}
 	if collected.Note != "" {
 		payload["artifacts_note"] = collected.Note
@@ -147,6 +153,9 @@ func withArtifacts(result string, collected chatArtifactCollection) string {
 	}
 	return string(data)
 }
+
+// artifactMarkdownNote tells the Chats model how to show delivered files.
+const artifactMarkdownNote = "The files listed in artifacts were delivered to the user. To show one in your answer, copy its \"markdown\" exactly where it belongs; never write a server path or invent a URL. Files you do not place are attached after your answer."
 
 type backgroundArtifactsContextKey struct{}
 

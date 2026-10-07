@@ -483,6 +483,7 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 			} else {
 				run.Result = payload
 			}
+			run.Result = collected.rewriteText(run.Result)
 		}
 		run.CompletedAt = time.Now().UTC()
 		run.mu.Unlock()
@@ -563,6 +564,9 @@ func marshalBackgroundSubagent(run *backgroundSubagentRun) (string, error) {
 	}
 	if len(run.Artifacts) > 0 {
 		payload["artifacts"] = run.Artifacts
+		if run.Artifacts[0].Markdown != "" {
+			payload["note"] = artifactMarkdownNote
+		}
 	}
 	if run.ArtifactsNote != "" {
 		payload["artifacts_note"] = run.ArtifactsNote

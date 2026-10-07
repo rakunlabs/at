@@ -66,6 +66,9 @@ type chatArtifact struct {
 	// the download_url returned to the producing call.
 	downloadKey     string
 	downloadExpires time.Time
+	// relPath is the file's path inside the run directory, used to rewrite
+	// server paths the run mentioned in its answer.
+	relPath string
 }
 
 // chatArtifactCollection is the outcome of one sweep. Note explains files that
@@ -73,6 +76,41 @@ type chatArtifact struct {
 type chatArtifactCollection struct {
 	Artifacts []chatArtifact `json:"artifacts,omitempty"`
 	Note      string         `json:"artifacts_note,omitempty"`
+
+	// dir is the run directory the artifacts were collected from.
+	dir string
+}
+
+// rewriteText replaces server paths of delivered files in a run's answer.
+// The run only knows where it wrote a file; the user cannot open that path,
+// and a model repeating it shows a broken location. A Markdown target becomes
+// the file's `media:` reference (when the caller renders those), any other
+// mention becomes the file name.
+func (c chatArtifactCollection) rewriteText(text string) string {
+	if c.dir == "" || text == "" || len(c.Artifacts) == 0 {
+		return text
+	}
+	rel := path.Join(chatArtifactDirName, filepath.Base(c.dir))
+	absDir := filepath.ToSlash(c.dir)
+	// Longest prefixes first: the relative directory is a suffix of the
+	// absolute one, so replacing it first would leave a mangled absolute path.
+	for _, prefix := range []string{"file://" + absDir, absDir, rel} {
+		for _, a := range c.Artifacts {
+			if a.relPath == "" {
+				continue
+			}
+			full := prefix + "/" + a.relPath
+			if !strings.Contains(text, full) {
+				continue
+			}
+			if a.Markdown != "" {
+				target := regexp.MustCompile(`\]\(\s*<?` + regexp.QuoteMeta(full) + `>?\s*\)`)
+				text = target.ReplaceAllString(text, "](media:"+a.MediaID+")")
+			}
+			text = strings.ReplaceAll(text, full, a.Name)
+		}
+	}
+	return text
 }
 
 // mediaInlineContentTypes may render in the browser. Everything else is served
@@ -131,7 +169,7 @@ func chatRunWorkDir(ctx context.Context) (string, string, error) {
 func withChatRunWorkDir(ctx context.Context, task, dir, rel string) (context.Context, string) {
 	ctx = workflow.ContextWithWorkDir(ctx, dir)
 	ctx = contextWithChatInlineImageSink(ctx, newChatInlineImageSink(dir))
-	task += fmt.Sprintf("\n\nSave every file you produce for the user (images, PDFs, documents, audio, …) in this directory: %s (relative to the workspace root: %s). Files saved there are delivered to the user automatically; mention them by file name in your answer.", dir, rel)
+	task += fmt.Sprintf("\n\nSave every file you produce for the user (images, PDFs, documents, audio, …) in this directory: %s (relative to the workspace root: %s). Files saved there are delivered to the user automatically when you finish. In your answer refer to them by file name only: this directory is on the server and the user cannot open it, so never show its path or a file path inside it.", dir, rel)
 	return ctx, task
 }
 
@@ -254,6 +292,7 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 	}
 
 	delivered, note := s.storeChatArtifacts(ctx, root, files)
+	out.dir = dir
 	out.Artifacts = delivered
 	out.Note = note
 	if len(delivered) == len(files) {
@@ -362,7 +401,7 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 			failed = append(failed, f.name)
 			continue
 		}
-		artifact := chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey, downloadExpires: downloadExpires}
+		artifact := chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey, downloadExpires: downloadExpires, relPath: f.name}
 		if chatMediaRefsFromContext(ctx) {
 			_, image := mediaAllowedContentTypes[contentType]
 			artifact.Markdown = service.MediaRefMarkdown(created.ID, artifact.Name, image)

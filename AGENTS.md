@@ -2693,7 +2693,12 @@ text only: every non-text part is printed as a one-line descriptor
 of being rendered. The stored part keeps the media in history, shares and
 copies; share/import rewrite `media:` references in text along with
 `media_id` (`service.ReplaceMediaRefs`). Shares resolve only media in their
-snapshot, otherwise the label is kept. Before this, the tool description told
+snapshot, otherwise the label is kept. Skill runs write into a server
+directory (`<execution root>/chat-runs/<ulid>`); the run is told to name files
+only, and `chatArtifactCollection.rewriteText` rewrites any delivered file's
+server path left in its answer (foreground result and background status) — a
+Markdown target becomes its `media:` reference, a bare mention its file name.
+Background summaries in the browser list each file's `markdown`. Before this, the tool description told
 every model to "put its markdown in your answer" while Chats results carried
 no URL, so models invented broken image links. Regressions:
 `internal/service/media-ref_test.go`, `TestChatSkillRunDeliversProducedFiles`,

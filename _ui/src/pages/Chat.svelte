@@ -2254,7 +2254,9 @@
       if (status.artifacts?.length) turnArtifacts = [...turnArtifacts, ...status.artifacts];
     }
     return results.map(r => {
-      const files = r.artifacts?.length ? `\nDelivered files: ${r.artifacts.map(a => a.name).join(', ')}` : '';
+      const files = r.artifacts?.length
+        ? `\nDelivered files (to show one, copy its markdown into your answer; never write a server path):\n${r.artifacts.map(a => `- ${a.name}${a.markdown ? `: ${a.markdown}` : ''}`).join('\n')}`
+        : '';
       const note = r.artifacts_note ? `\n${r.artifacts_note}` : '';
       return `## ${r.agent_name} (${r.run_id}) — ${r.status}\n${r.error ? `Error: ${r.error}` : r.result || '(no result)'}${files}${note}`;
     }).join('\n\n');

@@ -111,6 +111,8 @@ export interface SkillRunArtifact {
   name: string;
   content_type: string;
   size_bytes: number;
+  /** `media:` Markdown the model copies into its answer to place the file. */
+  markdown?: string;
 }
 
 export interface SkillRunStatus {
