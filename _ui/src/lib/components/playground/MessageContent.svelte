@@ -46,12 +46,30 @@
     e.preventDefault();
     zoomed = { src: target.currentSrc || target.src, alt: target.alt };
   }
+
+  // While an answer streams, its Markdown is re-rendered on every delta and
+  // each <img> is recreated, so a request can be cut off and leave a broken
+  // image that only a later re-render (e.g. Raw and back) repairs. Retry a
+  // failed Markdown image once on its own. `error` does not bubble, hence the
+  // capturing listener.
+  function retryMarkdownImage(node: HTMLElement) {
+    const onError = (e: Event) => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement) || img.dataset.retried) return;
+      img.dataset.retried = '1';
+      const src = img.getAttribute('src');
+      if (!src) return;
+      setTimeout(() => { if (img.isConnected) { img.removeAttribute('src'); img.setAttribute('src', src); } }, 1000);
+    };
+    node.addEventListener('error', onError, true);
+    return { destroy: () => node.removeEventListener('error', onError, true) };
+  }
 </script>
 
 {#snippet markdown(source: string)}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="contents [&_.markdown-body_img]:cursor-zoom-in" onclick={zoomMarkdownImage}><Markdown source={resolve(source)} /></div>
+  <div class="contents [&_.markdown-body_img]:cursor-zoom-in" onclick={zoomMarkdownImage} use:retryMarkdownImage><Markdown source={resolve(source)} /></div>
 {/snippet}
 
 {#snippet omitted(part: ContentPart)}
