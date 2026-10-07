@@ -105,7 +105,8 @@ type ChatOptions struct {
 
 	// WebSearchOptions enables web search for models that support it.
 	// For OpenAI: forwarded as web_search_options in the request body.
-	// Currently supported by gpt-4o-search-preview, gpt-4o-mini-search-preview.
+	// Currently supported by gpt-5-search-api (the gpt-4o search-preview
+	// models were shut down on 2026-07-23).
 	WebSearchOptions map[string]any
 
 	// ToolChoice controls which (if any) tool the model must call.
