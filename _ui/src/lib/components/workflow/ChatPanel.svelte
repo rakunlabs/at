@@ -524,15 +524,17 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
         case 'add_edge': {
           const { source, source_handle, target, target_handle } = args;
           const edgeId = `${source}-${source_handle}-${target}-${target_handle}`;
-          const added = flow.addEdge({
+          const canvasTarget = canvasInputHandle(flow.getNode(target)?.type ?? '', target_handle);
+          const validation = flow.getConnectionValidation(source, source_handle, target, canvasTarget);
+          const added = validation.valid && flow.addEdge({
             id: edgeId,
             source,
             source_handle,
             target,
-            target_handle: canvasInputHandle(flow.getNode(target)?.type ?? '', target_handle),
+            target_handle: canvasTarget,
           });
           if (!added) {
-            return JSON.stringify({ error: `Failed to add edge. Verify that source node "${source}" has output handle "${source_handle}" and target node "${target}" has input handle "${target_handle}". Check handle IDs match exactly.` });
+            return JSON.stringify({ error: `Failed to add edge: ${validation.reason || 'rejected'}. Verify that source node "${source}" has output handle "${source_handle}" and target node "${target}" has input handle "${target_handle}" (handle IDs must match exactly; the target port must accept the source port type, and edges may not form a loop).` });
           }
           return JSON.stringify({ success: true, id: edgeId });
         }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
   import { createPageLoader } from '@/lib/helper/page-load.svelte';
   const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
@@ -12,6 +13,8 @@
     type Trigger,
   } from '@/lib/api/triggers';
   import { listWorkflows, getWorkflow, type Workflow, type WorkflowNode } from '@/lib/api/workflows';
+  import { listOrganizations, type Organization } from '@/lib/api/organizations';
+  import { listBotConfigs, type BotConfig } from '@/lib/api/bots';
   import {
     Clock,
     Plus,
@@ -34,6 +37,8 @@
 
   // Reference data
   let workflows = $state<Workflow[]>([]);
+  let organizations = $state<Organization[]>([]);
+  let bots = $state<BotConfig[]>([]);
 
   // Form
   let showForm = $state(false);
@@ -49,6 +54,15 @@
   let formTimezone = $state('');
   let formEnabled = $state(true);
   let formPayload = $state('{}');
+  // Organization target: one task per tick for the head agent.
+  let formTaskTitle = $state('');
+  let formTaskDescription = $state('');
+  let formMaxIterations = $state(0);
+  let formNotifyBotId = $state('');
+  let formNotifyChatId = $state('');
+  const taskConfigKeys = ['task_title', 'task_description', 'max_iterations', 'notify_bot_id', 'notify_chat_id'];
+  let telegramBots = $derived(bots.filter((b) => b.platform === 'telegram'));
+  let notifyUsers = $derived(telegramBots.find((b) => b.id === formNotifyBotId)?.allowed_users || []);
 
   // Entry node selection
   let inputNodes = $state<WorkflowNode[]>([]);
@@ -75,6 +89,8 @@
       await Promise.all([
         pageLoad.load('Schedules', () => listAllTriggers({ type: 'cron' }), result => { triggers = result || []; }, 'workflow_builder'),
         pageLoad.load('Workflows', () => listWorkflows({ _limit: 1000 }), result => { workflows = result.data || []; }, 'workflow_builder'),
+        pageLoad.load('Organizations', () => listOrganizations({ _limit: 1000 }), result => { organizations = result.data || []; }, 'organizations'),
+        pageLoad.load('Bots', () => listBotConfigs({ _limit: 1000 }), result => { bots = result.data || []; }, 'bots'),
       ]);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load cron jobs', 'alert');
@@ -90,6 +106,10 @@
   function getTargetName(t: Trigger): string {
     if (t.target_type === 'workflow') {
       return workflows.find(w => w.id === t.target_id)?.name || t.target_id;
+    }
+    if (t.target_type === 'organization') {
+      const org = organizations.find(o => o.id === t.target_id)?.name || t.target_id;
+      return `${org} → task: ${(t.config?.task_title as string) || ''}`;
     }
     return t.target_id;
   }
@@ -117,6 +137,11 @@
     formTimezone = '';
     formEnabled = true;
     formPayload = '{}';
+    formTaskTitle = '';
+    formTaskDescription = '';
+    formMaxIterations = 0;
+    formNotifyBotId = '';
+    formNotifyChatId = '';
     editingId = null;
     showForm = false;
     inputNodes = [];
@@ -139,6 +164,14 @@
     const payload = { ...t.config };
     delete payload.schedule;
     delete payload.timezone;
+    if (formTargetType === 'organization') {
+      formTaskTitle = (t.config?.task_title as string) || '';
+      formTaskDescription = (t.config?.task_description as string) || '';
+      formMaxIterations = Number(t.config?.max_iterations) || 0;
+      formNotifyBotId = (t.config?.notify_bot_id as string) || '';
+      formNotifyChatId = String(t.config?.notify_chat_id ?? '');
+      for (const k of taskConfigKeys) delete payload[k];
+    }
     formPayload = Object.keys(payload).length > 0 ? JSON.stringify(payload, null, 2) : '{}';
     showForm = true;
     if (formTargetType === 'workflow' && formTargetId) {
@@ -180,12 +213,24 @@
       return;
     }
 
-    let extraPayload: Record<string, any> = {};
-    try {
-      extraPayload = JSON.parse(formPayload);
-    } catch {
-      addToast('Payload must be valid JSON', 'warn');
+    const isOrg = formTargetType === 'organization';
+    if (isOrg && !formTaskTitle.trim()) {
+      addToast('Task title is required', 'warn');
       return;
+    }
+    if (isOrg && !!formNotifyBotId !== !!formNotifyChatId) {
+      addToast('Choose both a Telegram bot and a chat, or neither', 'warn');
+      return;
+    }
+
+    let extraPayload: Record<string, any> = {};
+    if (!isOrg) {
+      try {
+        extraPayload = JSON.parse(formPayload);
+      } catch {
+        addToast('Payload must be valid JSON', 'warn');
+        return;
+      }
     }
 
     saving = true;
@@ -197,12 +242,21 @@
       if (formTimezone.trim()) {
         config.timezone = formTimezone.trim();
       }
+      if (isOrg) {
+        config.task_title = formTaskTitle.trim();
+        if (formTaskDescription.trim()) config.task_description = formTaskDescription.trim();
+        if (formMaxIterations > 0) config.max_iterations = formMaxIterations;
+        if (formNotifyBotId) {
+          config.notify_bot_id = formNotifyBotId;
+          config.notify_chat_id = formNotifyChatId;
+        }
+      }
 
       const payload: Partial<Trigger> = {
         type: 'cron',
         target_type: formTargetType,
         target_id: formTargetId,
-        entry_node_id: formEntryNodeId || undefined,
+        entry_node_id: isOrg ? undefined : formEntryNodeId || undefined,
         enabled: formEnabled,
         config,
       };
@@ -299,6 +353,7 @@
             class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="workflow">Workflow</option>
+            <option value="organization">Organization task</option>
           </select>
         </div>
 
@@ -312,11 +367,83 @@
             class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
           >
             <option value="">Select target...</option>
-            {#each workflows as w}
-              <option value={w.id}>{w.name}</option>
-            {/each}
+            {#if formTargetType === 'organization'}
+              {#each organizations as o}
+                <option value={o.id}>{o.name}</option>
+              {/each}
+            {:else}
+              {#each workflows as w}
+                <option value={w.id}>{w.name}</option>
+              {/each}
+            {/if}
           </select>
         </div>
+
+        {#if formTargetType === 'organization'}
+          <p class="text-xs text-dark-text-muted">
+            Each run opens one task for the organization's head agent, like a Telegram /new. The run date is added to the title.
+          </p>
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-task-title" class="text-sm font-medium text-dark-text-secondary">Task title</label>
+            <input
+              id="form-task-title"
+              type="text"
+              bind:value={formTaskTitle}
+              placeholder="Daily YouTube Short"
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
+            />
+          </div>
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <label for="form-task-desc" class="text-sm font-medium text-dark-text-secondary pt-1.5">Task brief</label>
+            <textarea
+              id="form-task-desc"
+              bind:value={formTaskDescription}
+              rows={8}
+              placeholder="What the head agent should do on every run"
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text placeholder:text-dark-text-muted resize-y"
+            ></textarea>
+          </div>
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-task-iter" class="text-sm font-medium text-dark-text-secondary">Max iterations</label>
+            <input
+              id="form-task-iter"
+              type="number"
+              min="0"
+              bind:value={formMaxIterations}
+              class="col-span-3 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono bg-dark-elevated text-dark-text"
+            />
+          </div>
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-notify-bot" class="text-sm font-medium text-dark-text-secondary">Notify on Telegram</label>
+            <div class="col-span-3 grid grid-cols-2 gap-2">
+              <select
+                id="form-notify-bot"
+                bind:value={formNotifyBotId}
+                onchange={() => (formNotifyChatId = '')}
+                class="border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text"
+              >
+                <option value="">No notifications</option>
+                {#each telegramBots as b}
+                  <option value={b.id}>{b.name || b.id}</option>
+                {/each}
+              </select>
+              <select
+                bind:value={formNotifyChatId}
+                disabled={!formNotifyBotId}
+                aria-label="Telegram chat"
+                class="border border-dark-border-subtle px-3 py-1.5 text-sm bg-dark-elevated text-dark-text disabled:opacity-50"
+              >
+                <option value="">Select allowed user...</option>
+                {#each notifyUsers as u}
+                  <option value={u}>{u}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+          <p class="text-xs text-dark-text-muted">
+            That chat receives the start message, progress notifications and the result. /status, /result and /resume work there as for a /new task.
+          </p>
+        {/if}
 
         <!-- Entry Node (only for workflow) -->
         {#if formTargetType === 'workflow' && inputNodes.length > 1}
@@ -417,6 +544,12 @@
           </button>
         </div>
       </form>
+
+      {#if editingId}
+        <div class="px-4 pb-4">
+          <ExecutionBinding kind="trigger" subjectId={editingId} />
+        </div>
+      {/if}
     </div>
   {/if}
 

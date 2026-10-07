@@ -2,6 +2,7 @@
   import { getExecutionBinding, saveExecutionBinding, revokeExecutionBinding, type BindingKind, type ExecutionBinding, type BindingCandidate } from '@/lib/api/execution-bindings';
   import { startBot } from '@/lib/api/bots';
   import { routeAllowed } from '@/lib/helper/navigation';
+  import { storeAuth } from '@/lib/store/auth.svelte';
 
   interface Props { kind: BindingKind; subjectId: string; onchange?: () => void }
   let { kind, subjectId, onchange }: Props = $props();
@@ -31,7 +32,9 @@
       binding = result.binding;
       bindingValid = result.binding_valid;
       candidates = result.candidates || [];
-      user = binding?.user_id || (candidates.length === 1 ? candidates[0].user_id : '');
+      // Default to the signed-in account: binding is then a single click.
+      const self = candidates.find((c) => c.user_id === storeAuth.identity?.subject)?.user_id;
+      user = (binding && !binding.revoked ? binding.user_id : '') || self || (candidates.length === 1 ? candidates[0].user_id : '');
     } catch (e: any) {
       if (request === generation) error = e?.response?.data?.message || 'Could not load execution identity. Retry below.';
     } finally {
@@ -46,11 +49,11 @@
     try {
       binding = await saveExecutionBinding(kind, subjectId, user);
       bindingValid = true;
-      notice = 'Execution identity saved.';
+      notice = 'Saved. It now runs as this account.';
       if (kind === 'bot') {
         try {
           await startBot(subjectId);
-          notice = 'Execution identity saved. Bot started.';
+          notice = 'Saved. Bot started.';
         } catch (e: any) {
           error = e?.response?.data?.message || 'Identity saved, but the bot could not start. Check its token and permissions, then retry Start.';
         }
@@ -81,21 +84,17 @@
 </script>
 
 <section class="space-y-3 border-b border-dark-border pb-4" aria-label="Execution identity" aria-busy={loading || busy}>
-  <h3 class="text-sm font-medium text-dark-text">Execution identity</h3>
+  <h3 class="text-sm font-medium text-dark-text">Run as</h3>
   <p class="text-xs text-dark-text-secondary max-w-prose">
-    {kind === 'bot' ? 'Bot messages' : kind === 'trigger' ? 'Webhook-triggered workflow runs' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
-    After changing permissions or execution policy, renew this binding.
+    {kind === 'bot' ? 'Bot messages' : kind === 'trigger' ? 'Scheduled and webhook runs' : 'MCP tool calls'} run as the account chosen here, with that account's current permissions and the workspace's current
+    {#if routeAllowed('/settings/execution')}<a href="#/settings/execution" class="underline underline-offset-2 hover:text-dark-text">execution policy</a>{:else}execution policy{/if}.
+    Choose it once: later permission or policy changes apply automatically.
   </p>
-  {#if routeAllowed('/settings/execution')}
-    <p class="text-xs text-dark-text-secondary max-w-prose">
-      Configure the workspace's <a href="#/settings/execution" class="underline underline-offset-2 hover:text-dark-text">execution policy</a> first, including allowed tools. Builtin management tools currently require trusted-host mode.
-    </p>
-  {/if}
   {#if loading}
     <p role="status" class="text-sm text-dark-text-secondary">Loading execution identity…</p>
   {:else}
     <p class="text-xs text-dark-text-secondary">
-      {binding ? (binding.revoked ? 'Revoked' : bindingValid ? `Bound · version ${binding.version} · policy ${binding.policy_version}` : `Renewal required · saved version ${binding.version} · policy ${binding.policy_version}`) : 'Setup required — no execution identity is bound.'}
+      {binding ? (binding.revoked ? 'Not set (revoked). Choose an account to enable it again.' : bindingValid ? `Active · runs as ${candidates.find((c) => c.user_id === binding?.user_id)?.name || binding.user_id}` : 'Not allowed to run: the account is no longer an active member or lacks permission. Choose another account.') : 'Not set yet — choose an account so this can run.'}
     </p>
     {#if candidates.length > 0}
       <div class="flex flex-col sm:flex-row sm:items-end gap-3">
@@ -109,16 +108,16 @@
           </select>
         </div>
         <button type="button" onclick={save} disabled={busy || !user} class="px-3 py-2 text-sm bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed">
-          {busy ? 'Saving…' : kind === 'bot' ? (binding && !bindingValid ? 'Renew & start bot' : 'Bind & start bot') : (binding && !bindingValid ? 'Renew execution identity' : 'Save execution identity')}
+          {busy ? 'Saving…' : kind === 'bot' ? 'Save & start bot' : 'Save'}
         </button>
       </div>
     {:else if !error}
       <p class="text-sm text-dark-text-secondary">No eligible account is available. Enable execution for this workspace and add an active member, then reload.</p>
     {/if}
     <div class="flex flex-wrap gap-4 text-xs">
-      <button type="button" onclick={() => load(kind, subjectId)} disabled={busy} class="underline underline-offset-2 text-dark-text-secondary hover:text-dark-text disabled:opacity-50">Reload identity</button>
+      <button type="button" onclick={() => load(kind, subjectId)} disabled={busy} class="underline underline-offset-2 text-dark-text-secondary hover:text-dark-text disabled:opacity-50">Reload</button>
       {#if binding && !binding.revoked}
-        <button type="button" onclick={revoke} disabled={busy} class="underline underline-offset-2 text-red-400 hover:text-red-300 disabled:opacity-50">Revoke identity</button>
+        <button type="button" onclick={revoke} disabled={busy} class="underline underline-offset-2 text-red-400 hover:text-red-300 disabled:opacity-50">Stop running as this account</button>
       {/if}
     </div>
   {/if}

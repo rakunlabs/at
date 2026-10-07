@@ -70,6 +70,7 @@ type Scheduler struct {
 	enabledCheck          func(context.Context) bool
 	executionContext      func(context.Context, string) (context.Context, error)
 	durableLaunch         func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error
+	organizationLauncher  func(context.Context, service.Trigger) error
 
 	cluster *cluster.Cluster
 
@@ -129,6 +130,13 @@ func (s *Scheduler) SetRunRecorder(r RunRecorder) {
 
 func (s *Scheduler) SetDurableLauncher(launch func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error) {
 	s.durableLaunch = launch
+}
+
+// SetOrganizationLauncher installs the callback that opens a task for
+// organization-target cron triggers. It runs under the trigger's bound
+// execution identity. Must be called before Start.
+func (s *Scheduler) SetOrganizationLauncher(launch func(context.Context, service.Trigger) error) {
+	s.organizationLauncher = launch
 }
 
 // SetExecutionContext installs a resolver for persisted trigger initiators.
@@ -397,11 +405,30 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 
 		logi.Ctx(ctx).Info("scheduler: cron triggered",
 			"trigger_id", trigger.ID,
-			"workflow_id", trigger.WorkflowID)
+			"workflow_id", trigger.WorkflowID,
+			"target_type", trigger.TargetType)
 
 		// Load the workflow from the store.
 		if s.executionContext == nil {
 			logi.Ctx(ctx).Warn("scheduler: execution identity resolver not configured", "trigger_id", trigger.ID)
+			return nil
+		}
+		if trigger.TargetType == service.TriggerTargetOrganization {
+			if s.organizationLauncher == nil {
+				logi.Ctx(ctx).Warn("scheduler: organization launcher not configured", "trigger_id", trigger.ID)
+				return nil
+			}
+			boundCtx, authErr := s.executionContext(ctx, trigger.ID)
+			if authErr == nil {
+				authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "organizations.run", ResourceID: trigger.TargetID})
+			}
+			if authErr != nil {
+				logi.Ctx(ctx).Warn("scheduler: execution authority denied", "trigger_id", trigger.ID, "error", authErr)
+				return nil
+			}
+			if err := s.organizationLauncher(boundCtx, trigger); err != nil {
+				logi.Ctx(ctx).Error("scheduler: organization task launch failed", "trigger_id", trigger.ID, "organization_id", trigger.TargetID, "error", err)
+			}
 			return nil
 		}
 		boundCtx, authErr := s.executionContext(ctx, trigger.ID)

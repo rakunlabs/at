@@ -16,6 +16,14 @@ func normalizeScopedTrigger(t service.Trigger) (service.Trigger, error) {
 	if t.TargetType == "" {
 		t.TargetType = service.TriggerTargetWorkflow
 	}
+	if t.TargetType == service.TriggerTargetOrganization {
+		// Organization targets open a task on a schedule; there is no
+		// workflow, webhook surface or entry node.
+		if t.Type != "cron" || t.TargetID == "" || t.WorkflowID != "" || t.EntryNodeID != "" {
+			return t, service.ErrAccessResourceNotFound
+		}
+		return t, nil
+	}
 	if t.TargetType != service.TriggerTargetWorkflow {
 		return t, service.ErrAccessDenied
 	}
@@ -31,6 +39,13 @@ func normalizeScopedTrigger(t service.Trigger) (service.Trigger, error) {
 func (p *Postgres) triggerReferences(ctx context.Context, w *businessWrite, t service.Trigger) error {
 	if t.WorkspaceID != "" && t.WorkspaceID != w.actor.WorkspaceID {
 		return service.ErrAccessDenied
+	}
+	if t.TargetType == service.TriggerTargetOrganization {
+		if !w.actor.Allows("workflows.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: t.TargetID}) ||
+			!w.actor.Allows("organizations.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: t.TargetID}) {
+			return service.ErrAccessDenied
+		}
+		return p.businessReference(ctx, w, p.tableOrganizations, "id", t.TargetID)
 	}
 	if !w.actor.Allows("workflows.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: t.WorkflowID}) {
 		return service.ErrAccessDenied

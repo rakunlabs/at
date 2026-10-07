@@ -192,7 +192,7 @@ func (s *Server) bindGatewayMCPServer(w http.ResponseWriter, r *http.Request, sr
 	ctx, err := s.ResumeRuntimeSubject(r.Context(), "mcp", srv.ID, nil)
 	if err != nil {
 		slog.Warn("gateway MCP execution binding unavailable", "mcp_id", srv.ID, "error", err)
-		httpResponse(w, "MCP execution identity unavailable; configure or renew its execution binding in MCP Servers", http.StatusForbidden)
+		httpResponse(w, "MCP execution identity unavailable: choose a Run as account for this MCP server (MCP Servers page), or check that the account is still an active workspace member", http.StatusForbidden)
 		return nil, false
 	}
 	p, _, ok := service.ExecutionFromContext(ctx)

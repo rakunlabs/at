@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -122,6 +123,10 @@ func (s *Server) execWorkflowCreate(ctx context.Context, args map[string]any) (s
 	if err := json.Unmarshal(graphJSON, &graph); err != nil {
 		return "", fmt.Errorf("invalid graph format: %w", err)
 	}
+	layout, _ := args["layout"].(string)
+	if _, err := prepareAgentWorkflowGraph(&graph, layout); err != nil {
+		return "", err
+	}
 
 	req := service.Workflow{
 		Name:        name,
@@ -221,6 +226,10 @@ func (s *Server) execWorkflowUpdate(ctx context.Context, args map[string]any) (s
 		var graph service.WorkflowGraph
 		if err := json.Unmarshal(graphJSON, &graph); err != nil {
 			return "", fmt.Errorf("invalid graph format: %w", err)
+		}
+		layout, _ := args["layout"].(string)
+		if _, err := prepareAgentWorkflowGraph(&graph, layout); err != nil {
+			return "", err
 		}
 		req.Graph = graph
 	}
@@ -552,9 +561,13 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 	}
 
 	workflowID, _ := args["workflow_id"].(string)
+	organizationID, _ := args["organization_id"].(string)
 	triggerType, _ := args["type"].(string)
-	if workflowID == "" || triggerType == "" {
-		return "", fmt.Errorf("workflow_id and type are required")
+	if triggerType == "" || (workflowID == "") == (organizationID == "") {
+		return "", fmt.Errorf("type and exactly one of workflow_id or organization_id are required")
+	}
+	if organizationID != "" && triggerType != "cron" {
+		return "", fmt.Errorf("organization schedules must be cron triggers")
 	}
 
 	config := make(map[string]any)
@@ -571,6 +584,7 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 	if payload, ok := args["payload"].(map[string]any); ok {
 		config["payload"] = payload
 	}
+	applyScheduledTaskArgs(config, args)
 
 	enabled := true
 	if e, ok := args["enabled"].(bool); ok {
@@ -590,6 +604,14 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 		Config:     config,
 		Enabled:    enabled,
 	}
+	if organizationID != "" {
+		trigger.WorkflowID = ""
+		trigger.TargetType = service.TriggerTargetOrganization
+		trigger.TargetID = organizationID
+	}
+	if err := s.validateScheduledTaskTrigger(ctx, trigger); err != nil {
+		return "", err
+	}
 
 	if alias, ok := args["alias"].(string); ok && alias != "" {
 		trigger.Alias = alias
@@ -606,9 +628,30 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 	if err != nil {
 		return "", fmt.Errorf("create trigger: %w", err)
 	}
+	if record.Type == "cron" && record.Enabled && s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			slog.Error("scheduler reload failed after trigger_create", "error", err)
+		}
+	}
 
 	data, _ := json.MarshalIndent(record, "", "  ")
 	return string(data), nil
+}
+
+// applyScheduledTaskArgs copies the organization-schedule task fields from
+// tool arguments into a trigger config. Absent arguments leave it unchanged.
+func applyScheduledTaskArgs(config map[string]any, args map[string]any) {
+	for _, key := range []string{"task_title", "task_description", "notify_bot_id", "notify_chat_id"} {
+		if v, ok := args[key].(string); ok {
+			config[key] = v
+		}
+	}
+	if v, ok := args["notify_chat_id"].(float64); ok {
+		config["notify_chat_id"] = strconv.FormatInt(int64(v), 10)
+	}
+	if v, ok := args["max_iterations"].(float64); ok {
+		config["max_iterations"] = v
+	}
 }
 
 // execTriggerGet gets a trigger by ID.
@@ -668,10 +711,22 @@ func (s *Server) execTriggerUpdate(ctx context.Context, args map[string]any) (st
 	if enabled, ok := args["enabled"].(bool); ok {
 		existing.Enabled = enabled
 	}
+	if existing.Config == nil {
+		existing.Config = make(map[string]any)
+	}
+	applyScheduledTaskArgs(existing.Config, args)
+	if err := s.validateScheduledTaskTrigger(ctx, *existing); err != nil {
+		return "", err
+	}
 
 	updated, err := s.triggerStore.UpdateTrigger(ctx, id, *existing)
 	if err != nil {
 		return "", fmt.Errorf("update trigger: %w", err)
+	}
+	if updated != nil && updated.Type == "cron" && s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			slog.Error("scheduler reload failed after trigger_update", "error", err)
+		}
 	}
 
 	data, _ := json.MarshalIndent(updated, "", "  ")

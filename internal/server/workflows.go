@@ -1002,7 +1002,8 @@ func (s *Server) hasTriggerNodes(graph service.WorkflowGraph) bool {
 // in the workflow graph. It:
 //   - Creates new triggers for trigger nodes that have no trigger_id yet
 //   - Updates existing triggers whose config has changed
-//   - Deletes DB triggers that no longer have a corresponding node in the graph
+//   - Deletes graph-managed DB triggers whose node was removed from the graph
+//     (standalone triggers without a node are never touched)
 //   - Writes the assigned trigger_id back into each trigger node's data map
 //
 // The graph is mutated in-place. Returns whether any cron triggers were
@@ -1018,6 +1019,23 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 	existingByID := make(map[string]service.Trigger, len(existing))
 	for _, t := range existing {
 		existingByID[t.ID] = t
+	}
+
+	// Only triggers owned by a trigger node of the previously saved graph are
+	// graph-managed. Triggers created on their own (Schedules page,
+	// trigger_create) have no node and must survive every graph save.
+	graphManaged := make(map[string]bool)
+	if s.workflowStore != nil {
+		if previous, err := s.workflowStore.GetWorkflow(ctx, workflowID); err == nil && previous != nil {
+			for _, node := range previous.Graph.Nodes {
+				if _, ok := triggerNodeType[node.Type]; !ok {
+					continue
+				}
+				if id, _ := node.Data["trigger_id"].(string); id != "" {
+					graphManaged[id] = true
+				}
+			}
+		}
 	}
 
 	// 2. Walk graph nodes and collect trigger nodes.
@@ -1095,9 +1113,9 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 		}
 	}
 
-	// 3. Delete DB triggers that no longer have a matching node.
+	// 3. Delete graph-managed triggers whose node was removed.
 	for _, t := range existing {
-		if seenTriggerIDs[t.ID] {
+		if seenTriggerIDs[t.ID] || !graphManaged[t.ID] {
 			continue
 		}
 		if err := s.triggerStore.DeleteTrigger(ctx, t.ID); err != nil {

@@ -725,6 +725,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			_, err := s.enqueueDurableWorkflow(ctx, id, graph, inputs, entries, source)
 			return err
 		})
+		s.scheduler.SetOrganizationLauncher(s.launchScheduledOrganizationTask)
 		s.scheduler.SetEnabledCheck(func(ctx context.Context) bool {
 			enabled, err := s.isFeatureEnabled(ctx, service.FeatureCronTriggers)
 			if err != nil {

@@ -315,6 +315,11 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 
+	if err := s.validateScheduledTaskTrigger(r.Context(), req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Validate alias uniqueness (if alias is being set/changed).
 	if req.Alias != "" {
 		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)

@@ -100,7 +100,7 @@
         ...extraTools.split('\n').map(name => name.trim()).filter(Boolean),
       ])];
       policy = (await workspaceAPI.put(path(), { ...policy, allowed_tools })).data;
-      notice = 'Execution policy saved. Renew the execution identity for existing bots and MCP servers to use these permissions.';
+      notice = 'Execution policy saved. Bots, schedules and MCP servers use it from their next run.';
     } catch (e) {
       error = authErrorMessage(e, 'Could not save policy. Reload the latest version before retrying.');
     } finally {

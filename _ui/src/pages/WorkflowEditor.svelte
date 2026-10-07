@@ -27,6 +27,7 @@
   import { switchOutputPorts } from '@/lib/workflow/data-operations';
   import { canvasInputHandle, storedInputHandle } from '@/lib/workflow/ports';
   import { findNodePlacement } from '@/lib/workflow/node-placement';
+  import { findSnapTarget, describeConnectionRejection } from '@/lib/workflow/connection-snap';
   import { setWorkflowNodeActions } from '@/lib/workflow/node-actions';
   import { loadCollapsedNodes, saveCollapsedNodes } from '@/lib/workflow/collapsed-nodes';
   import EdgeRunLabels from '@/lib/components/workflow/EdgeRunLabels.svelte';
@@ -754,6 +755,34 @@
     }
   }
 
+  // A dragged wire released near (not exactly on) an input still connects;
+  // see connection-snap.ts. Runs in the capture phase, before Kaykay's canvas
+  // handler cancels the draft. Releases on a handle are left to Kaykay.
+  const CONNECTION_SNAP_RADIUS = 28;
+  function onCanvasMouseUpCapture(event: MouseEvent) {
+    if (!flow?.draft_connection || flow.draft_connection.reconnect_type === 'source' || event.button !== 0) return;
+    const onHandle = event.target instanceof Element ? event.target.closest('[data-handle-id]') : null;
+    if (onHandle) {
+      const handleId = onHandle.getAttribute('data-handle-id');
+      const nodeId = onHandle.closest('[data-node-id]')?.getAttribute('data-node-id');
+      if (handleId && nodeId && onHandle.getAttribute('data-handle-type') === 'input') {
+        const draft = flow.draft_connection;
+        const validation = flow.getConnectionValidation(draft.source_node_id, draft.source_handle_id, nodeId, handleId, draft.reconnect_edge_id);
+        if (!validation.valid && validation.reason) addToast(describeConnectionRejection(validation.reason), 'warn');
+      }
+      return;
+    }
+    const point = canvasRef?.clientToCanvas(event.clientX, event.clientY);
+    if (!point) return;
+    const { candidate, reason } = findSnapTarget(flow, point, CONNECTION_SNAP_RADIUS);
+    if (candidate) {
+      event.stopPropagation();
+      flow.finishConnection(candidate.nodeId, candidate.handleId);
+    } else if (reason) {
+      addToast(describeConnectionRejection(reason), 'warn');
+    }
+  }
+
   // Single click selects (kaykay, on mousedown); double click opens the
   // details view, as in n8n, so selecting a step to move or delete it never
   // pops a dialog.
@@ -1028,6 +1057,7 @@
         ondragleave={handleDragLeave}
         ondrop={handleDrop}
         ondblclick={onCanvasDblClick}
+        onmouseupcapture={onCanvasMouseUpCapture}
         onkeydowncapture={onCanvasKeyDown}
       >
         <Canvas

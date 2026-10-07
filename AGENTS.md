@@ -1937,9 +1937,16 @@ first: **Allow all tools and node types** selects trusted-host mode and persists
 `allow_all_tools` / `allow_all_nodes`, including future registered implementations
 and dynamic skill/MCP/delegation tools. Individual permissions use registry-backed
 checkbox lists. These options retain live resource, membership and policy checks.
-For existing records, configure the identity once;
-then bind/renew. A policy or membership version change requires renewal. Bot
-binding renewal stops the old adapter; **Bind & start bot** starts the new one.
+A binding records only *who* the service runs as. `ResumeRuntimeSubject` starts
+every run from the account's current membership version and the workspace's
+current policy version (`liveServiceBindingVersions`), so changing the policy
+or a member's role applies to the next bot message, schedule tick or MCP call
+without renewing anything; a run already in progress still stops at its next
+`CheckExecution` when either changes. Removing the member, revoking the binding
+or rebinding (service version bump) still refuses the service. The editor
+(`ExecutionBinding.svelte`, labelled **Run as**) defaults to the signed-in
+account, so a new bot/schedule/MCP server is one click. **Save & start bot**
+starts a bot. Regression: `TestRuntimeServiceBindingRenewalAcrossReplicas`.
 
 Gateway MCP admission resolves routing metadata using the authenticated token's
 persisted `workspace_id`; anonymous requests can resolve only a uniquely named

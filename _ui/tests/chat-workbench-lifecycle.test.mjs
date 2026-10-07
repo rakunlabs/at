@@ -29,7 +29,7 @@ export function fixture() {
   let showTodoPanel = false, legacyMcpUrls = [], legacyMcpHeaders = {};
   let accountDefaults = initialWorkbenchSetup(FRONTEND_TOOL_NAMES), setupRevision = 0, defaultsLoaded = false, disposed = false;
   let conversationId = '', params = {}, conversation = null, scratchSessionId = '', parentTitle = '';
-  let historyTruncated = false, savedSettings = null, historyLoading = false, appliedPresetId = '';
+  let historyTruncated = false, savedSettings = null, historyLoading = false, appliedPresetId = '', customSetup = null;
   let historyCursor = '', loadingOlderHistory = false;
   let messages = [], rawMessages = {}, meta = [], toolDiscoveryVersion = 0, settingsTimer = null, confirmClearTimer = null;
   let extensionUnsubscribe = null, extensionBridge = null;
@@ -49,13 +49,15 @@ export function fixture() {
   const joinModel = (provider, model) => model ? provider + '/' + model : provider;
   const settingsSnapshot = () => currentSetup();
   const mergeConversation = () => {}, scrollToBottom = () => {}, loadParentTitle = () => {}, toChatMessage = message => message;
+  let todos = [];
+  const latestTodos = () => null;
   const HISTORY_PAGE_SIZE = 50;
   const saveSettings = async () => {};
   const scheduleSettingsSave = () => { settingsSaves++; };
   const discoverTools = async () => { discoveries++; };
   const resetBuffer = () => { resets++; systemPrompt = ''; messages = []; };
   const addToast = message => { throw new Error(message); };
-  const playgroundErrorMessage = (_, fallback) => fallback;
+  const playgroundErrorMessage = (error, fallback) => fallback + ': ' + (error?.message ?? error);
   ${functions.join('\n')}
   const destroy = ${destroy};
   return {

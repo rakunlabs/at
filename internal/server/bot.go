@@ -230,7 +230,7 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 	}
 	if err != nil {
 		slog.Warn("bot execution binding unavailable", "bot_id", bot.ID, "error", err)
-		return fmt.Errorf("bot execution identity unavailable; configure or renew its execution binding: %w", err)
+		return fmt.Errorf("bot cannot run: choose a Run as account on the Bots page, or check that the account is still an active workspace member: %w", err)
 	}
 	ctx = bound
 	if store, ok := s.botConfigStore.(service.ExecutionBotConfigStorer); ok {
@@ -389,6 +389,29 @@ func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAge
 	return matchedAgent.Name, nil
 }
 
+// restartBotAfterIdentityChange starts a bot again from its stored config
+// under a freshly resolved identity. The message that hit the stale identity
+// is dropped; the next one is handled by the restarted adapter.
+func (s *Server) restartBotAfterIdentityChange(botID string) {
+	if s.botConfigStore == nil || s.ctx == nil || s.ctx.Err() != nil {
+		return
+	}
+	bound, err := s.ResumeRuntimeSubject(s.ctx, "bot", botID, nil)
+	if err != nil {
+		slog.Warn("bot stopped: execution identity no longer valid", "bot_id", botID, "error", err)
+		return
+	}
+	bot, err := s.botConfigStore.GetBotConfig(bound, botID)
+	if err != nil || bot == nil || !bot.Enabled || bot.Token == "" {
+		return
+	}
+	if err := s.startBotFromConfig(s.ctx, bot); err != nil {
+		slog.Warn("bot restart after identity change failed", "bot_id", botID, "error", err)
+		return
+	}
+	slog.Info("bot restarted with current permissions", "bot_id", botID)
+}
+
 // checkBotAccess checks if a user is allowed to use the bot.
 // Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
 func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
@@ -397,6 +420,11 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 		if p, _, ok := service.ExecutionFromContext(ctx); ok {
 			if rb := s.getBotRunningInfo(botID); rb != nil && rb.runID == p.RunID && s.runningBots.CompareAndDelete(botID, rb) {
 				rb.cancel()
+				// The adapter's identity is pinned to the policy and membership
+				// it started with. When those changed, a fresh start picks up
+				// the current ones; a revoked binding or removed member fails
+				// to start and the bot stays stopped.
+				go s.restartBotAfterIdentityChange(botID)
 			}
 		}
 		return false, false

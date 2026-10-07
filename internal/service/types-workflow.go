@@ -160,6 +160,12 @@ func webhookMethodAllowed(m string) bool {
 const (
 	// TriggerTargetWorkflow indicates the trigger executes a workflow.
 	TriggerTargetWorkflow = "workflow"
+	// TriggerTargetOrganization indicates a cron trigger that opens a task
+	// for an organization's head agent, as if submitted through intake.
+	// TargetID is the organization ID; config carries the task:
+	//   task_title, task_description, max_iterations?,
+	//   notify_bot_id + notify_chat_id (optional Telegram progress chat).
+	TriggerTargetOrganization = "organization"
 )
 
 // TriggerStorer defines CRUD operations for workflow triggers.

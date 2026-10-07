@@ -98,6 +98,52 @@ func TestRuntimeServiceBindingRenewalAcrossReplicas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// A policy change applies to the next run without renewing the binding.
+	// A run in progress stops at its next check.
+	policy, err := store.GetExecutionPolicy(t.Context(), "legacy-default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.AllowedTools = append(policy.AllowedTools, "current_time")
+	if err := store.SaveExecutionPolicy(current, *policy); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CheckExecution(active, service.ExecutionAction{Kind: "resource", Name: "execution.run"}); !errors.Is(err, service.ErrExecutionDenied) {
+		t.Fatal("run in progress kept the previous policy")
+	}
+	afterPolicy, err := replica.ResumeRuntimeSubject(t.Context(), "bot", bot.ID, nil)
+	if err != nil {
+		t.Fatalf("policy change required renewing the service binding: %v", err)
+	}
+	if err := service.CheckExecution(afterPolicy, service.ExecutionAction{Kind: "tool", Name: "current_time"}); err != nil {
+		t.Fatalf("next run did not use the current policy: %v", err)
+	}
+
+	// The browser context was pinned to the old policy as well; sign in again.
+	current = login("after-policy-browser-session")
+
+	// Changing the account's membership likewise applies without renewal...
+	if err := store.SetWorkspaceMember(current, service.WorkspaceMembership{WorkspaceID: "legacy-default", UserID: runAs.ID, Role: "admin", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replica.ResumeRuntimeSubject(t.Context(), "bot", bot.ID, nil); err != nil {
+		t.Fatalf("membership change required renewing the service binding: %v", err)
+	}
+	// ...but a removed member can no longer run the service.
+	if err := store.SetWorkspaceMember(current, service.WorkspaceMembership{WorkspaceID: "legacy-default", UserID: runAs.ID, Role: "admin", Status: "revoked"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replica.ResumeRuntimeSubject(t.Context(), "bot", bot.ID, nil); !errors.Is(err, service.ErrExecutionDenied) {
+		t.Fatalf("removed member still runs the service: %v", err)
+	}
+	if err := store.SetWorkspaceMember(current, service.WorkspaceMembership{WorkspaceID: "legacy-default", UserID: runAs.ID, Role: "member", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	active, err = replica.ResumeRuntimeSubject(t.Context(), "bot", bot.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.saveRuntimeBinding(current, "bot", bot.ID, true); err != nil {
 		t.Fatal(err)
 	}

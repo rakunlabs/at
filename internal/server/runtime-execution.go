@@ -167,6 +167,32 @@ func (s *Server) PersistRuntimeSubject(ctx context.Context, kind, id string) err
 
 // ResumeRuntimeSubject is ONLY for authenticated machine dispatch or the
 // scheduler. Never call it merely because a browser supplied a subject ID.
+// liveServiceBindingVersions resolves the bound account's current membership
+// and the workspace's current execution policy. The account must still be an
+// active member; anything else refuses the service like a revoked binding.
+func (s *Server) liveServiceBindingVersions(ctx context.Context, binding *service.ExecutionServiceBinding) (int64, int64, error) {
+	workspaces, ok := s.store.(service.WorkspaceStorer)
+	if !ok {
+		return 0, 0, service.ErrExecutionDenied
+	}
+	executions, ok := s.store.(service.ExecutionStorer)
+	if !ok {
+		return 0, 0, service.ErrExecutionDenied
+	}
+	live, _, err := workspaces.ResolveWorkspaceAccess(ctx, binding.WorkspaceID, binding.UserID, "")
+	if err != nil {
+		return 0, 0, fmt.Errorf("service account is no longer an active workspace member: %w: %w", service.ErrExecutionDenied, err)
+	}
+	policy, err := executions.GetExecutionPolicy(ctx, binding.WorkspaceID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if policy == nil {
+		return 0, 0, service.ErrExecutionDenied
+	}
+	return live.MembershipVersion, policy.Version, nil
+}
+
 func (s *Server) ResumeRuntimeSubject(ctx context.Context, kind, id string, validate service.ExecutionRevalidator) (context.Context, error) {
 	if kind != "task" && kind != "trigger" && kind != "bot" && kind != "mcp" {
 		return nil, service.ErrExecutionDenied
@@ -181,7 +207,20 @@ func (s *Server) ResumeRuntimeSubject(ctx context.Context, kind, id string, vali
 				if binding.Revoked {
 					return nil, service.ErrExecutionDenied
 				}
-				p := service.ExecutionProvenance{RunID: ulid.Make().String(), UserID: binding.UserID, WorkspaceID: binding.WorkspaceID, Source: kind, MembershipVersion: binding.MembershipVersion, PolicyVersion: binding.PolicyVersion, ServiceID: binding.ID, ServiceVersion: binding.Version}
+				// A service binding records *who* the service runs as, not a
+				// frozen snapshot of their permissions. Each run starts from the
+				// account's current membership and the workspace's current
+				// execution policy, which every CheckExecution then re-reads, so
+				// a permission or policy change applies to the next run without
+				// renewing every bot, schedule and MCP server. A run already in
+				// progress still stops if either changes underneath it. Revoking
+				// the binding, removing the member or rebinding (version bump)
+				// still refuses the service.
+				membership, policyVersion, liveErr := s.liveServiceBindingVersions(ctx, binding)
+				if liveErr != nil {
+					return nil, liveErr
+				}
+				p := service.ExecutionProvenance{RunID: ulid.Make().String(), UserID: binding.UserID, WorkspaceID: binding.WorkspaceID, Source: kind, MembershipVersion: membership, PolicyVersion: policyVersion, ServiceID: binding.ID, ServiceVersion: binding.Version}
 				ctx = service.WithAccessPrincipal(ctx, service.AccessPrincipal{UserID: p.UserID, WorkspaceID: p.WorkspaceID, MembershipVersion: p.MembershipVersion})
 				return s.BindRuntimeExecution(ctx, p, s.revalidateRuntimeExecution)
 			}
@@ -256,8 +295,16 @@ func (s *Server) RuntimeTriggerBindingAPI(w http.ResponseWriter, r *http.Request
 		s.runtimeBindingDetails(w, r, "trigger", "triggers.use")
 		return
 	}
-	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID}); err != nil {
-		httpResponse(w, "workflow execution denied", http.StatusForbidden)
+	targetAction := service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID}
+	if trigger.TargetType == service.TriggerTargetOrganization {
+		targetAction = service.ExecutionAction{Kind: "resource", Name: "organizations.run", ResourceID: trigger.TargetID}
+	}
+	if err := service.CheckExecution(r.Context(), targetAction); err != nil {
+		if targetAction.Name == "organizations.run" {
+			httpResponse(w, "organization execution denied: your account needs permission to run this organization", http.StatusForbidden)
+		} else {
+			httpResponse(w, "workflow execution denied: your account needs permission to run this workflow", http.StatusForbidden)
+		}
 		return
 	}
 	runAs, decodeErr := runtimeBindingUser(w, r)

@@ -9,7 +9,7 @@ const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true)
 const functions = ast.statements.filter(n => ts.isFunctionDeclaration(n) && ['openConversation', 'loadOlderHistory', 'storedUsage'].includes(n.name?.text)).map(n => n.getText(ast));
 const code = ts.transpileModule(`export function fixture(pages) {
   let settingsTimer = null, toolDiscoveryVersion = 0, generation = 0, disposed = false;
-  let conversationId = '', scratchSessionId = '', conversation = null, parentTitle = '', appliedPresetId = '', selectedModel = '', systemPrompt = '';
+  let conversationId = '', scratchSessionId = '', conversation = null, parentTitle = '', appliedPresetId = '', customSetup = null, selectedModel = '', systemPrompt = '';
   let historyTruncated = false, historyCursor = '', loadingOlderHistory = false, historyLoading = false, savedSettings = null;
   let streaming = false, saving = false, messages = [], meta = [], rawMessages = {};
   const calls = [], errors = [], HISTORY_PAGE_SIZE = 50, COMPACTION_FLAG = 'compaction';
@@ -23,6 +23,8 @@ const code = ts.transpileModule(`export function fixture(pages) {
   const playgroundErrorMessage = e => e.message, addToast = e => errors.push(e);
   const chatContainer = { scrollTop: 20, get scrollHeight() { return messages.length * 100; } };
   const tick = async () => {};
+  let todos = [];
+  const latestTodos = () => null, loadParentTitle = async () => {};
   ${functions.join('\n')}
   return { open: openConversation, older: loadOlderHistory,
     snapshot: () => ({ calls, errors, messages, meta, historyCursor, historyTruncated, loadingOlderHistory, scrollTop: chatContainer.scrollTop }),
