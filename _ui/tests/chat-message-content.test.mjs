@@ -14,7 +14,8 @@ const icon = serverModule('<script lang="ts">let { size, class: className }: { s
 let source = await readFile(new URL('../src/lib/components/playground/MessageContent.svelte', import.meta.url), 'utf8');
 source = source.replace("import { FileText, ImageOff } from 'lucide-svelte';", `import Icon from '${icon}'; const FileText = Icon, ImageOff = Icon;`)
   .replace("import { mediaImageURL } from '@/lib/api/media';", 'const mediaImageURL = (id: string, workspace: string) => `/media/${id}?workspace=${workspace}`;')
-  .replace("from '@/lib/components/Markdown.svelte'", `from '${markdown}'`);
+  .replace("from '@/lib/components/Markdown.svelte'", `from '${markdown}'`)
+  .replace("from '@/lib/components/ImageLightbox.svelte'", `from '${icon}'`);
 const { default: MessageContent } = await import(serverModule(source));
 const html = (content, props = {}) => render(MessageContent, { props: { message: { role: 'assistant', content }, workspace: 'selected', formatSize: bytes => `${bytes} bytes`, ...props } }).body;
 

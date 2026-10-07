@@ -3,6 +3,7 @@
   import type { ChatMessage, ContentPart } from '@/lib/helper/chat';
   import { mediaImageURL } from '@/lib/api/media';
   import Markdown from '@/lib/components/Markdown.svelte';
+  import ImageLightbox from '@/lib/components/ImageLightbox.svelte';
 
   interface Props {
     message: ChatMessage;
@@ -13,7 +14,24 @@
   }
   let { message, workspace, raw = false, thinking = false, formatSize }: Props = $props();
   const user = $derived(message.role === 'user');
+
+  let zoomed = $state<{ src: string; alt: string } | null>(null);
+
+  // Images inside rendered Markdown (e.g. a generated image shown as ![](url))
+  // are plain <img> elements, so they are opened through delegation.
+  function zoomMarkdownImage(e: MouseEvent) {
+    const target = e.target;
+    if (!(target instanceof HTMLImageElement) || target.closest('a')) return;
+    e.preventDefault();
+    zoomed = { src: target.currentSrc || target.src, alt: target.alt };
+  }
 </script>
+
+{#snippet markdown(source: string)}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="contents [&_.markdown-body_img]:cursor-zoom-in" onclick={zoomMarkdownImage}><Markdown {source} /></div>
+{/snippet}
 
 {#snippet omitted(part: ContentPart)}
   <div class={['mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px]', user ? 'border-dark-border text-white/80' : 'border-dark-border text-dark-text-muted']}>
@@ -69,17 +87,26 @@
   {:else if raw}
     <pre class="whitespace-pre-wrap break-words font-mono text-xs">{message.content}</pre>
   {:else}
-    <Markdown source={message.content} />
+    {@render markdown(message.content)}
   {/if}
 {:else}
   {#each message.content as part}
     {#if (part.type === 'image_url' && part.image_url?.url) || (part.type === 'image' && part.media_id)}
-      <img
-        src={part.type === 'image' ? mediaImageURL(part.media_id!, workspace) : part.image_url!.url}
-        alt={part.type === 'image' ? part.name || 'Stored image attachment' : ''}
-        loading={part.type === 'image' ? 'lazy' : undefined}
-        class={['max-w-full max-h-64 mb-2 border', user ? 'border-accent/50' : 'border-dark-border']}
-      />
+      {@const src = part.type === 'image' ? mediaImageURL(part.media_id!, workspace) : part.image_url!.url}
+      {@const alt = part.type === 'image' ? part.name || 'Stored image attachment' : ''}
+      <button
+        type="button"
+        onclick={() => (zoomed = { src, alt: alt || part.name || 'image' })}
+        aria-label={`Enlarge ${alt || 'image'}`}
+        class="mb-2 block max-w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-accent"
+      >
+        <img
+          {src}
+          {alt}
+          loading={part.type === 'image' ? 'lazy' : undefined}
+          class={['block max-w-full max-h-64 border', user ? 'border-accent/50' : 'border-dark-border']}
+        />
+      </button>
     {:else if part.type === 'image'}
       {@render omitted(part)}
     {:else if part.type === 'file' && part.media_id}
@@ -94,7 +121,11 @@
         <FileText size={11} class="shrink-0" /><span class="truncate">{fileName}</span>
       </div>
     {:else if part.type === 'text' && part.text}
-      {#if user}<span class="whitespace-pre-wrap">{part.text}</span>{:else if raw}<pre class="whitespace-pre-wrap break-words font-mono text-xs">{part.text}</pre>{:else}<Markdown source={part.text} />{/if}
+      {#if user}<span class="whitespace-pre-wrap">{part.text}</span>{:else if raw}<pre class="whitespace-pre-wrap break-words font-mono text-xs">{part.text}</pre>{:else}{@render markdown(part.text)}{/if}
     {/if}
   {/each}
+{/if}
+
+{#if zoomed}
+  <ImageLightbox src={zoomed.src} alt={zoomed.alt} onclose={() => (zoomed = null)} />
 {/if}

@@ -125,6 +125,7 @@
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import MessageContent from '@/lib/components/playground/MessageContent.svelte';
+  import { latestTodos, normalizeTodos, type TodoItem } from '@/lib/helper/chat-todos';
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import ChatCommandsEditor from '@/lib/components/playground/ChatCommandsEditor.svelte';
   import { listChatCommands, listWorkspaceChatCommands, type ChatCommand } from '@/lib/api/chat-commands';
@@ -175,12 +176,6 @@
   }
 
   const turnLifecycle = createChatTurnLifecycle();
-
-  interface TodoItem {
-    content: string;
-    status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-    priority: 'high' | 'medium' | 'low';
-  }
 
   interface PendingQuestion {
     question: string;
@@ -1282,6 +1277,7 @@
       historyTruncated = !!historyCursor;
 
       messages = loaded.map(toChatMessage);
+      todos = latestTodos(messages) ?? [];
       rawMessages = {};
       meta = loaded.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
@@ -1306,7 +1302,10 @@
       const previousTop = chatContainer?.scrollTop ?? 0;
       const known = new Set(meta.map(m => m.id));
       const older = (res.data ?? []).filter(m => !known.has(m.id));
+      const hadTodoCall = latestTodos(messages) !== null;
       messages = [...older.map(toChatMessage), ...messages];
+      // The newest call wins; older pages matter only when none was loaded yet.
+      if (!hadTodoCall) todos = latestTodos(messages) ?? [];
       meta = [...older.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) })), ...meta];
       rawMessages = Object.fromEntries(Object.entries(rawMessages).map(([key, value]) => [Number(key) + older.length, value]));
       historyCursor = res.meta?.next_before ?? '';
@@ -1421,6 +1420,9 @@
     const removed = meta.slice(keep).map(m => m.sequence).filter((s): s is number => s !== null);
     messages = messages.slice(0, keep);
     meta = meta.slice(0, keep);
+    // Retry/edit drops later todo_write calls; show the list as of what remains.
+    const remainingTodos = latestTodos(messages);
+    if (remainingTodos || !historyTruncated) todos = remainingTodos ?? [];
     if (!conversationId || removed.length === 0) return;
     try {
       await truncatePlaygroundMessages(conversationId, Math.min(...removed));
@@ -1743,11 +1745,19 @@
   // ─── Scroll ───
 
   let followLatest = true;
+  let lastScrollTop = 0;
+  let chatContent: HTMLDivElement | undefined = $state();
 
+  // Only a reader moving *up* stops following. Programmatic scrolls only move
+  // down, and content growing between our scroll and its event (streaming
+  // deltas, late images) must not be mistaken for the reader leaving the end.
   function handleChatScroll() {
-    if (chatContainer) {
-      followLatest = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight <= 4;
-    }
+    if (!chatContainer) return;
+    const top = chatContainer.scrollTop;
+    const distance = chatContainer.scrollHeight - top - chatContainer.clientHeight;
+    if (distance <= 24) followLatest = true;
+    else if (top < lastScrollTop - 1) followLatest = false;
+    lastScrollTop = top;
   }
 
   function scrollToBottom(force = false) {
@@ -1759,6 +1769,17 @@
       });
     }
   }
+
+  // Content also grows without a delta (images loading, Markdown/diagrams
+  // rendering, tool cards); keep the end in view while following.
+  $effect(() => {
+    if (!chatContent) return;
+    const observer = new ResizeObserver(() => {
+      if (chatContainer && followLatest) chatContainer.scrollTop = chatContainer.scrollHeight;
+    });
+    observer.observe(chatContent);
+    return () => observer.disconnect();
+  });
 
   // ─── Image handling ───
 
@@ -2418,11 +2439,7 @@
       case 'todo_write': {
         const items = args.todos;
         if (!Array.isArray(items)) return 'Error: todos must be an array';
-        todos = items.map((t: any) => ({
-          content: String(t.content || ''),
-          status: t.status || 'pending',
-          priority: t.priority || 'medium',
-        }));
+        todos = normalizeTodos(items);
         showTodoPanel = true;
         return JSON.stringify({ success: true, count: todos.length });
       }
@@ -4108,7 +4125,7 @@
     onscroll={handleChatScroll}
     class="flex-1 min-h-0 overflow-y-auto"
   >
-    <div class="mx-auto w-full max-w-[1200px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
+    <div bind:this={chatContent} class="mx-auto w-full max-w-[1200px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
       <!-- Title block: the conversation and what it has cost so far. -->
       <header class="mb-5 flex items-center gap-4 bg-dark-surface px-4 py-3 sm:px-[22px] sm:py-4">
         <button
