@@ -196,9 +196,9 @@
     </div>
 
     {#each visibleProviders as p (p.key)}
-      <fieldset class="border border-dark-border bg-dark-surface p-3">
+      <fieldset class="border border-dark-border p-3">
         <legend
-          class="px-1 text-[11px] font-medium uppercase tracking-wider text-dark-text-secondary"
+          class="px-1 text-[11px] font-medium text-dark-text-secondary"
         >
           {p.key}
         </legend>

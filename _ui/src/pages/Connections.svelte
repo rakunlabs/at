@@ -513,7 +513,7 @@
   }
 </script>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
   <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
@@ -555,13 +555,13 @@
   </div>
 
   {#if pageLoad.loading('Connections')}
-    <div class="border border-dark-border bg-dark-surface px-4 py-10 text-center text-sm text-dark-text-muted">
+    <div class="border border-dark-border px-4 py-10 text-center text-sm text-dark-text-muted">
       Loading connections…
     </div>
   {:else if pageLoad.error('Connections') && !connections.length}
     <p class="text-sm text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
   {:else if sections().length === 0}
-    <div class="border border-dark-border bg-dark-surface px-4 py-10 text-center">
+    <div class="border border-dark-border px-4 py-10 text-center">
       <Cable size={24} class="mx-auto text-dark-text-faint mb-2" />
       <div class="text-dark-text-muted mb-1">No providers yet</div>
       <div class="text-xs text-dark-text-muted">
@@ -572,20 +572,20 @@
     <div class="space-y-4">
     {#each sections() as section (section.provider)}
       {@const connector = section.connector}
-      <section class="border border-dark-border bg-dark-surface overflow-hidden">
-        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base">
+      <section class="border border-dark-border overflow-hidden">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border">
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h2 class="text-sm font-medium text-dark-text">{providerLabel(section.provider)}</h2>
               {#if connector}
-                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-dark-border-subtle bg-dark-elevated text-dark-text-muted">
+                <span class="px-1.5 py-0.5 text-[11px] font-medium border border-dark-border-subtle bg-dark-elevated text-dark-text-muted">
                   {connector.auth_kind}
                 </span>
                 {#if connector.builtin}
-                  <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-blue-800 bg-blue-900/20 text-blue-400">built-in</span>
+                  <span class="px-1.5 py-0.5 text-[11px] font-medium border border-blue-800 bg-blue-900/20 text-blue-400">built-in</span>
                 {/if}
               {:else}
-                <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide font-medium border border-amber-800 bg-amber-900/20 text-amber-400">no connector</span>
+                <span class="px-1.5 py-0.5 text-[11px] font-medium border border-amber-800 bg-amber-900/20 text-amber-400">no connector</span>
               {/if}
               <span class="text-xs text-dark-text-muted">({section.items.length})</span>
             </div>
@@ -800,7 +800,7 @@
   {@const fields = editorFields()}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
     <div class="bg-dark-surface shadow-xl border border-dark-border max-w-md w-full max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <h2 class="text-sm font-medium text-dark-text">
           {editor.kind === 'create' ? `Add ${providerLabel(editorProvider())} account` : `Edit ${providerLabel(editorProvider())} account`}
         </h2>
@@ -872,7 +872,7 @@
         {/if}
       </div>
 
-      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base">
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border">
         <button onclick={closeEditor} class="px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
         <button
           onclick={saveEditor}
@@ -890,7 +890,7 @@
 {#if connectorEditor}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
     <div class="bg-dark-surface shadow-xl border border-dark-border max-w-lg w-full max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <h2 class="text-sm font-medium text-dark-text">
           {connectorEditor.kind === 'create' ? 'Add provider' : `Edit provider: ${cName || cSlug}`}
         </h2>
@@ -1003,7 +1003,7 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base">
+      <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-dark-border">
         <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
         <button
           onclick={saveConnector}

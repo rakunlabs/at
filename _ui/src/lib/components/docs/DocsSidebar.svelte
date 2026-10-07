@@ -158,7 +158,7 @@
     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
   const groupRow = `${rowBase} font-semibold text-dark-text hover:bg-dark-elevated`;
   const subHeading =
-    'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dark-text-secondary';
+    'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[11px] font-semibold text-dark-text-secondary';
 </script>
 
 {#snippet entryRow(group: DocsGroupId, id: string, title: string, description: string, IconCmp: any)}

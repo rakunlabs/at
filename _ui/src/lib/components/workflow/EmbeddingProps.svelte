@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Provider</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Provider</span>
   <select
     bind:value={data.provider}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -17,7 +17,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Model</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Model</span>
   <input
     type="text"
     bind:value={data.model}
@@ -27,7 +27,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input type</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input type</span>
     <select
       bind:value={data.input_type}
       class="mt-0.5 w-full px-2 py-1 text-xs border focus:outline-none focus:ring-1 focus:ring-dark-border-subtle border-dark-border bg-dark-surface"
@@ -44,7 +44,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Text content to generate embeddings for.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">text</span>
@@ -54,7 +54,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Embedding vectors for the input text.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">output</span>

@@ -249,7 +249,7 @@
   <title>AT | Cron Jobs</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
@@ -279,7 +279,7 @@
   <!-- Form -->
   {#if showForm}
     <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">
           {editingId ? 'Edit Cron Job' : 'New Cron Job'}
         </span>
@@ -426,21 +426,21 @@
   {:else if pageLoad.error('Schedules') && !triggers.length}
     <p class="text-sm text-dark-text-secondary">Schedules could not be loaded. Retry above.</p>
   {:else if triggers.length === 0}
-    <div class="text-center py-12 border border-dark-border bg-dark-surface">
+    <div class="text-center py-12 border border-dark-border">
       <Clock size={24} class="mx-auto mb-2 text-dark-text-muted" />
       <p class="text-sm text-dark-text-muted">No cron jobs configured</p>
       <p class="text-xs text-dark-text-muted mt-1">Create a cron job to run workflows on a schedule</p>
     </div>
   {:else}
-    <div class="border border-dark-border bg-dark-surface overflow-hidden">
+    <div class="border border-dark-border overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-dark-border bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Schedule</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Timezone</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+          <tr class="border-b border-dark-border">
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Schedule</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Target</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Timezone</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
           </tr>
         </thead>
         <tbody>

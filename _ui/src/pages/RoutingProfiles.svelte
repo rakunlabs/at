@@ -207,7 +207,7 @@
   {/each}
 </datalist>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -236,7 +236,7 @@
   <!-- Form -->
   {#if showForm}
     <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Routing Profile'}
         </span>
@@ -378,14 +378,14 @@
     >
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Chain</th>
-        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Chain</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Description</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-24"></th>
       {/snippet}
 
       {#snippet row(profile)}
-        <tr class="hover:bg-dark-elevated/50">
+        <tr class="hover:bg-dark-surface">
           <td class="px-4 py-2.5 font-mono font-medium text-dark-text">{profile.name}</td>
           <td class="px-4 py-2.5 text-xs font-mono text-dark-text-muted">
             <div class="flex flex-wrap items-center gap-1">

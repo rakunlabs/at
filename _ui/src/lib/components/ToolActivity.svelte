@@ -77,13 +77,13 @@
         <h4 class="mb-1 text-xs font-medium text-dark-text-secondary">Arguments</h4>
         <!-- Scrollable payloads need keyboard focus for arrow/PageDown scrolling. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <pre tabindex="0" class="max-h-64 overflow-auto overscroll-contain whitespace-pre-wrap break-words border border-dark-border bg-dark-surface p-3 text-xs text-dark-text focus-visible:outline-2 focus-visible:outline-accent">{formatToolPayload(call.function.arguments)}</pre>
+        <pre tabindex="0" class="max-h-64 overflow-auto overscroll-contain whitespace-pre-wrap break-words border border-dark-border p-3 text-xs text-dark-text focus-visible:outline-2 focus-visible:outline-accent">{formatToolPayload(call.function.arguments)}</pre>
       </section>
       <section aria-label="Tool result">
         <h4 class="mb-1 text-xs font-medium text-dark-text-secondary">Result</h4>
         {#if result !== undefined}
           <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <pre tabindex="0" class="max-h-80 overflow-auto overscroll-contain whitespace-pre-wrap break-words border border-dark-border bg-dark-surface p-3 text-xs text-dark-text focus-visible:outline-2 focus-visible:outline-accent">{output ? formatToolPayload(output) : '(Empty result)'}</pre>
+          <pre tabindex="0" class="max-h-80 overflow-auto overscroll-contain whitespace-pre-wrap break-words border border-dark-border p-3 text-xs text-dark-text focus-visible:outline-2 focus-visible:outline-accent">{output ? formatToolPayload(output) : '(Empty result)'}</pre>
         {:else}
           <p class="text-xs text-dark-text-muted">{running ? 'Waiting for the tool to return…' : queued ? 'Waiting for earlier tools to finish.' : 'This conversation has no recorded result for this call.'}</p>
         {/if}

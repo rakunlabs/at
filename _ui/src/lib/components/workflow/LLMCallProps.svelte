@@ -13,7 +13,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Provider</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Provider</span>
   <select
     bind:value={data.provider}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -26,7 +26,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Model</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Model</span>
   <select
     bind:value={data.model}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -39,7 +39,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">System Prompt</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">System Prompt</span>
   <textarea
     bind:value={data.system_prompt}
     rows={3}
@@ -49,7 +49,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output format</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output format</span>
   <select
     bind:value={data.output_format}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -64,7 +64,7 @@
 {#if data.output_format === 'json'}
   <div>
     <label class="block">
-      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">JSON schema (optional)</span>
+      <span class="text-[11px] font-medium text-dark-text-muted">JSON schema (optional)</span>
     <textarea
       bind:value={data.json_schema}
       rows={4}
@@ -77,7 +77,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="The main user message or instruction sent to the LLM. This is required. Falls back to 'text' or 'data' inputs if the prompt port is not connected.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">prompt</span>
@@ -97,7 +97,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Returns a map with the LLM response text. Uses the 'data' port type so it can connect to any downstream node.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">response</span>

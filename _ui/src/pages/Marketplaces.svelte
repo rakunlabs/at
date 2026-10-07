@@ -490,7 +490,7 @@
 
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-6xl mx-auto space-y-6">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <LoadIssues issues={pageLoad.issues} retry={loadAll} {loading} />
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -514,8 +514,8 @@
       </div>
 
       {#if showForm}
-        <div class="border border-dark-border bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <div class="border border-dark-border overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
             <span class="text-sm font-medium text-dark-text">{editingId ? `Edit: ${formName}` : 'New Marketplace'}</span>
             <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <X size={14} />
@@ -665,11 +665,11 @@
                                   <div class="flex items-center gap-2">
                                     {#if upstream.url}
                                       <Link size={11} class="text-dark-text-muted shrink-0" />
-                                      <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">http</span>
+                                      <span class="text-[11px] text-dark-text-muted">http</span>
                                       <code class="text-xs text-dark-text-secondary truncate">{upstream.url}</code>
                                     {:else if upstream.command}
                                       <Terminal size={11} class="text-dark-text-muted shrink-0" />
-                                      <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">stdio</span>
+                                      <span class="text-[11px] text-dark-text-muted">stdio</span>
                                       <code class="text-xs text-dark-text-secondary truncate">{upstream.command} {(upstream.args || []).join(' ')}</code>
                                     {:else}
                                       <span class="text-xs text-dark-text-muted italic">(empty upstream)</span>
@@ -749,7 +749,7 @@
                 {/if}
 
                 {#if formDirectMCPServers.length > 0}
-                  <div class="border border-dark-border bg-dark-surface">
+                  <div class="border border-dark-border">
                     <div class="px-3 py-2 border-b border-dark-border text-xs font-medium text-dark-text-secondary flex items-center justify-between">
                       <span>Added direct MCPs ({formDirectMCPServers.length})</span>
                     </div>
@@ -763,7 +763,7 @@
                               <Terminal size={11} class="text-dark-text-muted shrink-0" />
                             {/if}
                             <span class="text-xs font-mono font-medium text-dark-text">{server.name}</span>
-                            <span class="text-[10px] uppercase tracking-wide text-dark-text-muted">{server.url ? 'http' : 'stdio'}</span>
+                            <span class="text-[11px] text-dark-text-muted">{server.url ? 'http' : 'stdio'}</span>
                             {#if directSources[server.name] && directSources[server.name] !== 'manual'}
                               <span class="text-[10px] px-1.5 py-0.5 bg-dark-elevated text-dark-text-muted">{sourceLabel(server.name)}</span>
                             {/if}
@@ -808,7 +808,7 @@
       </div>
 
       {#if pageLoad.loading('Marketplaces')}
-        <div class="border border-dark-border bg-dark-surface p-8 text-center text-sm text-dark-text-muted">Loading marketplaces...</div>
+        <div class="border border-dark-border p-8 text-center text-sm text-dark-text-muted">Loading marketplaces...</div>
       {:else if pageLoad.error('Marketplaces') && !marketplaces.length}
         <p class="text-sm text-dark-text-secondary">Marketplaces could not be loaded. Retry above.</p>
       {:else if filteredMarketplaces.length === 0}
@@ -824,15 +824,15 @@
       {:else}
         <div class="grid gap-3">
           {#each filteredMarketplaces as market}
-            <div class="border border-dark-border bg-dark-surface overflow-hidden">
+            <div class="border border-dark-border overflow-hidden">
               <div class="p-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2">
                     <Package size={15} class="text-dark-text-muted" />
                     <h2 class="text-sm font-semibold text-dark-text font-mono">{market.name}</h2>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.skills || []).length} skills</span>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.mcp_servers || []).length} at mcp</span>
-                    <span class="px-2 py-0.5 text-[10px] uppercase tracking-wide bg-dark-elevated text-dark-text-secondary">{(market.direct_mcp_servers || []).length} direct mcp</span>
+                    <span class="px-2 py-0.5 text-[11px] bg-dark-elevated text-dark-text-secondary">{(market.skills || []).length} skills</span>
+                    <span class="px-2 py-0.5 text-[11px] bg-dark-elevated text-dark-text-secondary">{(market.mcp_servers || []).length} at mcp</span>
+                    <span class="px-2 py-0.5 text-[11px] bg-dark-elevated text-dark-text-secondary">{(market.direct_mcp_servers || []).length} direct mcp</span>
                   </div>
                   {#if market.description}
                     <p class="text-xs text-dark-text-muted mt-1">{market.description}</p>
@@ -871,7 +871,7 @@
                   <code class="text-xs text-blue-200 truncate">{installCommand(market)}</code>
                 </button>
 
-                <a href={marketplacePluginZipURL(market)} class="w-full flex items-center gap-2 text-left border border-dark-border bg-dark-surface px-3 py-2 hover:bg-dark-elevated" title="Download plugin ZIP">
+                <a href={marketplacePluginZipURL(market)} class="w-full flex items-center gap-2 text-left border border-dark-border px-3 py-2 hover:bg-dark-elevated" title="Download plugin ZIP">
                   <Download size={13} class="text-dark-text-muted shrink-0" />
                   <code class="text-xs text-dark-text-secondary truncate">{marketplacePluginZipURL(market)}</code>
                 </a>

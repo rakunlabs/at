@@ -52,7 +52,7 @@
   <div class="flex items-center justify-between">
     <button
       onclick={() => { showFields = !showFields; }}
-      class="flex items-center gap-1 text-[10px] font-medium text-dark-text-muted uppercase tracking-wider hover:text-dark-text-secondary"
+      class="flex items-center gap-1 text-[11px] font-medium text-dark-text-muted hover:text-dark-text-secondary"
     >
       {#if showFields}<ChevronDown size={10} />{:else}<ChevronRight size={10} />{/if}
       Input Fields ({data.fields.length})
@@ -173,7 +173,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div>
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>

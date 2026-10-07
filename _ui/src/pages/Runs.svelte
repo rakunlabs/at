@@ -95,7 +95,7 @@
   <title>AT | Active Runs</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -123,7 +123,7 @@
   </div>
 
   <!-- Info banner -->
-  <div class="mb-4 border border-dark-border bg-dark-surface px-4 py-2.5 text-xs text-dark-text-muted">
+  <div class="mb-4 border border-dark-border px-4 py-2.5 text-xs text-dark-text-muted">
     Shows workflows currently running. Cancelled runs may take a moment to stop at the next cancellation checkpoint.
   </div>
 
@@ -136,16 +136,16 @@
     emptyDescription="Workflows will appear here while executing"
   >
     {#snippet header()}
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Run ID</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Workflow</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Source</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Started</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Duration</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Run ID</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Workflow</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Source</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Started</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Duration</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs w-24"></th>
     {/snippet}
 
     {#snippet row(run)}
-      <tr class="hover:bg-dark-elevated/50">
+      <tr class="hover:bg-dark-surface">
         <td class="px-4 py-2.5">
           <code class="text-xs font-mono text-dark-text-secondary">{run.id}</code>
         </td>

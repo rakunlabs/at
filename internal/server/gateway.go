@@ -1374,7 +1374,7 @@ func (s *Server) handleStreamingChat(
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
 				Choices: []wire.ChunkChoice{},
-				Usage:   wire.ChatCompletionUsagePtrFromService(*streamUsage),
+				Usage:   s.chatsStreamUsage(r.Context(), providerKey, actualModel, fullModel, *streamUsage),
 			})
 		}
 
@@ -1511,7 +1511,7 @@ func (s *Server) handleStreamingChat(
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
 				Choices: []wire.ChunkChoice{},
-				Usage:   wire.ChatCompletionUsagePtrFromService(resp.Usage),
+				Usage:   s.chatsStreamUsage(r.Context(), providerKey, actualModel, fullModel, resp.Usage),
 			})
 		}
 

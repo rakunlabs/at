@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">SMTP Config</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">SMTP Config</span>
   <select
     bind:value={data.config_id}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -18,7 +18,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">To (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">To (Go template)</span>
   <input
     type="text"
     bind:value={data.to}
@@ -28,7 +28,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">CC (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">CC (Go template)</span>
   <input
     type="text"
     bind:value={data.cc}
@@ -38,7 +38,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">BCC (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">BCC (Go template)</span>
   <input
     type="text"
     bind:value={data.bcc}
@@ -48,7 +48,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Subject (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Subject (Go template)</span>
   <input
     type="text"
     bind:value={data.subject}
@@ -58,7 +58,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Body (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Body (Go template)</span>
   <textarea
     bind:value={data.body}
     rows={4}
@@ -68,7 +68,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Content Type</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Content Type</span>
   <select
     bind:value={data.content_type}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -79,7 +79,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">From Override (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">From Override (Go template)</span>
   <input
     type="text"
     bind:value={data.from}
@@ -89,7 +89,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Reply-To (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Reply-To (Go template)</span>
   <input
     type="text"
     bind:value={data.reply_to}
@@ -99,7 +99,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Attachments (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Attachments (Go template)</span>
   <textarea
     bind:value={data.attachments}
     rows={2}
@@ -110,7 +110,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inline images (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Inline images (Go template)</span>
   <textarea
     bind:value={data.inline_images}
     rows={2}
@@ -126,7 +126,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Upstream data available as template context for all address and body fields.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -151,7 +151,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Activated on successful send. Output includes status='sent'.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">success</span>

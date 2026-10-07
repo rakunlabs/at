@@ -22,7 +22,7 @@
 </script>
 
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Named fields</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">Named fields</span>
   <div class="mt-0.5 space-y-1">
     {#each data.fields as _, i}
       <div class="flex items-center gap-1">
@@ -46,7 +46,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">HTTP response (sync runs)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">HTTP response (sync runs)</span>
     <select
       bind:value={data.response_mode}
       class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -66,7 +66,7 @@
 {#if mode !== 'json'}
   <div>
     <label class="block">
-      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">File path (JSON Pointer)</span>
+      <span class="text-[11px] font-medium text-dark-text-muted">File path (JSON Pointer)</span>
       <input
         type="text"
         bind:value={data.file_path}
@@ -79,7 +79,7 @@
   {#if mode === 'file'}
     <div>
       <label class="block">
-        <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Disposition</span>
+        <span class="text-[11px] font-medium text-dark-text-muted">Disposition</span>
         <select
           bind:value={data.disposition}
           class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -95,7 +95,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="All incoming data from upstream nodes, merged into a single map. The first output node to fire sends its result for synchronous API responses.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">input</span>
@@ -109,7 +109,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="This is a terminal/sink node with no outputs.">
         <span class="text-[11px] text-dark-text-muted italic">None — terminal sink node</span>

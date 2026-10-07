@@ -35,7 +35,7 @@
   }
 </script>
 
-<figure class="border border-dark-border bg-dark-surface">
+<figure class="border border-dark-border">
   <figcaption
     class="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-dark-border bg-dark-elevated"
   >

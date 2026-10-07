@@ -19,7 +19,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Language</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Language</span>
   <select
     bind:value={data.language}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
@@ -30,7 +30,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Inputs</span>
   <input
     type="number"
     bind:value={data.input_count}
@@ -56,7 +56,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Working Dir</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Working Dir</span>
   <input
     type="text"
     bind:value={data.working_dir}
@@ -67,7 +67,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Timeout (sec)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Timeout (sec)</span>
   <input
     type="number"
     bind:value={data.timeout}
@@ -79,7 +79,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Sandbox Root</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Sandbox Root</span>
   <input
     type="text"
     bind:value={data.sandbox_root}
@@ -91,7 +91,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Input data available for template resolution in the command string. Use 'data' (single) or 'data1'...'dataN' (multi-input).">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -116,7 +116,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Activated when exit code is 0. Output includes stdout, stderr, exit_code, result.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">true</span>

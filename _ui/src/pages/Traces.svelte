@@ -271,7 +271,7 @@
         <div class="max-h-[calc(100vh-13rem)] overflow-auto border border-dark-border bg-dark-surface">
           <table class="w-full text-xs">
             <thead class="sticky top-0 bg-dark-base">
-              <tr class="border-b text-left text-[10px] uppercase tracking-wider border-dark-border text-dark-text-muted">
+              <tr class="border-b text-left text-xs border-dark-border text-dark-text-muted">
                 <th class="px-2.5 py-1.5 font-medium">Last activity</th><th class="px-2.5 py-1.5 font-medium">Session</th><th class="px-2.5 py-1.5 font-medium">User</th>
                 <th class="px-2.5 py-1.5 font-medium">Sources</th><th class="px-2.5 py-1.5 text-right font-medium">Traces</th><th class="px-2.5 py-1.5 text-right font-medium">Duration</th>
                 <th class="px-2.5 py-1.5 text-right font-medium">Tokens</th><th class="px-2.5 py-1.5 text-right font-medium">Cost</th><th class="px-2.5 py-1.5 font-medium">Status</th>
@@ -304,7 +304,7 @@
           <div class="min-w-0 flex-1 overflow-auto bg-dark-surface">
             <table class="w-full text-xs">
               <thead class="sticky top-0 bg-dark-base">
-                <tr class="border-b text-left text-[10px] uppercase tracking-wider border-dark-border text-dark-text-muted">
+                <tr class="border-b text-left text-xs border-dark-border text-dark-text-muted">
                   <th class="px-2.5 py-1.5 font-medium">Time</th><th class="px-2.5 py-1.5 font-medium">Model</th><th class="px-2.5 py-1.5 font-medium">Source</th>
                   <th class="px-2.5 py-1.5 text-right font-medium">In → out</th><th class="px-2.5 py-1.5 text-right font-medium">Latency</th><th class="px-2.5 py-1.5 text-right font-medium">TTFT</th><th class="px-2.5 py-1.5 text-right font-medium">Cost</th>
                 </tr>

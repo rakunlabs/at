@@ -282,7 +282,7 @@ Never change IDs, submission/task state, or media. Production is a separate acti
   }
 </script>
 
-<section aria-label="Video brief builder" class="flex w-full min-w-0 flex-col overflow-hidden border border-dark-border bg-dark-surface">
+<section aria-label="Video brief builder" class="flex w-full min-w-0 flex-col overflow-hidden border border-dark-border">
   <div class="border-b px-3 py-3 border-dark-border">
     <h3 class="flex items-center gap-1.5 text-sm font-medium text-dark-text">
       <Bot size={16} class="text-dark-text-muted" />

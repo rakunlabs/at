@@ -246,7 +246,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class={[
-              'bg-dark-surface border border-dark-border border-l-3 p-3.5 hover:border-dark-border-subtle hover:shadow-sm ',
+              'bg-dark-surface border border-dark-border border-l-3 p-3.5 hover:border-dark-border-subtle ',
               statusStripeColor(item.task.status),
               isFailedStatus(item.task.status) ? 'opacity-70' : '',
               'cursor-grab active:cursor-grabbing',
@@ -261,7 +261,7 @@
                 {:else}
                   <span class="text-[10px] font-mono text-dark-text-muted">{item.task.id.slice(0, 8)}</span>
                 {/if}
-                <span class="inline-block px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide {statusBadgeClasses(item.task.status)}">
+                <span class="inline-block px-1.5 py-0.5 text-[11px] font-medium {statusBadgeClasses(item.task.status)}">
                   {TASK_STATUS_LABELS[item.task.status] || item.task.status.replace(/_/g, ' ')}
                 </span>
               </div>

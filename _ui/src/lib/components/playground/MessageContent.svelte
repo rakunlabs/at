@@ -24,7 +24,7 @@
 
 {#snippet pendingUpload(part: ContentPart)}
   {@const url = part.type === 'video_url' ? part.video_url?.url : part.type === 'file' ? part.file?.file_data : part.input_audio ? `data:audio/${part.input_audio.format === 'mp3' ? 'mpeg' : part.input_audio.format};base64,${part.input_audio.data}` : ''}
-  <div class="mb-2 border border-dark-border bg-dark-surface/5">
+  <div class="mb-2 border border-dark-border/5">
     {#if part.type === 'input_audio' && url}
       <audio controls src={url} class="w-full p-1"></audio>
     {:else if part.type === 'video_url' && url}

@@ -1186,7 +1186,7 @@
               {#if inspectorTab === 'parameters'}
                 <div>
                   <label class="block">
-                    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Label</span>
+                    <span class="text-[11px] font-medium text-dark-text-muted">Label</span>
                     <input
                       type="text"
                       bind:value={selectedNodeData.label}
@@ -1266,7 +1266,7 @@
 
             {#if versions.length > 0}
               <div>
-                <label for="run-version-select" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Run Version</label>
+                <label for="run-version-select" class="text-[11px] font-medium text-dark-text-muted">Run Version</label>
                 <select
                   id="run-version-select"
                   bind:value={runVersion}
@@ -1302,7 +1302,7 @@
 
             {#if runResult}
               <div>
-                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
+                <div class="text-[11px] font-medium text-dark-text-muted mb-1">Result</div>
                 <pre class="p-2 bg-dark-elevated border border-dark-border text-[11px] font-mono text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
               </div>
             {/if}
@@ -1326,7 +1326,7 @@
             <!-- Entry Point selector (always show if multiple) -->
             {#if getInputNodes().length > 1}
               <div>
-                <label for="{idPrefix}-entry-select" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Entry Point</label>
+                <label for="{idPrefix}-entry-select" class="text-[11px] font-medium text-dark-text-muted">Entry Point</label>
                 <select
                   id="{idPrefix}-entry-select"
                   bind:value={runEntryNodeId}
@@ -1350,7 +1350,7 @@
               {@const fields = selectedNode?.fields || []}
               <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Inputs</span>
                   <button
                     onclick={() => { runUseForm = false; runInputMode = 'json'; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
                     class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
@@ -1412,7 +1412,7 @@
             {:else}
               <div>
                 <div class="flex items-center justify-between mb-0.5">
-                  <label for="{idPrefix}-inputs" class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</label>
+                  <label for="{idPrefix}-inputs" class="text-[11px] font-medium text-dark-text-muted">Inputs</label>
                   <div class="flex items-center gap-1">
                     {#if getInputNodes().find(n => n.id === runEntryNodeId)?.fields}
                       <button

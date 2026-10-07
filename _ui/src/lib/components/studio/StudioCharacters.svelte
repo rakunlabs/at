@@ -227,7 +227,7 @@
     </div>
 
     {#if showForm}
-      <div class="border border-dark-border bg-dark-surface p-3 mb-3 space-y-2">
+      <div class="border border-dark-border p-3 mb-3 space-y-2">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <input
             bind:value={charName}
@@ -313,7 +313,7 @@
 
   <!-- ── Bible editor ── -->
   {#if selected}
-    <section class="border border-dark-border bg-dark-surface">
+    <section class="border border-dark-border">
       <div class="flex items-center justify-between px-3 py-2 border-b border-dark-border">
         <h3 class="text-xs font-semibold text-dark-text">
           Character bible — {selected.manifest.name}
@@ -401,7 +401,7 @@
       <h2 class="text-sm font-semibold text-dark-text flex items-center gap-1.5 mb-2">
         <Video size={14} /> Quick talking-head video — {selected.manifest.name}
       </h2>
-      <div class="border border-dark-border bg-dark-surface p-3 space-y-2">
+      <div class="border border-dark-border p-3 space-y-2">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div class="flex items-center gap-1.5">
             <Mic size={12} class="shrink-0 text-dark-text-muted" />

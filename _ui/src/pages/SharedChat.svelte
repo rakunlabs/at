@@ -71,8 +71,8 @@
         <p class="mt-2 text-sm text-dark-text-secondary">{error || 'The link may have been revoked, or you no longer have access to its workspace.'}</p>
       </div>
     {:else}
-      <header class="border border-dark-border bg-dark-surface">
-        <div class="flex flex-col gap-3 border-b px-4 py-3 border-dark-border bg-dark-base sm:flex-row sm:items-start sm:justify-between">
+      <header class="border border-dark-border">
+        <div class="flex flex-col gap-3 border-b px-4 py-3 border-dark-border sm:flex-row sm:items-start sm:justify-between">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <MessageSquareText size={16} class="text-purple-400" />
@@ -113,7 +113,7 @@
         {#each share.payload.messages as message}
           <article class={['flex', message.role === 'user' ? 'justify-end' : 'justify-start']}>
             <div class={['max-w-[85%] border px-3 py-2.5', message.role === 'user' ? 'border-purple-900/60 bg-purple-900/15' : message.role === 'tool' ? 'border-dark-border-subtle bg-dark-elevated' : 'border-dark-border bg-dark-surface']}>
-              <div class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-dark-text-muted">{message.role}</div>
+              <div class="mb-1 text-[11px] font-semibold text-dark-text-muted">{message.role}</div>
               {#if contentParts(message.data.content).length > 0}
                 {#each contentParts(message.data.content) as part}
                   {#if part.type === 'image' && part.media_id}

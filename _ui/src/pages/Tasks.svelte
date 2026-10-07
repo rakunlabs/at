@@ -568,7 +568,7 @@
   <!-- Form -->
   {#if showForm}
     <div class="border border-dark-border mb-4 bg-dark-surface overflow-hidden shrink-0">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formTitle}` : 'New Task'}
         </span>
@@ -765,18 +765,18 @@
       >
         {#snippet header()}
           <SortableHeader field="title" label="Title" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Priority</th>
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Organization</th>
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Assigned Agent</th>
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Checked Out</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Priority</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Organization</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Assigned Agent</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Checked Out</th>
           <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
+          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-36"></th>
         {/snippet}
 
         {#snippet row(task)}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <tr class="hover:bg-dark-elevated/50" oncontextmenu={(e) => openContextMenu(e, task)}>
+          <tr class="hover:bg-dark-surface" oncontextmenu={(e) => openContextMenu(e, task)}>
             <td class="px-4 py-2.5">
               <div class="flex items-center gap-2">
                 {#if task.identifier}

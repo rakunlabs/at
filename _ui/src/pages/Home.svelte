@@ -48,12 +48,12 @@
   <!-- Stats -->
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
     <!-- Providers count -->
-    <div class="min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
+    <div class="min-w-0 border border-dark-border p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-dark-elevated">
           <Cpu size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Providers</span>
+        <span class="text-xs text-dark-text-muted font-medium">Providers</span>
       </div>
       {#if loading}
         <div class="text-2xl font-bold text-dark-text-faint">--</div>
@@ -70,12 +70,12 @@
     </div>
 
     <!-- Models count -->
-    <div class="min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
+    <div class="min-w-0 border border-dark-border p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-dark-elevated">
           <Layers size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Models</span>
+        <span class="text-xs text-dark-text-muted font-medium">Models</span>
       </div>
       {#if loading}
         <div class="text-2xl font-bold text-dark-text-faint">--</div>
@@ -86,12 +86,12 @@
     </div>
 
     <!-- Store -->
-    <div class="col-span-2 sm:col-span-1 min-w-0 border border-dark-border bg-dark-surface p-4 sm:p-5">
+    <div class="col-span-2 sm:col-span-1 min-w-0 border border-dark-border p-4 sm:p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-dark-elevated">
           <Database size={14} class="text-dark-text-muted" />
         </div>
-        <span class="text-xs text-dark-text-muted uppercase tracking-wider font-medium">Store</span>
+        <span class="text-xs text-dark-text-muted font-medium">Store</span>
       </div>
       {#if loading}
         <div class="text-2xl font-bold text-dark-text-faint">--</div>
@@ -108,7 +108,7 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
     <a
       href="#/chats"
-      class="border border-dark-border bg-dark-surface p-4 hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group"
+      class="border border-dark-border p-4 hover:border-dark-border-subtle flex items-center justify-between group"
     >
       <div class="flex items-center gap-3">
         <div class="p-2 bg-dark-elevated group-hover:bg-dark-highest">
@@ -124,7 +124,7 @@
 
     <a
       href="#/providers"
-      class="border border-dark-border bg-dark-surface p-4 hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group"
+      class="border border-dark-border p-4 hover:border-dark-border-subtle flex items-center justify-between group"
     >
       <div class="flex items-center gap-3">
         <div class="p-2 bg-dark-elevated group-hover:bg-dark-highest">
@@ -168,14 +168,14 @@
     {/snippet}
 
     {#snippet header()}
-      <th scope="col" class="w-[22%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Provider</th>
-      <th scope="col" class="w-[18%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Default Model</th>
-      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+      <th scope="col" class="w-[22%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Provider</th>
+      <th scope="col" class="w-[18%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Type</th>
+      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Default Model</th>
+      <th scope="col" class="w-[30%] text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Models</th>
     {/snippet}
 
     {#snippet row(p)}
-      <tr class="hover:bg-dark-elevated/50">
+      <tr class="hover:bg-dark-surface">
         <td class="px-4 py-2.5 break-all align-top font-mono font-medium text-dark-text">{p.key}{#if p.shared}<span class="ml-2 font-sans text-xs font-normal text-dark-text-muted">Shared</span>{/if}</td>
         <td class="px-4 py-2.5 break-all align-top">
           <span class="px-2 py-0.5 text-xs bg-dark-elevated text-dark-text-secondary font-mono">{p.type}</span>
@@ -198,7 +198,7 @@
   </DataTable>
 
   <!-- API endpoint info -->
-  <div class="mt-4 border border-dark-border bg-dark-surface overflow-hidden">
+  <div class="mt-4 border border-dark-border overflow-hidden">
     <div class="px-4 py-3 border-b border-dark-border">
       <span class="text-sm font-medium text-dark-text">API Endpoints</span>
     </div>

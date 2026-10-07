@@ -5,7 +5,7 @@
 </script>
 
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Public</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">Public</span>
   <label class="mt-0.5 flex items-center gap-1.5 cursor-pointer">
     <input
       type="checkbox"
@@ -19,7 +19,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Alias</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Alias</span>
   <input
     type="text"
     bind:value={data.alias}
@@ -30,7 +30,7 @@
 </div>
 <div>
   {#if data.trigger_id}
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Webhook URL</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Webhook URL</span>
     <div class="mt-0.5 px-2 py-1 text-[10px] font-mono text-dark-text-secondary bg-dark-surface border border-dark-border break-all">
       {deploymentUrl(`webhooks/${data.alias || data.trigger_id}`)}
     </div>
@@ -47,7 +47,7 @@
   {/if}
 </div>
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Fields</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">Output Fields</span>
   <div class="mt-0.5 px-2 py-1.5 bg-dark-surface border border-dark-border text-[10px] font-mono text-dark-text-secondary space-y-0.5">
     <div><span class="text-dark-text-muted">data.</span>method <span class="text-dark-text-muted font-sans">— HTTP method</span></div>
     <div><span class="text-dark-text-muted">data.</span>path <span class="text-dark-text-muted font-sans">— request path</span></div>
@@ -74,7 +74,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="This is a trigger/source node with no runtime inputs.">
         <span class="text-[11px] text-dark-text-muted italic">None — trigger source node</span>
@@ -82,7 +82,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="HTTP request data including method, path, query, headers, and body.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>

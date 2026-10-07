@@ -2099,7 +2099,7 @@
   <title>AT | Providers</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex flex-wrap items-start justify-between gap-3 mb-6">
     <div>
@@ -2168,7 +2168,7 @@
         {#each PRESETS as preset}
           <button
             onclick={() => applyPreset(preset)}
-            class="text-left border border-dark-border p-3 hover:border-dark-border-subtle hover:shadow-sm group"
+            class="text-left border border-dark-border p-3 hover:border-dark-border-subtle group"
           >
             <div class="font-medium text-sm text-dark-text group-hover:text-dark-text">{preset.name}</div>
             <div class="text-xs text-dark-text-muted mt-1 leading-relaxed">{preset.description}</div>
@@ -3243,9 +3243,9 @@
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
         <SortableHeader field="model" label="Model" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
-        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
-        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Models</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Base URL</th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-28"></th>
       {/snippet}
 
       {#snippet row(rec)}
@@ -3289,7 +3289,7 @@
                 <Layers size={12} class="shrink-0" />
                 {chatModels.length} {chatModels.length === 1 ? 'model' : 'models'}
                 {#if embeddingModels.length > 0}
-                  <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-900/20 text-violet-400 border border-violet-800">
+                  <span class="px-1 py-0.5 text-[11px] bg-violet-900/20 text-violet-400 border border-violet-800">
                     +{embeddingModels.length} emb
                   </span>
                 {/if}
@@ -3457,7 +3457,7 @@
         <div class="max-h-[60vh] overflow-y-auto p-4 space-y-4">
           {#if (modelsViewProvider.config.models || []).length > 0}
             <div>
-              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-dark-text-muted">
+              <p class="mb-2 text-xs font-medium text-dark-text-muted">
                 Chat models ({(modelsViewProvider.config.models || []).length})
               </p>
               <ul class="border border-dark-border divide-y divide-dark-border">
@@ -3465,7 +3465,7 @@
                   <li class="flex items-center justify-between gap-2 px-3 py-1.5 font-mono text-xs text-dark-text-secondary">
                     <span class="break-all">{model}</span>
                     {#if model === modelsViewProvider.config.model}
-                      <span class="shrink-0 border border-dark-border-subtle px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-dark-text-muted">
+                      <span class="shrink-0 border border-dark-border-subtle px-1.5 py-0.5 font-sans text-[11px] text-dark-text-muted">
                         default
                       </span>
                     {/if}
@@ -3477,7 +3477,7 @@
 
           {#if (modelsViewProvider.config.embedding_models || []).length > 0}
             <div>
-              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-violet-400">
+              <p class="mb-2 text-xs font-medium text-violet-400">
                 Embedding models ({(modelsViewProvider.config.embedding_models || []).length})
               </p>
               <ul class="border border-violet-800 divide-y divide-violet-900/40">

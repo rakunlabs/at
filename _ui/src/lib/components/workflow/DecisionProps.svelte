@@ -52,7 +52,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Decision provider</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Decision provider</span>
     <select
       bind:value={data.provider}
       class="mt-0.5 w-full px-2 py-1 text-xs border focus:outline-none focus:ring-1 focus:ring-dark-border-subtle border-dark-border bg-dark-surface"
@@ -69,7 +69,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Checkpoint</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Checkpoint</span>
     <select
       bind:value={data.model}
       class="mt-0.5 w-full px-2 py-1 text-xs border focus:outline-none focus:ring-1 focus:ring-dark-border-subtle border-dark-border bg-dark-surface"
@@ -83,7 +83,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Questions (JSON)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Questions (JSON)</span>
     <textarea
       bind:value={questionsText}
       oninput={onQuestionsInput}
@@ -102,7 +102,7 @@
 </div>
 <div class="grid grid-cols-2 gap-2">
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Escalate below</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Escalate below</span>
     <input
       type="number"
       min="0"
@@ -114,7 +114,7 @@
     />
   </label>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Max tokens</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Max tokens</span>
     <input
       type="number"
       min="0"
@@ -129,7 +129,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div>
         <span class="text-[11px] font-mono font-medium text-dark-text">state</span>
@@ -138,7 +138,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div>
         <span class="text-[11px] font-mono font-medium text-dark-text">decided</span>

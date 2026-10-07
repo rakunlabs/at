@@ -27,13 +27,13 @@
 
 <dl class="grid gap-px border border-dark-border bg-dark-border">
   <div class="bg-dark-surface p-3">
-    <dt class="text-[11px] font-medium uppercase tracking-wider text-dark-text-secondary">
+    <dt class="text-[11px] font-medium text-dark-text-secondary">
       Marketplace ZIP
     </dt>
     <dd class="mt-1 break-all font-mono text-[12px] text-dark-text">{zipUrl}</dd>
   </div>
   <div class="bg-dark-surface p-3">
-    <dt class="text-[11px] font-medium uppercase tracking-wider text-dark-text-secondary">
+    <dt class="text-[11px] font-medium text-dark-text-secondary">
       Manifest JSON
     </dt>
     <dd class="mt-1 break-all font-mono text-[12px] text-dark-text">{jsonUrl}</dd>

@@ -368,7 +368,7 @@
 
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-6xl mx-auto">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
       <LoadIssues issues={pageLoad.issues} retry={loadData} {loading} />
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
@@ -398,7 +398,7 @@
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
             <span class="text-sm font-medium text-dark-text">
               {editingId ? `Edit: ${formName || formPlatform}` : 'New Bot'}
             </span>
@@ -796,17 +796,17 @@
                 </div>
                 <div class="grid grid-cols-3 gap-2">
                   <label class="block">
-                    <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
+                    <span class="text-[11px] text-dark-text-muted block mb-0.5">Image</span>
                     <input type="text" bind:value={formContainerImage} placeholder="at-agent-runtime:latest"
                       class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text" />
                   </label>
                   <label class="block">
-                    <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU</span>
+                    <span class="text-[11px] text-dark-text-muted block mb-0.5">CPU</span>
                     <input type="text" bind:value={formContainerCpu} placeholder="1"
                       class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text" />
                   </label>
                   <label class="block">
-                    <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory</span>
+                    <span class="text-[11px] text-dark-text-muted block mb-0.5">Memory</span>
                     <input type="text" bind:value={formContainerMemory} placeholder="2g"
                       class="w-full px-2 py-1 text-xs font-mono border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text" />
                   </label>
@@ -899,7 +899,7 @@
                       {/if}
                       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <label class="block">
-                          <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Route to organization</span>
+                          <span class="text-[11px] text-dark-text-muted block mb-0.5">Route to organization</span>
                           <select
                             bind:value={cmd.organization_id}
                             required={!!cmd.video_template_id}
@@ -915,7 +915,7 @@
                           </select>
                         </label>
                         <label class="block">
-                          <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">…or assign to agent</span>
+                          <span class="text-[11px] text-dark-text-muted block mb-0.5">…or assign to agent</span>
                           <select
                             bind:value={cmd.agent_id}
                             disabled={!!cmd.video_template_id}
@@ -933,7 +933,7 @@
                         </label>
                       </div>
                       <label class="block">
-                        <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Brief template</span>
+                        <span class="text-[11px] text-dark-text-muted block mb-0.5">Brief template</span>
                         <textarea
                           bind:value={cmd.brief}
                           disabled={!!cmd.video_template_id}
@@ -945,7 +945,7 @@
                       </label>
                       <div class="grid grid-cols-2 gap-2">
                         <label class="block">
-                          <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Title prefix</span>
+                          <span class="text-[11px] text-dark-text-muted block mb-0.5">Title prefix</span>
                           <input
                             type="text"
                             bind:value={cmd.title_prefix}
@@ -954,7 +954,7 @@
                           />
                         </label>
                         <label class="block">
-                          <span class="text-[10px] text-dark-text-muted uppercase tracking-wider block mb-0.5">Max iterations (0 = agent default)</span>
+                          <span class="text-[11px] text-dark-text-muted block mb-0.5">Max iterations (0 = agent default)</span>
                           <input
                             type="number"
                             min="0"
@@ -1024,15 +1024,15 @@
           {#snippet header()}
             <SortableHeader field="platform" label="Platform" {sorts} onsort={handleSort} />
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Agent</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Access</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Agent</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Token</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Access</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
           {/snippet}
 
           {#snippet row(bot)}
-            <tr class="hover:bg-dark-elevated/50">
+            <tr class="hover:bg-dark-surface">
               <td class="px-4 py-2.5">
                 <span class={[
                   'px-2 py-0.5 text-xs font-medium',

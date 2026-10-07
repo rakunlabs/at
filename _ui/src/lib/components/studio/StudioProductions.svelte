@@ -161,7 +161,7 @@
       {:else}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           {#each longVideos.filter((project) => project.output?.final_video) as project (project.brief.id)}
-            <article class="border border-dark-border bg-dark-surface">
+            <article class="border border-dark-border">
               <!-- svelte-ignore a11y_media_has_caption -->
               <video controls preload="metadata" aria-label={project.brief.title} src={fileServeUrl(episodeAssetPath(project.dir, project.output?.final_video || ''), project.output?.updated_at)} class="w-full aspect-video bg-black object-contain"></video>
               <div class="p-3 flex items-center gap-2">
@@ -187,7 +187,7 @@
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         {#each finalEpisodes as item (`${item.series.slug}-${item.episode.manifest.number}`)}
-          <article class="border border-dark-border bg-dark-surface">
+          <article class="border border-dark-border">
             <!-- svelte-ignore a11y_media_has_caption -->
             <video controls preload="metadata" src={fileServeUrl(item.videoPath, item.episode.manifest.updated_at)} class="w-full aspect-video bg-black object-contain"></video>
             <div class="p-2.5 flex items-center gap-2">
@@ -214,7 +214,7 @@
               {#if RUNNING.includes(t.status)}<Loader2 size={12} class="animate-spin text-amber-500 shrink-0" />{/if}
               <a href={`#/tasks/${t.id}`} class="text-xs font-medium text-dark-text hover:underline truncate">{t.identifier ? `${t.identifier} — ` : ''}{t.title}</a>
               {#if structured}<span class="hidden sm:inline text-[9px] px-1 py-px bg-dark-elevated text-dark-text-muted">structured</span>{/if}
-              <span class={['ml-auto text-[10px] font-medium uppercase shrink-0', statusColor(t.status)]}>{t.status}</span>
+              <span class={['ml-auto text-[11px] font-medium shrink-0', statusColor(t.status)]}>{t.status}</span>
               <a href={`#/tasks/${t.id}`} class="text-dark-text-muted hover:text-dark-text-secondary shrink-0" title="Open task"><ExternalLink size={11} /></a>
             </div>
             {#if vp}

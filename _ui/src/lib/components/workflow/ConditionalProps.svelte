@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Expression (JS)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Expression (JS)</span>
   <textarea
     bind:value={data.expression}
     rows={3}
@@ -16,7 +16,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Upstream data exposed as 'data' variable in the JS expression.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -26,7 +26,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Activated when the expression evaluates to true. All input data passed through plus 'result' field.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">true</span>

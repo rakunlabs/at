@@ -626,21 +626,21 @@
 
         <div class="grid grid-cols-4 gap-2 mb-3">
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Spent</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block">Spent</span>
             <span class="text-sm font-mono font-medium text-dark-text">{formatBudget(spentCents)}</span>
           </div>
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Limit</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block">Limit</span>
             <span class="text-sm font-mono font-medium text-dark-text">{limitCents > 0 ? formatBudget(limitCents) : 'Unlimited'}</span>
           </div>
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Remaining</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block">Remaining</span>
             <span class="text-sm font-mono font-medium" class:text-red-400={limitCents > 0 && spentCents >= limitCents} class:text-dark-text={limitCents === 0 || spentCents < limitCents}>
               {limitCents > 0 ? formatBudget(Math.max(0, limitCents - spentCents)) : 'Unlimited'}
             </span>
           </div>
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
-            <span class="text-[9px] font-medium text-dark-text-muted uppercase tracking-wider block">Period</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block">Period</span>
             <span class="text-[11px] font-medium text-dark-text-secondary">
               {organizationBudget ? `Resets ${formatBudgetReset(organizationBudget.next_reset_at)}` : 'Unavailable'}
             </span>
@@ -676,7 +676,7 @@
 
         <div class="flex items-end gap-3">
           <label class="block w-56">
-            <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Period limit (USD)</span>
             <div class="relative">
               <DollarSign size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-muted" />
               <input
@@ -726,7 +726,7 @@
           {#if containerConfig.enabled}
             <!-- Image -->
             <label class="block col-span-2">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
+              <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Image</span>
               <input
                 type="text"
                 bind:value={containerConfig.image}
@@ -737,7 +737,7 @@
 
             <!-- CPU -->
             <label class="block">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</span>
+              <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">CPU Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.cpu}
@@ -748,7 +748,7 @@
 
             <!-- Memory -->
             <label class="block">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</span>
+              <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Memory Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.memory}
@@ -819,17 +819,17 @@
           </div>
           <div class="p-3 space-y-3 overflow-y-auto flex-1">
             <label class="block">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Title *</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Title *</span>
               <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text" />
             </label>
             <label class="block">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Description</span>
               <textarea bind:value={taskDescription} rows="3" placeholder="Additional context..."
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text resize-y"></textarea>
             </label>
             <label class="block">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Priority</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Priority</span>
               <select bind:value={taskPriority}
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text">
                 <option value="">None</option>
@@ -840,7 +840,7 @@
             </label>
             {#if orgGoals.length > 0}
               <label class="block">
-                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Goal</span>
+                <span class="text-[11px] font-medium text-dark-text-muted">Goal</span>
                 <select bind:value={taskGoalId}
                   class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-accent/20 bg-dark-elevated text-dark-text">
                   <option value="">None</option>
@@ -926,38 +926,38 @@
               <div class="flex items-center gap-2.5">
                 <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 rounded-full shrink-0 bg-dark-elevated" />
                 <div>
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Name</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Name</span>
                   <div class="text-xs font-medium text-dark-text mt-0.5">{agent.name}</div>
                 </div>
               </div>
               {#if membership.title}
                 <div>
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Title</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Title</span>
                   <div class="text-xs text-dark-text-secondary mt-0.5">{membership.title}</div>
                 </div>
               {/if}
               {#if membership.role}
                 <div>
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Role</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Role</span>
                   <div class="text-xs text-dark-text-secondary mt-0.5">{membership.role}</div>
                 </div>
               {/if}
               {#if agent.config.model}
                 <div>
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Model</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Model</span>
                   <div class="text-xs text-dark-text-secondary font-mono mt-0.5">{agent.config.model}</div>
                 </div>
               {/if}
               {#if agent.config.description}
                 <div>
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Description</span>
                   <div class="text-xs text-dark-text-muted mt-0.5">{agent.config.description}</div>
                 </div>
               {/if}
 
               <!-- Parent selector -->
               <div>
-                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Reports To</span>
+                <span class="text-[11px] font-medium text-dark-text-muted">Reports To</span>
                 <select
                   value={membership.parent_agent_id || ''}
                   onchange={(e) => setAgentParent(membership.agent_id, (e.target as HTMLSelectElement).value || null)}
@@ -973,7 +973,7 @@
 
               <!-- Heartbeat schedule -->
               <div>
-                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Heartbeat Schedule</span>
+                <span class="text-[11px] font-medium text-dark-text-muted">Heartbeat Schedule</span>
                 <input
                   type="text"
                   value={membership.heartbeat_schedule || ''}

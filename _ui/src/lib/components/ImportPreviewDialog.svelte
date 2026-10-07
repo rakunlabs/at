@@ -53,7 +53,7 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
   <div class="bg-dark-surface border border-dark-border w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-lg">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
       <div class="flex items-center gap-2">
         <span class="text-sm font-medium text-dark-text">Import Preview</span>
         {#if hasConflicts > 0}
@@ -73,7 +73,7 @@
       <!-- Organization -->
       {#if preview.organization}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Organization</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">Organization</h3>
           {@render entityRow('organization', preview.organization.name, preview.organization.conflict)}
         </div>
       {/if}
@@ -81,7 +81,7 @@
       <!-- Agents -->
       {#if (preview.agents || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Agents ({preview.agents.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">Agents ({preview.agents.length})</h3>
           <div class="space-y-1">
             {#each preview.agents as agent}
               {@render entityRow('agent', agent.name, agent.conflict)}
@@ -93,7 +93,7 @@
       <!-- Skills -->
       {#if (preview.skills || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Skills ({preview.skills.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">Skills ({preview.skills.length})</h3>
           <div class="space-y-1">
             {#each preview.skills as skill}
               {@render entityRow('skill', skill.name, skill.conflict)}
@@ -105,7 +105,7 @@
       <!-- MCP Sets -->
       {#if (preview.mcp_sets || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">MCP Sets ({preview.mcp_sets.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">MCP Sets ({preview.mcp_sets.length})</h3>
           <div class="space-y-1">
             {#each preview.mcp_sets as ms}
               {@render entityRow('mcp_set', ms.name, ms.conflict)}
@@ -117,7 +117,7 @@
       <!-- MCP Servers -->
       {#if (preview.mcp_servers || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">MCP Servers ({preview.mcp_servers.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">MCP Servers ({preview.mcp_servers.length})</h3>
           <div class="space-y-1">
             {#each preview.mcp_servers as ms}
               {@render entityRow('mcp_server', ms.name, ms.conflict)}
@@ -129,7 +129,7 @@
       <!-- Relationships -->
       {#if (preview.relationships || []).length > 0}
         <div>
-          <h3 class="text-xs font-medium text-dark-text-muted uppercase tracking-wider mb-2">Relationships ({preview.relationships.length})</h3>
+          <h3 class="text-xs font-medium text-dark-text-muted mb-2">Relationships ({preview.relationships.length})</h3>
           <div class="space-y-1">
             {#each preview.relationships as rel}
               <div class="flex items-center gap-2 px-3 py-1.5 bg-dark-base/50 border border-dark-border text-xs">
@@ -151,7 +151,7 @@
     </div>
 
     <!-- Footer -->
-    <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base/50">
+    <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border">
       <button
         onclick={oncancel}
         class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary"

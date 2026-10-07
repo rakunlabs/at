@@ -1066,7 +1066,7 @@
           <!-- Description -->
           <div class="group">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wider">Description</span>
+              <span class="text-xs font-medium text-dark-text-muted">Description</span>
               {#if !editingDescription}
                 <button onclick={startEditDescription}
                   class="p-1 opacity-0 group-hover:opacity-100 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text" title="Edit description">
@@ -1111,9 +1111,9 @@
 
           <!-- Result -->
           {#if task.result}
-            <div class="border border-dark-border bg-dark-surface">
+            <div class="border border-dark-border">
               <div class="px-3 py-2 border-b border-dark-border">
-                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wider">Result</span>
+                <span class="text-xs font-medium text-dark-text-muted">Result</span>
               </div>
               <div class="px-3 py-3">
                 <Markdown
@@ -1192,7 +1192,7 @@
           <div class="min-h-[200px]">
             {#if activeTab === 'activity'}
               <!-- ─── Activity / Chat panel ─── -->
-              <div class="flex flex-col h-[550px] border border-dark-border bg-dark-surface overflow-hidden">
+              <div class="flex flex-col h-[550px] border border-dark-border overflow-hidden">
                 <!-- Chat messages area -->
                 <div bind:this={chatMessagesContainer} onscroll={handleChatScroll} class="flex-1 overflow-y-auto min-h-0">
                   {#if chatLoading}
@@ -1396,9 +1396,9 @@
               {/if}
             {:else if activeTab === 'events'}
               <!-- ─── Live observation timeline for the whole delegation tree ─── -->
-              <div class="border border-dark-border bg-dark-surface">
+              <div class="border border-dark-border">
                 <div class="px-3 py-2 border-b border-dark-border flex items-center justify-between">
-                  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Trace Timeline</span>
+                  <span class="text-[11px] font-medium text-dark-text-muted">Trace Timeline</span>
                   <button
                     onclick={loadEvents}
                     class="flex items-center gap-1 text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
@@ -1467,13 +1467,13 @@
                           <div class="px-3 pb-2 space-y-1.5">
                             {#if e.input}
                               <div>
-                                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-0.5">Input</div>
+                                <div class="text-[11px] font-medium text-dark-text-muted mb-0.5">Input</div>
                                 <pre class="text-[10px] leading-relaxed p-2 bg-dark-elevated border border-dark-border overflow-x-auto max-h-40 text-dark-text-secondary whitespace-pre-wrap break-words">{e.input}</pre>
                               </div>
                             {/if}
                             {#if e.output}
                               <div>
-                                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-0.5">Output</div>
+                                <div class="text-[11px] font-medium text-dark-text-muted mb-0.5">Output</div>
                                 <pre class="text-[10px] leading-relaxed p-2 bg-dark-elevated border border-dark-border overflow-x-auto max-h-40 text-dark-text-secondary whitespace-pre-wrap break-words">{e.output}</pre>
                               </div>
                             {/if}
@@ -1496,7 +1496,7 @@
                 {#if taskLabels.length > 0}
                   <div class="flex flex-wrap gap-2 mb-4">
                     {#each taskLabels as label}
-                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-dark-border bg-dark-surface">
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-dark-border">
                         {#if label.color}
                           <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
                         {/if}
@@ -1524,7 +1524,7 @@
 
                 {#if showLabelPicker}
                   <!-- Inline create label -->
-                  <div class="border border-dark-border bg-dark-surface p-3 mb-2">
+                  <div class="border border-dark-border p-3 mb-2">
                     <div class="flex items-center gap-2 mb-2">
                       <input
                         type="text"
@@ -1559,7 +1559,7 @@
 
                   <!-- Existing labels list -->
                   {#if allLabels.length > 0}
-                    <div class="border border-dark-border bg-dark-surface max-h-48 overflow-y-auto">
+                    <div class="border border-dark-border max-h-48 overflow-y-auto">
                       {#each allLabels as label}
                         <button
                           onclick={() => toggleLabel(label)}
@@ -1585,9 +1585,9 @@
         <!-- Side panel -->
         <div class="w-72 shrink-0 space-y-4">
           <!-- Status -->
-          <div class="border border-dark-border bg-dark-surface">
+          <div class="border border-dark-border">
             <div class="px-3 py-2 border-b border-dark-border">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Status</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Status</span>
             </div>
             <div class="px-3 py-2">
               <select
@@ -1606,9 +1606,9 @@
           </div>
 
           <!-- Priority -->
-          <div class="border border-dark-border bg-dark-surface">
+          <div class="border border-dark-border">
             <div class="px-3 py-2 border-b border-dark-border">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Priority</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Priority</span>
             </div>
             <div class="px-3 py-2">
               <select
@@ -1625,9 +1625,9 @@
           </div>
 
           <!-- Properties -->
-          <div class="border border-dark-border bg-dark-surface">
+          <div class="border border-dark-border">
             <div class="px-3 py-2 border-b border-dark-border">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Properties</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Properties</span>
             </div>
             <div class="divide-y divide-dark-border text-sm">
               <!-- Organization -->
@@ -1790,9 +1790,9 @@
           </div>
 
           <!-- Dates -->
-          <div class="border border-dark-border bg-dark-surface">
+          <div class="border border-dark-border">
             <div class="px-3 py-2 border-b border-dark-border">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Dates</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Dates</span>
             </div>
             <div class="divide-y divide-dark-border text-sm">
               <div class="px-3 py-2 flex items-center gap-2">
@@ -1838,9 +1838,9 @@
 
           <!-- Actions -->
           {#if task.organization_id}
-            <div class="border border-dark-border bg-dark-surface">
+            <div class="border border-dark-border">
               <div class="px-3 py-2 border-b border-dark-border">
-                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Actions</span>
+                <span class="text-[11px] font-medium text-dark-text-muted">Actions</span>
               </div>
               <div class="px-3 py-2 space-y-2">
                 {#if delegationActive}
@@ -1944,7 +1944,7 @@
           <!-- Danger zone -->
           <div class="border border-red-900/30 bg-dark-surface">
             <div class="px-3 py-2 border-b border-red-900/20">
-              <span class="text-[10px] font-medium text-red-400 uppercase tracking-wider">Danger Zone</span>
+              <span class="text-[11px] font-medium text-red-400">Danger Zone</span>
             </div>
             <div class="px-3 py-2">
               {#if deleteConfirm}

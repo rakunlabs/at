@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Provider</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Provider</span>
   <select
     bind:value={data.provider}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -17,7 +17,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Model</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Model</span>
   <select
     bind:value={data.model}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -28,7 +28,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Voice</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Voice</span>
   <select
     bind:value={data.voice}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -43,7 +43,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Response Format</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Response Format</span>
   <select
     bind:value={data.response_format}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle"
@@ -56,7 +56,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Speed</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Speed</span>
   <input
     type="number"
     bind:value={data.speed}
@@ -70,7 +70,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Text content to convert to speech.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">text</span>
@@ -80,7 +80,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Generated audio data.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">output</span>

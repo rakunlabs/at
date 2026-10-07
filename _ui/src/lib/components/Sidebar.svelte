@@ -42,8 +42,8 @@
   const navClass = (active: boolean) => [
     'flex min-w-0 items-center gap-2 px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
     active
-      ? 'bg-dark-elevated font-semibold'
-      : 'text-dark-text-secondary hover:bg-dark-elevated',
+      ? 'bg-dark-elevated font-semibold text-dark-text [&>svg]:text-oc-peach'
+      : 'text-dark-text-muted hover:bg-dark-surface hover:text-dark-text',
   ];
 
   function updateScrollThumb() {
@@ -91,7 +91,7 @@
     };
   });
 </script>
-<aside class="app-sidebar relative h-full overflow-hidden border-r border-dark-border bg-dark-surface">
+<aside class="app-sidebar relative h-full overflow-hidden border-r border-dark-border bg-dark-base">
   <div bind:this={scroller} onscroll={handleScroll} class="sidebar-scroller h-full overflow-y-auto">
     <div bind:this={scrollContent} class="flex min-h-full flex-col">
       <div class="flex items-center justify-between gap-2 pr-2">

@@ -27,7 +27,7 @@
   ];
 </script>
 
-<ul class="border border-dark-border bg-dark-surface">
+<ul class="border border-dark-border">
   {#each endpoints as ep (ep.path)}
     <li class="border-b p-3 last:border-b-0 border-dark-border">
       <div class="flex flex-wrap items-center gap-2">

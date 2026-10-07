@@ -139,7 +139,7 @@
     <div class="flex flex-wrap items-center gap-2">
       <button onclick={onback} class="inline-flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text" title="Back (Esc)"><ArrowLeft size={14} /> Traces</button>
       <span class="text-dark-border">/</span>
-      <span class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Trace</span>
+      <span class="text-[11px] font-semibold text-dark-text-muted">Trace</span>
       <h2 class="min-w-0 truncate text-sm font-semibold text-dark-text">{t?.name || traceID}</h2>
       {#if t && t.error_count > 0}<span class="px-1.5 py-0.5 text-[10px] bg-red-900/30 text-red-300">{t.error_count} error{t.error_count === 1 ? '' : 's'}</span>{/if}
       {#each t?.tags || [] as tag}<span class="border px-1.5 py-0.5 text-[10px] border-dark-border text-dark-text-secondary">{tag}</span>{/each}

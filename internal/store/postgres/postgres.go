@@ -55,6 +55,7 @@ type Postgres struct {
 	tableTokenUsage                 exp.IdentifierExpression
 	tableUserPreferences            exp.IdentifierExpression
 	tableWorkspaceChatPresets       exp.IdentifierExpression
+	tableWorkspaceChatCommands      exp.IdentifierExpression
 	tableOrganizations              exp.IdentifierExpression
 	tableGoals                      exp.IdentifierExpression
 	tableTasks                      exp.IdentifierExpression
@@ -244,6 +245,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableTokenUsage:                 goqu.T(tablePrefix + "token_usage"),
 		tableUserPreferences:            goqu.T(tablePrefix + "user_preferences"),
 		tableWorkspaceChatPresets:       goqu.T(tablePrefix + "workspace_chat_presets"),
+		tableWorkspaceChatCommands:      goqu.T(tablePrefix + "workspace_chat_commands"),
 		tableOrganizations:              goqu.T(tablePrefix + "organizations"),
 		tableGoals:                      goqu.T(tablePrefix + "goals"),
 		tableTasks:                      goqu.T(tablePrefix + "tasks"),

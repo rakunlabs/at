@@ -809,7 +809,7 @@ The canvas is an infinite, pannable and zoomable surface — it is NOT limited t
         aria-label="Message"
         placeholder={models.length === 0 ? 'No models available' : 'Describe changes…'}
         disabled={!selectedModel || streaming}
-        class="min-w-0 min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-dark-border bg-dark-surface text-dark-text placeholder:text-dark-text-muted px-3 py-2 text-sm leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle disabled:bg-dark-base disabled:text-dark-text-muted"
+        class="min-w-0 min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-dark-border text-dark-text placeholder:text-dark-text-muted px-3 py-2 text-sm leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle disabled:bg-dark-base disabled:text-dark-text-muted"
       ></textarea>
       {#if streaming}
         <button

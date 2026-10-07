@@ -88,8 +88,8 @@
   <title>AT | Features</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto space-y-4">
-  <div class="border border-dark-border bg-dark-surface">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
+  <div class="border border-dark-border">
     <div class="px-4 py-3 border-b border-dark-border flex items-center gap-2">
       <Power size={14} class="text-dark-text-muted" />
       <h3 class="text-sm font-medium text-dark-text">Feature Controls</h3>
@@ -107,13 +107,13 @@
   </div>
 
   {#if storeFeatures.loading && !storeFeatures.loaded}
-    <div class="border border-dark-border bg-dark-surface p-6 flex items-center gap-2 text-sm text-dark-text-secondary">
+    <div class="border border-dark-border p-6 flex items-center gap-2 text-sm text-dark-text-secondary">
       <Loader2 size={14} class="animate-spin" />
       Loading features...
     </div>
   {:else}
     {#if storeFeatures.presets.length}
-      <section class="border border-dark-border bg-dark-surface">
+      <section class="border border-dark-border">
         <div class="px-4 py-3 border-b border-dark-border">
           <h3 class="text-sm font-semibold text-dark-text">Presets</h3>
           <p class="text-xs text-dark-text-muted mt-0.5">
@@ -141,7 +141,7 @@
       </section>
     {/if}
 
-    <div class="border border-dark-border bg-dark-surface px-4 py-3 flex flex-wrap items-center gap-2">
+    <div class="border border-dark-border px-4 py-3 flex flex-wrap items-center gap-2">
       <div class="relative flex-1 min-w-48">
         <Search size={13} class="absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-muted" />
         <input
@@ -170,8 +170,8 @@
     </div>
 
     {#each visibleGroups as group}
-      <section class="border border-dark-border bg-dark-surface">
-        <div class="px-4 py-3 border-b border-dark-border bg-dark-base flex items-start justify-between gap-3">
+      <section class="border border-dark-border">
+        <div class="px-4 py-3 border-b border-dark-border flex items-start justify-between gap-3">
           <div class="min-w-0">
             <h3 class="text-sm font-semibold text-dark-text">
               {group.name}
@@ -267,7 +267,7 @@
     {/each}
 
     {#if query && visibleGroups.length === 0}
-      <div class="border border-dark-border bg-dark-surface p-6 text-sm text-dark-text-muted">
+      <div class="border border-dark-border p-6 text-sm text-dark-text-muted">
         No feature matches “{search}”.
       </div>
     {/if}

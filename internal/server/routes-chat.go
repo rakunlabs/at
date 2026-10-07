@@ -54,6 +54,12 @@ func (s *Server) registerChatWorkbenchRoutes(api *ada.Mux) {
 	api.POST("/v1/chats/workspace-presets", s.WorkspaceChatPresetsAPI)
 	api.PUT("/v1/chats/workspace-presets/{id}", s.WorkspaceChatPresetsAPI)
 	api.DELETE("/v1/chats/workspace-presets/{id}", s.WorkspaceChatPresetsAPI)
+	api.GET("/v1/chats/commands", s.ChatCommandsAPI)
+	api.PUT("/v1/chats/commands", s.ChatCommandsAPI)
+	api.GET("/v1/chats/workspace-commands", s.WorkspaceChatCommandsAPI)
+	api.POST("/v1/chats/workspace-commands", s.WorkspaceChatCommandsAPI)
+	api.PUT("/v1/chats/workspace-commands/{id}", s.WorkspaceChatCommandsAPI)
+	api.DELETE("/v1/chats/workspace-commands/{id}", s.WorkspaceChatCommandsAPI)
 
 	// Stored here, but local MCP tools are dialled only by the browser.
 	api.GET("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)

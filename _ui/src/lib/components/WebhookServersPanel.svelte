@@ -217,7 +217,7 @@
 
 {#if showForm && admin}
   <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+    <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
       <span class="text-sm font-medium text-dark-text">{editingId ? 'Edit Webhook Server' : 'New Webhook Server'}</span>
       <button onclick={resetForm} class="p-1 hover:bg-dark-elevated text-dark-text-muted"><X size={14} /></button>
     </div>
@@ -331,23 +331,23 @@
 {#if loading}
   <div class="text-center py-12 text-dark-text-muted text-sm">Loading webhook servers...</div>
 {:else if loadError}
-  <div class="border border-dark-border bg-dark-surface p-4 text-sm text-dark-text-secondary">
+  <div class="border border-dark-border p-4 text-sm text-dark-text-secondary">
     {loadError} <button onclick={load} class="underline underline-offset-2">Retry</button>
   </div>
 {:else if servers.length === 0}
-  <div class="text-center py-12 border border-dark-border bg-dark-surface">
+  <div class="text-center py-12 border border-dark-border">
     <Server size={24} class="mx-auto mb-2 text-dark-text-muted" />
     <p class="text-sm text-dark-text-muted">No webhook servers</p>
     <p class="text-xs text-dark-text-muted mt-1">{admin ? 'Create one to open a dedicated webhook port, for example :5050' : 'None is open to this workspace yet'}</p>
   </div>
 {:else}
-  <div class="border border-dark-border bg-dark-surface overflow-hidden">
+  <div class="border border-dark-border overflow-hidden">
     <table class="w-full text-sm">
       <thead>
-        <tr class="border-b border-dark-border bg-dark-base">
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Server</th>
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-          {#if admin}<th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Workspaces</th>{/if}
+        <tr class="border-b border-dark-border">
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Server</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+          {#if admin}<th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Workspaces</th>{/if}
           <th class="text-right px-4 py-2.5 w-28"></th>
         </tr>
       </thead>

@@ -32,7 +32,7 @@
 </script>
 
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">MCP sets</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">MCP sets</span>
   {#if loading}
     <div class="mt-0.5 text-[11px] text-dark-text-muted">Loading MCP sets…</div>
   {:else if loadError}

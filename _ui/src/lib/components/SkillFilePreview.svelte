@@ -36,7 +36,7 @@
     <div class="mx-auto max-w-3xl px-6 py-5">
       {#if parts.frontmatter}
         <div class="mb-5 border border-dark-border">
-          <div class="border-b px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider border-dark-border bg-dark-base text-dark-text-muted">Frontmatter</div>
+          <div class="border-b px-3 py-1.5 text-[11px] font-medium border-dark-border bg-dark-base text-dark-text-muted">Frontmatter</div>
           {#if parts.frontmatter.fields}
             <dl class="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 gap-y-1.5 px-3 py-2.5 text-xs">
               {#each parts.frontmatter.fields as [key, value] (key)}

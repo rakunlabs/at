@@ -193,7 +193,7 @@
       <div class="grid min-h-[32rem] lg:grid-cols-[18rem_minmax(0,1fr)]">
         <aside class="border-b border-dark-border lg:border-b-0 lg:border-r">
           <div class="flex items-center justify-between border-b px-4 py-3 border-dark-border">
-            <span class="text-xs font-semibold uppercase tracking-wide text-dark-text-muted">Configured</span>
+            <span class="text-xs font-semibold text-dark-text-muted">Configured</span>
             <button class="settings-button inline-flex items-center gap-1" onclick={() => startVirtual()}><Plus size={13} />New</button>
           </div>
           <div class="divide-y divide-dark-border">
@@ -228,7 +228,7 @@
 
             <div>
               <div class="flex items-center justify-between gap-3">
-                <div><h4 class="text-xs font-semibold uppercase tracking-wide text-dark-text-muted">Model catalogue</h4><p class="mt-1 text-xs text-dark-text-muted">Aliases are the model IDs consumers see.</p></div>
+                <div><h4 class="text-xs font-semibold text-dark-text-muted">Model catalogue</h4><p class="mt-1 text-xs text-dark-text-muted">Aliases are the model IDs consumers see.</p></div>
                 <button class="settings-button inline-flex items-center gap-1" disabled={providers.length === 0} onclick={addModel}><Plus size={13} />Model</button>
               </div>
               <div class="mt-3 space-y-2">
@@ -248,7 +248,7 @@
 
             {#if editingVirtual?.id}
               <div class="border-t pt-4 border-dark-border">
-                <h4 class="text-xs font-semibold uppercase tracking-wide text-dark-text-muted">Workspace access</h4>
+                <h4 class="text-xs font-semibold text-dark-text-muted">Workspace access</h4>
                 <p class="mt-1 text-xs text-dark-text-muted">Recipients see only the virtual aliases; physical credentials remain private.</p>
                 <div class="mt-3 grid items-end gap-2 md:grid-cols-[minmax(10rem,1fr)_minmax(8rem,.8fr)_7rem_auto]">
                   <label class="text-[11px] text-dark-text-muted">Workspace<select bind:value={grantWorkspace}><option value="">Select…</option>{#each workspaces as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}</select></label>

@@ -235,7 +235,7 @@
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation" onclick={(event) => { if (event.currentTarget === event.target) close(); }}>
   <div class="flex h-[min(46rem,calc(100dvh-2rem))] w-full max-w-6xl flex-col border shadow-xl border-dark-border bg-dark-surface" role="dialog" aria-modal="true" aria-label={`${skill.name} files`}>
-    <div class="flex items-center justify-between border-b px-4 py-3 border-dark-border bg-dark-base">
+    <div class="flex items-center justify-between border-b px-4 py-3 border-dark-border">
       <div class="flex min-w-0 items-center gap-2">
         <FolderOpen size={16} class="shrink-0 text-dark-text-muted" />
         <div class="truncate text-sm font-medium text-dark-text">{skill.name}</div>

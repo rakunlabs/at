@@ -15,7 +15,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Variables (comma separated)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Variables (comma separated)</span>
   <input
     type="text"
     value={data.variables?.join(', ') || ''}
@@ -27,7 +27,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Upstream data used as the template context. If 'data' is the only input and is a map, its fields are promoted to top level.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -37,7 +37,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="The rendered template string output.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">text</span>

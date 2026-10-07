@@ -143,3 +143,42 @@ func TestUsageUserSourceFilter(t *testing.T) {
 		t.Fatalf("filter lost: %+v", f)
 	}
 }
+
+type pricedBudgetStore struct {
+	service.AgentBudgetStorer
+	pricing []service.ModelPricing
+}
+
+func (s pricedBudgetStore) ListModelPricing(context.Context) ([]service.ModelPricing, error) {
+	return s.pricing, nil
+}
+
+// Chats shows the running cost of a conversation, so its usage chunk carries
+// the priced cost; gateway clients keep the plain OpenAI usage object.
+func TestChatsStreamUsageCarriesCost(t *testing.T) {
+	priced := []service.ModelPricing{{ProviderKey: "anthropic", Model: "claude-3-5-sonnet", PromptPricePer1M: 3, CompletionPricePer1M: 15, CacheReadPricePer1M: 0.3}}
+	for _, tc := range []struct {
+		name    string
+		pricing []service.ModelPricing
+		want    string
+	}{
+		{"priced", priced, `"at_cost_cents":0.0138`},
+		{"unpriced", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, _ := meteredProxyServer(t, userUsageProvider{}, "")
+			s.agentBudgetStore = pricedBudgetStore{pricing: tc.pricing}
+			body := `{"model":"anthropic/claude-3-5-sonnet","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hello"}]}`
+			ctx := service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: "real-user", WorkspaceID: "workspace", PlatformAdmin: true})
+			w := httptest.NewRecorder()
+			s.AdminChatCompletions(w, httptest.NewRequest("POST", "/at/api/v1/chats/completions", strings.NewReader(body)).WithContext(ctx))
+			got := w.Body.String()
+			if tc.want == "" && strings.Contains(got, "at_cost_cents") {
+				t.Fatalf("unpriced model reported a cost: %s", got)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Fatalf("cost missing from usage chunk (want %s): %s", tc.want, got)
+			}
+		})
+	}
+}

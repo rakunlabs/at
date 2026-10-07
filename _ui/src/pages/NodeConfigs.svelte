@@ -220,7 +220,7 @@
   <title>AT | Node Configs</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -465,9 +465,9 @@
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
-        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Details</th>
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Details</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+        <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-24"></th>
       {/snippet}
 
       {#snippet row(config)}

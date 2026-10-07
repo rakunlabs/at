@@ -73,7 +73,7 @@
 
 <svelte:window onclick={(e) => { if (pickerOpen && picker && !e.composedPath().includes(picker)) pickerOpen = false; }} />
 
-<div class="relative border border-dark-border bg-dark-surface">
+<div class="relative border border-dark-border">
   <div bind:this={picker} class="absolute right-0.5 top-0.5 z-20 bg-dark-base">
     <button onclick={() => (pickerOpen = !pickerOpen)} class="p-1 text-dark-text-muted hover:text-dark-text" title="Columns" aria-expanded={pickerOpen}><Columns3 size={13} /></button>
     {#if pickerOpen}
@@ -91,9 +91,9 @@
       <thead class="sticky top-0 z-10 bg-dark-base">
         <tr class="border-b border-dark-border">
           {#each shown as c, i (c.key)}
-            <th class={['whitespace-nowrap px-2.5 py-1.5', i === shown.length - 1 ? 'pr-8' : '', 'text-[10px] font-medium uppercase tracking-wider text-dark-text-muted', c.align === 'right' ? 'text-right' : 'text-left']}>
+            <th class={['whitespace-nowrap px-2.5 py-1.5', i === shown.length - 1 ? 'pr-8' : '', 'text-[11px] font-medium text-dark-text-muted', c.align === 'right' ? 'text-right' : 'text-left']}>
               {#if c.sort}
-                <button onclick={() => onsort(c.sort!)} class={['inline-flex items-center gap-0.5 uppercase hover:text-dark-text', sort === c.sort || (!sort && c.sort === 'started_at') ? 'text-dark-text' : '']}>
+                <button onclick={() => onsort(c.sort!)} class={['inline-flex items-center gap-0.5 hover:text-dark-text', sort === c.sort || (!sort && c.sort === 'started_at') ? 'text-dark-text' : '']}>
                   {c.label}
                   {#if sort === c.sort || (!sort && c.sort === 'started_at')}{#if order === 'asc'}<ArrowUp size={10} />{:else}<ArrowDown size={10} />{/if}{/if}
                 </button>

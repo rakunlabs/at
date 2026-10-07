@@ -38,7 +38,7 @@
   }
 </script>
 
-<div class={`flex flex-wrap items-center justify-between gap-3 px-3 sm:px-4 py-3 border-t border-dark-border bg-dark-base ${className}`}>
+<div class={`flex flex-wrap items-center justify-between gap-3 px-3 sm:px-4 py-3 border-t border-dark-border ${className}`}>
   <div class="text-xs text-dark-text-muted">
     Showing {offset + 1} to {Math.min(offset + limit, total)} of {total} results
   </div>

@@ -44,7 +44,7 @@
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period</span>
+    <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Period</span>
     <select
       value={period}
       onchange={handlePeriodChange}
@@ -58,7 +58,7 @@
 
   {#if period === 'weekly'}
     <label class="block">
-      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
+      <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Reset day</span>
       <select
         bind:value={resetDay}
         class="w-full px-2 py-1 text-xs border border-dark-border-subtle focus:outline-none focus:ring-1 focus:ring-dark-border-subtle bg-dark-elevated text-dark-text"
@@ -70,7 +70,7 @@
     </label>
   {:else if period === 'monthly'}
     <label class="block">
-      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset day</span>
+      <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Reset day</span>
       <input
         type="number"
         min="1"
@@ -83,7 +83,7 @@
   {/if}
 
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Reset time</span>
+    <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Reset time</span>
     <input
       type="time"
       bind:value={resetTime}
@@ -92,7 +92,7 @@
   </label>
 
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Timezone</span>
+    <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Timezone</span>
     <input
       type="text"
       list="budget-timezones"

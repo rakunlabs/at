@@ -6,7 +6,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Inputs</span>
   <input
     type="number"
     bind:value={data.input_count}
@@ -42,7 +42,7 @@
   <div class="mt-0.5 text-[10px] text-dark-text-muted">Use <code class="font-mono bg-dark-elevated px-0.5">return</code> to set the result → "true" port. <code class="font-mono bg-dark-elevated px-0.5">throw</code> → "false" port (with <code class="font-mono bg-dark-elevated px-0.5">error</code> in output). "always" always fires.</div>
 </div>
 <div>
-  <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-1">Built-in Functions</div>
+  <div class="text-[11px] font-medium text-dark-text-muted mb-1">Built-in Functions</div>
   <div class="px-2 py-1.5 bg-dark-surface border border-dark-border text-[10px] font-mono text-dark-text-secondary space-y-1">
     <div><span class="text-dark-text">log.info</span>(msg, key, val, ...) <span class="font-sans text-dark-text-muted">— info log</span></div>
     <div><span class="text-dark-text">log.warn</span>(msg, key, val, ...) <span class="font-sans text-dark-text-muted">— warning log</span></div>
@@ -64,7 +64,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Upstream data. Available as 'data' (single input) or 'data1', 'data2', etc. (multiple inputs) in JS.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -74,7 +74,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Activated when the script returns successfully. Output includes 'result' field with the return value.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">true</span>

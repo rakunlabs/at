@@ -775,7 +775,7 @@
 <div class="flex h-full">
   <!-- Main content -->
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-6xl mx-auto">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
       <!-- Tab Bar -->
       <div class="flex items-center gap-4 mb-4 border-b border-dark-border">
         <button
@@ -966,7 +966,7 @@
       <!-- Form -->
       {#if showForm}
         <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border bg-dark-base/50">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-medium text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Skill'}
@@ -1225,13 +1225,13 @@
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Content</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Description</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Content</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
           {/snippet}
 
           {#snippet row(skill)}
-            <tr class="hover:bg-dark-elevated/50">
+            <tr class="hover:bg-dark-surface">
               <td class="px-4 py-2.5">
                 <div class="font-mono font-medium text-dark-text">{skill.name}</div>
                 {#if skill.resources?.length}
@@ -1355,7 +1355,7 @@
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each templates as tmpl}
-              <div class="border border-dark-border bg-dark-surface p-4 flex flex-col">
+              <div class="border border-dark-border p-4 flex flex-col">
                 <div class="flex items-start justify-between mb-2">
                   <div>
                     <h3 class="text-sm font-medium text-dark-text">{tmpl.name}</h3>
@@ -1541,7 +1541,7 @@
 
         <!-- Manage Sources Panel -->
         {#if showManageSources}
-          <div class="mb-4 border border-dark-border bg-dark-surface p-4">
+          <div class="mb-4 border border-dark-border p-4">
             <div class="flex items-center justify-between mb-3">
               <h3 class="text-sm font-medium text-dark-text">Marketplace Sources</h3>
               <button
@@ -1617,7 +1617,7 @@
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each communitySkills as skill}
-              <div class="border border-dark-border bg-dark-surface p-4 flex flex-col">
+              <div class="border border-dark-border p-4 flex flex-col">
                 <div class="flex items-start justify-between mb-2">
                   <div class="flex-1 min-w-0">
                     <h3 class="text-sm font-medium text-dark-text truncate">{skill.name}</h3>
@@ -1670,7 +1670,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div class="bg-dark-surface border border-dark-border w-full max-w-2xl max-h-[80vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
-              <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+              <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
                 <div>
                   <h3 class="text-sm font-medium text-dark-text">{previewSkill.name}</h3>
                   <span class="text-[10px] text-dark-text-muted">from {previewSkill.source}</span>
@@ -1710,7 +1710,7 @@
                 {/if}
               </div>
 
-              <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border bg-dark-base/50">
+              <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border">
                 <button
                   onclick={() => { previewSkill = null; previewData = null; }}
                   class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"

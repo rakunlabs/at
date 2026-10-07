@@ -52,7 +52,7 @@
     'w-full border px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-secondary focus-visible:outline-accent';
   const label = 'block text-xs font-medium text-dark-text-secondary';
   const paneLabel =
-    'shrink-0 border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider border-dark-border bg-dark-elevated text-dark-text-secondary';
+    'shrink-0 border-b px-3 py-1.5 text-[11px] font-medium border-dark-border bg-dark-elevated text-dark-text-secondary';
 </script>
 
 <form onsubmit={submit} class="flex h-full min-h-0 flex-col">

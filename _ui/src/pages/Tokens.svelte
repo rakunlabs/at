@@ -638,7 +638,7 @@
   <title>AT | API Tokens</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={loadTokens} {loading} />
   <!-- Optional restriction catalogs: an intentionally disabled feature is not
        a token-page failure. Keep actual API/network errors actionable. -->
@@ -704,7 +704,7 @@
 
   <!-- Create form -->
   {#if showCreate}
-    <div class="mb-4 border border-dark-border bg-dark-surface p-4">
+    <div class="mb-4 border border-dark-border p-4">
       <h3 class="text-sm font-medium text-dark-text mb-3">Create API Token</h3>
 
       <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-3">
@@ -1370,13 +1370,13 @@
   >
     {#snippet header()}
       <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Access</th>
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Usage</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Token</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Access</th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs">Usage</th>
       <SortableHeader field="expires_at" label="Expires" {sorts} onsort={handleSort} />
       <SortableHeader field="created_by" label="Created By" {sorts} onsort={handleSort} />
       <SortableHeader field="last_used_at" label="Last Used" {sorts} onsort={handleSort} />
-      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-16"></th>
+      <th class="text-left px-4 py-2 font-medium text-dark-text-muted text-xs w-16"></th>
     {/snippet}
 
     {#snippet row(token)}
@@ -1693,7 +1693,7 @@
     >
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div role="dialog" aria-modal="true" aria-label="Token accounts" tabindex="-1" {@attach (node) => node.focus()} class="bg-dark-surface shadow-xl border border-dark-border w-full max-w-lg max-h-[85dvh] flex flex-col overflow-hidden" onclick={(e) => e.stopPropagation()}>
-        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
           <span class="text-sm font-medium text-dark-text">
             People: <span class="font-mono">{accountsToken.name}</span>
           </span>
@@ -1775,7 +1775,7 @@
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div class="bg-dark-surface shadow-xl border border-dark-border w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
         <!-- Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
           <span class="text-sm font-medium text-dark-text">
             Config: <span class="font-mono">{configViewToken.name}</span>
           </span>

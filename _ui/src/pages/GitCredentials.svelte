@@ -128,7 +128,7 @@
   {/if}
 
   <section class="settings-section !p-0 !space-y-0 overflow-hidden">
-    <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Deploy keys</h2><p class="settings-note">Add each public key to its Git repository with read-only access.</p></div>
+    <div class="px-4 py-3 border-b border-dark-border"><h2 class="settings-section-title">Deploy keys</h2><p class="settings-note">Add each public key to its Git repository with read-only access.</p></div>
     {#if loading}
       <div class="p-6 text-center settings-note">Loading Git credentials…</div>
     {:else if items.length === 0}

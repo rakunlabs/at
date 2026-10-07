@@ -13,7 +13,7 @@
   credential injection, then forwards the request unchanged.
 </p>
 
-<div class="border border-dark-border bg-dark-surface p-3">
+<div class="border border-dark-border p-3">
   <div class="flex flex-wrap items-center gap-2">
     <span
       class="shrink-0 border px-2 py-0.5 font-mono text-[11px] font-semibold border-dark-border-subtle bg-dark-elevated text-dark-text-secondary"
@@ -30,7 +30,7 @@
 </div>
 
 <div class="border border-dark-border bg-dark-elevated p-3">
-  <p class="text-[11px] font-medium uppercase tracking-wider text-dark-text-secondary">
+  <p class="text-[11px] font-medium text-dark-text-secondary">
     Example: Gemini file search
   </p>
   <p class="mt-2 break-all font-mono text-[12px] text-dark-text">

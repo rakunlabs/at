@@ -100,7 +100,7 @@
           aria-label={p.label}
           class="min-h-0 flex-col {pane === p.id ? 'flex' : 'hidden'} lg:flex {p.id === 'parameters' ? 'lg:border-x lg:border-dark-border' : 'bg-dark-base/40'}"
         >
-          <div class="hidden shrink-0 border-b px-4 py-2 text-[10px] font-medium uppercase tracking-wider lg:block border-dark-border text-dark-text-muted">{p.label}</div>
+          <div class="hidden shrink-0 border-b px-4 py-2 text-[11px] font-medium lg:block border-dark-border text-dark-text-muted">{p.label}</div>
           <div class="min-h-0 flex-1 overflow-y-auto p-4">
             {#if p.id === 'input'}{@render input()}{:else if p.id === 'parameters'}{@render parameters()}{:else}{@render output()}{/if}
           </div>

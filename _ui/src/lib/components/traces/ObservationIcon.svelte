@@ -16,5 +16,5 @@
 
 <span class={['inline-flex shrink-0 items-center gap-1', error ? 'text-red-400' : style.cls]} title={error ? `${type} (error)` : type}>
   {#if error}<CircleAlert size={12} />{:else}<style.icon size={12} />{/if}
-  {#if label}<span class="font-mono text-[10px] uppercase">{style.text}</span>{/if}
+  {#if label}<span class="font-mono text-[11px]">{style.text}</span>{/if}
 </span>

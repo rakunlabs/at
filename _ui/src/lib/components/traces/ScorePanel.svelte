@@ -76,7 +76,7 @@
   {/if}
 
   <form onsubmit={add} class="space-y-2 border p-2 border-dark-border bg-dark-base">
-    <div class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Add {observationID ? 'observation' : 'trace'} score</div>
+    <div class="text-[11px] font-semibold text-dark-text-muted">Add {observationID ? 'observation' : 'trace'} score</div>
     <div class="flex flex-wrap gap-2">
       <input bind:value={name} list="trace-score-names" placeholder="Name (e.g. correctness)" required maxlength="64" class="min-w-0 flex-1 border px-2 py-1 text-xs border-dark-border-subtle bg-dark-elevated text-dark-text" />
       <datalist id="trace-score-names">{#each names as n}<option value={n}></option>{/each}</datalist>

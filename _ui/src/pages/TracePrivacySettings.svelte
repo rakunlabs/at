@@ -163,8 +163,8 @@
   {#if loading}<p class="settings-note" role="status">Loading trace privacy rules…</p>{/if}
 
   {#snippet ruleTable(list: TracePrivacyRule[], scope: 'workspace' | 'installation', title: string, note: string)}
-    <section class="border border-dark-border bg-dark-surface">
-      <div class="px-4 py-3 bg-dark-base border-b border-dark-border flex flex-wrap items-center justify-between gap-2">
+    <section class="border border-dark-border">
+      <div class="px-4 py-3 border-b border-dark-border flex flex-wrap items-center justify-between gap-2">
         <div><h2 class="settings-section-title">{title}</h2><p class="settings-note">{note}</p></div>
         <button type="button" class="settings-button inline-flex items-center gap-1 min-h-11 sm:min-h-0" onclick={() => startNew(scope)}><Plus size={14} /> Add rule</button>
       </div>
@@ -195,8 +195,8 @@
       {@render ruleTable(workspaceRules, 'workspace', 'Workspace rules', `Apply to observations recorded in ${workspaceName}.`)}
       {#if admin}
         {@render ruleTable(installationRules, 'installation', 'Installation rules', 'Apply in every workspace. Only installation administrators see and manage these.')}
-        <section class="border border-dark-border bg-dark-surface">
-          <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Personal opt-out</h2></div>
+        <section class="border border-dark-border">
+          <div class="px-4 py-3 border-b border-dark-border"><h2 class="settings-section-title">Personal opt-out</h2></div>
           <div class="p-4 space-y-2">
             <label class="flex items-start gap-2 text-sm">
               <input type="checkbox" class="mt-0.5" bind:checked={settings.allow_user_opt_out} onchange={saveSettings} />
@@ -213,7 +213,7 @@
 {#if editing}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 overflow-y-auto" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) editing = null; }} onkeydown={(e) => { if (e.key === 'Escape') editing = null; }}>
     <form class="w-full max-w-lg border border-dark-border bg-dark-surface settings-form" onsubmit={save}>
-      <div class="px-4 py-3 bg-dark-base border-b border-dark-border">
+      <div class="px-4 py-3 border-b border-dark-border">
         <h2 class="settings-section-title">{editing.id ? 'Edit rule' : 'New rule'} · {editing.scope === 'installation' ? 'Installation' : 'Workspace'}</h2>
         <p class="settings-note">Empty fields match everything. Filled fields must all match.</p>
       </div>
@@ -266,7 +266,7 @@
 {#if applying}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4" role="presentation" onclick={(e) => { if (e.target === e.currentTarget && !applying?.busy) applying = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !applying?.busy) applying = null; }}>
     <div class="w-full max-w-md border border-dark-border bg-dark-surface">
-      <div class="px-4 py-3 bg-dark-base border-b border-dark-border"><h2 class="settings-section-title">Apply to existing traces</h2></div>
+      <div class="px-4 py-3 border-b border-dark-border"><h2 class="settings-section-title">Apply to existing traces</h2></div>
       <div class="p-4 space-y-2 text-sm">
         <p>{describe(applying.rule)}</p>
         {#if !applying.preview}

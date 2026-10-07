@@ -158,7 +158,7 @@
 <svelte:head><title>AT | Users</title></svelte:head>
 
 {#if isNativeAdmin()}
-  <div class="p-6 max-w-6xl mx-auto">
+  <div class="p-4 sm:p-6 max-w-6xl mx-auto">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2">
         <UsersIcon size={16} class="text-dark-text-muted" />
@@ -175,7 +175,7 @@
 
     {#if creating}
       <div class="border border-dark-border mb-6 bg-dark-surface" id="create-user">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
           <span class="text-sm font-medium text-dark-text">Create local user</span>
           <button onclick={() => { creating = false; password = formError = ''; }} class="p-1 hover:bg-dark-elevated text-dark-text-muted"><X size={14} /></button>
         </div>
@@ -205,7 +205,7 @@
       </div>
     {/if}
 
-    <div class="border border-dark-border bg-dark-surface" aria-busy={loading || busy}>
+    <div class="border border-dark-border" aria-busy={loading || busy}>
       <div class="flex items-center gap-2 px-4 py-2 border-b border-dark-border bg-dark-base">
         <Search size={14} class="text-dark-text-muted shrink-0" />
         <input type="search" bind:value={search} oninput={queueSearch} placeholder="Search name, username, email or account ID" aria-label="Search users" class="w-full bg-transparent text-sm focus-visible:outline-none" />
@@ -221,10 +221,10 @@
       {:else}
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
-            <thead><tr class="border-b border-dark-border bg-dark-base">
-              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Account</th>
-              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Access</th>
-              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider hidden md:table-cell">Last sign-in</th>
+            <thead><tr class="border-b border-dark-border">
+              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Account</th>
+              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Access</th>
+              <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs hidden md:table-cell">Last sign-in</th>
               <th class="px-4 py-2.5"><span class="sr-only">Actions</span></th>
             </tr></thead>
             <tbody class="divide-y divide-dark-border">
@@ -282,7 +282,7 @@
                     {#if detailError}<p role="alert" class="text-xs text-red-400">{detailError}</p>{/if}
                     <div class="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <h3 class="text-xs font-medium uppercase tracking-wider text-dark-text-muted mb-2">Identity</h3>
+                        <h3 class="text-xs font-medium text-dark-text-muted mb-2">Identity</h3>
                         <!-- A grid rather than a flex row with a fixed-width
                              term: the term used to be the provider's ULID in a
                              `w-20 shrink-0` box with no wrapping, so it
@@ -313,7 +313,7 @@
                         {#if detail && !detail.identities?.length}<p class="text-xs text-dark-text-muted mt-1">Local account — no external identity linked.</p>{/if}
                       </div>
                       <div>
-                        <h3 class="text-xs font-medium uppercase tracking-wider text-dark-text-muted mb-2">Workspaces</h3>
+                        <h3 class="text-xs font-medium text-dark-text-muted mb-2">Workspaces</h3>
                         {#if detail?.workspaces?.length}
                           <ul class="space-y-1 text-xs">{#each detail.workspaces as w}<li class="flex flex-wrap items-center gap-2"><span class="break-all">{w.name}</span><span class={`${badge} bg-dark-elevated text-dark-text-secondary border-dark-border`}>{w.role}</span>{#if w.status !== 'active'}<span class={`${badge} bg-red-900/20 text-red-400 border-red-900/40`}>{w.status}</span>{/if}</li>{/each}</ul>
                         {:else if detail}

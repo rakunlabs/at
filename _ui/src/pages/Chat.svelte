@@ -126,6 +126,9 @@
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import MessageContent from '@/lib/components/playground/MessageContent.svelte';
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
+  import ChatCommandsEditor from '@/lib/components/playground/ChatCommandsEditor.svelte';
+  import { listChatCommands, listWorkspaceChatCommands, type ChatCommand } from '@/lib/api/chat-commands';
+  import { COMPACTION_FLAG, compactionMessageText, compactionRequest, compactionStart, expandCommandTemplate, parseSlashInput, slashQuery } from '@/lib/helper/chat-commands';
   import { createChatMediaCache } from '@/lib/helper/chat-media-cache';
 
   storeNavbar.title = 'Chats';
@@ -188,7 +191,7 @@
     resolve: (answer: string) => void;
   }
 
-  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat' | 'providers';
+  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat' | 'providers' | 'commands';
 
   /**
    * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
@@ -215,7 +218,14 @@
     created_at: string;
     /** Original file names of attachments, consumed when persisting. */
     imageNames: string[];
+    /** A /compact summary: the model's context starts here. */
+    compaction?: boolean;
+    /** Usage of the model call that produced this assistant entry. */
+    usage?: CallUsage;
   }
+
+  /** `cost_cents` is absent when the model has no installation price. */
+  interface CallUsage { prompt: number; completion: number; cost_cents?: number }
 
   // ─── Constants ───
 
@@ -403,6 +413,7 @@
     { id: 'tools', label: 'Server tools' },
     { id: 'chat', label: 'Chat tools' },
     { id: 'providers', label: 'Local providers' },
+    { id: 'commands', label: 'Commands' },
   ];
   let workbenchTabs = $derived(allWorkbenchTabs.filter(tab => tab.id !== 'providers' || localProvidersAvailable));
 
@@ -1203,6 +1214,12 @@
     confirmClear = false;
   }
 
+  function storedUsage(data: Record<string, unknown> | undefined): CallUsage | undefined {
+    const u = data?.at_usage as CallUsage | undefined;
+    if (!u || typeof u.prompt !== 'number') return undefined;
+    return { prompt: u.prompt, completion: Number(u.completion) || 0, ...(typeof u.cost_cents === 'number' ? { cost_cents: u.cost_cents } : {}) };
+  }
+
   function toChatMessage(m: PlaygroundMessage): ChatMessage {
     const data = (m.data ?? {}) as Record<string, any>;
     const msg: ChatMessage = { role: m.role, content: (data.content ?? '') as string | ContentPart[] };
@@ -1266,7 +1283,7 @@
 
       messages = loaded.map(toChatMessage);
       rawMessages = {};
-      meta = loaded.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
+      meta = loaded.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void discoverTools();
       scrollToBottom(true);
@@ -1290,7 +1307,7 @@
       const known = new Set(meta.map(m => m.id));
       const older = (res.data ?? []).filter(m => !known.has(m.id));
       messages = [...older.map(toChatMessage), ...messages];
-      meta = [...older.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] })), ...meta];
+      meta = [...older.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) })), ...meta];
       rawMessages = Object.fromEntries(Object.entries(rawMessages).map(([key, value]) => [Number(key) + older.length, value]));
       historyCursor = res.meta?.next_before ?? '';
       historyTruncated = !!historyCursor;
@@ -1369,7 +1386,7 @@
     current: scope => !disposed && conversationId === scope.id && turnLifecycle.generation() === scope.generation,
     snapshot: () => messages.flatMap((message, index) => meta[index]?.sequence === null && message.role !== 'system' ? [{
       index,
-      input: { client_id: meta[index].client_id ?? (meta[index].client_id = crypto.randomUUID()), role: message.role as PlaygroundRole, provider_key: meta[index].provider_key, model: meta[index].model, data: JSON.parse(JSON.stringify(toMessageData(message))) },
+      input: { client_id: meta[index].client_id ?? (meta[index].client_id = crypto.randomUUID()), role: message.role as PlaygroundRole, provider_key: meta[index].provider_key, model: meta[index].model, data: JSON.parse(JSON.stringify({ ...toMessageData(message), ...(meta[index].compaction ? { [COMPACTION_FLAG]: true } : {}), ...(meta[index].usage ? { at_usage: meta[index].usage } : {}) })) },
       imageNames: [...meta[index].imageNames],
     }] : []),
     prepare: async entry => ({ ...entry.input, data: await persistPlaygroundImages(entry.input.data, entry.imageNames, uploadAttachment) }),
@@ -1553,6 +1570,22 @@
 
   // ─── Named presets ───
 
+  // ─── Slash commands ───
+
+  let personalCommands = $state<ChatCommand[]>([]);
+  let workspaceCommands = $state<ChatCommand[]>([]);
+  /** Personal commands win a name clash, as the more specific choice. */
+  let customCommands = $derived.by(() => {
+    const seen = new Set(personalCommands.map(c => c.name));
+    return [...personalCommands, ...workspaceCommands.filter(c => !seen.has(c.name))];
+  });
+
+  async function loadCommands() {
+    const [personal, workspace] = await Promise.allSettled([listChatCommands(), listWorkspaceChatCommands()]);
+    if (personal.status === 'fulfilled') personalCommands = personal.value;
+    if (workspace.status === 'fulfilled') workspaceCommands = workspace.value;
+  }
+
   async function loadPresets() {
     const [personal, workspace] = await Promise.allSettled([listChatPresets(), listWorkspaceChatPresets()]);
     if (personal.status === 'fulfilled') personalPresets = personal.value;
@@ -1703,6 +1736,7 @@
   loadInfo().then(() => loadDefaults(initialSetupRevision));
   loadLocalProviders();
   loadPresets();
+  loadCommands();
   const catalogsReady = Promise.all([loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
 
@@ -2446,6 +2480,11 @@
   async function sendMessage() {
     if (chatRecording || chatTranscribing) return;
     const text = userInput.trim();
+    // `/name args` runs a command instead of sending the text. An unknown name
+    // is sent as ordinary text, so a message that merely starts with a slash
+    // is never swallowed.
+    const slash = pendingImages.length === 0 && !streaming ? parseSlashInput(text) : null;
+    if (slash && runSlashCommand(slash.name, slash.args)) return;
     if ((!text && pendingImages.length === 0) || !selectedModel) return;
     if (pendingRefusals.length > 0) {
       addToast(pendingRefusals[0], 'alert');
@@ -2467,6 +2506,181 @@
     const items = [...queuedMessages, item];
     queuedMessages = [];
     await runUserTurn(items);
+  }
+
+  // ─── Commands ───
+
+  /** The browser sees `at_cost_cents` only from the Chats endpoint, and only for priced models. */
+  function callUsage(u: ChatUsage): CallUsage {
+    const cost = (u as ChatUsage & { at_cost_cents?: number }).at_cost_cents;
+    return { prompt: u.prompt_tokens, completion: u.completion_tokens, ...(typeof cost === 'number' ? { cost_cents: cost } : {}) };
+  }
+
+  /** Spend of the calls in this page: loaded history plus this session. */
+  let conversationCost = $derived.by(() => {
+    let cents = 0, priced = 0, unpriced = 0;
+    for (const m of meta) {
+      if (!m?.usage) continue;
+      if (typeof m.usage.cost_cents === 'number') { cents += m.usage.cost_cents; priced++; } else unpriced++;
+    }
+    return { cents, priced, unpriced };
+  });
+
+  function formatCost(cents: number): string {
+    const dollars = cents / 100;
+    if (dollars === 0) return '$0.00';
+    if (dollars < 0.01) return `$${dollars.toFixed(4)}`;
+    return `$${dollars.toFixed(dollars < 10 ? 3 : 2)}`;
+  }
+
+  let compacting = $state(false);
+  let canCompact = $derived(!streaming && !saving && !compacting && !!selectedModel && messages.length - Math.max(0, compactionStart(meta.map(m => m?.compaction))) > 2);
+
+  interface BuiltinCommand { name: string; description: string; args?: string; disabled?: boolean; run: (args: string) => void }
+
+  let builtinCommands = $derived<BuiltinCommand[]>([
+    { name: 'compact', args: '[focus]', description: 'Summarize the conversation so far and continue from the summary', disabled: !canCompact, run: args => void compactConversation(args) },
+    { name: 'new', description: 'Start a new chat', run: () => newConversation() },
+    { name: 'clear', description: 'Clear the transcript (asks to confirm)', disabled: streaming || saving || messages.length === 0, run: () => { showSessionPanel = true; requestClear(); } },
+    { name: 'model', description: 'Switch model', disabled: models.length === 0, run: () => (palette = 'models') },
+    { name: 'preset', description: 'Apply a preset', disabled: presets.length === 0, run: () => (palette = 'presets') },
+    { name: 'effort', description: 'Set reasoning effort', disabled: reasoningEffortOptions.length === 0, run: () => (palette = 'effort') },
+    { name: 'tools', description: 'Open the workbench', run: () => openWorkbench('tools') },
+    { name: 'share', description: 'Share a snapshot of this chat', disabled: !(sharingAvailable && conversationId && shareBoundaries.length > 0), run: () => (showShareDialog = true) },
+    { name: 'commands', description: 'Create and edit your own commands', run: () => openWorkbench('commands') },
+  ]);
+
+  interface CommandSuggestion { name: string; args?: string; description: string; scope: 'built-in' | 'personal' | 'workspace'; disabled?: boolean }
+
+  let commandIndex = $state(0);
+  let commandMenuDismissed = $state('');
+  let commandQuery = $derived(pendingImages.length === 0 ? slashQuery(userInput) : null);
+  let commandSuggestions = $derived.by((): CommandSuggestion[] => {
+    if (commandQuery === null || commandMenuDismissed === userInput) return [];
+    const all: CommandSuggestion[] = [
+      ...builtinCommands.map(c => ({ name: c.name, args: c.args, description: c.description, scope: 'built-in' as const, disabled: c.disabled })),
+      ...customCommands.map(c => ({ name: c.name, args: /\$(ARGUMENTS|[1-9])/.test(c.template) ? '[args]' : undefined, description: c.description || c.template.split('\n')[0], scope: c.scope })),
+    ];
+    const q = commandQuery;
+    return all
+      .filter(c => !q || c.name.includes(q))
+      .sort((a, b) => Number(!b.name.startsWith(q)) - Number(!a.name.startsWith(q)));
+  });
+  $effect(() => { void commandQuery; commandIndex = 0; });
+
+  /** Fill the composer with the chosen command, ready for arguments. */
+  function pickCommand(c: CommandSuggestion | undefined, run: boolean) {
+    if (!c || c.disabled) return;
+    // `[x]` arguments are optional, so Enter runs the command at once; Tab (or
+    // a required `<x>`) fills the composer so arguments can follow.
+    const needsArgs = !!c.args?.startsWith('<');
+    if (run && !needsArgs) {
+      userInput = `/${c.name}`;
+      void sendMessage();
+      return;
+    }
+    userInput = `/${c.name} `;
+    tick().then(() => composerInput?.focus());
+  }
+
+  /** Runs a built-in or custom command. Returns false when the name is unknown. */
+  function runSlashCommand(name: string, args: string): boolean {
+    const builtin = builtinCommands.find(c => c.name === name);
+    if (builtin) {
+      if (builtin.disabled) { addToast(`/${name} is not available right now.`, 'warn'); return true; }
+      userInput = '';
+      builtin.run(args);
+      return true;
+    }
+    const custom = customCommands.find(c => c.name === name);
+    if (!custom) return false;
+    if (!setupReady()) return true;
+    const text = expandCommandTemplate(custom.template, args).trim();
+    if (!text) { addToast(`/${name} expanded to an empty message.`, 'warn'); return true; }
+    userInput = '';
+    const previousModel = selectedModel;
+    // A command bound to a model runs that one message on it, then hands the
+    // conversation back to the model it was on.
+    if (custom.model && custom.model !== selectedModel) {
+      if (!models.includes(custom.model)) { addToast(`/${name} uses ${custom.model}, which is not available.`, 'alert'); userInput = `/${name}${args ? ' ' + args : ''}`; return true; }
+      selectedModel = custom.model;
+    }
+    const items = [...queuedMessages, queuedMessage(text, [])];
+    queuedMessages = [];
+    void runUserTurn(items).finally(() => { if (custom.model) selectedModel = previousModel; });
+    return true;
+  }
+
+  // ─── Compaction ───
+
+
+  /**
+   * /compact: ask the current model for a summary of everything the model
+   * would currently see, store it as an assistant message marked as a
+   * compaction, and start later model calls from it. The transcript above
+   * stays visible and stored; only the context sent upstream shrinks.
+   */
+  async function compactConversation(instructions: string) {
+    if (!canCompact) return;
+    if (!setupReady()) return;
+    const turn = beginTurn();
+    if (!turn) return;
+    compacting = true;
+    const pair = splitModel(turn.model);
+    const localTarget = isLocalModelRef(turn.model) ? localProviderFor(turn.model) : null;
+    try {
+      repairInterruptedTail(turn.model);
+      if (localTarget && historyTruncated && !meta.some(m => m.compaction)) {
+        throw new Error('Load older messages first: a local provider needs the whole conversation in this page.');
+      }
+      await persistPending();
+      turnLifecycle.assert(turn);
+      const { reqMessages, needsPrefix } = await buildRequestMessages(turn, messages.slice(), !!localTarget);
+      reqMessages.push({ role: 'user', content: compactionRequest(instructions) });
+      const before = contextTokens;
+      let summary = '';
+      let usage: ChatUsage | null = null;
+      const callbacks: StreamCallbacks = {
+        requireComplete: true,
+        onDelta: delta => { summary = mergeDeltaContent(summary, delta) as string; },
+        onToolCalls: () => {},
+        onError: error => addToast(error, 'alert'),
+        onUsage: u => { usage = u; },
+      };
+      const request = { messages: reqMessages, tool_choice: 'none' as const, reasoning_effort: turn.reasoning || undefined, stream: true, stream_options: { include_usage: true } };
+      if (localTarget) {
+        await runLocalProviderCompletion({ ...turn, tools: [] }, localTarget, reqMessages, callbacks);
+      } else {
+        await streamChatCompletion('api/v1/chats/completions', {
+          ...request,
+          model: turn.model,
+          at_conversation_id: conversationId || undefined,
+          at_history_before: historyTruncated && needsPrefix ? (meta[0]?.id || historyCursor) : undefined,
+          metadata: { session_id: turn.sessionId },
+        }, callbacks, turn.controller.signal, { 'x-at-trace-id': turn.traceId, 'x-at-trace-name': 'chats compaction' });
+      }
+      turnLifecycle.assert(turn);
+      const text = getTextContent(summary).trim();
+      if (!text) throw new Error('The model returned an empty summary; nothing was compacted.');
+      messages = [...messages, { role: 'assistant', content: compactionMessageText(text, instructions) }];
+      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [], compaction: true, ...(usage ? { usage: callUsage(usage) } : {}) }];
+      const after = (usage as ChatUsage | null)?.completion_tokens ?? 0;
+      contextTokens = after;
+      completionTokens = 0;
+      totalTokens = after;
+      scrollToBottom();
+      await persistPending();
+      addToast(before > 0 ? `Compacted ${before.toLocaleString()} tokens of context into a ${after.toLocaleString()}-token summary.` : 'Conversation compacted.', 'info');
+    } catch (e) {
+      if (turnLifecycle.current(turn) && !turn.controller.signal.aborted && (e as Error).name !== 'AbortError') {
+        turn.failed = true;
+        addToast((e as Error).message || 'Compaction failed', 'alert');
+      }
+    } finally {
+      compacting = false;
+      finishTurn(turn);
+      continueWithQueue(turn);
+    }
   }
 
   /** Append queued entries as user messages, in the order they were written. */
@@ -2767,6 +2981,36 @@
     }
   }
 
+  type RequestMessage = { role: string; content: any; tool_calls?: any[]; tool_call_id?: string } | { at_message_id: string };
+
+  /**
+   * The messages a model call sends: the system prompt, then the transcript
+   * from the latest compaction summary on. Earlier messages stay on screen but
+   * no longer reach the model. Saved rows go by reference unless the call is
+   * made by this browser (a local provider), which needs them inline.
+   */
+  async function buildRequestMessages(turn: TurnContext, history: ChatMessage[], inline: boolean) {
+    const reqMessages: RequestMessage[] = [];
+    if (turn.systemPrompt) reqMessages.push({ role: 'system', content: turn.systemPrompt });
+    const boundary = compactionStart(meta.slice(0, history.length).map(m => m?.compaction));
+    const contextStart = Math.max(0, boundary);
+    for (const [index, m] of history.entries()) {
+      if (index < contextStart) continue;
+      if (conversationId && meta[index]?.id && !inline) {
+        reqMessages.push({ at_message_id: meta[index].id! });
+        continue;
+      }
+      const msg: any = { role: m.role, content: await outgoingContent(m.content) };
+      turnLifecycle.assert(turn);
+      if (m.tool_calls) msg.tool_calls = m.tool_calls;
+      if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
+      reqMessages.push(msg);
+    }
+    // Unloaded older rows are fetched by the server only when no summary in
+    // this page already replaces them.
+    return { reqMessages, contextStart, needsPrefix: boundary < 0 };
+  }
+
   async function runCompletionStep(turn: TurnContext): Promise<boolean> {
     turnLifecycle.assert(turn);
     const turnPair = splitModel(turn.model);
@@ -2780,6 +3024,7 @@
     // a growing answer would date it minutes early.
     messages = [...messages, { role: 'assistant', content: '' }];
     meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: '', imageNames: [] }];
+    const placeholderIdx = messages.length - 1;
     const controller = turn.controller;
 
     // Accumulate tool calls from the stream
@@ -2790,30 +3035,11 @@
       // history by reference: every message goes inline, and an unloaded
       // prefix is loaded first rather than silently dropped from context.
       const localTarget = isLocalModelRef(turn.model) ? localProviderFor(turn.model) : null;
-      if (localTarget && historyTruncated) {
+      if (localTarget && historyTruncated && !meta.some(m => m.compaction)) {
         throw new Error('Load older messages first: a local provider needs the whole conversation in this page.');
       }
 
-      // Build request messages
-      const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string } | { at_message_id: string }> = [];
-
-      // Conversation prompt plus the prompts contributed by selected skills.
-      const fullSystemPrompt = turn.systemPrompt;
-      if (fullSystemPrompt) {
-        reqMessages.push({ role: 'system', content: fullSystemPrompt });
-      }
-
-      for (const [index, m] of history.entries()) {
-        if (conversationId && meta[index]?.id && !localTarget) {
-          reqMessages.push({ at_message_id: meta[index].id! });
-          continue;
-        }
-        const msg: any = { role: m.role, content: await outgoingContent(m.content) };
-        turnLifecycle.assert(turn);
-        if (m.tool_calls) msg.tool_calls = m.tool_calls;
-        if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-        reqMessages.push(msg);
-      }
+      const { reqMessages, needsPrefix } = await buildRequestMessages(turn, history, !!localTarget);
 
       const callbacks: StreamCallbacks = {
         requireComplete: true,
@@ -2840,6 +3066,7 @@
           contextTokens = usage.prompt_tokens;
           completionTokens += usage.completion_tokens;
           totalTokens = contextTokens + completionTokens;
+          if (meta[placeholderIdx]) meta[placeholderIdx] = { ...meta[placeholderIdx], usage: callUsage(usage) };
         },
       };
 
@@ -2851,7 +3078,7 @@
           {
             model: turn.model,
             at_conversation_id: conversationId || undefined,
-            at_history_before: historyTruncated ? (meta[0]?.id || historyCursor) : undefined,
+            at_history_before: historyTruncated && needsPrefix ? (meta[0]?.id || historyCursor) : undefined,
             metadata: { session_id: sessionId },
             messages: reqMessages,
             tools: turn.tools.length > 0 ? turn.tools : undefined,
@@ -3023,6 +3250,24 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (commandSuggestions.length > 0 && !e.isComposing) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const n = commandSuggestions.length;
+        commandIndex = (commandIndex + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        if (!e.repeat) pickCommand(commandSuggestions[commandIndex], e.key === 'Enter');
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        commandMenuDismissed = userInput;
+        return;
+      }
+    }
     // Ctrl/Cmd+Enter while the agent works: stop it and continue with the queue.
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && streaming && !e.isComposing) {
       e.preventDefault();
@@ -3031,8 +3276,6 @@
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      // A lone "/" opens the command palette, as in a terminal agent.
-      if (userInput.trim() === '/' && pendingImages.length === 0) { userInput = ''; palette = 'commands'; return; }
       if (!e.repeat) void sendMessage();
       return;
     }
@@ -3134,6 +3377,7 @@
         items: [
           { label: 'New chat', hint: 'ctrl+alt+n', run: newConversation },
           { label: 'Share snapshot', disabled: !(sharingAvailable && conversationId && shareBoundaries.length > 0), run: () => (showShareDialog = true) },
+          { label: 'Compact conversation', hint: '/compact', disabled: !canCompact, run: () => void compactConversation('') },
           { label: 'Copy last answer', disabled: lastAssistant < 0, run: () => copyMessage(lastAssistant) },
           { label: 'Fork from last message', disabled: messages.length === 0 || meta[messages.length - 1]?.sequence == null, run: () => forkFrom(messages.length - 1) },
           { label: unsavedCount > 0 ? `Retry saving ${unsavedCount} message${unsavedCount === 1 ? '' : 's'}` : 'Retry saving', disabled: !(unsavedCount > 0 && conversationId), run: () => persistPending() },
@@ -3156,6 +3400,13 @@
           { label: 'Server tools & MCP sets', run: () => openWorkbench('tools') },
           { label: 'Chat tools, local MCP & extensions', run: () => openWorkbench('chat') },
           ...(localProvidersAvailable ? [{ label: 'Local providers', run: () => openWorkbench('providers') }] : []),
+        ],
+      },
+      {
+        label: 'Commands',
+        items: [
+          ...customCommands.map(c => ({ label: `/${c.name}${c.description ? ` — ${c.description}` : ''}`, hint: c.scope === 'workspace' ? 'workspace' : undefined, run: () => { userInput = `/${c.name} `; tick().then(() => composerInput?.focus()); } })),
+          { label: 'Manage commands…', run: () => openWorkbench('commands') },
         ],
       },
       {
@@ -3220,7 +3471,7 @@
       onclick={() => copyMessage(index)}
       aria-label={copiedIndex === index ? 'Copied' : 'Copy message'}
       title="Copy message"
-      class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+      class="oc-link opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
     >{#if copiedIndex === index}<span class="text-[var(--oc-green)]">copied</span>{:else}copy{/if}</button>
   {/if}
 {/snippet}
@@ -3232,7 +3483,7 @@
       aria-pressed={!!rawMessages[index]}
       aria-label={rawMessages[index] ? 'Show rendered markdown' : 'Show raw text'}
       title={rawMessages[index] ? 'Show rendered markdown' : 'Show raw markdown source'}
-      class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+      class="oc-link opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
     >{rawMessages[index] ? 'rendered' : 'raw'}</button>
   {/if}
 {/snippet}
@@ -3244,7 +3495,7 @@
     disabled={sequence === null}
     aria-label={sequence === null ? 'Fork unavailable: this message is not saved yet' : `Fork a new conversation from message ${sequence}`}
     title={sequence === null ? 'Fork becomes available once this message is saved to history' : 'Fork a new conversation from here'}
-    class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed"
+    class="oc-link opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed"
   >fork</button>
 {/snippet}
 
@@ -3326,7 +3577,7 @@
         onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); showWorkbench = false; } }}
         class="flex w-full max-w-3xl max-h-[calc(100dvh-2rem)] flex-col border border-dark-border bg-dark-surface focus:outline-none sm:max-h-[calc(100dvh-4rem)]"
       >
-        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base shrink-0">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border shrink-0">
           <div class="min-w-0">
             <h2 class="text-sm font-medium text-dark-text">Workbench</h2>
             <p class="mt-0.5 text-dark-text-muted">
@@ -3432,11 +3683,15 @@
           aria-labelledby={`workbench-tab-${workbenchTab}`}
           class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
         >
+          {#if workbenchTab === 'commands'}
+            <ChatCommandsEditor personal={personalCommands} workspace={workspaceCommands} {models} reserved={builtinCommands.map(c => c.name)} onchange={loadCommands} />
+          {/if}
+
           <!-- System prompt leads because it is the instruction the selected
                skills and tools serve. -->
           {#if workbenchTab === 'prompt'}
           <div class="block max-w-2xl">
-            <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
+            <span class="text-xs font-medium text-dark-text-muted mb-1 block">System prompt</span>
             <textarea
               value={systemPrompt}
               oninput={(e) => { systemPrompt = e.currentTarget.value; workbenchChanged(); }}
@@ -3457,7 +3712,7 @@
                request to it. -->
           <div role="group" aria-label="Local providers" class="block max-w-3xl">
             <div class="flex items-center gap-2 mb-1">
-              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">Called by this browser</span>
+              <span class="text-xs font-medium text-dark-text-muted">Called by this browser</span>
               <button
                 onclick={() => editLocalProvider()}
                 class="ml-auto px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated"
@@ -3525,7 +3780,7 @@
           <!-- MCP Sets (Internal MCPs) -->
           {#if availableMCPSets.length > 0}
             <div role="group" aria-label="MCP" class="block">
-              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
+              <span class="text-xs font-medium text-dark-text-muted mb-1 block">MCP</span>
               <div class="flex flex-wrap gap-1.5">
                 {#each availableMCPSets as mcpSet}
                   {@const status = mcpSetStatus[mcpSet.name]}
@@ -3577,7 +3832,7 @@
           <!-- Server Tools (built-in) -->
           {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0}
             <div role="group" aria-label="Server Tools" class="block">
-              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
+              <span class="text-xs font-medium text-dark-text-muted mb-1 block">Server Tools</span>
               <BuiltinToolPicker tools={builtinTools.filter(tool => !isChatTodoTool(tool.name))} bind:selected={enabledBuiltinTools} collapsed onchange={refreshTools} />
             </div>
           {/if}
@@ -3587,7 +3842,7 @@
           {#if workbenchTab === 'skills'}
           {#if skills.length > 0}
             <div role="group" aria-label="Skills" class="block">
-              <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
+              <span class="text-xs font-medium text-dark-text-muted mb-1 block">Skills</span>
               <p class="mb-2 text-xs text-dark-text-muted">Add reusable Markdown instructions and reference resources. Skills do not grant tools.</p>
               <div class="flex flex-wrap gap-1.5">
                 {#each skills as skill}
@@ -3613,7 +3868,7 @@
           <!-- Chat Tools (frontend-only) -->
           {#if workbenchTab === 'chat'}
           <div role="group" aria-label="Chat Tools" class="block">
-            <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
+            <span class="text-xs font-medium text-dark-text-muted mb-1 block">Chat Tools</span>
             <div class="flex flex-wrap gap-1.5">
               {#each FRONTEND_TOOLS as tool}
                 <button
@@ -3638,7 +3893,7 @@
           {#if localMCPAvailable}
             <div role="group" aria-label="Local MCP servers" class="block">
               <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">On this machine</span>
+                <span class="text-xs font-medium text-dark-text-muted">On this machine</span>
                 <button
                   onclick={() => editLocalServer()}
                   class="ml-auto px-2 py-0.5 border border-dark-border-subtle text-dark-text-muted hover:bg-dark-elevated"
@@ -3720,7 +3975,7 @@
           {#if extensionsAvailable}
             <div role="group" aria-label="Browser extensions" class="block">
               <div class="flex items-center gap-2 mb-1">
-                <span class="text-xs font-medium text-dark-text-muted uppercase tracking-wide">Browser extensions</span>
+                <span class="text-xs font-medium text-dark-text-muted">Browser extensions</span>
                 <label class="flex items-center gap-1 text-xs">
                   <input type="checkbox" bind:checked={webConnectionEnabled} />
                   Web connection
@@ -3811,7 +4066,7 @@
              scrolling body because it is the answer to "did that work?", and
              a reader who has scrolled to the bottom of the tool catalogues is
              exactly who needs to read it. -->
-        <div class="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-dark-border bg-dark-base text-xs text-dark-text-muted">
+        <div class="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-dark-border text-xs text-dark-text-muted">
           <div class="flex min-w-0 flex-1 items-center gap-2">
             {#if loadingTools}
               <Loader2 size={12} class="shrink-0 animate-spin" />
@@ -3853,7 +4108,7 @@
     onscroll={handleChatScroll}
     class="flex-1 min-h-0 overflow-y-auto"
   >
-    <div class="mx-auto w-full max-w-[920px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
+    <div class="mx-auto w-full max-w-[1200px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
       <!-- Title block: the conversation and what it has cost so far. -->
       <header class="mb-5 flex items-center gap-4 bg-dark-surface px-4 py-3 sm:px-[22px] sm:py-4">
         <button
@@ -3946,7 +4201,7 @@
                   disabled={saving}
                   aria-label="Retry from this message"
                   title="Retry from this message"
-                  class="oc-link opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
+                  class="oc-link opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100 focus-visible:outline-1 focus-visible:outline-accent"
                 >retry</button>
               {/if}
             </div>
@@ -3954,9 +4209,24 @@
         {:else if msg.role === 'assistant'}
           {@const finished = !(streaming && i === messages.length - 1)}
           {@const closesTurn = finished && !msg.tool_calls?.length && messages[i + 1]?.role !== 'assistant' && messages[i + 1]?.role !== 'tool'}
-          <div class="group mb-4 min-w-0 px-4 sm:px-[22px]">
-            {#if messageText(msg.content).trim() || typeof msg.content !== 'string' || !finished}
-              <div class="max-w-[80ch] text-dark-text">
+          {#if meta[i]?.compaction}
+            <div class="my-5 flex items-center gap-[1ch] text-dark-text-faint" role="separator" aria-label="Conversation compacted">
+              <span class="h-px flex-1 bg-dark-border"></span>
+              <span class="text-[var(--oc-violet)]">compacted</span>
+              <span>· earlier messages are no longer sent to the model</span>
+              <span class="h-px flex-1 bg-dark-border"></span>
+            </div>
+          {/if}
+          <div class={['group mb-4 min-w-0 px-4 sm:px-[22px]', meta[i]?.compaction ? 'border-l border-[var(--oc-violet)]' : '']}>
+            {#if meta[i]?.compaction}
+              <details class="text-dark-text-secondary">
+                <summary class="cursor-pointer text-[var(--oc-violet)] focus-visible:outline-1 focus-visible:outline-accent">summary · {messageText(msg.content).length.toLocaleString()} chars</summary>
+                <div class="mt-2 max-w-[110ch] text-dark-text">
+                  <MessageContent message={msg} workspace={workspaceTransport.selected} raw={!!rawMessages[i]} formatSize={formatFileSize} />
+                </div>
+              </details>
+            {:else if messageText(msg.content).trim() || typeof msg.content !== 'string' || !finished}
+              <div class="max-w-[110ch] text-dark-text">
                 <MessageContent message={msg} workspace={workspaceTransport.selected} raw={!!rawMessages[i]} thinking={!finished} formatSize={formatFileSize} />
               </div>
             {/if}
@@ -4012,7 +4282,7 @@
   </div>
 
   <!-- Input area -->
-  <div class="mx-auto w-full max-w-[920px] shrink-0 px-3 pb-3 sm:px-8 sm:pb-3.5">
+  <div class="mx-auto w-full max-w-[1200px] shrink-0 px-3 pb-3 sm:px-8 sm:pb-3.5">
     <!-- Local MCP servers and browser extensions are each approved once, so the
          fact that a model can run something on this computer has to stay
          visible and revocable while it is true — not only at the moment it was
@@ -4066,6 +4336,29 @@
       </div>
     {/if}
 
+    {#if commandSuggestions.length > 0}
+      <div id="command-suggestions" role="listbox" aria-label="Commands" class="mb-0.5 max-h-[min(18rem,40dvh)] overflow-y-auto bg-dark-surface py-1.5">
+        {#each commandSuggestions as c, index (c.scope + c.name)}
+          <button
+            id={`command-option-${index}`}
+            role="option"
+            aria-selected={index === commandIndex}
+            aria-disabled={c.disabled}
+            tabindex="-1"
+            onmousedown={e => e.preventDefault()}
+            onmousemove={() => (commandIndex = index)}
+            onclick={() => pickCommand(c, true)}
+            class={['flex w-full items-baseline gap-[2ch] px-4 py-[3px] text-left sm:px-[22px]', index === commandIndex ? 'bg-[var(--oc-peach)] text-[#1b1414]' : c.disabled ? 'text-dark-text-faint' : 'text-dark-text-secondary']}
+          >
+            <span class="shrink-0"><span class={index === commandIndex ? '' : 'text-dark-text'}>/{c.name}</span>{#if c.args}<span class={['ml-[1ch]', index === commandIndex ? '' : 'text-dark-text-faint']}>{c.args}</span>{/if}</span>
+            <span class={['min-w-0 flex-1 truncate', index === commandIndex ? '' : 'text-dark-text-muted']}>{c.description}</span>
+            {#if c.scope !== 'built-in'}<span class={['shrink-0', index === commandIndex ? '' : 'text-[var(--oc-violet)]']}>{c.scope}</span>{/if}
+          </button>
+        {/each}
+        <p class="px-4 pt-1 text-dark-text-faint sm:px-[22px]">↑↓ select · enter run · tab fill · esc close</p>
+      </div>
+    {/if}
+
     <div class={['border-l-2 bg-dark-elevated px-4 pt-3 pb-2.5 sm:px-[22px] sm:pt-3.5', streaming ? 'border-[var(--oc-peach)]' : 'border-accent']}>
       <!-- Pending attachments -->
       {#if pendingImages.length > 0}
@@ -4114,8 +4407,13 @@
         use:growComposer={userInput}
         onkeydown={handleKeydown}
         onpaste={handlePaste}
+        role="combobox"
+        aria-expanded={commandSuggestions.length > 0}
+        aria-controls="command-suggestions"
+        aria-autocomplete="list"
+        aria-activedescendant={commandSuggestions.length > 0 ? `command-option-${commandIndex}` : undefined}
         aria-label="Message"
-        placeholder={models.length === 0 ? 'No models available' : streaming ? 'Queue a message for the agent…  (ctrl+enter interrupts)' : 'Write a message…  (/ for commands)'}
+        placeholder={models.length === 0 ? 'No models available' : compacting ? 'Compacting the conversation…' : streaming ? 'Queue a message for the agent…  (ctrl+enter interrupts)' : 'Write a message…  (/ for commands)'}
         disabled={models.length === 0}
         rows={1}
         class="block min-h-[1.65em] max-h-[min(16rem,35dvh)] w-full resize-none overflow-y-auto bg-transparent text-base leading-relaxed text-dark-text placeholder:text-dark-text-muted focus:outline-none disabled:text-dark-text-muted sm:text-sm"
@@ -4288,6 +4586,19 @@
         <div class="flex justify-between text-dark-text-muted"><span>prompt</span><span class="tabular-nums text-dark-text-secondary">{contextTokens.toLocaleString()}</span></div>
         <div class="flex justify-between text-dark-text-muted"><span>completion</span><span class="tabular-nums text-dark-text-secondary">{completionTokens.toLocaleString()}</span></div>
         <div class="flex justify-between text-dark-text-muted"><span>total</span><span class="tabular-nums text-dark-text-secondary">{totalTokens.toLocaleString()}</span></div>
+        <div
+          class="mt-1.5 flex justify-between border-t border-dark-border pt-1.5 text-dark-text-muted"
+          title={conversationCost.unpriced > 0
+            ? `${conversationCost.unpriced} call${conversationCost.unpriced === 1 ? '' : 's'} used a model without a price; set prices on the Pricing page.`
+            : 'Cost of the model calls in this conversation, from installation pricing.'}
+        >
+          <span>cost</span>
+          <span class="tabular-nums">
+            {#if conversationCost.priced > 0}<span class="text-[var(--oc-peach)]">{formatCost(conversationCost.cents)}</span>{:else}<span class="text-dark-text-faint">—</span>{/if}
+            {#if conversationCost.unpriced > 0}<span class="text-dark-text-faint"> +{conversationCost.unpriced} unpriced</span>{/if}
+          </span>
+        </div>
+        {#if historyTruncated}<p class="mt-1 text-dark-text-faint">cost covers loaded messages</p>{/if}
       </section>
 
       <section class="mb-6">
@@ -4358,7 +4669,7 @@
 {#if localApprovalFor}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
     <div class="w-full max-w-lg border border-dark-border bg-dark-surface">
-      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="px-4 py-3 border-b border-dark-border">
         <h2 class="text-sm font-medium text-dark-text">Enable {localApprovalFor.name} on this device</h2>
         <p class="mt-0.5 text-dark-text-muted">
           Your browser will call <code class="font-mono">{localApprovalFor.url}</code> on this computer. The model chooses the arguments, and after this it runs these tools without asking again.
@@ -4422,7 +4733,7 @@
 {#if extensionApprovalTarget}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
     <div class="w-full max-w-lg border border-dark-border bg-dark-surface">
-      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="px-4 py-3 border-b border-dark-border">
         <h2 class="text-sm font-medium text-dark-text">Enable {extensionApprovalTarget.name} on this device</h2>
         <p class="mt-0.5 text-dark-text-muted">
           This extension runs in your browser with the access you granted it when you installed it. The model chooses the arguments, and after this it calls these tools without asking again.
@@ -4494,7 +4805,7 @@
       onkeydown={(e) => { if (e.key === 'Escape') extensionInspectorTarget = null; }}
       class="flex w-full max-w-lg max-h-[80vh] flex-col border border-dark-border bg-dark-surface"
     >
-      <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-dark-border">
         <div class="min-w-0">
           <h2 id="extension-tools-title" class="text-sm font-medium text-dark-text">{extensionInspectorTarget.name} tools</h2>
           <p class="mt-0.5 text-dark-text-muted">Tools currently connected to this chat through the browser extension.</p>
@@ -4532,7 +4843,7 @@
           </ul>
         {/if}
       </div>
-      <div class="shrink-0 flex justify-end px-4 py-3 border-t border-dark-border bg-dark-base">
+      <div class="shrink-0 flex justify-end px-4 py-3 border-t border-dark-border">
         <button onclick={() => (extensionInspectorTarget = null)} class="px-3 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent">Done</button>
       </div>
     </div>

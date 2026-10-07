@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Text (Markdown)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Text (Markdown)</span>
   <textarea
     bind:value={data.text}
     rows={5}
@@ -14,7 +14,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Color</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Color</span>
   <input
     type="color"
     bind:value={data.color}

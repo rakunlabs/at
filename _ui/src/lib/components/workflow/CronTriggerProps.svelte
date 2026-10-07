@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Schedule (cron)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Schedule (cron)</span>
   <input
     type="text"
     bind:value={data.schedule}
@@ -15,7 +15,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Timezone</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Timezone</span>
   <input
     type="text"
     bind:value={data.timezone}
@@ -26,7 +26,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Static Payload (JSON)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Static Payload (JSON)</span>
   <textarea
     value={JSON.stringify(data.payload || {}, null, 2)}
     oninput={(e) => { try { data.payload = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }}
@@ -38,7 +38,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="This is a trigger/source node with no runtime inputs.">
         <span class="text-[11px] text-dark-text-muted italic">None — trigger source node</span>
@@ -46,7 +46,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Merged map of static payload + trigger metadata (trigger_type, triggered_at, schedule, trigger_id).">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>

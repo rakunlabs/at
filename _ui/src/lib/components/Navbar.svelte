@@ -29,7 +29,7 @@
   });
 </script>
 
-<div class="app-navbar min-h-9 min-w-0 max-w-full bg-dark-surface border-b border-dark-border flex items-stretch px-2">
+<div class="app-navbar min-h-9 min-w-0 max-w-full bg-dark-base border-b border-dark-border flex items-stretch px-2">
   <button
     aria-label="Toggle navigation"
     aria-expanded={storeNavbar.sideBarOpen}
@@ -47,7 +47,7 @@
   </span>
 
   <div class="ml-auto flex shrink-0 items-stretch gap-1 sm:gap-4">
-    {#if maySwitch && workspaceState.items.length}<label class="flex items-stretch text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 border-l border-r border-dark-border bg-dark-surface px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
+    {#if maySwitch && workspaceState.items.length}<label class="flex items-stretch text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 border-l border-r border-dark-border bg-dark-base px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
       {#each workspaceState.items.filter(w => !w.archived) as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
     </select></label>{/if}
     {#if workspaceError}<span role="alert" class="settings-error self-center">{workspaceError}</span>{/if}

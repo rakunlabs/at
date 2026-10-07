@@ -96,9 +96,9 @@
   }
 </script>
 
-<div class="w-full min-w-0 max-w-full border border-dark-border bg-dark-surface overflow-hidden">
+<div class="w-full min-w-0 max-w-full border border-dark-border overflow-hidden">
   {#if onsearch}
-    <div class="px-4 py-2 border-b border-dark-border bg-dark-base">
+    <div class="px-4 py-2 border-b border-dark-border">
       <div class="relative w-full sm:w-64 sm:max-w-full">
         <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 text-dark-text-muted" size={13} />
         <input
@@ -160,13 +160,15 @@
       aria-describedby={hasHorizontalOverflow ? scrollHintId : undefined}
       tabindex={hasHorizontalOverflow ? 0 : undefined}
     >
-    <table class={`w-full text-sm ${tableClass}`}>
+    <!-- When columns overflow, the last column (row actions) stays pinned so
+         edit/delete are reachable without scrolling to the far edge. -->
+    <table class={['w-full text-sm', hasHorizontalOverflow ? 'pin-actions' : '', tableClass]}>
       <thead>
-        <tr class="border-b border-dark-border bg-dark-base">
+        <tr class="border-b border-dark-border">
           {@render header()}
         </tr>
       </thead>
-      <tbody class="divide-y divide-dark-border">
+      <tbody class="divide-y divide-dark-border/70 [&>tr:hover]:bg-dark-surface">
         {#each items as item}
           {@render row(item)}
         {/each}
@@ -179,3 +181,13 @@
     {/if}
   {/if}
 </div>
+
+<style>
+  .pin-actions :global(tr > :last-child) {
+    position: sticky;
+    right: 0;
+    background: var(--color-dark-base);
+    box-shadow: -1px 0 0 var(--color-dark-border);
+  }
+  .pin-actions :global(tbody tr:hover > :last-child) { background: var(--color-dark-surface); }
+</style>

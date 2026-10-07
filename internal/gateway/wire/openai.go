@@ -157,6 +157,9 @@ type ChatCompletionUsage struct {
 	TotalTokens             int                                    `json:"total_tokens"`
 	PromptTokensDetails     *ChatCompletionPromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails *ChatCompletionCompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+	// AtCostCents is set only on the browser Chats endpoint: the call's cost
+	// from installation pricing, absent when the model has no price.
+	AtCostCents *float64 `json:"at_cost_cents,omitempty"`
 }
 
 type ChatCompletionPromptTokensDetails struct {

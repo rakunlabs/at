@@ -160,7 +160,7 @@
           </div>
         {:else}
           <section>
-            <h4 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Input{#if o.request_truncated} <span class="normal-case text-amber-400">(truncated)</span>{/if}</h4>
+            <h4 class="mb-1.5 text-[11px] font-semibold text-dark-text-muted">Input{#if o.request_truncated} <span class="normal-case text-amber-400">(truncated)</span>{/if}</h4>
             {#if conversation}
               <ChatMessages messages={conversation.messages} system={conversation.system} />
               {#if conversation.tools.length}
@@ -174,7 +174,7 @@
             {/if}
           </section>
           <section>
-            <h4 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Output{#if o.response_truncated} <span class="normal-case text-amber-400">(truncated)</span>{/if}</h4>
+            <h4 class="mb-1.5 text-[11px] font-semibold text-dark-text-muted">Output{#if o.response_truncated} <span class="normal-case text-amber-400">(truncated)</span>{/if}</h4>
             {#if response}
               <ChatMessages messages={[response]} pairResults={false} />
             {:else if o.response_body}
@@ -187,13 +187,13 @@
       {:else}
         {#if o.input}
           <section>
-            <h4 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Input</h4>
+            <h4 class="mb-1.5 text-[11px] font-semibold text-dark-text-muted">Input</h4>
             <JsonView raw={o.input} depth={3} />
           </section>
         {/if}
         {#if o.output}
           <section>
-            <h4 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Output</h4>
+            <h4 class="mb-1.5 text-[11px] font-semibold text-dark-text-muted">Output</h4>
             <JsonView raw={o.output} depth={3} />
           </section>
         {/if}

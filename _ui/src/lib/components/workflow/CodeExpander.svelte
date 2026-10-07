@@ -115,7 +115,7 @@
 <!-- Inline textarea with expand button -->
 <div class="relative">
   <div class="flex items-center justify-between mb-0.5">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">{label}</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">{label}</span>
     <button
       onclick={openExpanded}
       class="flex items-center gap-0.5 text-[10px] text-dark-text-muted hover:text-dark-text-secondary"

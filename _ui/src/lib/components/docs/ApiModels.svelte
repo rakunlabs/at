@@ -59,7 +59,7 @@
   </p>
   <ul class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
     {#each models as model (model)}
-      <li class="flex items-center gap-1 border border-dark-border bg-dark-surface">
+      <li class="flex items-center gap-1 border border-dark-border">
         <code class="min-w-0 flex-1 truncate px-2 py-1.5 font-mono text-[12px] text-dark-text">
           {model}
         </code>

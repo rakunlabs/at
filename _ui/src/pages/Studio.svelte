@@ -155,7 +155,7 @@
       <p class="mx-auto mt-2 max-w-md text-xs leading-5 text-dark-text-muted">
         Create recurring characters, write episodic storyboards, or develop standalone long videos with an AI brief assistant. Generate visuals and narration, then assemble final cuts.
       </p>
-      <div class="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[10px] uppercase tracking-wide text-dark-text-muted">
+      <div class="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[11px] text-dark-text-muted">
         <span>Character bible</span><span>Style lock</span><span>Shot continuity</span><span>Structured renders</span>
       </div>
       <button onclick={setupStudio} disabled={installing} class="mt-6 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50">

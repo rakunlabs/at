@@ -118,7 +118,7 @@
 
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation" onclick={(e) => { if (e.currentTarget === e.target) onclose(); }}>
   <div bind:this={panel} role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" tabindex="-1" onkeydown={(e) => { if (e.key === 'Escape') onclose(); }} class="flex max-h-[88vh] w-full max-w-2xl flex-col border border-dark-border bg-dark-surface focus:outline-none">
-    <header class="flex items-start justify-between gap-4 border-b px-4 py-3 border-dark-border bg-dark-base">
+    <header class="flex items-start justify-between gap-4 border-b px-4 py-3 border-dark-border">
       <div>
         <h2 id="share-dialog-title" class="flex items-center gap-2 text-sm font-semibold text-dark-text"><Share2 size={15} /> Share conversation snapshot</h2>
         <p class="mt-1 text-[11px] leading-relaxed text-dark-text-muted">Publish a fixed, read-only prefix. Later messages stay private until you update it.</p>
@@ -169,7 +169,7 @@
       {/if}
     </div>
 
-    <footer class="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 border-dark-border bg-dark-base">
+    <footer class="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 border-dark-border">
       <div class="flex gap-2">
         {#if share}
           <button onclick={copyLink} class="h-9 inline-flex items-center gap-1.5 border px-3 text-xs focus-visible:outline-2 focus-visible:outline-accent border-dark-border-subtle bg-dark-surface text-dark-text-secondary hover:bg-dark-elevated"><Clipboard size={13} /> Copy link</button>

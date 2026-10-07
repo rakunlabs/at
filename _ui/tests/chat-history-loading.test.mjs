@@ -6,13 +6,13 @@ import ts from 'typescript';
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
 const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true);
-const functions = ast.statements.filter(n => ts.isFunctionDeclaration(n) && ['openConversation', 'loadOlderHistory'].includes(n.name?.text)).map(n => n.getText(ast));
+const functions = ast.statements.filter(n => ts.isFunctionDeclaration(n) && ['openConversation', 'loadOlderHistory', 'storedUsage'].includes(n.name?.text)).map(n => n.getText(ast));
 const code = ts.transpileModule(`export function fixture(pages) {
   let settingsTimer = null, toolDiscoveryVersion = 0, generation = 0, disposed = false;
   let conversationId = '', scratchSessionId = '', conversation = null, parentTitle = '', appliedPresetId = '', selectedModel = '', systemPrompt = '';
   let historyTruncated = false, historyCursor = '', loadingOlderHistory = false, historyLoading = false, savedSettings = null;
   let streaming = false, saving = false, messages = [], meta = [], rawMessages = {};
-  const calls = [], errors = [], HISTORY_PAGE_SIZE = 50;
+  const calls = [], errors = [], HISTORY_PAGE_SIZE = 50, COMPACTION_FLAG = 'compaction';
   const turnLifecycle = { generation: () => generation };
   const resetBuffer = () => { generation++; messages = []; meta = []; };
   const defaultsSave = { flush: async () => {} }, saveSettings = () => {};

@@ -699,7 +699,7 @@
 <div class="flex h-full">
 <div class="flex h-full flex-1 min-w-0">
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-6xl mx-auto">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
       <!-- Tab Bar -->
       <div class="flex items-center gap-4 mb-4 border-b border-dark-border">
         <button
@@ -802,7 +802,7 @@
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border bg-dark-base/50">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-medium text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New MCP'}
@@ -1443,13 +1443,13 @@
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Tools</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Description</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Tools</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
           {/snippet}
 
           {#snippet row(set)}
-            <tr class="hover:bg-dark-elevated/50">
+            <tr class="hover:bg-dark-surface">
               <td class="px-4 py-2.5 font-mono font-medium text-dark-text">{set.name}</td>
               <td class="px-4 py-2.5 text-xs text-dark-text-muted max-w-64 truncate" title={set.description}>
                 {set.description || '-'}
@@ -1614,7 +1614,7 @@
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {#each mcpTemplates as tmpl}
-              <div class="border border-dark-border bg-dark-surface p-4 flex flex-col">
+              <div class="border border-dark-border p-4 flex flex-col">
                 <div class="flex items-start justify-between mb-2">
                   <div>
                     <h3 class="text-sm font-medium text-dark-text">{tmpl.name}</h3>
@@ -1700,8 +1700,8 @@
           </div>
         </div>
 
-        <div class="border border-dark-border bg-dark-surface mb-4">
-          <div class="px-4 py-3 border-b border-dark-border bg-dark-base/50 flex items-center gap-2">
+        <div class="border border-dark-border mb-4">
+          <div class="px-4 py-3 border-b border-dark-border flex items-center gap-2">
             <span class="text-xs text-dark-text-muted">Library directory</span>
             <code class="text-xs font-mono text-dark-text-secondary truncate">{binDir || '…'}</code>
             {#if binDir}
@@ -1732,16 +1732,16 @@
             <p class="text-xs mt-1">Upload MCP binaries, config files, or release tarballs</p>
           </div>
         {:else}
-          <div class="border border-dark-border bg-dark-surface overflow-x-auto">
+          <div class="border border-dark-border overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="border-b border-dark-border bg-dark-base/50">
-                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Size</th>
-                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Mode</th>
-                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Modified</th>
-                  <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+                <tr class="border-b border-dark-border">
+                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Name</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Type</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Size</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Mode</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Modified</th>
+                  <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-24"></th>
                 </tr>
               </thead>
               <tbody>
@@ -1809,14 +1809,14 @@
           {#if stdioProcesses.length === 0}
             <p class="text-xs text-dark-text-muted">No local MCP processes are running. They start lazily on the first tool call.</p>
           {:else}
-            <div class="border border-dark-border bg-dark-surface overflow-x-auto">
+            <div class="border border-dark-border overflow-x-auto">
               <table class="w-full text-sm">
                 <thead>
-                  <tr class="border-b border-dark-border bg-dark-base/50">
-                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Command</th>
-                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">PID</th>
-                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Uptime</th>
+                  <tr class="border-b border-dark-border">
+                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Command</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">PID</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Uptime</th>
                   </tr>
                 </thead>
                 <tbody>

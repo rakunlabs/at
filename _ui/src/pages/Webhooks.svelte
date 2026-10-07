@@ -378,7 +378,7 @@
   <title>AT | Webhooks</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
 
   {#if serversAvailable}
@@ -423,7 +423,7 @@
   <!-- Form -->
   {#if showForm}
     <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">
           {editingId ? 'Edit Webhook' : 'New Webhook'}
         </span>
@@ -654,7 +654,7 @@
   <!-- Delivery history -->
   {#if historyFor}
     <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">Recent deliveries · {historyFor.alias || historyFor.id.slice(0, 12)}</span>
         <div class="flex items-center gap-1">
           <button onclick={loadHistory} title="Refresh" class="p-1 hover:bg-dark-elevated text-dark-text-muted"><RefreshCw size={14} /></button>
@@ -669,7 +669,7 @@
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
             <thead>
-              <tr class="border-b border-dark-border text-dark-text-muted uppercase tracking-wider">
+              <tr class="border-b border-dark-border text-dark-text-muted">
                 <th class="text-left px-4 py-2 font-medium">Time</th>
                 <th class="text-left px-4 py-2 font-medium">Status</th>
                 <th class="text-left px-4 py-2 font-medium">Request</th>
@@ -704,21 +704,21 @@
   {:else if pageLoad.error('Webhooks') && !triggers.length}
     <p class="text-sm text-dark-text-secondary">Webhooks could not be loaded. Retry above.</p>
   {:else if triggers.length === 0}
-    <div class="text-center py-12 border border-dark-border bg-dark-surface">
+    <div class="text-center py-12 border border-dark-border">
       <Globe size={24} class="mx-auto mb-2 text-dark-text-muted" />
       <p class="text-sm text-dark-text-muted">No webhooks configured</p>
       <p class="text-xs text-dark-text-muted mt-1">Create a webhook to trigger workflows via HTTP</p>
     </div>
   {:else}
-    <div class="border border-dark-border bg-dark-surface overflow-hidden">
+    <div class="border border-dark-border overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-dark-border bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Webhook</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Target</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Auth</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-36"></th>
+          <tr class="border-b border-dark-border">
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Webhook</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Target</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Auth</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-36"></th>
           </tr>
         </thead>
         <tbody>

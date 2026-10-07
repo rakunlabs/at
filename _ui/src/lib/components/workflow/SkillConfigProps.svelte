@@ -3,7 +3,7 @@
 </script>
 
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Skills</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">Skills</span>
   {#if skills.length > 0}
     <div class="mt-0.5 space-y-0.5">
       {#each skills as skill}
@@ -35,7 +35,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="This is a static resource node with no runtime inputs.">
         <span class="text-[11px] text-dark-text-muted italic">None — static configuration node</span>
@@ -43,7 +43,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Emits the list of selected skill names. Connect to an agent_call node's 'skills' input port.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">skills</span>

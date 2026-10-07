@@ -62,6 +62,14 @@ func (s *Server) resolveChatReferences(w http.ResponseWriter, r *http.Request, b
 			playgroundError(w, err)
 			return false
 		}
+		// A compaction summary replaces everything before it, so the unloaded
+		// prefix starts at the latest one rather than at the first message.
+		for i := len(prefix) - 1; i >= 0; i-- {
+			if compacted, _ := prefix[i].Data["compaction"].(bool); compacted {
+				prefix = prefix[i:]
+				break
+			}
+		}
 		position := 0
 		for position < len(req.Messages) && req.Messages[position].Role == "system" {
 			position++

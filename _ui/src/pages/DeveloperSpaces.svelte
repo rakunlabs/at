@@ -779,7 +779,7 @@
       <aside class="flex min-h-0 shrink-0 flex-col border-r border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
         <section class="flex max-h-[40%] min-h-0 flex-col border-b border-dark-border">
           <div class="flex items-center gap-1 px-2 py-1.5">
-            <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-dark-text-muted">Sessions</h3>
+            <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Sessions</h3>
             <button type="button" onclick={newSession} class="p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text" title={`New session in ${project || 'the space'}`} aria-label="New session"><Plus size={14} /></button>
           </div>
           <ul class="min-h-0 overflow-y-auto pb-1">
@@ -797,7 +797,7 @@
               </li>
             {/each}
             {#if otherSessions.length}
-              <li class="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-dark-text-muted">Other projects</li>
+              <li class="px-3 pt-2 pb-0.5 text-[11px] text-dark-text-muted">Other projects</li>
               {#each otherSessions as s (s.id)}
                 <li>
                   <button type="button" onclick={() => { if (s.project_path !== project) void openProject(s.project_path, false); openSession(s.id); }} class={['flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left text-xs text-dark-text-secondary hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']}>
@@ -812,8 +812,8 @@
         </section>
 
         <div class="flex items-center gap-0.5 border-b border-dark-border px-1 py-1">
-          <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'files' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Files</button>
-          <button type="button" onclick={() => (sidebarView = 'search')} class={['px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', sidebarView === 'search' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Search</button>
+          <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold', sidebarView === 'files' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Files</button>
+          <button type="button" onclick={() => (sidebarView = 'search')} class={['px-2 py-0.5 text-[11px] font-semibold', sidebarView === 'search' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Search</button>
           <span class="flex-1"></span>
           {#if sidebarView === 'files'}
             <button type="button" onclick={() => createEntry(project, 'file')} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="New file" aria-label="New file"><FilePlus size={13} /></button>
@@ -999,7 +999,7 @@
       <div role="separator" aria-orientation="vertical" aria-label="Resize source control" class="w-1 shrink-0 cursor-col-resize hover:bg-accent/40 max-md:hidden" onpointerdown={resizeRight}></div>
       <aside class="flex min-h-0 shrink-0 flex-col border-l border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:right-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${rightWidth}px`}>
         <div class="flex h-9 shrink-0 items-center border-b border-dark-border px-3">
-          <h3 class="flex-1 text-[11px] font-semibold uppercase tracking-wide text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
+          <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
         </div>
         <div class="min-h-0 flex-1">
           {#if space?.status === 'ready'}

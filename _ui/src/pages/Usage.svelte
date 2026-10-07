@@ -500,7 +500,7 @@
   <title>AT | Usage</title>
 </svelte:head>
 
-<div class="p-6 max-w-7xl mx-auto">
+<div class="p-4 sm:p-6 max-w-7xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={loadAll} {loading} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
@@ -587,7 +587,7 @@
   <!-- KPI Cards -->
   {#if summary}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Zap size={12} /> {primaryUsage.label}
         </div>
@@ -600,7 +600,7 @@
         </div>
       </div>
 
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Activity size={12} /> Calls
         </div>
@@ -612,7 +612,7 @@
         </div>
       </div>
 
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <AlertCircle size={12} /> Cost coverage
         </div>
@@ -628,7 +628,7 @@
         </div>
       </div>
 
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Clock size={12} /> P95 latency
         </div>
@@ -640,7 +640,7 @@
         </div>
       </div>
 
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
           <Zap size={12} /> Cache hit rate
         </div>
@@ -656,8 +656,8 @@
 
   <p class="mb-3 text-xs text-dark-text-secondary">User attribution starts with this update. Older calls and system activity appear as unattributed. LLM time is the sum of model-call durations, not time spent on the page.</p>
   {#each [{ title: 'User usage', rows: rankedUsers, users: true }, { title: 'Source usage', rows: bySource, users: false }] as section}
-    <section class="mb-4 border border-dark-border bg-dark-surface">
-      <div class="px-4 py-3 border-b border-dark-border bg-dark-base">
+    <section class="mb-4 border border-dark-border">
+      <div class="px-4 py-3 border-b border-dark-border">
         <h3 class="text-sm font-medium text-dark-text">{section.title}{section.users ? ` · Top 20 by ${rankingMetric}` : ''}</h3>
         {#if section.users}<p class="mt-1 text-xs text-dark-text-secondary">Select a user to filter all charts and see their Chats / Sessions breakdown below.</p>{/if}
       </div>
@@ -693,7 +693,7 @@
 
   <!-- Time-series charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-2">
         Requests &amp; errors by {bucket}
       </div>
@@ -706,7 +706,7 @@
       />
     </div>
 
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-2">
         Tokens by {bucket}
       </div>
@@ -733,7 +733,7 @@
     </div>
 
     {#if summary?.priced_request_count}
-      <div class="p-3 border border-dark-border bg-dark-surface">
+      <div class="p-3 border border-dark-border">
         <div class="text-xs font-medium text-dark-text-secondary mb-2">
           {pricingCoverage === 100 ? `Cost by ${bucket}` : `Known cost by ${bucket}`}
         </div>
@@ -747,35 +747,35 @@
 
   <!-- Group-by charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Tokens by provider
       </div>
       <DonutChart slices={providerSlices} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top models (by tokens)
       </div>
       <HorizontalBarChart rows={modelRows} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top agents (by requests)
       </div>
       <HorizontalBarChart rows={agentRows} formatValue={fmtInt} />
     </div>
 
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top organizations (by tokens)
       </div>
       <HorizontalBarChart rows={orgRows} formatValue={fmtNum} />
     </div>
 
-    <div class="p-3 border border-dark-border bg-dark-surface lg:col-span-2">
+    <div class="p-3 border border-dark-border lg:col-span-2">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Top billing codes (by tokens)
       </div>
@@ -784,8 +784,8 @@
   </div>
 
   {#if byModel.length > 0}
-    <section class="mb-4 border border-dark-border bg-dark-surface">
-      <div class="border-b px-4 py-3 border-dark-border bg-dark-base">
+    <section class="mb-4 border border-dark-border">
+      <div class="border-b px-4 py-3 border-dark-border">
         <h3 class="text-sm font-medium text-dark-text">Model efficiency</h3>
         <p class="mt-1 text-xs text-dark-text-secondary">Cost efficiency is shown only when every call in that model row has calculable usage and pricing.</p>
       </div>
@@ -826,7 +826,7 @@
   <!-- Error breakdown (by status) -->
   {#if byStatus.length > 0}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Requests by status
       </div>
@@ -855,7 +855,7 @@
         </tbody>
       </table>
     </div>
-    <div class="p-3 border border-dark-border bg-dark-surface">
+    <div class="p-3 border border-dark-border">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">Error reasons</div>
       <table class="w-full text-xs">
         <thead class="text-left text-dark-text-muted">
@@ -885,7 +885,7 @@
 
   <!-- Budget utilization -->
   {#if budgets.length > 0}
-    <div class="p-3 border border-dark-border bg-dark-surface mb-4">
+    <div class="p-3 border border-dark-border mb-4">
       <div class="text-xs font-medium text-dark-text-secondary mb-3">
         Budget utilization
       </div>

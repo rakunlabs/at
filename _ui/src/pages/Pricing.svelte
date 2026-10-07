@@ -433,7 +433,7 @@
   <title>AT | Model Pricing</title>
 </svelte:head>
 
-<div class="p-6 max-w-7xl mx-auto space-y-5">
+<div class="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <CircleDollarSign size={18} class="text-dark-text-muted" />
@@ -482,12 +482,12 @@
     </div>
   </div>
 
-  <section class="border border-dark-border bg-dark-surface p-4">
+  <section class="border border-dark-border p-4">
     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
       <div class="flex items-start gap-2 max-w-2xl">
         <Bot size={18} class="text-dark-text-muted mt-0.5" />
         <div>
-          <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">AI Pricing Agent</h3>
+          <h3 class="text-xs font-medium text-dark-text-secondary">AI Pricing Agent</h3>
           <p class="text-xs text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
         </div>
       </div>
@@ -545,9 +545,9 @@
   </section>
 
   <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
-    <section class="xl:col-span-1 border border-dark-border bg-dark-surface p-4">
+    <section class="xl:col-span-1 border border-dark-border p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">
+        <h3 class="text-xs font-medium text-dark-text-secondary">
           {editingID ? 'Edit Manual Override' : 'Add Manual Price'}
         </h3>
         {#if editingID}
@@ -592,10 +592,10 @@
       </div>
     </section>
 
-    <section class="xl:col-span-2 border border-dark-border bg-dark-surface overflow-hidden">
-      <div class="px-4 py-3 border-b border-dark-border flex items-center justify-between gap-3 bg-dark-base">
+    <section class="xl:col-span-2 border border-dark-border overflow-hidden">
+      <div class="px-4 py-3 border-b border-dark-border flex items-center justify-between gap-3">
         <div>
-          <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">Current Pricing</h3>
+          <h3 class="text-xs font-medium text-dark-text-secondary">Current Pricing</h3>
           <p class="text-xs text-dark-text-muted">Manual rows are protected from source sync unless overwritten.</p>
         </div>
         <input bind:value={search} placeholder="Search provider/model" class="w-56 border border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted px-2.5 py-1.5 text-xs focus:outline-none focus:border-dark-border-subtle" />
@@ -609,7 +609,7 @@
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-dark-border bg-dark-base">
+              <tr class="border-b border-dark-border">
                 <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Model</th>
                 <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Input</th>
                 <th class="text-right px-3 py-2 text-xs font-medium text-dark-text-muted">Output</th>
@@ -620,7 +620,7 @@
             </thead>
             <tbody class="divide-y divide-dark-border">
               {#each filteredPricing as item}
-                <tr class="hover:bg-dark-elevated/50">
+                <tr class="hover:bg-dark-surface">
                   <td class="px-3 py-2">
                     <div class="font-mono text-xs text-dark-text">{item.provider_key}/{item.model}</div>
                     {#if item.manual_override}
@@ -661,10 +661,10 @@
     </section>
   </div>
 
-  <section class="border border-dark-border bg-dark-surface overflow-hidden">
-    <div class="px-4 py-3 border-b border-dark-border bg-dark-base flex flex-wrap items-center justify-between gap-3">
+  <section class="border border-dark-border overflow-hidden">
+    <div class="px-4 py-3 border-b border-dark-border flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h3 class="text-xs font-medium text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
+        <h3 class="text-xs font-medium text-dark-text-secondary">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
         <p class="text-xs text-dark-text-secondary">Your models come from the selected workspace, including shared providers. Price references come from the selected external catalog.</p>
         {#if sourceCatalog.length > 0}
           <p class="mt-1 text-xs text-dark-text-secondary">For custom names or aliases, choose the catalog model whose price applies to your model. Apply Selected saves the price and remembers this match. A missing catalog entry does not mean your model is unavailable.</p>
@@ -695,7 +695,7 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-dark-border bg-dark-base">
+            <tr class="border-b border-dark-border">
               <th class="w-10 px-3 py-2"></th>
               <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Your Workspace Model</th>
               <th class="text-left px-3 py-2 text-xs font-medium text-dark-text-muted">Price Reference</th>
@@ -708,7 +708,7 @@
             {#each filteredPreview as item (previewKey(item))}
               {@const key = previewKey(item)}
               {@const reference = sourceCatalog.find(entry => item.matched && entry.provider === item.source_provider && entry.model === item.source_model)}
-              <tr class="hover:bg-dark-elevated/50">
+              <tr class="hover:bg-dark-surface">
                 <td class="px-3 py-2 text-center">
                   <input type="checkbox" aria-label={`Apply pricing for ${item.provider_key}/${item.model}`} checked={selectedPreview.includes(key)} disabled={!item.matched || applying || previewLoading} onchange={() => togglePreview(item)} class="h-3 w-3" />
                 </td>

@@ -6,6 +6,7 @@ import (
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
+	"github.com/rakunlabs/at/internal/gateway/wire"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -94,4 +95,19 @@ func pricingModelMatches(pricingModel, actualModel, fullModel string) bool {
 		return true
 	}
 	return false
+}
+
+// chatsStreamUsage is the usage chunk of a stream, plus the call's priced cost
+// when the request is the browser Chats workbench. Gateway clients keep the
+// plain OpenAI shape.
+func (s *Server) chatsStreamUsage(ctx context.Context, providerKey, actualModel, fullModel string, usage service.Usage) *wire.ChatCompletionUsage {
+	out := wire.ChatCompletionUsagePtrFromService(usage)
+	if actor, ok := ctx.Value(userUsageKey{}).(userUsageAttribution); !ok || actor.source != "chats" {
+		return out
+	}
+	if cost, ok := s.estimateGatewayUsageCost(context.WithoutCancel(ctx), providerKey, actualModel, fullModel, usage); ok {
+		out.AtCostCents = &cost
+	}
+
+	return out
 }

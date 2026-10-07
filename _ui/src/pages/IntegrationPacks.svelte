@@ -175,7 +175,7 @@
 </script>
 
 <div class="flex flex-col h-full">
-  <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
     <div class="flex items-center gap-2">
       <Package size={16} class="text-dark-text-muted" />
       <span class="text-sm font-medium text-dark-text">Integration Packs</span>
@@ -206,7 +206,7 @@
 
   <!-- Pack Sources Section -->
   {#if sources.length > 0 || showAddSource}
-    <div class="mx-4 mt-4 border border-dark-border bg-dark-surface">
+    <div class="mx-4 mt-4 border border-dark-border">
       <div class="flex items-center justify-between px-3 py-2 border-b border-dark-border bg-dark-base/50">
         <span class="text-xs font-medium text-dark-text-muted">Git Sources</span>
         <button onclick={() => showAddSource = !showAddSource} class="text-xs text-dark-text-muted hover:text-dark-text-secondary">
@@ -257,7 +257,7 @@
   {/if}
 
   {#if showCreate}
-    <div class="mx-4 mt-4 p-4 border border-dark-border bg-dark-surface space-y-3">
+    <div class="mx-4 mt-4 p-4 border border-dark-border space-y-3">
       <div class="text-xs font-medium text-dark-text-secondary">Create New Pack</div>
       <div class="grid grid-cols-2 gap-3">
         <label class="block">
@@ -318,7 +318,7 @@
     {:else}
       <div class="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {#each packs as pack}
-          <div class="border border-dark-border bg-dark-surface">
+          <div class="border border-dark-border">
             <div class="p-4">
               <div class="flex items-start justify-between mb-2">
                 <div>

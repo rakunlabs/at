@@ -183,8 +183,10 @@ tool rows (`ToolActivity compact`, summarised by `toolGlyph` /
 `toolArgSummary` / `toolResultSummary`), a composer whose status line opens the
 preset/model/effort pickers, and a session sidebar (right, an overlay below
 `xl`). `CommandPalette.svelte` serves ctrl+p (commands), ctrl+m (models),
-presets and effort; ctrl+b / ctrl+. toggle the sidebars, Tab on an empty
-composer cycles presets and a lone `/` + Enter opens the palette. Shortcuts
+presets and effort; ctrl+b / ctrl+. toggle the sidebars and Tab on an empty
+composer cycles presets. `/` in the composer opens the slash-command list
+(`helper/chat-commands.ts`, editor `ChatCommandsEditor.svelte`; see the root
+AGENTS.md for `/compact`). Shortcuts
 are ignored while another dialog is open. `.oc-theme` remains only as Chats'
 hook for its select reset and link colours.
 

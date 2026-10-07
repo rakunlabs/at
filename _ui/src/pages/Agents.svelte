@@ -581,7 +581,7 @@
 
 <div class="flex h-full min-h-0 min-w-0 overflow-hidden">
   <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
-    <div class="p-6 max-w-6xl mx-auto">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
       {#if agents.length > 0}
         <LoadIssues issues={page.list.issues} retry={loadData} {loading} />
       {/if}
@@ -638,7 +638,7 @@
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border bg-dark-base/50">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-dark-border">
             <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-medium text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Agent'}
@@ -1079,7 +1079,7 @@
               </div>
 
               <label class="block w-56">
-                <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+                <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Period limit (USD)</span>
                 <input
                   type="number"
                   min="0"
@@ -1169,11 +1169,11 @@
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
             <SortableHeader field="group" label="Group" {sorts} onsort={handleSort} />
             <SortableHeader field="provider" label="Provider / Model" {sorts} onsort={handleSort} />
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
           {/snippet}
 
           {#snippet row(agent)}
-            <tr class="hover:bg-dark-elevated/50">
+            <tr class="hover:bg-dark-surface">
               <td class="px-4 py-2.5">
                 <div class="flex items-center gap-2.5">
                   <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-dark-elevated" />

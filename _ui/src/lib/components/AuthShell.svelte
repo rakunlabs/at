@@ -34,13 +34,13 @@
   <div class={['w-full', widths[width]]}>
     <section
       aria-label={label || title}
-      class="border border-dark-border bg-dark-surface"
+      class="border border-dark-border"
     >
       <!-- The brand mark sits in the header strip, sized to the two title lines,
            instead of a separate wordmark block above the card: the title already
            names the installation, so the block only repeated it. A gate without
            a subtitle has a one-line strip, so the mark shrinks with it. -->
-      <div class="px-4 py-3 border-b border-dark-border bg-dark-base flex items-center gap-3">
+      <div class="px-4 py-3 border-b border-dark-border flex items-center gap-3">
         <div class="min-w-0 flex-1">
           <h1 class="text-sm font-medium text-dark-text break-words">{title}</h1>
           {#if subtitle}<p class="settings-note mt-0.5">{subtitle}</p>{/if}

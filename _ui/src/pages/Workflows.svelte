@@ -262,7 +262,7 @@
 
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-6xl mx-auto">
+    <div class="p-4 sm:p-6 max-w-6xl mx-auto">
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -291,7 +291,7 @@
       <!-- Create Form -->
       {#if showCreateForm}
         <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
             <span class="text-sm font-medium text-dark-text">New Workflow</span>
             <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
               <Plus size={14} class="rotate-45" />
@@ -355,15 +355,15 @@
       >
         {#snippet header()}
           <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Description</th>
           <SortableHeader field="active_version" label="Version" {sorts} onsort={handleSort} />
-          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Nodes</th>
+          <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Nodes</th>
           <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
-          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Actions</th>
+          <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs">Actions</th>
         {/snippet}
 
         {#snippet row(wf)}
-          <tr class="hover:bg-dark-elevated/50">
+          <tr class="hover:bg-dark-surface">
             <td class="px-4 py-2.5">
               <div>
                 <button
@@ -443,7 +443,7 @@
   {#if runPanelWorkflow}
     <div class="w-[480px] border-l border-dark-border bg-dark-surface flex flex-col shrink-0">
       <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base/50 shrink-0">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border shrink-0">
         <div class="min-w-0">
           <div class="text-sm font-medium text-dark-text truncate">Run: {runPanelWorkflow.name}</div>
           <div class="text-[10px] text-dark-text-muted font-mono">{runPanelWorkflow.id}</div>
@@ -458,7 +458,7 @@
         <!-- Entry node selector -->
         {#if runInputNodes.length > 0}
           <label class="block">
-            <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider block mb-1">Entry Point</span>
+            <span class="text-[11px] font-medium text-dark-text-muted block mb-1">Entry Point</span>
             <select
               bind:value={runSelectedEntry}
               onchange={() => syncFormFromEntry()}
@@ -480,7 +480,7 @@
           {@const fields = node ? getInputNodeFields(node) : []}
           <div class="space-y-2.5">
             <div class="flex items-center justify-between">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Inputs</span>
               <button
                 onclick={() => { runUseForm = false; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
                 class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary"
@@ -547,7 +547,7 @@
         {:else}
           <label class="block">
             <div class="flex items-center justify-between mb-1">
-              <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Inputs (JSON)</span>
+              <span class="text-[11px] font-medium text-dark-text-muted">Inputs (JSON)</span>
               {#if runInputNodes.find(n => n.id === runSelectedEntry)?.data?.fields}
                 <button
                   onclick={() => { syncFormFromEntry(); }}
@@ -633,13 +633,13 @@
             </div>
             {#if outputEvent?.outputs}
               <div class="p-3 bg-dark-surface border border-dark-border">
-                <div class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider mb-2">Output</div>
+                <div class="text-[11px] font-medium text-dark-text-muted mb-2">Output</div>
                 <pre class="text-xs font-mono text-dark-text-secondary whitespace-pre-wrap break-all max-h-80 overflow-y-auto">{JSON.stringify(outputEvent.outputs, null, 2)}</pre>
               </div>
             {/if}
             {#if errorEvents.length > 0}
               <div class="p-3 bg-red-900/20 border border-red-800">
-                <div class="text-[10px] font-medium text-red-400 uppercase tracking-wider mb-1">Errors</div>
+                <div class="text-[11px] font-medium text-red-400 mb-1">Errors</div>
                 {#each errorEvents as err}
                   <div class="text-xs text-red-400 break-all">{err.error}</div>
                 {/each}

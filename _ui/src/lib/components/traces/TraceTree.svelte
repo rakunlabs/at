@@ -74,7 +74,7 @@
 <div bind:this={container} class="min-w-0 outline-none focus-visible:ring-1 focus-visible:ring-accent" tabindex="0" role="tree" aria-label="Trace observations" {onkeydown}>
   {#if waterfall}
     <div class="sticky top-0 z-10 flex border-b text-[10px] border-dark-border bg-dark-base text-dark-text-muted">
-      <div class="w-[46%] shrink-0 px-2 py-1 font-medium uppercase tracking-wider">Observation</div>
+      <div class="w-[46%] shrink-0 px-2 py-1 font-medium">Observation</div>
       <div class="relative flex-1 py-1">
         {#each ticks as tick}
           {@const left = timeline.duration ? (tick / timeline.duration) * 100 : 0}

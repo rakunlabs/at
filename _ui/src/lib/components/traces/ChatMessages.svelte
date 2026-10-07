@@ -50,7 +50,7 @@
 <div class="space-y-2">
   {#if system}
     <div class={['border border-l-2 border-dark-border', roleStyle.system]}>
-      <button class="flex w-full items-center gap-1 px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted" onclick={() => (showSystem = !showSystem)} aria-expanded={showSystem}>
+      <button class="flex w-full items-center gap-1 px-3 py-1.5 text-left text-[11px] font-semibold text-dark-text-muted" onclick={() => (showSystem = !showSystem)} aria-expanded={showSystem}>
         {#if showSystem}<ChevronDown size={11} />{:else}<ChevronRight size={11} />{/if} System
         {#if !showSystem}<span class="ml-2 truncate font-normal normal-case tracking-normal text-dark-text-muted">{system.slice(0, 140)}</span>{/if}
       </button>
@@ -69,7 +69,7 @@
   {#each shown as { m, i } (i)}
     <div class={['border border-l-2 border-dark-border', roleStyle[m.role] || roleStyle.user]}>
       <div class="flex items-center justify-between px-3 pt-1.5">
-        <span class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">{m.role}{#if m.toolCallID}<span class="ml-1 font-mono normal-case tracking-normal text-dark-text-muted">· {m.toolCallID}</span>{/if}</span>
+        <span class="text-[11px] font-semibold text-dark-text-muted">{m.role}{#if m.toolCallID}<span class="ml-1 font-mono normal-case tracking-normal text-dark-text-muted">· {m.toolCallID}</span>{/if}</span>
         {#if m.text && m.role === 'assistant'}
           <button class="text-[10px] text-dark-text-muted hover:text-dark-text-secondary" onclick={() => (rendered[i] = !rendered[i])}>{rendered[i] ? 'Raw' : 'Markdown'}</button>
         {/if}
@@ -101,10 +101,10 @@
               {#if result?.isError}<span class="ml-auto text-[10px] text-red-400">error</span>{:else if result}<span class="ml-auto text-[10px] text-dark-text-muted">result</span>{/if}
             </summary>
             <div class="space-y-1.5 border-t p-2 border-dark-border">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Arguments</div>
+              <div class="text-[11px] font-semibold text-dark-text-muted">Arguments</div>
               <JsonView raw={call.arguments} depth={3} maxHeight="max-h-48" searchable={false} />
               {#if result}
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Result</div>
+                <div class="text-[11px] font-semibold text-dark-text-muted">Result</div>
                 <JsonView raw={result.content} depth={2} maxHeight="max-h-60" searchable={false} />
               {/if}
             </div>
@@ -112,7 +112,7 @@
         {/each}
         {#each m.toolResults.filter((r) => !(pairResults && r.toolCallID && callIDs.has(r.toolCallID))) as result}
           <div class="border p-2 border-amber-900/40 bg-dark-base">
-            <div class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">Tool result{#if result.toolCallID} <span class="font-mono normal-case">{result.toolCallID}</span>{/if}</div>
+            <div class="mb-1 text-[11px] font-semibold text-amber-400">Tool result{#if result.toolCallID} <span class="font-mono normal-case">{result.toolCallID}</span>{/if}</div>
             <JsonView raw={result.content} depth={2} maxHeight="max-h-48" searchable={false} />
           </div>
         {/each}

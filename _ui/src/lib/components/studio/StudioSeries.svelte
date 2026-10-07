@@ -345,7 +345,7 @@
     </div>
 
     {#if showCreate}
-      <section class="border border-dark-border bg-dark-surface p-4 space-y-3">
+      <section class="border border-dark-border p-4 space-y-3">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label class="text-[10px] text-dark-text-muted">Series name<input bind:value={newName} placeholder="Neon Alley" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text" /></label>
           <label class="text-[10px] text-dark-text-muted">Aspect ratio<select bind:value={newAspect} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"><option>16:9</option><option>9:16</option><option>1:1</option><option>21:9</option></select></label>
@@ -388,7 +388,7 @@
             <div class="min-w-0">
               <h3 class="text-xs font-semibold text-dark-text">{s.name}</h3>
               <p class="text-[11px] text-dark-text-muted truncate">{s.description || 'No premise yet'}</p>
-              <p class="mt-1 text-[9px] uppercase tracking-wide text-dark-text-muted">{(s.cast || []).length} cast · {s.style?.aspect_ratio || '16:9'} · seed {s.style?.seed ?? 'auto'}</p>
+              <p class="mt-1 text-[11px] text-dark-text-muted">{(s.cast || []).length} cast · {s.style?.aspect_ratio || '16:9'} · seed {s.style?.seed ?? 'auto'}</p>
             </div>
             <span class="ml-auto text-[10px] text-dark-text-muted">Open →</span>
           </button>
@@ -408,7 +408,7 @@
     </div>
 
     {#if editing}
-      <section class="border border-dark-border bg-dark-surface p-3 space-y-2">
+      <section class="border border-dark-border p-3 space-y-2">
         <label class="block text-[10px] text-dark-text-muted">Premise<textarea bind:value={editDescription} rows="2" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2"><label class="text-[10px] text-dark-text-muted">Style lock<textarea bind:value={editStyle} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label><label class="text-[10px] text-dark-text-muted">Negative<textarea bind:value={editNegative} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label></div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2"><label class="text-[10px] text-dark-text-muted">Seed<input bind:value={editSeed} type="number" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base" /></label><label class="text-[10px] text-dark-text-muted">Aspect<select bind:value={editAspect} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option>16:9</option><option>9:16</option><option>1:1</option><option>21:9</option></select></label><label class="text-[10px] text-dark-text-muted">Draft model<select bind:value={editDraftModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option value="scene_video_budget">Vidu Q2</option><option value="ltx-2-5-fast">LTX-2.5 Fast</option><option value="continuity_video_budget">MiniMax H3</option></select></label><label class="text-[10px] text-dark-text-muted">Final model<select bind:value={editFinalModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option value="scene_video">Kling v3 Elements</option><option value="scene_video_veo">Veo 3.1</option><option value="ltx-2-5-pro">LTX-2.5 Pro</option><option value="scene_video_long">Seedance 2.5</option></select></label></div>

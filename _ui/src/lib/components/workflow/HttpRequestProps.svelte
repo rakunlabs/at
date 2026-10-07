@@ -4,7 +4,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">URL (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">URL (Go template)</span>
   <input
     type="text"
     bind:value={data.url}
@@ -15,7 +15,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Method (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Method (Go template)</span>
   <input
     type="text"
     bind:value={data.method}
@@ -26,7 +26,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Headers (JSON, values support templates)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Headers (JSON, values support templates)</span>
   <textarea
     value={JSON.stringify(data.headers || {}, null, 2)}
     oninput={(e) => { try { data.headers = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }}
@@ -37,7 +37,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Body (Go template)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Body (Go template)</span>
   <textarea
     bind:value={data.body}
     rows={3}
@@ -48,7 +48,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Timeout (seconds)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Timeout (seconds)</span>
   <input
     type="number"
     bind:value={data.timeout}
@@ -60,7 +60,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Proxy URL</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Proxy URL</span>
   <input
     type="text"
     bind:value={data.proxy}
@@ -69,11 +69,11 @@
   /></label>
 </div>
 <div class="flex items-center gap-4">
-  <label class="flex items-center gap-1.5 text-[10px] font-medium text-dark-text-muted uppercase tracking-wider cursor-pointer">
+  <label class="flex items-center gap-1.5 text-[11px] font-medium text-dark-text-muted cursor-pointer">
     <input type="checkbox" bind:checked={data.insecure_skip_verify} class="border-dark-border-subtle" />
     Insecure TLS
   </label>
-  <label class="flex items-center gap-1.5 text-[10px] font-medium text-dark-text-muted uppercase tracking-wider cursor-pointer">
+  <label class="flex items-center gap-1.5 text-[11px] font-medium text-dark-text-muted cursor-pointer">
     <input type="checkbox" bind:checked={data.retry} disabled={(data.execution?.max_attempts ?? 1) > 1} class="border-dark-border-subtle" />
     Legacy HTTP retry
   </label>
@@ -82,14 +82,14 @@
   <p class="text-xs text-dark-text-secondary">Common retry is active in Settings; legacy HTTP retry is bypassed.</p>
 {/if}
 <div>
-  <label class="flex items-center gap-1.5 text-[10px] font-medium text-dark-text-muted uppercase tracking-wider cursor-pointer">
+  <label class="flex items-center gap-1.5 text-[11px] font-medium text-dark-text-muted cursor-pointer">
     <input type="checkbox" bind:checked={data.save_response} class="border-dark-border-subtle" />
     Save response as file
   </label>
   <div class="mt-0.5 text-[10px] text-dark-text-muted">For PDFs, images and other binaries. A successful body is written to this run's workspace; the output carries <span class="font-mono">file</span> ({'{'} path, name, content_type, size_bytes {'}'}) — connect it to Email's attachments input. Up to 100 MB.</div>
   {#if data.save_response}
     <label class="block mt-1">
-      <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">File path (Go template)</span>
+      <span class="text-[11px] font-medium text-dark-text-muted">File path (Go template)</span>
     <input
       type="text"
       bind:value={data.save_path}
@@ -101,7 +101,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Upstream data available as template context and used as JSON body fallback for POST/PUT/PATCH when no body template is set.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">data</span>
@@ -116,7 +116,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Activated when HTTP status is 2xx. Contains response, status_code, headers.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">success</span>

@@ -7,7 +7,7 @@ import { moduleURL } from './typescript-module.mjs';
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
 const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail'];
+const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail', 'buildRequestMessages'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast));
 assert.equal(functions.length, names.length);
 const writer = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'transcriptWriter')).getText(ast);
@@ -15,11 +15,13 @@ const turnURL = await moduleURL(new URL('../src/lib/helper/chat-turn.ts', import
 const toolsURL = await moduleURL(new URL('../src/lib/helper/chat-tools.ts', import.meta.url));
 const persistenceURL = await moduleURL(new URL('../src/lib/helper/chat-persistence.ts', import.meta.url));
 const queueURL = await moduleURL(new URL('../src/lib/helper/chat-queue.ts', import.meta.url));
+const commandsURL = await moduleURL(new URL('../src/lib/helper/chat-commands.ts', import.meta.url));
 const harness = `
 import { createChatTurnLifecycle, runChatIterations } from '${turnURL}';
 import { dispatchChatTool } from '${toolsURL}';
 import { createTranscriptWriter } from '${persistenceURL}';
 import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, unansweredToolCalls, userMessageContent } from '${queueURL}';
+import { COMPACTION_FLAG, compactionStart, parseSlashInput } from '${commandsURL}';
 export function fixture() {
   const turnLifecycle = createChatTurnLifecycle();
   let userInput = 'Hello', selectedModel = 'p/m', systemPrompt = 'Prompt', effectiveReasoningEffort = 'high';
@@ -36,6 +38,7 @@ export function fixture() {
   const creates = [], appends = [], streams = [], tools = [], toasts = [], routes = [];
   const MAX_TOOL_ITERATIONS = 20, PLAYGROUND_MESSAGE_BATCH_MAX = 200, INLINE_IMAGE_TYPES = [];
   const setupReady = () => true, scrollToBottom = () => {};
+  const runSlashCommand = () => false;
   const scheduleSettingsSave = () => {};
   const splitModel = value => ({ provider_key: value.split('/')[0], model: value.split('/').slice(1).join('/') });
   const currentConfig = () => ({ builtin_tools: [] }), settingsSnapshot = () => ({ model: selectedModel });
@@ -79,6 +82,7 @@ export function fixture() {
     type(text) { userInput = text; },
     select(model) { selectedModel = model; },
     truncateHistory() { historyTruncated = true; },
+    seed(entries) { conversationId = 'saved'; messages = entries.map(e => e.message); meta = entries.map((e, i) => ({ id: 'row-' + i, sequence: i + 1, created_at: 'seed', imageNames: [], compaction: !!e.compaction })); },
     navigate(id) { resetBuffer(); conversationId = id; messages = [{ role: 'user', content: 'Other chat' }]; meta = [{ sequence: 1, created_at: 'other', imageNames: [] }]; },
     snapshot() { return { streaming, messages, meta, conversationId, creates, appends, streams, tools, toasts, routes, queuedMessages, userInput }; },
   };
@@ -337,4 +341,32 @@ test('a local model refuses to run on a partially loaded conversation', async ()
   const snapshot = chat.snapshot();
   assert.equal(snapshot.streams.length, 0);
   assert.match(snapshot.toasts.at(-1), /Load older messages/);
+});
+
+test('model calls start at the latest compaction summary; earlier rows stay on screen', async () => {
+  const chat = fixture();
+  chat.seed([
+    { message: { role: 'user', content: 'Old question' } },
+    { message: { role: 'assistant', content: 'Old answer' } },
+    { message: { role: 'assistant', content: '[Summary] notes' }, compaction: true },
+  ]);
+  chat.type('Next question');
+  await chat.sendMessage();
+  const s = chat.snapshot();
+  assert.equal(s.messages.length, 5);
+  const sent = s.streams[0].body.messages;
+  // Old rows 0-1 are not sent; the summary and the new (now stored) question are.
+  assert.deepEqual(sent.map(m => m.at_message_id ?? m.role), ['system', 'row-2', 'stored-1-0']);
+  assert.equal(s.streams[0].body.at_history_before, undefined);
+  // The summary keeps its marker when stored; ordinary rows do not get one.
+  assert.equal(s.appends.flatMap(([, inputs]) => inputs).some(input => input.data.compaction), false);
+});
+
+test('a compaction summary stays the context boundary even when older history is unloaded', async () => {
+  const chat = fixture();
+  chat.seed([{ message: { role: 'assistant', content: '[Summary] notes' }, compaction: true }]);
+  chat.truncateHistory();
+  chat.type('Continue');
+  await chat.sendMessage();
+  assert.equal(chat.snapshot().streams[0].body.at_history_before, undefined);
 });

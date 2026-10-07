@@ -1184,7 +1184,7 @@
                   {#if msg.data.attachments?.length}
                     <div class="mb-2 flex max-w-full flex-wrap justify-end gap-2">
                       {#each msg.data.attachments as file}
-                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden border border-dark-border bg-dark-surface text-left text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
+                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden border border-dark-border text-left text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
                           {#if attachmentIsImage(file)}
                             <img src={attachmentImageURL(file)} alt={file.name} class="max-h-56 max-w-full object-contain" loading="lazy" />
                           {/if}
@@ -1314,7 +1314,7 @@
             {:else if msg.role === 'system'}
               <!-- System message (hint banner) -->
               <div class="px-3 py-2 bg-amber-950/20 border border-amber-800/40 text-[12px] text-amber-300">
-                <div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">System</div>
+                <div class="text-[11px] font-semibold mb-0.5 opacity-70">System</div>
                 <div class="whitespace-pre-wrap">{getMessageText(msg.data)}</div>
               </div>
             {/if}
@@ -1328,7 +1328,7 @@
             </div>
           {/if}
           {#if missingFinalReply}
-            <div class="flex flex-wrap items-center gap-3 border border-dark-border bg-dark-surface px-4 py-3 text-sm text-dark-text-secondary">
+            <div class="flex flex-wrap items-center gap-3 border border-dark-border px-4 py-3 text-sm text-dark-text-secondary">
               <span>This saved turn has tool activity but no final reply.</span>
               <button disabled={!!inputText.trim() || attachments.length > 0 || readingAttachments} class="font-medium underline underline-offset-4 disabled:opacity-40" onclick={() => { inputText = 'Please summarize the results of the work above in the language of my previous messages. Reply directly to me without running any additional tools.'; void handleSend(); }}>Ask for a summary</button>
             </div>

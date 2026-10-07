@@ -120,7 +120,7 @@
     {#if showBranches}
       <div class="max-h-56 overflow-y-auto border-b border-dark-border bg-dark-base">
         <form class="flex gap-1 p-2" onsubmit={event => { event.preventDefault(); if (newBranch.trim()) void checkout(newBranch.trim(), true); }}>
-          <input bind:value={newBranch} placeholder="New branch name" aria-label="New branch name" class="min-w-0 flex-1 border border-dark-border bg-dark-surface px-2 py-1 font-mono text-dark-text" />
+          <input bind:value={newBranch} placeholder="New branch name" aria-label="New branch name" class="min-w-0 flex-1 border border-dark-border px-2 py-1 font-mono text-dark-text" />
           <button type="submit" disabled={!newBranch.trim()} class="px-2 py-1 text-dark-base disabled:opacity-40 bg-accent">Create</button>
         </form>
         {#each branches as branch (branch.name)}
@@ -138,14 +138,14 @@
 
     <div class="min-h-0 flex-1 overflow-y-auto">
       {#if status?.conflicted.length}
-        <h4 class="px-2 pt-2 pb-1 font-semibold uppercase tracking-wide text-[10px] text-red-600">Conflicts</h4>
+        <h4 class="px-2 pt-2 pb-1 font-semibold text-[11px] text-red-600">Conflicts</h4>
         {#each status.conflicted as file}
           <button type="button" onclick={() => ondiff(file, {})} class="block w-full truncate px-3 py-1 text-left font-mono text-red-400 hover:bg-dark-elevated">{file}</button>
         {/each}
       {/if}
 
       <div class="flex items-center px-2 pt-2 pb-1">
-        <h4 class="flex-1 font-semibold uppercase tracking-wide text-[10px] text-dark-text-muted">Staged ({status?.staged.length ?? 0})</h4>
+        <h4 class="flex-1 font-semibold text-[11px] text-dark-text-muted">Staged ({status?.staged.length ?? 0})</h4>
         {#if status?.staged.length}<button type="button" onclick={unstageAll} class="p-0.5 text-dark-text-muted hover:text-dark-text" title="Unstage all" aria-label="Unstage all"><Minus size={13} /></button>{/if}
       </div>
       {#each status?.staged ?? [] as file (file.path)}
@@ -157,7 +157,7 @@
       {/each}
 
       <div class="flex items-center px-2 pt-3 pb-1">
-        <h4 class="flex-1 font-semibold uppercase tracking-wide text-[10px] text-dark-text-muted">Changes ({(status?.unstaged.length ?? 0) + (status?.untracked.length ?? 0)})</h4>
+        <h4 class="flex-1 font-semibold text-[11px] text-dark-text-muted">Changes ({(status?.unstaged.length ?? 0) + (status?.untracked.length ?? 0)})</h4>
         {#if status?.unstaged.length || status?.untracked.length}<button type="button" onclick={stageAll} class="p-0.5 text-dark-text-muted hover:text-dark-text" title="Stage all" aria-label="Stage all"><Plus size={13} /></button>{/if}
       </div>
       {#each status?.unstaged ?? [] as file (file.path)}

@@ -39,12 +39,12 @@
   <div class="space-y-4">
     {#each scenes as [sceneNo, shots] (sceneNo)}
       <div>
-        <div class="text-[10px] font-semibold uppercase tracking-wide text-dark-text-muted mb-1.5">
+        <div class="text-[11px] font-semibold text-dark-text-muted mb-1.5">
           Scene {sceneNo}
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {#each shots as s (s.id)}
-            <div class="border border-dark-border bg-dark-surface flex flex-col">
+            <div class="border border-dark-border flex flex-col">
               <!-- media: clip > still > placeholder -->
               {#if s.clip}
                 <!-- svelte-ignore a11y_media_has_caption -->

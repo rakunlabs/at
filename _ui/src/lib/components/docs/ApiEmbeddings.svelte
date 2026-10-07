@@ -27,7 +27,7 @@
 
   <DocsCodeBlock {code} lang="bash" label="Batch embeddings" copyLabel="Copy embeddings request" />
 
-  <div class="border border-dark-border bg-dark-surface p-4 space-y-2">
+  <div class="border border-dark-border p-4 space-y-2">
     <h3 class="font-medium text-dark-text">Options and limits</h3>
     <ul class="list-disc pl-5 space-y-1">
       <li><code class="font-mono text-xs">input</code> accepts a string or an array of strings. Token-ID arrays are not supported.</li>

@@ -1242,6 +1242,42 @@ for Sessions, bots and automation; Chats does not read or write `agent_id`.
 Tool discovery waits for catalogs and discards stale results. Regression:
 `_ui/tests/chat-workbench.test.mjs`.
 
+**Slash commands and compaction.** Typing `/` on an empty composer lists
+commands (↑↓ select, Enter run, Tab fill, Esc close); `/name args` on Enter
+runs one, and an unknown name is sent as ordinary text so a message that only
+starts with a slash is never swallowed. Built-ins (`/compact [focus]`, `/new`,
+`/clear`, `/model`, `/preset`, `/effort`, `/tools`, `/share`, `/commands`) are
+reserved names. Custom commands are prompt templates (`$ARGUMENTS`, `$1`..`$9`,
+quotes group words; without a placeholder the arguments are appended) and may
+pin a `provider/model` for that one message. They expand in the browser into an
+ordinary user message, so a command grants nothing a typed message could not.
+Personal commands live in `user_preferences` under `playground_commands`
+(`GET`/`PUT /api/v1/chats/commands`, whole-list replace, server-assigned IDs);
+workspace commands are rows in `workspace_chat_commands` (migration 94,
+`/api/v1/chats/workspace-commands`), listed and run by every Chats member and
+changed only by their creator — the preset model. All are `models.use`.
+
+`/compact` asks the current model (tools off) to summarise what the model
+currently sees, stores the answer as an assistant message with
+`data.compaction: true`, and every later model call starts at the latest such
+message (`buildRequestMessages`). Nothing is deleted: earlier rows stay on
+screen, in storage, in shares and in forks. When older history is unloaded,
+the server's `at_history_before` prefix expansion also starts at the latest
+summary, and the browser omits the prefix entirely once a summary is loaded.
+Compaction is manual; there is no automatic threshold. Regressions:
+`internal/server/chat-commands_test.go`, `_ui/tests/chat-commands.test.mjs`,
+the compaction cases in `_ui/tests/chat-runtime.test.mjs`.
+
+**Conversation cost.** On the browser Chats endpoint only, the streamed usage
+chunk carries `usage.at_cost_cents`, priced from installation model pricing by
+the same `estimateGatewayUsageCost` that writes `cost_events`; it is absent for
+an unpriced model, and gateway clients never receive the field
+(`chatsStreamUsage`). The page stores each call's usage on its assistant row
+(`data.at_usage: {prompt, completion, cost_cents?}`) so the session sidebar's
+running cost survives reloads; calls without a price are counted as
+"unpriced" rather than as zero. The total covers the loaded messages.
+Regression: `TestChatsStreamUsageCarriesCost`.
+
 **Agent-bound skills in Chats.** A selected skill with `context: fork` is not
 pasted into the prompt: Chats exposes the same `load_skill` (`skill_name`,
 `task`, `context`, `run_mode`) and `agent_run_status` tools as the Sessions
@@ -3026,6 +3062,10 @@ See `_ui/README.md` for install, deployment and device verification instructions
   `oc-peach` (running/selected), `oc-violet`, `oc-green`, `oc-red`. The gray
   scale is remapped onto the same tones; prefer the named tokens.
 - Type is JetBrains Mono everywhere (`--font-sans` and `--font-mono`).
+- The ground (`html`, `body`, `bg-dark-base`) carries a 2px dither grain
+  (`--grain` in `global.css`, the omp.sh texture); raised fills stay flat, so
+  the texture also marks what floats. It is dropped under
+  `prefers-contrast: more`.
 - Solid `bg-accent` fills carry dark ink (`text-dark-base`), never white.
 - When `<style>` needs Tailwind: `@reference` the relative path to
   `src/style/global.css` (not `"tailwindcss"`, and not the `@/` alias, which CSS
@@ -3034,9 +3074,14 @@ See `_ui/README.md` for install, deployment and device verification instructions
 - Path alias: `@/` maps to `src/`
 
 The app style is square (no `rounded*` on cards, inputs, buttons, badges or
-modals), compact (`text-xs`/`text-sm`, `px-3 py-1.5`) and card-based: a bordered
-`border-dark-border bg-dark-surface` panel with a `px-4 py-3 … bg-dark-base`
-header strip and a `p-4` body.
+modals), compact (`text-xs`/`text-sm`, `px-3 py-1.5`) and flat: a panel is a
+`border border-dark-border` block on the ground (no raised fill) with a
+`px-4 py-3 border-b` header strip and a `p-4` body. Table and field labels are
+sentence case, never `uppercase tracking-wider`. Raised `bg-dark-surface` is
+reserved for things that float (dialogs, menus, popovers, sticky bars) and for
+row hover. The shell (sidebar, navbar, settings nav) sits on `dark-base`; the
+active nav entry is `bg-dark-elevated` with a peach icon. `DataTable` pins its
+last (actions) column while the table scrolls horizontally.
 Providers, Agents, Secrets, Features and Tokens are the reference pages.
 
 The `.settings-*` classes in `src/style/global.css` (`@layer components`) exist

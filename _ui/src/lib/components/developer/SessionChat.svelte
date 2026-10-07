@@ -299,7 +299,7 @@
       {/if}
     </summary>
     <div class="space-y-2 border-t border-dark-border p-2.5">
-      <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words border border-dark-border bg-dark-surface p-2 text-[11px] text-dark-text">{JSON.stringify(tool.input, null, 2)}</pre>
+      <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words border border-dark-border p-2 text-[11px] text-dark-text">{JSON.stringify(tool.input, null, 2)}</pre>
       {#if tool.result !== undefined}
         <pre class={['max-h-72 overflow-auto whitespace-pre-wrap break-words border bg-dark-surface p-2 text-[11px]', tool.failed ? 'border-red-900 text-red-300' : 'border-dark-border text-dark-text']}>{tool.result || '(empty)'}</pre>
       {:else}
@@ -428,7 +428,7 @@
             <ChevronDown size={13} class={changesOpen ? 'shrink-0 rotate-180' : 'shrink-0'} />
           </button>
           {#if changesOpen}
-            <ul class="mt-1 max-h-48 overflow-y-auto border border-dark-border bg-dark-surface">
+            <ul class="mt-1 max-h-48 overflow-y-auto border border-dark-border">
               {#each changes as change (change.path)}
                 <li>
                   <button
@@ -438,7 +438,7 @@
                     title="Show diff"
                   >
                     <span class="min-w-0 flex-1 truncate font-mono text-dark-text">{change.path}</span>
-                    {#if change.untracked}<span class="shrink-0 text-[10px] uppercase text-dark-text-muted">new</span>{/if}
+                    {#if change.untracked}<span class="shrink-0 text-[11px] text-dark-text-muted">new</span>{/if}
                     {#if change.binary}
                       <span class="shrink-0 text-dark-text-muted">binary</span>
                     {:else}
@@ -453,7 +453,7 @@
         </div>
       {/if}
 
-      <div class="border border-dark-border bg-dark-surface focus-within:border-dark-text-muted">
+      <div class="border border-dark-border focus-within:border-dark-text-muted">
         <textarea
           bind:this={textarea}
           bind:value={prompt}

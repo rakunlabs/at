@@ -72,7 +72,7 @@
     <div class="flex flex-wrap items-center gap-2">
       <button onclick={onback} class="inline-flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text"><ArrowLeft size={14} /> Sessions</button>
       <span class="text-dark-border">/</span>
-      <span class="text-[10px] font-semibold uppercase tracking-wider text-dark-text-muted">Session</span>
+      <span class="text-[11px] font-semibold text-dark-text-muted">Session</span>
       <h2 class="min-w-0 truncate font-mono text-sm font-semibold text-dark-text">{sessionID}</h2>
       <button onclick={() => copy(sessionID)} class="p-1 hover:text-dark-text-secondary text-dark-text-muted" title="Copy session ID"><Copy size={12} /></button>
       <div class="ml-auto flex border border-dark-border" role="tablist">
@@ -107,9 +107,9 @@
       <p class="text-center text-xs text-dark-text-muted">Loading session…</p>
     {:else}
       {#if view === 'timeline'}
-        <div class="border border-dark-border bg-dark-surface">
+        <div class="border border-dark-border">
           <div class="flex border-b text-[10px] border-dark-border bg-dark-base text-dark-text-muted">
-            <div class="w-72 shrink-0 px-2.5 py-1 font-medium uppercase tracking-wider">Turn</div>
+            <div class="w-72 shrink-0 px-2.5 py-1 font-medium">Turn</div>
             <div class="relative min-w-0 flex-1">
               {#each ticks as tick}
                 <span class="absolute top-1 font-mono" style:left="{barGeometry(timeline, timeline.start + tick, timeline.start + tick, 0).left}%">{formatDurationMs(tick)}</span>

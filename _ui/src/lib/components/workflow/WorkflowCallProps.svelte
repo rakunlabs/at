@@ -24,7 +24,7 @@
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Target Workflow</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Target Workflow</span>
   <select
     bind:value={data.workflow_id}
     onchange={(e) => {
@@ -45,10 +45,10 @@
   </select></label>
 </div>
 <div>
-  <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output fields</span>
+  <span class="text-[11px] font-medium text-dark-text-muted">Output fields</span>
   <div class="mt-0.5 flex flex-wrap items-center gap-1">
     {#each exposed as field}
-      <span class="px-1.5 py-0.5 text-[10px] font-mono border border-dark-border bg-dark-surface text-dark-text-secondary">{field}</span>
+      <span class="px-1.5 py-0.5 text-[10px] font-mono border border-dark-border text-dark-text-secondary">{field}</span>
     {:else}
       <span class="text-[10px] text-dark-text-muted italic">None — the child's Output node has no named fields</span>
     {/each}
@@ -60,7 +60,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Static Inputs (JSON)</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Static Inputs (JSON)</span>
   <textarea
     value={JSON.stringify(data.inputs || {}, null, 2)}
     oninput={(e) => { try { data.inputs = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }}
@@ -73,7 +73,7 @@
 <!-- Port descriptions -->
 <div class="border-t border-dark-border pt-2 mt-2 space-y-2">
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Input Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Input Ports</span>
     <div class="mt-1 space-y-1">
       <div title="Dynamic inputs merged on top of static config inputs. Static values are overridden by dynamic ones.">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">inputs</span>
@@ -83,7 +83,7 @@
     </div>
   </div>
   <div>
-    <span class="text-[10px] font-medium text-dark-text-muted uppercase tracking-wider">Output Ports</span>
+    <span class="text-[11px] font-medium text-dark-text-muted">Output Ports</span>
     <div class="mt-1 space-y-1">
       <div title="The outputs collected from the called workflow's output node(s).">
         <span class="text-[11px] font-mono font-medium text-dark-text-secondary">output</span>

@@ -91,6 +91,20 @@
 ::selection { background: #5c9cf540; color: #f1ecec; }
 :is(input, textarea) { caret-color: #f1ecec; }
 
+/* Grain: a 2px dither on the ground, the texture omp.sh uses. Only the ground
+   carries it; raised blocks (surface, elevated, dialogs) stay flat, so the
+   texture also marks what sits on top. Off when the reader asks for contrast. */
+:root {
+  --grain: conic-gradient(rgb(255 255 255 / 0.035) 90deg, transparent 90deg 180deg, rgb(255 255 255 / 0.035) 180deg 270deg, transparent 270deg);
+}
+html, body, .bg-dark-base, .oc-theme {
+  background-image: var(--grain);
+  background-size: 2px 2px;
+}
+@media (prefers-contrast: more) {
+  html, body, .bg-dark-base, .oc-theme { background-image: none; }
+}
+
 /* Solid accent fills carry dark ink; white text fails contrast on the blue. */
 .bg-accent { color: var(--color-dark-base); }
 
@@ -113,8 +127,8 @@
   .settings-title { @apply text-lg font-semibold text-dark-text; }
   .settings-subtitle { @apply text-sm text-dark-text-muted mt-0.5; }
 
-  /* A section is a bordered card on a surface, not a horizontal rule. */
-  .settings-section { @apply border border-dark-border bg-dark-surface p-4 space-y-4; }
+  /* A section is a ruled block on the ground: one hairline, no raised fill. */
+  .settings-section { @apply border border-dark-border p-4 space-y-4; }
   .settings-section-title { @apply text-sm font-semibold text-dark-text; }
   .settings-subsection-title { @apply text-sm font-medium text-dark-text; }
 
@@ -178,7 +192,7 @@ body {
   max-width: none;
   border: 0;
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
-  @apply bg-dark-surface text-dark-text;
+  @apply bg-dark-base text-dark-text;
 }
 .mobile-navigation::backdrop { background: rgb(0 0 0 / 45%); }
 

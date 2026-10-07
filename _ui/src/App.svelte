@@ -103,7 +103,7 @@
 <div class={['grid h-full w-full min-w-0 bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}
   <dialog bind:this={mobileNavigation} class="mobile-navigation" aria-label="Navigation" onclose={closeNavigation} onclick={event => { if (event.target === mobileNavigation || (event.target instanceof Element && event.target.closest('a'))) closeNavigation(); }}>
-    <div class="flex h-full flex-col bg-dark-surface">
+    <div class="flex h-full flex-col bg-dark-base">
       <div class="min-h-0 flex-1"><Sidebar onclose={closeNavigation} /></div>
     </div>
   </dialog>

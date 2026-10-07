@@ -69,6 +69,7 @@ type Storer interface {
 	MarketplaceSourceStorer
 	UserPreferenceStorer
 	WorkspaceChatPresetStorer
+	WorkspaceChatCommandStorer
 	OrganizationStorer
 	GoalStorer
 	TaskStorer

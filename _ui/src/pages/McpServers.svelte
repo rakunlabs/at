@@ -350,7 +350,7 @@
 
 <div class="flex h-full">
 <div class="flex-1 overflow-y-auto">
-<div class="p-6 max-w-6xl mx-auto space-y-6">
+<div class="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
     <div>
@@ -395,8 +395,8 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-dark-border bg-dark-surface overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-base">
+    <div class="border border-dark-border overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
         <span class="text-sm font-medium text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New MCP Server'}
         </span>
@@ -795,9 +795,9 @@
       <table class="w-full">
         <thead>
           <tr class="bg-dark-base border-b border-dark-border">
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider">Endpoint</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Name</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Endpoint</th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-24"></th>
           </tr>
         </thead>
         <tbody>
@@ -807,10 +807,10 @@
                 <div class="flex items-center gap-2">
                   <div class="font-medium text-dark-text text-sm">{s.name}</div>
                   {#if s.public}
-                    <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-green-950/20 text-green-400 border border-green-900">Public</span>
+                    <span class="px-1.5 py-0.5 text-[11px] bg-green-950/20 text-green-400 border border-green-900">Public</span>
                   {/if}
                   {#if s.config.ws_upstream?.url}
-                    <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-blue-950/20 text-blue-400 border border-blue-900">WS</span>
+                    <span class="px-1.5 py-0.5 text-[11px] bg-blue-950/20 text-blue-400 border border-blue-900">WS</span>
                   {/if}
                 </div>
                 {#if s.config.description}
