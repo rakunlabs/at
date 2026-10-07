@@ -175,6 +175,14 @@ func TestChatSkillRunDeliversProducedFiles(t *testing.T) {
 		if _, ok := media.objects[a.MediaID]; !ok {
 			t.Fatalf("artifact %s was not stored", a.Name)
 		}
+		// Chats renders `media:` references; images embed, other files link.
+		want := "[" + a.Name + "](media:" + a.MediaID + ")"
+		if a.ContentType == "image/png" {
+			want = "!" + want
+		}
+		if a.Markdown != want {
+			t.Fatalf("%s: markdown %q, want %q", a.Name, a.Markdown, want)
+		}
 	}
 	want := map[string]string{"tree.png": "image/png", "tree.pdf": "application/pdf", "notes.csv": "text/csv", "page.html": "text/html"}
 	for name, contentType := range want {

@@ -127,6 +127,7 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ToolName  string         `json:"tool_name"`
 		Arguments map[string]any `json:"arguments"`
+		MediaRefs bool           `json:"media_refs,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
@@ -151,6 +152,9 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.MediaRefs {
+		ctx = contextWithChatMediaRefs(ctx)
+	}
 	result, err := s.callMCPSetTool(ctx, name, req.ToolName, req.Arguments)
 	if err != nil {
 		slog.Error("call mcp set tool failed", "set", name, "tool", req.ToolName, "error", err)

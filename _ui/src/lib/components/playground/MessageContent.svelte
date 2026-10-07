@@ -4,6 +4,7 @@
   import { mediaImageURL } from '@/lib/api/media';
   import Markdown from '@/lib/components/Markdown.svelte';
   import ImageLightbox from '@/lib/components/ImageLightbox.svelte';
+  import { mediaRefIDs, messageText, resolveMediaRefs } from '@/lib/helper/media-ref';
 
   interface Props {
     message: ChatMessage;
@@ -14,6 +15,11 @@
   }
   let { message, workspace, raw = false, thinking = false, formatSize }: Props = $props();
   const user = $derived(message.role === 'user');
+  // Media the answer already places through `media:<id>` Markdown is shown
+  // there; its stored part stays in the message (history, shares, copies)
+  // but is not rendered a second time below the text.
+  const placed = $derived(user || raw ? new Set<string>() : mediaRefIDs(messageText(message.content)));
+  const resolve = (text: string) => resolveMediaRefs(text, id => mediaImageURL(id, workspace));
 
   let zoomed = $state<{ src: string; alt: string } | null>(null);
 
@@ -30,7 +36,7 @@
 {#snippet markdown(source: string)}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="contents [&_.markdown-body_img]:cursor-zoom-in" onclick={zoomMarkdownImage}><Markdown {source} /></div>
+  <div class="contents [&_.markdown-body_img]:cursor-zoom-in" onclick={zoomMarkdownImage}><Markdown source={resolve(source)} /></div>
 {/snippet}
 
 {#snippet omitted(part: ContentPart)}
@@ -91,7 +97,9 @@
   {/if}
 {:else}
   {#each message.content as part}
-    {#if (part.type === 'image_url' && part.image_url?.url) || (part.type === 'image' && part.media_id)}
+    {#if (part.type === 'image' || part.type === 'file') && part.media_id && placed.has(part.media_id)}
+      <!-- Shown where the answer references it. -->
+    {:else if (part.type === 'image_url' && part.image_url?.url) || (part.type === 'image' && part.media_id)}
       {@const src = part.type === 'image' ? mediaImageURL(part.media_id!, workspace) : part.image_url!.url}
       {@const alt = part.type === 'image' ? part.name || 'Stored image attachment' : ''}
       <button

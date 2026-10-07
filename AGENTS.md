@@ -2680,6 +2680,23 @@ Bounded at 32 MiB per image and 64 MiB total. Regressions:
 `internal/server/image-references_test.go`,
 `internal/service/llm/openai/image-edit_test.go`.
 
+**Placing media in Chats answers.** Calls from the Chats page (built-in and
+MCP-set tool calls send `media_refs: true`; skill runs always do) give each
+artifact a `markdown` snippet such as `![name](media:<media_id>)`
+(`service.MediaRefMarkdown`, `contextWithChatMediaRefs`). The model copies it
+where the image belongs; `MessageContent.svelte` resolves `media:` targets to
+the workspace-scoped `api/v1/media/{id}` URL at render time
+(`helper/media-ref.ts`) and does not render the same stored part again below
+the text. Unplaced artifacts are still attached after the answer, and Raw view
+shows every part. The stored part keeps the media in history, shares and
+copies; share/import rewrite `media:` references in text along with
+`media_id` (`service.ReplaceMediaRefs`). Shares resolve only media in their
+snapshot, otherwise the label is kept. Before this, the tool description told
+every model to "put its markdown in your answer" while Chats results carried
+no URL, so models invented broken image links. Regressions:
+`internal/service/media-ref_test.go`, `TestChatSkillRunDeliversProducedFiles`,
+`_ui/tests/media-ref.test.mjs`, `_ui/tests/chat-message-content.test.mjs`.
+
 **Choosing the provider.** `provider` is optional. When omitted, the tool uses
 the only image-capable provider (`openai`/`minimax` type) in the caller's
 workspace catalog; with several it fails with an error listing the valid keys

@@ -31,7 +31,7 @@ const (
 // result wherever it reaches the tool.
 const generateImageUsage = "Generate images from a text description, or edit/combine existing images when reference_images are given, with a provider that supports image generation: an OpenAI provider (API key, or ChatGPT/Codex subscription auth — billed to the subscription), or MiniMax (generation only). Use it whenever the user asks for a picture, illustration, diagram, logo, mockup or other visual. Write a detailed prompt (subject, style, composition, colours, text to render). " + generateImageResultUsage
 
-const generateImageResultUsage = "Image bytes never appear in the text result; it is JSON describing where the images went (with width/height), and its \"note\" field says what to do next. In an AT chat or agent run the images are delivered to the user automatically (\"artifacts\" with media_id, or \"files\" in the run's work directory): do not repeat their content. Through an external MCP client (OpenCode, Claude Code, an IDE) the user does not see them automatically: each artifact carries a \"download_url\" that needs no credentials (24 hours by default; expires_in_seconds changes it) and a \"markdown\" snippet, and a downscaled preview may be attached so you can check the result. To show an image, put its markdown in your answer; to use it in a project, save the full-resolution file, e.g. curl -fsSL -o assets/hero.png '<download_url>', and reference that path. To refine an image, call again with its media_id in reference_images. Never paste image data or base64 into your answer."
+const generateImageResultUsage = "Image bytes never appear in the text result; it is JSON describing where the images went (with width/height), and its \"note\" field says what to do next. In an AT chat each artifact carries a \"markdown\" snippet using a media: reference (e.g. ![name](media:<media_id>)); put it in your answer where the image belongs and it renders for the user. Copy it exactly and never invent an image URL; images you do not place are attached after your answer. In other agent runs the images are delivered automatically (\"artifacts\" with media_id, or \"files\" in the run's work directory): do not repeat their content. Through an external MCP client (OpenCode, Claude Code, an IDE) the user does not see them automatically: each artifact carries a \"download_url\" that needs no credentials (24 hours by default; expires_in_seconds changes it) and a \"markdown\" snippet, and a downscaled preview may be attached so you can check the result. To show an image, put its markdown in your answer; to use it in a project, save the full-resolution file, e.g. curl -fsSL -o assets/hero.png '<download_url>', and reference that path. To refine an image, call again with its media_id in reference_images. Never paste image data or base64 into your answer."
 
 // imageProviderTypes are the provider types whose adapters implement
 // service.ImageProvider.
@@ -255,6 +255,9 @@ func (s *Server) execGenerateImage(ctx context.Context, args map[string]any) (st
 			out["artifacts_note"] = note
 		}
 		out["note"] = "The images are shown to the user automatically; do not repeat their content."
+		if chatMediaRefsFromContext(ctx) {
+			out["note"] = "To show an image in your answer, copy its \"markdown\" exactly where it belongs (a media: reference that renders inline for the user). Never write any other image URL. Images you do not place are attached after your answer."
+		}
 		if gatewayTokenFromContext(ctx) != nil {
 			ttl := gatewayMediaTTLText(gatewayMediaTTL(ctx))
 			out["note"] = fmt.Sprintf("The user does not see these images yet. To show one, put its \"markdown\" in your answer. To save one into the project, download its download_url (no credentials needed; valid for %s), e.g. curl -fsSL -o <file> '<download_url>'. To refine one, call generate_image again with its media_id in reference_images.", ttl)
@@ -299,7 +302,7 @@ type gatewayArtifact struct {
 func gatewayArtifacts(ctx context.Context, delivered []chatArtifact, images []generatedImageFile) []gatewayArtifact {
 	out := make([]gatewayArtifact, 0, len(delivered))
 	for i, artifact := range delivered {
-		entry := gatewayArtifact{chatArtifact: artifact}
+		entry := gatewayArtifact{chatArtifact: artifact, Markdown: artifact.Markdown}
 		// storeChatArtifacts keeps order and only drops failures at the end
 		// of a partial batch, so the index still matches when lengths agree.
 		if len(delivered) == len(images) {

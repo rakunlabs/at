@@ -590,6 +590,17 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	if native != nil {
 		native.OnUserDeleted = s.removeDeveloperHome
 	}
+	// Loopback MCP exceptions are installation settings (Settings → Execution).
+	if s.agentRuntimeSettingsStore != nil {
+		store := s.agentRuntimeSettingsStore
+		service.SetTrustedLocalMCPLoader(func(ctx context.Context) ([]string, error) {
+			settings, err := store.GetAgentRuntimeSettings(ctx)
+			if err != nil || settings == nil {
+				return nil, err
+			}
+			return settings.TrustedLocalMCP, nil
+		})
+	}
 	// Validated at config load; an error here leaves the zero resolver, which
 	// trusts no proxy.
 	if resolver, err := clientip.New(cfg); err == nil {

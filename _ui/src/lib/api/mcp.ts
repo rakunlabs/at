@@ -100,6 +100,8 @@ export async function callBuiltinTool(
     arguments: args,
     agent_id: agentId || undefined,
     trace_id: traceId || undefined,
+    // Chats renders `media:<id>` references, so artifacts carry them.
+    media_refs: true,
   }, { ...(sessionId ? { headers: { 'X-Session-ID': sessionId } } : {}), ...(signal ? { signal } : {}) });
   return res.data;
 }

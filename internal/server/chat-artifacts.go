@@ -37,12 +37,30 @@ const (
 	chatArtifactDirName = "chat-runs"
 )
 
+type chatMediaRefsContextKey struct{}
+
+// contextWithChatMediaRefs marks a call made by the Chats page, which renders
+// `media:<id>` Markdown references. Other surfaces (Sessions, bots, the
+// gateway) do not, so artifacts carry no such snippet there.
+func contextWithChatMediaRefs(ctx context.Context) context.Context {
+	return context.WithValue(ctx, chatMediaRefsContextKey{}, true)
+}
+
+func chatMediaRefsFromContext(ctx context.Context) bool {
+	on, _ := ctx.Value(chatMediaRefsContextKey{}).(bool)
+	return on
+}
+
 // chatArtifact is what the browser receives for one produced file.
 type chatArtifact struct {
 	MediaID     string `json:"media_id"`
 	Name        string `json:"name"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
+	// Markdown is set for Chats callers only: a `media:` reference the chat
+	// page resolves, so the model can place the file in its answer without
+	// knowing (or inventing) a URL.
+	Markdown string `json:"markdown,omitempty"`
 
 	// downloadKey is the plaintext gateway download key, only ever placed in
 	// the download_url returned to the producing call.
@@ -344,7 +362,12 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 			failed = append(failed, f.name)
 			continue
 		}
-		delivered = append(delivered, chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey, downloadExpires: downloadExpires})
+		artifact := chatArtifact{MediaID: created.ID, Name: path.Base(f.name), ContentType: contentType, SizeBytes: created.SizeBytes, downloadKey: downloadKey, downloadExpires: downloadExpires}
+		if chatMediaRefsFromContext(ctx) {
+			_, image := mediaAllowedContentTypes[contentType]
+			artifact.Markdown = service.MediaRefMarkdown(created.ID, artifact.Name, image)
+		}
+		delivered = append(delivered, artifact)
 	}
 	if len(failed) > 0 {
 		return delivered, "Some produced files could not be stored: " + strings.Join(failed, ", ") + "."

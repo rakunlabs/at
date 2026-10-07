@@ -148,6 +148,7 @@ export async function callMCPSetTool(
   const res = await api.post<MCPSetToolCallResult>(`/mcp/set-tools/${name}/call`, {
     tool_name: toolName,
     arguments: args,
+    media_refs: true,
   }, signal ? { signal } : undefined);
   return res.data;
 }

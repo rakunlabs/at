@@ -31,6 +31,8 @@
   let agentRuntimeBusy = $state(false);
   let agentRuntimeError = $state('');
   let agentRuntimeNotice = $state('');
+  // One URL per line; edited as text, stored as a list.
+  let trustedLocalMCPText = $state('');
   let filteredTools = $derived(availableTools.filter(name => name.includes(toolSearch.trim().toLowerCase())));
   const path = () => `workspaces/${encodeURIComponent(workspaceTransport.selected)}/execution-policy`;
 
@@ -54,6 +56,7 @@
     agentRuntimeError = agentRuntimeNotice = '';
     try {
       agentRuntime = await getAgentRuntimeSettings();
+      trustedLocalMCPText = (agentRuntime.trusted_local_mcp || []).join('\n');
     } catch (e) {
       agentRuntimeError = authErrorMessage(e, 'Agent runtime settings are unavailable.');
     } finally {
@@ -67,8 +70,10 @@
     agentRuntimeBusy = true;
     agentRuntimeError = agentRuntimeNotice = '';
     try {
+      agentRuntime.trusted_local_mcp = trustedLocalMCPText.split('\n').map((line) => line.trim()).filter(Boolean);
       agentRuntime = await saveAgentRuntimeSettings(agentRuntime);
-      agentRuntimeNotice = 'Agent runtime settings saved.';
+      trustedLocalMCPText = (agentRuntime.trusted_local_mcp || []).join('\n');
+      agentRuntimeNotice = 'Installation settings saved. They apply to new runs within a few seconds.';
     } catch (e) {
       agentRuntimeError = authErrorMessage(e, 'Could not save agent runtime settings. Reload and retry.');
     } finally {
@@ -118,8 +123,8 @@
   {#if isNativeAdmin()}
     <section class="settings-section space-y-3" aria-labelledby="agent-runtime-title">
       <div>
-        <h2 id="agent-runtime-title" class="settings-subsection-title">Background subagents</h2>
-        <p class="settings-note">Installation-wide concurrency for ephemeral background agent runs. The limit applies separately to each user and workspace on each server replica.</p>
+        <h2 id="agent-runtime-title" class="settings-subsection-title">Installation runtime</h2>
+        <p class="settings-note">Installation-wide settings for agent runs in every workspace. Only installation administrators can change them.</p>
       </div>
       {#if agentRuntimeError}<p role="alert" class="settings-error">{agentRuntimeError}</p>{/if}
       {#if agentRuntimeNotice}<p role="status" class="settings-note">{agentRuntimeNotice}</p>{/if}
@@ -128,13 +133,17 @@
           <fieldset disabled={agentRuntimeBusy}>
             <label>Maximum active background runs per owner
               <input type="number" min="1" max="128" step="1" bind:value={agentRuntime.max_background_subagents_per_owner} />
-              <span class="settings-note">Default: 16. Higher values increase provider load and concurrent tool execution.</span>
+              <span class="settings-note">Background subagents. Default: 16. Applies separately to each user and workspace on each server replica. Higher values increase provider load and concurrent tool execution.</span>
             </label>
-            <button class="settings-primary mt-3">Save agent runtime settings</button>
+            <label class="mt-3 block">Trusted local MCP endpoints
+              <textarea rows="3" bind:value={trustedLocalMCPText} placeholder="http://127.0.0.1:8890/mcp" class="font-mono"></textarea>
+              <span class="settings-note">One URL per line. Agent runs refuse MCP servers on this host (127.0.0.1, localhost) so workspace configuration cannot reach the server's private services; list the exact URL of an MCP server you run next to AT to allow it. Network MCP URLs need no entry.</span>
+            </label>
+            <button class="settings-primary mt-3">Save installation settings</button>
           </fieldset>
         </form>
       {:else}
-        <button class="settings-button" disabled={agentRuntimeBusy} onclick={loadAgentRuntime}>Reload agent runtime settings</button>
+        <button class="settings-button" disabled={agentRuntimeBusy} onclick={loadAgentRuntime}>Reload installation settings</button>
       {/if}
     </section>
   {/if}

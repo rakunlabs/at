@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { compile } from 'svelte/compiler';
 import { render } from 'svelte/server';
+import ts from 'typescript';
 
 function serverModule(source) {
   let code = compile(source, { generate: 'server' }).js.code;
@@ -11,11 +12,14 @@ function serverModule(source) {
 }
 const markdown = serverModule('<script lang="ts">let { source }: { source: string } = $props();</script><div data-markdown>{source}</div>');
 const icon = serverModule('<script lang="ts">let { size, class: className }: { size?: number; class?: string } = $props();</script><svg class={className} width={size}></svg>');
+const mediaRefSource = await readFile(new URL('../src/lib/helper/media-ref.ts', import.meta.url), 'utf8');
+const mediaRef = `data:text/javascript;base64,${Buffer.from(ts.transpileModule(mediaRefSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText).toString('base64')}`;
 let source = await readFile(new URL('../src/lib/components/playground/MessageContent.svelte', import.meta.url), 'utf8');
 source = source.replace("import { FileText, ImageOff } from 'lucide-svelte';", `import Icon from '${icon}'; const FileText = Icon, ImageOff = Icon;`)
   .replace("import { mediaImageURL } from '@/lib/api/media';", 'const mediaImageURL = (id: string, workspace: string) => `/media/${id}?workspace=${workspace}`;')
   .replace("from '@/lib/components/Markdown.svelte'", `from '${markdown}'`)
-  .replace("from '@/lib/components/ImageLightbox.svelte'", `from '${icon}'`);
+  .replace("from '@/lib/components/ImageLightbox.svelte'", `from '${icon}'`)
+  .replace("from '@/lib/helper/media-ref'", `from '${mediaRef}'`);
 const { default: MessageContent } = await import(serverModule(source));
 const html = (content, props = {}) => render(MessageContent, { props: { message: { role: 'assistant', content }, workspace: 'selected', formatSize: bytes => `${bytes} bytes`, ...props } }).body;
 
@@ -53,4 +57,17 @@ test('unsaved user attachments and history omissions keep their established pres
   assert.match(output, /data:audio\/mpeg;base64,AAAA/);
   assert.match(output, /notes.txt/);
   assert.doesNotMatch(output, /contents/);
+});
+
+test('media placed through a media: reference renders in the text, not again below it', () => {
+  const content = [
+    { type: 'text', text: 'Here it is: ![cat](media:placed-id)' },
+    { type: 'image', media_id: 'placed-id', name: 'cat.png' },
+    { type: 'image', media_id: 'other-id', name: 'dog.png' },
+  ];
+  const output = html(content);
+  assert.match(output, /\/media\/placed-id\?workspace=selected/);
+  assert.doesNotMatch(output, /<img[^>]*placed-id/);
+  assert.match(output, /<img[^>]*other-id/);
+  assert.match(html(content, { raw: true }), /<img[^>]*placed-id/);
 });

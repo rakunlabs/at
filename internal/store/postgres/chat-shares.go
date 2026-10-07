@@ -338,6 +338,9 @@ func replaceChatShareMediaIDs(value any, replacements map[string]string) any {
 			out[i] = replaceChatShareMediaIDs(child, replacements)
 		}
 		return out
+	case string:
+		// `media:<id>` Markdown references in message text follow the copy.
+		return service.ReplaceMediaRefs(current, replacements)
 	default:
 		return current
 	}

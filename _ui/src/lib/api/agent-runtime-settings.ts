@@ -5,6 +5,7 @@ const api = axios.create({ baseURL: 'api/v1' });
 export interface AgentRuntimeSettings {
   version: number;
   max_background_subagents_per_owner: number;
+  trusted_local_mcp?: string[];
 }
 
 export const getAgentRuntimeSettings = async () =>

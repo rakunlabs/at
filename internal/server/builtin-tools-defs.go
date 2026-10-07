@@ -173,6 +173,9 @@ type builtinCallRequest struct {
 	Arguments map[string]any `json:"arguments"`
 	AgentID   string         `json:"agent_id,omitempty"`
 	TraceID   string         `json:"trace_id,omitempty"`
+	// MediaRefs is sent by the Chats page, which renders `media:<id>`
+	// Markdown references in answers.
+	MediaRefs bool `json:"media_refs,omitempty"`
 }
 
 // builtinCallResponse is the response body for BuiltinToolCallAPI.
@@ -213,6 +216,9 @@ func (s *Server) BuiltinToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TraceID != "" {
 		ctx = contextWithChatTraceID(ctx, req.TraceID)
+	}
+	if req.MediaRefs {
+		ctx = contextWithChatMediaRefs(ctx)
 	}
 	result, execErr = s.dispatchBuiltinTool(ctx, req.Name, req.Arguments)
 

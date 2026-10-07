@@ -96,7 +96,8 @@ func (s *Server) ChatSkillRunAPI(w http.ResponseWriter, r *http.Request) {
 	if extra := strings.TrimSpace(req.Context); extra != "" {
 		task += "\n\nContext and constraints:\n" + extra
 	}
-	ctx = contextWithSubagentSkill(ctx, skill.ID)
+	// Only the Chats page starts these runs, and it renders `media:` refs.
+	ctx = contextWithChatMediaRefs(contextWithSubagentSkill(ctx, skill.ID))
 	if req.TraceID != "" {
 		ctx = contextWithChatTraceID(ctx, req.TraceID)
 	}

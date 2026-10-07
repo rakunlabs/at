@@ -8,6 +8,7 @@
   import { workspaceTransport } from '@/lib/api/transport';
   import Markdown from '@/lib/components/Markdown.svelte';
   import { getTextContent, type ContentPart } from '@/lib/helper/chat';
+  import { mediaRefIDs, messageText, resolveMediaRefs } from '@/lib/helper/media-ref';
   import { addToast } from '@/lib/store/toast.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
 
@@ -23,6 +24,11 @@
   storeNavbar.title = 'Shared chat';
 
   const contentParts = (value: unknown): ContentPart[] => Array.isArray(value) ? value as ContentPart[] : [];
+  // Only media carried by the snapshot is served for a share; a `media:`
+  // reference to anything else keeps its label instead of a broken image.
+  const sharedMedia = $derived(new Set((share?.payload.messages ?? []).flatMap(m => contentParts(m.data.content).map(p => p.media_id || '').filter(Boolean))));
+  const shareText = (text: string) => resolveMediaRefs(text, id => share && sharedMedia.has(id) ? chatShareMediaURL(share.id, id, workspaceTransport.selected) : '');
+  const placedIn = (value: unknown) => mediaRefIDs(messageText(value));
 
   onMount(async () => {
     try {
@@ -115,11 +121,14 @@
             <div class={['max-w-[85%] border px-3 py-2.5', message.role === 'user' ? 'border-purple-900/60 bg-purple-900/15' : message.role === 'tool' ? 'border-dark-border-subtle bg-dark-elevated' : 'border-dark-border bg-dark-surface']}>
               <div class="mb-1 text-[11px] font-semibold text-dark-text-muted">{message.role}</div>
               {#if contentParts(message.data.content).length > 0}
+                {@const placed = placedIn(message.data.content)}
                 {#each contentParts(message.data.content) as part}
-                  {#if part.type === 'image' && part.media_id}
+                  {#if (part.type === 'image' || part.type === 'file') && part.media_id && placed.has(part.media_id)}
+                    <!-- Shown where the text references it. -->
+                  {:else if part.type === 'image' && part.media_id}
                     <img src={chatShareMediaURL(share.id, part.media_id, workspaceTransport.selected)} alt={part.name || 'Shared attachment'} class="mb-2 max-h-80 max-w-full border object-contain border-dark-border" />
                   {:else if part.type === 'text'}
-                    <Markdown source={part.text || ''} />
+                    <Markdown source={shareText(part.text || '')} />
                   {:else if part.type === 'image'}
                     <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] border-dark-border-subtle text-dark-text-muted"><ImageOff size={12} /> Attachment unavailable</div>
                   {:else if part.type === 'file' && part.media_id}
@@ -138,7 +147,7 @@
                   {/if}
                 {/each}
               {:else}
-                <Markdown source={getTextContent(message.data.content as any)} />
+                <Markdown source={shareText(getTextContent(message.data.content as any))} />
               {/if}
               {#if message.role === 'tool'}
                 <div class="mt-1 text-[10px] text-dark-text-muted">Historical result only — it will not run when copied.</div>
