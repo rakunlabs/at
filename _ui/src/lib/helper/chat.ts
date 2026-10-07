@@ -27,6 +27,26 @@ export interface ContentPart {
   attachment?: boolean;
 }
 
+/**
+ * Assistant content as it goes upstream. Providers accept only text (and
+ * refusals) in the assistant role, so every media part — a generated image,
+ * a delivered file, inline audio or video — becomes a text reference. A
+ * `media:<id>` reference lets the model cite the object or pass it back to a
+ * tool such as generate_image's `reference_images`.
+ */
+export function assistantOutgoingContent(content: ContentPart[]): ContentPart[] {
+  return content.map((part) => {
+    if (part.type === 'text') return part;
+    const kind = part.type === 'image' || part.type === 'image_url' ? 'image'
+      : part.type === 'input_audio' ? 'audio'
+      : part.type === 'video_url' ? 'video'
+      : 'file';
+    const name = part.name || part.file?.filename || kind;
+    const detail = [part.mime_type, part.media_id ? `media:${part.media_id}` : ''].filter(Boolean).join(', ');
+    return { type: 'text', text: `[${kind} "${name}"${detail ? ` (${detail})` : ''} delivered to the user]` };
+  });
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string | ContentPart[];

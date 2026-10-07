@@ -12,6 +12,7 @@
     type ChatUsage,
     type StreamCallbacks,
     getTextContent,
+    assistantOutgoingContent,
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
@@ -2877,8 +2878,9 @@
    * that cannot be recovered becomes text, so a missing image never fails the
    * turn.
    */
-  async function outgoingContent(content: string | ContentPart[]): Promise<string | ContentPart[]> {
+  async function outgoingContent(content: string | ContentPart[], role = 'user'): Promise<string | ContentPart[]> {
     if (typeof content === 'string') return content;
+    if (role === 'assistant') return assistantOutgoingContent(content);
     const parts: ContentPart[] = [];
     for (const part of content) {
       if (part.type === 'file' && part.attachment) {
@@ -3045,7 +3047,7 @@
         reqMessages.push({ at_message_id: meta[index].id! });
         continue;
       }
-      const msg: any = { role: m.role, content: await outgoingContent(m.content) };
+      const msg: any = { role: m.role, content: await outgoingContent(m.content, m.role) };
       turnLifecycle.assert(turn);
       if (m.tool_calls) msg.tool_calls = m.tool_calls;
       if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;

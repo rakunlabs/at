@@ -9,7 +9,22 @@ const resumeURL = await moduleURL(new URL('../src/lib/helper/resumable-stream.ts
 const code = ts.transpileModule(source.replace("from './resumable-stream'", `from '${resumeURL}'`).replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.chatStreamFetch(...args);'), {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
 }).outputText;
-const { streamChatCompletion } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { streamChatCompletion, assistantOutgoingContent } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+
+test('assistant media goes upstream as text references', () => {
+  const out = assistantOutgoingContent([
+    { type: 'text', text: 'here' },
+    { type: 'image', name: 'cat.png', media_id: 'img1' },
+    { type: 'file', name: 'cat.pdf', mime_type: 'application/pdf', media_id: 'doc1' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+  ]);
+  assert.deepEqual(out, [
+    { type: 'text', text: 'here' },
+    { type: 'text', text: '[image "cat.png" (media:img1) delivered to the user]' },
+    { type: 'text', text: '[file "cat.pdf" (application/pdf, media:doc1) delivered to the user]' },
+    { type: 'text', text: '[image "image" delivered to the user]' },
+  ]);
+});
 const event = value => `data: ${JSON.stringify(value)}\r\n\r\n`;
 const tool = event({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'change', arguments: '{}' } }] } }] });
 const finish = reason => event({ choices: [{ delta: {}, finish_reason: reason }] });

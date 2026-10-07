@@ -70,6 +70,41 @@ func TestChatSavedMessageReferences(t *testing.T) {
 	}
 }
 
+func TestChatAssistantMediaBecomesReference(t *testing.T) {
+	s, _, tokens := playgroundFixture(t)
+	p := &chatReferenceProvider{}
+	s.providerMu.Lock()
+	s.providers = map[string]ProviderInfo{"reference": {provider: p, providerType: "openai", models: []string{"model"}}}
+	s.providerMu.Unlock()
+	c := playgroundNewConversation(t, s, tokens[0])
+	// The media objects do not exist: assistant media must never be loaded.
+	w := playgroundRequest(s, tokens[0], "POST", "/"+c.ID+"/messages", `{"messages":[{"role":"user","data":{"content":"draw a cat"}},{"role":"assistant","data":{"content":[{"type":"text","text":"here"},{"type":"image","name":"cat.png","media_id":"img1"},{"type":"file","name":"cat.pdf","mime_type":"application/pdf","media_id":"doc1","attachment":true}]}}]}`)
+	if w.Code != 201 {
+		t.Fatalf("append: %d %s", w.Code, w.Body)
+	}
+	items := playgroundMessages(t, w)
+	body := fmt.Sprintf(`{"model":"reference/model","at_conversation_id":%q,"messages":[{"at_message_id":%q},{"at_message_id":%q},{"role":"user","content":"and now?"}]}`, c.ID, items[0].ID, items[1].ID)
+	r := httptest.NewRequest("POST", "/at/api/v1/chats/completions", strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+tokens[0])
+	r.Header.Set("X-AT-Workspace-ID", service.DefaultWorkspaceID)
+	w = httptest.NewRecorder()
+	s.server.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("completion: %d %s", w.Code, w.Body)
+	}
+	encoded, _ := json.Marshal(p.messages)
+	for _, want := range []string{`[image \"cat.png\" (media:img1) delivered to the user]`, `[file \"cat.pdf\" (application/pdf, media:doc1) delivered to the user]`} {
+		if !strings.Contains(string(encoded), want) {
+			t.Fatalf("missing %s: %s", want, encoded)
+		}
+	}
+	for _, banned := range []string{"image_url", "file_data"} {
+		if strings.Contains(string(encoded), banned) {
+			t.Fatalf("assistant media sent as %s: %s", banned, encoded)
+		}
+	}
+}
+
 func TestChatLazyHistoryIncludesUnseenPrefix(t *testing.T) {
 	s, _, tokens := playgroundFixture(t)
 	p := &chatReferenceProvider{}

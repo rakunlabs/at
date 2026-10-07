@@ -149,8 +149,8 @@ func (s *Server) resolveChatReferences(w http.ResponseWriter, r *http.Request, b
 				name, _ := part["name"].(string)
 				mime, _ := part["mime_type"].(string)
 				attachment, _ := part["attachment"].(bool)
-				if kind == "file" && !attachment {
-					resolved = append(resolved, map[string]any{"type": "text", "text": fmt.Sprintf("[file %q (%s) delivered to the user]", name, mime)})
+				if m.Role == "assistant" || (kind == "file" && !attachment) {
+					resolved = append(resolved, map[string]any{"type": "text", "text": deliveredMediaReference(kind, name, mime, part)})
 					continue
 				}
 				id, _ := part["media_id"].(string)
@@ -185,6 +185,27 @@ func (s *Server) resolveChatReferences(w http.ResponseWriter, r *http.Request, b
 		req.Messages[i] = resolved
 	}
 	return true
+}
+
+// deliveredMediaReference describes media the assistant delivered (images
+// from generate_image, skill-run artifacts, ...). Providers accept only text
+// in the assistant role, so it goes upstream as a reference the model can
+// still cite or pass back to a tool (e.g. generate_image reference_images).
+func deliveredMediaReference(kind, name, mime string, part map[string]any) string {
+	if name == "" {
+		name = kind
+	}
+	detail := mime
+	if id, _ := part["media_id"].(string); id != "" {
+		if detail != "" {
+			detail += ", "
+		}
+		detail += service.MediaRefScheme + id
+	}
+	if detail == "" {
+		return fmt.Sprintf("[%s %q delivered to the user]", kind, name)
+	}
+	return fmt.Sprintf("[%s %q (%s) delivered to the user]", kind, name, detail)
 }
 
 func chatStoredMediaPart(kind, name, mime, url string) map[string]any {

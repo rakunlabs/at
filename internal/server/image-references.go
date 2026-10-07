@@ -110,7 +110,7 @@ func (s *Server) referenceImageBytes(ctx context.Context, ref string) ([]byte, e
 		}
 		return fetchPublicImage(ctx, ref)
 	default:
-		return s.readReferenceMedia(ctx, ref)
+		return s.readReferenceMedia(ctx, strings.TrimPrefix(ref, service.MediaRefScheme))
 	}
 }
 
