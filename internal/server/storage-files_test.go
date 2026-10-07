@@ -6,6 +6,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -98,6 +100,30 @@ func TestStorageFilesDurableRoundTrip(t *testing.T) {
 	s.StorageFileServeAPI(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("serve deleted: %d %s", w.Code, w.Body.String())
+	}
+	// Files added outside AT are visible without inserting a catalog row.
+	principal, _, _ := service.ExecutionFromContext(executiontest.Context(t))
+	dir := filepath.Join(root, "workspaces", principal.WorkspaceID, "files", "docs")
+	if err := os.WriteFile(filepath.Join(dir, "external.txt"), []byte("outside AT"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/storage/files/browse?path=docs", nil).WithContext(executiontest.Context(t))
+	w = httptest.NewRecorder()
+	s.StorageFileBrowseAPI(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"external.txt"`) {
+		t.Fatalf("external browse: %d %s", w.Code, w.Body.String())
+	}
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/storage/files/serve?path=docs/external.txt", nil).WithContext(executiontest.Context(t))
+	w = httptest.NewRecorder()
+	s.StorageFileServeAPI(w, r)
+	if w.Code != http.StatusOK || w.Body.String() != "outside AT" {
+		t.Fatalf("external serve: %d %s", w.Code, w.Body.String())
+	}
+	r = httptest.NewRequest(http.MethodDelete, "/api/v1/storage/files?path=docs/external.txt", nil).WithContext(executiontest.Context(t))
+	w = httptest.NewRecorder()
+	s.StorageFileDeleteAPI(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("external delete: %d %s", w.Code, w.Body.String())
 	}
 }
 

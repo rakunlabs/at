@@ -96,8 +96,8 @@ export async function putSkillFiles(id: string, files: SkillFile[]): Promise<Ski
   return res.data;
 }
 
-export async function importSkillFiles(files: SkillFile[]): Promise<Skill> {
-  const res = await api.post<Skill>('/skills/import-files', { files });
+export async function importSkillFiles(files: SkillFile[], scope: 'personal' | 'workspace' = 'personal'): Promise<Skill> {
+  const res = await api.post<Skill>('/skills/import-files', { files, scope });
   return res.data;
 }
 

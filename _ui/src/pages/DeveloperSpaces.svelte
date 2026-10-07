@@ -78,6 +78,7 @@
   let searching = $state(false);
   let searchTruncated = $state(false);
   let starting = $state(false);
+  let runtimeConnected = $state(false);
   let settingsOpen = $state(false);
   let settingsSaving = $state(false);
   let settingsForm = $state({ image: '', cpu: '', memory: '', diskGiB: '' });
@@ -132,13 +133,15 @@
     }
     void loadModels();
     void loadAgents();
-    await Promise.all([loadSessions(), start()]);
+    // Opening the page loads metadata only; starting the container is explicit.
+    await loadSessions();
   }
 
   async function start() {
     starting = true;
     try {
       space = await startDeveloperSpace();
+      runtimeConnected = true;
       await loadRoot();
       if (project && !projects.some(p => p.path === project)) project = '';
       if (project) await openProject(project, false);
@@ -154,6 +157,7 @@
     if (dirty.size && !confirm('You have unsaved files. Stop the space anyway? Unsaved edits stay in the editor.')) return;
     try {
       space = await stopDeveloperSpace();
+      runtimeConnected = false;
       terminals = [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not stop the space', 'alert');
@@ -725,7 +729,7 @@
         <span class={['size-2 rounded-full', starting ? 'bg-blue-500 animate-pulse motion-reduce:animate-none' : space.status === 'ready' ? 'bg-green-500' : space.status === 'error' ? 'bg-red-500' : 'bg-dark-text-faint']}></span>
         {starting ? 'Starting…' : space.status === 'ready' ? 'Running' : space.status === 'error' ? 'Error' : space.status === 'stopped' ? 'Stopped' : 'Not started'}
       </span>
-      {#if space.status === 'ready' && !starting}
+      {#if runtimeConnected && space.status === 'ready' && !starting}
         <button type="button" onclick={stop} class="p-1.5 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Stop the container (files are kept)" aria-label="Stop the space"><Power size={14} /></button>
       {:else if !starting}
         <button type="button" onclick={start} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-dark-base hover:bg-dark-highest bg-accent" title="Start the container">Start</button>
@@ -832,7 +836,7 @@
             ondragover={event => event.preventDefault()}
             ondrop={event => { event.preventDefault(); if (event.dataTransfer?.files.length) void uploadFiles(project, event.dataTransfer.files); }}
           >
-            {#if space?.status !== 'ready' && !Object.keys(listings).length}
+            {#if (!runtimeConnected || space?.status !== 'ready') && !Object.keys(listings).length}
               <p class="px-3 py-2 text-xs text-dark-text-muted">{starting ? 'Starting your space…' : 'Start the space to browse files.'}</p>
             {:else if project}
               <FileTree {listings} {expanded} loading={folderLoading} folder={project} selected={activeTab?.kind === 'file' ? activeTab.path : ''} {dirty} changed={gitChanged} ontoggle={toggleFolder} onopen={entry => openFile(entry.path)} onmenu={(event, entry) => showMenu(event, entry)} ondropfiles={(folder, files) => uploadFiles(folder, files)} />
@@ -980,7 +984,7 @@
         {#if !terminalMinimized || space?.status !== 'ready'}
           <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize hover:bg-accent/50 bg-dark-border" onpointerdown={resizeTerminal}></div>
         {/if}
-        {#if space?.status === 'ready'}
+        {#if runtimeConnected && space?.status === 'ready'}
           <!-- Minimizing clips the panel to its tab strip instead of unmounting
                it, so the shells stay connected and xterm keeps its size. -->
           <div class="shrink-0 overflow-hidden" style={`height:${terminalMinimized ? 32 : terminalHeight}px`}>
@@ -1002,7 +1006,7 @@
           <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
         </div>
         <div class="min-h-0 flex-1">
-          {#if space?.status === 'ready'}
+          {#if runtimeConnected && space?.status === 'ready'}
             <GitPanel project={project} revision={gitRevision} ondiff={openDiff} onchanged={() => { void refreshTree(); for (const t of tabs) if (t.kind === 'file' && t.content === t.saved) void loadFileTab(t.key); }} />
           {:else}
             <p class="p-3 text-xs text-dark-text-muted">Start the space to see changes.</p>

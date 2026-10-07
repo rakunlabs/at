@@ -121,7 +121,7 @@
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
-  import { X, Wrench, Loader2, MessageCircleQuestion, PanelLeft, PanelRight, GitBranch, FileText, FileAudio, FileVideo } from 'lucide-svelte';
+  import { X, Wrench, Loader2, MessageCircleQuestion, ArrowDown, GitBranch, FileText, FileAudio, FileVideo } from 'lucide-svelte';
   import { onDestroy, untrack, tick } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -1452,6 +1452,8 @@
   }
 
   onDestroy(() => {
+    storeNavbar.chatPanels = null;
+    if (scrollIndicatorTimer) clearTimeout(scrollIndicatorTimer);
     turnLifecycle.invalidate();
     abortController?.abort();
     disposed = true;
@@ -1769,6 +1771,20 @@
   let followLatest = true;
   let lastScrollTop = 0;
   let chatContent: HTMLDivElement | undefined = $state();
+  let awayFromLatest = $state(false);
+  let scrollIndicatorVisible = $state(false);
+  let scrollThumbHeight = $state(0);
+  let scrollThumbTop = $state(0);
+  let scrollIndicatorTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function updateScrollPosition() {
+    if (!chatContainer) return;
+    const { scrollTop, scrollHeight, clientHeight } = chatContainer;
+    const range = Math.max(0, scrollHeight - clientHeight);
+    awayFromLatest = range - scrollTop > 24;
+    scrollThumbHeight = range > 0 ? Math.min(clientHeight, Math.max(28, clientHeight * clientHeight / scrollHeight)) : 0;
+    scrollThumbTop = range > 0 ? Math.max(0, Math.min(1, scrollTop / range)) * (clientHeight - scrollThumbHeight) : 0;
+  }
 
   // Only a reader moving *up* stops following. Programmatic scrolls only move
   // down, and content growing between our scroll and its event (streaming
@@ -1780,6 +1796,10 @@
     if (distance <= 24) followLatest = true;
     else if (top < lastScrollTop - 1) followLatest = false;
     lastScrollTop = top;
+    updateScrollPosition();
+    scrollIndicatorVisible = true;
+    if (scrollIndicatorTimer) clearTimeout(scrollIndicatorTimer);
+    scrollIndicatorTimer = setTimeout(() => { scrollIndicatorVisible = false; }, 700);
   }
 
   function scrollToBottom(force = false) {
@@ -1788,6 +1808,7 @@
       requestAnimationFrame(() => {
         // Recheck: the reader may have scrolled up since this frame was queued.
         if (chatContainer && followLatest) chatContainer.scrollTop = chatContainer.scrollHeight;
+        updateScrollPosition();
       });
     }
   }
@@ -1800,6 +1821,7 @@
     if (!chatContent || !chatContainer) return;
     const observer = new ResizeObserver(() => {
       if (chatContainer && followLatest) chatContainer.scrollTop = chatContainer.scrollHeight;
+      updateScrollPosition();
     });
     observer.observe(chatContent);
     observer.observe(chatContainer);
@@ -3350,6 +3372,16 @@
   let showSessionPanel = $state(typeof window === 'undefined' || window.matchMedia('(min-width: 1280px)').matches);
   let composerInput: HTMLTextAreaElement | undefined = $state();
 
+  // Keep the shell controls in sync with keyboard shortcuts and overlay closes.
+  $effect(() => {
+    storeNavbar.chatPanels = {
+      conversationsOpen: showConversations,
+      sessionOpen: showSessionPanel,
+      toggleConversations: () => (showConversations = !showConversations),
+      toggleSession: () => (showSessionPanel = !showSessionPanel),
+    };
+  });
+
   // Sidebars become overlays when the window narrows; close them rather than
   // letting a desktop choice cover the transcript.
   $effect(() => {
@@ -4161,21 +4193,15 @@
   {/if}
 
   <!-- Chat messages -->
+  <div class="relative flex-1 min-h-0 min-w-0">
   <div
     bind:this={chatContainer}
     onscroll={handleChatScroll}
-    class="flex-1 min-h-0 overflow-y-auto"
+    class="chat-transcript-scroller h-full overflow-y-auto"
   >
     <div bind:this={chatContent} class="mx-auto w-full max-w-[1200px] px-3 pt-4 pb-2 sm:px-8 sm:pt-6">
       <!-- Title block: the conversation and what it has cost so far. -->
       <header class="mb-5 flex items-center gap-4 bg-dark-surface px-4 py-3 sm:px-[22px] sm:py-4">
-        <button
-          onclick={() => (showConversations = !showConversations)}
-          aria-label={showConversations ? 'Hide chats sidebar' : 'Show chats sidebar'}
-          aria-expanded={showConversations}
-          title="Chats (ctrl+b)"
-          class="oc-link -ml-1 shrink-0 focus-visible:outline-1 focus-visible:outline-accent"
-        ><PanelLeft size={15} /></button>
         <h1 class="min-w-0 flex-1 truncate font-bold text-dark-text"><span class="text-dark-text-faint">#</span> {conversationTitle}</h1>
         <div class="flex shrink-0 items-center gap-[2ch] text-dark-text-muted">
           {#if saving}
@@ -4191,13 +4217,6 @@
           {#if totalTokens > 0}
             <span class="hidden tabular-nums sm:inline" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">{totalTokens.toLocaleString()}</span>
           {/if}
-          <button
-            onclick={() => (showSessionPanel = !showSessionPanel)}
-            aria-label={showSessionPanel ? 'Hide session sidebar' : 'Show session sidebar'}
-            aria-expanded={showSessionPanel}
-            title="Session (ctrl+.)"
-            class="oc-link focus-visible:outline-1 focus-visible:outline-accent"
-          ><PanelRight size={15} /></button>
         </div>
       </header>
 
@@ -4337,6 +4356,16 @@
       {/if}
     {/if}
     </div>
+  </div>
+  {#if scrollIndicatorVisible && scrollThumbHeight > 0}
+    <div aria-hidden="true" class="pointer-events-none absolute right-0 top-0 z-10 w-1 bg-dark-text-muted/60" style:height={`${scrollThumbHeight}px`} style:transform={`translateY(${scrollThumbTop}px)`}></div>
+  {/if}
+  {#if awayFromLatest}
+    <button
+      onclick={() => scrollToBottom(true)}
+      class="absolute bottom-3 right-3 z-10 inline-flex min-h-11 items-center gap-2 border border-dark-border-subtle bg-dark-surface px-3 py-2 text-xs text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent sm:min-h-0 sm:right-8"
+    >Jump to latest <ArrowDown size={14} /></button>
+  {/if}
   </div>
 
   <!-- Input area -->

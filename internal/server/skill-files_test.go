@@ -143,6 +143,24 @@ func TestImportSkillFilesAPICreatesFromSelectedFolder(t *testing.T) {
 	}
 }
 
+func TestImportSkillFilesAPIWorkspaceScope(t *testing.T) {
+	store := newFakeSkillStore()
+	s := &Server{skillStore: store}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/skills/import-files", strings.NewReader(`{
+		"scope":"workspace",
+		"files":[{"path":"SKILL.md","content":"---\nname: shared-folder\n---\n\nInstructions."}]
+	}`))
+	req = req.WithContext(service.WithAccessPrincipal(req.Context(), service.AccessPrincipal{UserID: "user-1", WorkspaceID: service.DefaultWorkspaceID}))
+	w := httptest.NewRecorder()
+	s.ImportSkillFilesAPI(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if len(store.created) != 1 || store.created[0].Scope != "workspace" || store.created[0].OwnerUserID != "" {
+		t.Fatalf("created = %+v", store.created)
+	}
+}
+
 func TestDeleteSkillFileAPIProtectsMainFile(t *testing.T) {
 	store := newFakeSkillStore()
 	store.skills["skill-1"] = &service.Skill{ID: "skill-1", Name: "docs"}

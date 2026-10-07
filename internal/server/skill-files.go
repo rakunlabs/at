@@ -123,7 +123,10 @@ func (s *Server) ImportSkillFilesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxSkillPackageSize*6+64*1024)
-	var req putSkillFilesRequest
+	var req struct {
+		putSkillFilesRequest
+		Scope string `json:"scope"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
@@ -146,6 +149,9 @@ func (s *Server) ImportSkillFilesAPI(w http.ResponseWriter, r *http.Request) {
 	} else if !ok || principal.UserID == "" {
 		httpResponse(w, "personal skills require a signed-in account", http.StatusBadRequest)
 		return
+	} else if req.Scope == "workspace" {
+		skill.OwnerUserID = ""
+		skill.Scope = "workspace"
 	} else {
 		skill.OwnerUserID = principal.UserID
 		skill.Scope = "personal"
@@ -154,6 +160,9 @@ func (s *Server) ImportSkillFilesAPI(w http.ResponseWriter, r *http.Request) {
 	skill.UpdatedBy = by
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to create skill from folder: %v", err), http.StatusInternalServerError)
 		return
 	}

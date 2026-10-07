@@ -11,6 +11,15 @@ async function load(file, replacements = []) {
 }
 
 const helper = await load('../src/lib/helper/developer-space.ts');
+const pageSource = await readFile(new URL('../src/pages/DeveloperSpaces.svelte', import.meta.url), 'utf8');
+
+test('opening Developer Spaces does not start the container or access its files', () => {
+  const boot = pageSource.match(/async function boot\(\) \{([\s\S]*?)\n  \}/)[1];
+  assert.match(boot, /await getDeveloperSpace\(\)/);
+  assert.match(boot, /await loadSessions\(\)/);
+  assert.doesNotMatch(boot, /\bstart\(|startDeveloperSpace\(|loadRoot\(|openProject\(|newTerminal\(/);
+  assert.match(pageSource, /onclick=\{start\}/);
+});
 const api = await load('../src/lib/api/developer-spaces.ts', [
   ["import axios from 'axios';", 'const axios = { create: () => ({}) };'],
   ["import { authFetch, workspaceTransport } from './transport';", 'const authFetch = null; const workspaceTransport = { selected: "" };'],

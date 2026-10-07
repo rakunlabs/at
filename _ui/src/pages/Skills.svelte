@@ -245,7 +245,10 @@
   function openCreate() {
     resetForm();
     formScope = activeTab === 'workspace-skills' && mayPublish ? 'workspace' : 'personal';
+    showImportURL = false;
+    showImportRaw = false;
     showForm = true;
+    formSnapshot = formSignature();
   }
 
   function openEdit(skill: Skill) {
@@ -381,7 +384,7 @@
       for (const item of createFolderFiles) {
         files.push({ path: item.path, content: await decodeFolderFile(item.file), media_type: item.file.type || undefined });
       }
-      const created = await importSkillFiles(files);
+      const created = await importSkillFiles(files, formScope);
       addToast(`Skill "${created.name}" created from folder`);
       resetForm();
       await load();
@@ -1035,7 +1038,7 @@
               </div>
             {/if}
 
-            {#if !editingId && formScope === 'personal'}
+            {#if !editingId}
               <div class="border p-3 border-dark-border bg-dark-base/50">
                 <div class="mb-2 flex items-start justify-between gap-3">
                   <div>

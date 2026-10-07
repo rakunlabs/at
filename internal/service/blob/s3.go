@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"sort"
@@ -35,9 +36,8 @@ const (
 )
 
 // s3Store talks to any S3-compatible object store over net/http with
-// hand-rolled SigV4. Only PutObject, GetObject, DeleteObject and HeadBucket
-// are implemented: there is no multipart upload and no listing, because a
-// object is stored with one PutObject request and the database is the index.
+// hand-rolled SigV4. Directory browsing uses delimiter-based ListObjectsV2;
+// uploads still use a single PutObject request, not multipart upload.
 type s3Store struct {
 	scheme          string
 	host            string
@@ -192,6 +192,13 @@ type s3StatusError struct {
 }
 
 func (e *s3StatusError) Error() string { return e.message }
+
+func (e *s3StatusError) Unwrap() error {
+	if e.code == http.StatusNotFound {
+		return fs.ErrNotExist
+	}
+	return nil
+}
 
 // do signs and performs one request. Non-2xx responses are returned as Go
 // errors that quote the S3 error document: an administrator debugging a

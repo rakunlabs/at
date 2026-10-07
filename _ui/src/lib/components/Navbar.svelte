@@ -1,7 +1,7 @@
 <script lang="ts">
   import { storeNavbar, storeInfo } from '@/lib/store/store.svelte';
   import { getInfo } from '@/lib/api/gateway';
-  import { ChevronLeft, Menu } from 'lucide-svelte';
+  import { ChevronLeft, Menu, PanelLeft, PanelRight } from 'lucide-svelte';
   import AccountMenu from './AccountMenu.svelte';
   import { workspaceState } from '../store/workspace.svelte';
   import { workspaceTransport, switchWorkspace } from '../api/transport';
@@ -42,11 +42,29 @@
       <Menu size={16} />
     {/if}
   </button>
+  {#if storeNavbar.chatPanels}
+    <button
+      aria-label={storeNavbar.chatPanels.conversationsOpen ? 'Hide chats sidebar' : 'Show chats sidebar'}
+      aria-expanded={storeNavbar.chatPanels.conversationsOpen}
+      title="Chats (ctrl+b)"
+      class={['inline-flex min-h-11 min-w-11 sm:min-h-0 sm:min-w-8 shrink-0 items-center justify-center hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent', storeNavbar.chatPanels.conversationsOpen ? 'text-oc-peach' : 'text-dark-text-muted hover:text-dark-text']}
+      onclick={() => storeNavbar.chatPanels?.toggleConversations()}
+    ><PanelLeft size={16} /></button>
+  {/if}
   <span class="ml-2 min-w-0 flex-1 self-center truncate text-sm font-medium text-dark-text">
     {storeNavbar.title}
   </span>
 
   <div class="ml-auto flex shrink-0 items-stretch gap-1 sm:gap-4">
+    {#if storeNavbar.chatPanels}
+      <button
+        aria-label={storeNavbar.chatPanels.sessionOpen ? 'Hide session sidebar' : 'Show session sidebar'}
+        aria-expanded={storeNavbar.chatPanels.sessionOpen}
+        title="Session (ctrl+.)"
+        class={['inline-flex min-h-11 min-w-11 sm:min-h-0 sm:min-w-8 shrink-0 items-center justify-center hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent', storeNavbar.chatPanels.sessionOpen ? 'text-oc-peach' : 'text-dark-text-muted hover:text-dark-text']}
+        onclick={() => storeNavbar.chatPanels?.toggleSession()}
+      ><PanelRight size={16} /></button>
+    {/if}
     {#if maySwitch && workspaceState.items.length}<label class="flex items-stretch text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 border-l border-r border-dark-border bg-dark-base px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
       {#each workspaceState.items.filter(w => !w.archived) as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
     </select></label>{/if}

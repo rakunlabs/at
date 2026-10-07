@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"mime"
+	"io/fs"
 	"net/http"
 	"path"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -77,14 +77,22 @@ func (s *Server) durableStorage(w http.ResponseWriter, r *http.Request, action, 
 	return objects, target, *settings, principal, true
 }
 
-// StorageFileBrowseAPI lists virtual directories from durable object metadata.
+func storageFilesRoot(settings service.StorageSettings, workspace string) string {
+	root := "workspaces/" + workspace + "/files/"
+	if settings.Backend == service.StorageBackendS3 {
+		root = service.NormalizeStoragePrefix(settings.S3.Prefix) + root
+	}
+	return root
+}
+
+// StorageFileBrowseAPI lists actual backend entries inside the workspace root.
 func (s *Server) StorageFileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 	dir, err := normalizeStorageFilePath(r.URL.Query().Get("path"), true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	objects, _, _, principal, ok := s.durableStorage(w, r, "files.read", dir)
+	_, target, settings, principal, ok := s.durableStorage(w, r, "files.read", dir)
 	if !ok {
 		return
 	}
@@ -92,24 +100,26 @@ func (s *Server) StorageFileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 	if prefix != "" {
 		prefix += "/"
 	}
-	stored, err := objects.ListStorageObjects(r.Context(), principal.WorkspaceID, service.StorageNamespaceFiles, prefix)
+	root := storageFilesRoot(settings, principal.WorkspaceID)
+	lister, supported := target.(blob.DirectoryLister)
+	if !supported {
+		http.Error(w, "storage does not support browsing", http.StatusServiceUnavailable)
+		return
+	}
+	stored, err := lister.ListDirectory(r.Context(), root+prefix)
 	if err != nil {
-		http.Error(w, "could not list storage files", http.StatusInternalServerError)
+		http.Error(w, "could not list storage files: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	entries := make(map[string]fileEntry)
 	for _, object := range stored {
-		remainder := strings.TrimPrefix(object.Path, prefix)
-		name, rest, _ := strings.Cut(remainder, "/")
-		entryPath := name
-		if dir != "" {
-			entryPath = path.Join(dir, name)
+		logical := strings.TrimPrefix(object.Key, root)
+		name := path.Base(logical)
+		modified := ""
+		if !object.Modified.IsZero() {
+			modified = object.Modified.UTC().Format(time.RFC3339Nano)
 		}
-		if rest != "" {
-			entries[name] = fileEntry{Name: name, Path: entryPath, IsDir: true, ModTime: object.UpdatedAt}
-			continue
-		}
-		entries[name] = fileEntry{Name: name, Path: object.Path, Size: object.SizeBytes, ModTime: object.UpdatedAt}
+		entries[name] = fileEntry{Name: name, Path: logical, IsDir: object.IsDir, Size: object.Size, ModTime: modified}
 	}
 	list := make([]fileEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -175,12 +185,8 @@ func (s *Server) StorageFileUploadAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	contentType := strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0])
-	key := "workspaces/" + principal.WorkspaceID + "/files/" + logicalPath
-	if settings.Backend == service.StorageBackendS3 {
-		key = service.NormalizeStoragePrefix(settings.S3.Prefix) + key
-	}
+	key := storageFilesRoot(settings, principal.WorkspaceID) + logicalPath
 	if err := target.Put(r.Context(), key, contentType, data); err != nil {
-		slog.Error("storage file upload failed", "key", key, "error", err.Error())
 		http.Error(w, "storage rejected the upload", http.StatusBadGateway)
 		return
 	}
@@ -204,38 +210,30 @@ func (s *Server) StorageFileServeAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	objects, target, settings, principal, ok := s.durableStorage(w, r, "files.read", logicalPath)
+	_, target, settings, principal, ok := s.durableStorage(w, r, "files.read", logicalPath)
 	if !ok {
 		return
 	}
-	object, err := objects.GetStorageObject(r.Context(), principal.WorkspaceID, service.StorageNamespaceFiles, logicalPath)
-	if errors.Is(err, service.ErrStorageObjectNotFound) {
+	reader, _, err := target.Get(r.Context(), storageFilesRoot(settings, principal.WorkspaceID)+logicalPath)
+	if errors.Is(err, fs.ErrNotExist) {
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-	if err != nil {
-		http.Error(w, "could not read storage metadata", http.StatusInternalServerError)
-		return
-	}
-	if object.Backend != settings.Backend {
-		http.Error(w, "file belongs to a different storage backend", http.StatusConflict)
-		return
-	}
-	reader, _, err := target.Get(r.Context(), object.StorageKey)
 	if err != nil {
 		http.Error(w, "storage could not return the file", http.StatusBadGateway)
 		return
 	}
 	defer reader.Close()
 	data, err := io.ReadAll(io.LimitReader(reader, storageFileMaxBytes+1))
-	if err != nil || int64(len(data)) != object.SizeBytes {
+	if err != nil {
 		http.Error(w, "stored file is incomplete", http.StatusBadGateway)
 		return
 	}
-	contentType := object.ContentType
-	if contentType == "" {
-		contentType = mime.TypeByExtension(path.Ext(logicalPath))
+	if len(data) > storageFileMaxBytes {
+		http.Error(w, "file exceeds the 64 MiB preview/download limit", http.StatusRequestEntityTooLarge)
+		return
 	}
+	contentType := http.DetectContentType(data)
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -243,8 +241,7 @@ func (s *Server) StorageFileServeAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", path.Base(logicalPath)))
 	w.Header().Set("Cache-Control", "private, no-store")
-	updated, _ := time.Parse(time.RFC3339, object.UpdatedAt)
-	http.ServeContent(w, r, path.Base(logicalPath), updated, bytes.NewReader(data))
+	http.ServeContent(w, r, path.Base(logicalPath), time.Time{}, bytes.NewReader(data))
 }
 
 func (s *Server) StorageFileDeleteAPI(w http.ResponseWriter, r *http.Request) {
@@ -257,24 +254,25 @@ func (s *Server) StorageFileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	object, err := objects.DeleteStorageObject(r.Context(), principal.WorkspaceID, service.StorageNamespaceFiles, logicalPath)
-	if errors.Is(err, service.ErrStorageObjectNotFound) {
-		children, listErr := objects.ListStorageObjects(r.Context(), principal.WorkspaceID, service.StorageNamespaceFiles, logicalPath+"/")
-		if listErr == nil && len(children) > 0 {
-			http.Error(w, "directory is not empty", http.StatusConflict)
-			return
-		}
-		http.Error(w, "path not found", http.StatusNotFound)
+	key := storageFilesRoot(settings, principal.WorkspaceID) + logicalPath
+	// Directories are never recursively deleted, including S3 virtual folders.
+	lister := target.(blob.DirectoryLister)
+	children, err := lister.ListDirectory(r.Context(), key+"/")
+	if err != nil && !errors.Is(err, syscall.ENOTDIR) {
+		http.Error(w, "could not inspect storage directory", http.StatusBadGateway)
 		return
 	}
-	if err != nil {
-		http.Error(w, "could not delete storage file", http.StatusInternalServerError)
+	if len(children) > 0 {
+		http.Error(w, "directory is not empty", http.StatusConflict)
 		return
 	}
-	if object.Backend == settings.Backend {
-		if err := target.Delete(r.Context(), object.StorageKey); err != nil {
-			slog.Error("storage file blob deletion failed", "key", object.StorageKey, "error", err.Error())
-		}
+	if err := target.Delete(r.Context(), key); err != nil {
+		http.Error(w, "storage rejected deletion", http.StatusBadGateway)
+		return
+	}
+	if _, err := objects.DeleteStorageObject(r.Context(), principal.WorkspaceID, service.StorageNamespaceFiles, logicalPath); err != nil && !errors.Is(err, service.ErrStorageObjectNotFound) {
+		http.Error(w, "file deleted but catalog cleanup failed", http.StatusInternalServerError)
+		return
 	}
 	httpResponseJSON(w, map[string]any{"deleted": logicalPath}, http.StatusOK)
 }

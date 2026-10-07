@@ -1,6 +1,14 @@
+interface NavbarChatPanels {
+  conversationsOpen: boolean;
+  sessionOpen: boolean;
+  toggleConversations: () => void;
+  toggleSession: () => void;
+}
+
 export const storeNavbar = $state({
   title: "",
-  sideBarOpen: true
+  sideBarOpen: true,
+  chatPanels: null as NavbarChatPanels | null
 });
 
 // The interface has a single dark theme. `.dark` stays on <html> so `dark:`

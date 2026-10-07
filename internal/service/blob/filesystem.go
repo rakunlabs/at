@@ -63,6 +63,9 @@ func (f *filesystemStore) PutReader(ctx context.Context, key, _ string, reader i
 		return err
 	}
 	defer root.Close()
+	if err := rejectStorageSymlinks(root, key); err != nil {
+		return err
+	}
 	return filesystemWriteReader(ctx, root, key, reader)
 }
 
@@ -119,6 +122,9 @@ func (f *filesystemStore) Get(_ context.Context, key string) (io.ReadCloser, str
 		return nil, "", err
 	}
 	defer root.Close()
+	if err := rejectStorageSymlinks(root, key); err != nil {
+		return nil, "", fmt.Errorf("check media object path: %w", err)
+	}
 	file, err := root.Open(filepath.FromSlash(key))
 	if err != nil {
 		return nil, "", fmt.Errorf("open media object: %w", err)
@@ -145,6 +151,9 @@ func (f *filesystemStore) Delete(_ context.Context, key string) error {
 		return err
 	}
 	defer root.Close()
+	if err := rejectStorageSymlinks(root, key); err != nil {
+		return err
+	}
 	if err := root.Remove(filepath.FromSlash(key)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("delete media object: %w", err)
 	}

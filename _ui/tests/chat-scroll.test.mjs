@@ -1,61 +1,27 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import ts from 'typescript';
 
-// Extract the two scroll functions through the TypeScript AST and transpile
-// them, so type annotations and unrelated runes next to them do not matter.
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
-const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
-const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const functions = ast.statements
-  .filter(node => ts.isFunctionDeclaration(node) && ['handleChatScroll', 'scrollToBottom'].includes(node.name?.text))
-  .map(node => node.getText(ast));
-const scrollCode = ts.transpileModule(`let followLatest = true;\nlet lastScrollTop = 0;\n${functions.join('\n')}`, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
-}).outputText;
+const css = await readFile(new URL('../src/style/global.css', import.meta.url), 'utf8');
+const body = source.match(/function updateScrollPosition\(\) \{([\s\S]*?)\n  \}/)[1];
+const position = new Function('chatContainer', `let awayFromLatest, scrollThumbHeight, scrollThumbTop; ${body}; return { awayFromLatest, scrollThumbHeight, scrollThumbTop };`);
 
-function harness() {
-  const frames = [];
-  const container = { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 };
-  const controls = new Function('chatContainer', 'requestAnimationFrame', `${scrollCode}; return { handleChatScroll, scrollToBottom };`)(container, fn => frames.push(fn));
-  return { container, ...controls, flush() { frames.splice(0).forEach(fn => fn()); } };
-}
-
-test('streaming follows the bottom but leaves a reader of older messages in place', () => {
-  const h = harness();
-  h.handleChatScroll();
-  h.container.scrollHeight = 1200;
-  h.scrollToBottom();
-  h.flush();
-  assert.equal(h.container.scrollTop, 1200);
-
-  h.container.scrollTop = 300;
-  h.handleChatScroll();
-  h.container.scrollHeight = 1400;
-  h.scrollToBottom();
-  h.flush();
-  assert.equal(h.container.scrollTop, 300);
-
-  h.container.scrollTop = 1000;
-  h.handleChatScroll();
-  h.container.scrollHeight = 1600;
-  h.scrollToBottom();
-  h.flush();
-  assert.equal(h.container.scrollTop, 1600);
+test('latest button follows actual scroll distance and tolerates the end', () => {
+  assert.equal(position({ scrollTop: 0, scrollHeight: 2000, clientHeight: 500 }).awayFromLatest, true);
+  assert.equal(position({ scrollTop: 1480, scrollHeight: 2000, clientHeight: 500 }).awayFromLatest, false);
+  assert.equal(position({ scrollTop: 0, scrollHeight: 400, clientHeight: 500 }).awayFromLatest, false);
+  assert.match(source, /onclick=\{\(\) => scrollToBottom\(true\)\}/);
+  assert.match(source, /Jump to latest <ArrowDown/);
 });
 
-test('scrolling up cancels a queued follow; opening a conversation resets it', () => {
-  const h = harness();
-  // The page has already observed the reader at the bottom (every
-  // programmatic scroll raises a scroll event); only a move up stops following.
-  h.handleChatScroll();
-  h.scrollToBottom();
-  h.container.scrollTop = 100;
-  h.handleChatScroll();
-  h.flush();
-  assert.equal(h.container.scrollTop, 100);
-  h.scrollToBottom(true);
-  h.flush();
-  assert.equal(h.container.scrollTop, 1000);
+test('overlay thumb stays within viewport and native scrollbar consumes no width', () => {
+  assert.deepEqual(position({ scrollTop: 750, scrollHeight: 2000, clientHeight: 500 }), { awayFromLatest: true, scrollThumbHeight: 125, scrollThumbTop: 187.5 });
+  assert.equal(position({ scrollTop: 5000, scrollHeight: 2000, clientHeight: 500 }).scrollThumbTop, 375);
+  assert.equal(position({ scrollTop: 0, scrollHeight: 400, clientHeight: 500 }).scrollThumbHeight, 0);
+  assert.match(css, /\.chat-transcript-scroller\s*\{\s*scrollbar-width: none;/);
+  assert.match(css, /\.chat-transcript-scroller::-webkit-scrollbar\s*\{\s*display: none;/);
+  assert.match(source, /scrollIndicatorVisible && scrollThumbHeight > 0/);
+  assert.match(source, /scrollIndicatorVisible = false; \}, 700\)/);
+  assert.match(source, /if \(scrollIndicatorTimer\) clearTimeout\(scrollIndicatorTimer\)/);
 });

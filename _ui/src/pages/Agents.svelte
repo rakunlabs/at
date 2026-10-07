@@ -1150,7 +1150,7 @@
       {/if}
 
       <!-- Agent list -->
-      {#if loading || agents.length > 0 || !showForm}
+      {#if !showForm}
         <DataTable
           error={page.list.error('Agents')}
           onretry={loadData}
@@ -1176,7 +1176,7 @@
             <tr class="hover:bg-dark-surface">
               <td class="px-4 py-2.5">
                 <div class="flex items-center gap-2.5">
-                  <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-dark-elevated" />
+                  <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 shrink-0 bg-dark-elevated" />
                   <div class="flex flex-col gap-0.5 min-w-0">
                     <div class="flex items-center gap-1.5">
                       <span class="font-mono font-medium text-dark-text">{agent.name}</span>
