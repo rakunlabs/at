@@ -18,8 +18,23 @@
   // Media the answer already places through `media:<id>` Markdown is shown
   // there; its stored part stays in the message (history, shares, copies)
   // but is not rendered a second time below the text.
-  const placed = $derived(user || raw ? new Set<string>() : mediaRefIDs(messageText(message.content)));
+  const placed = $derived(user ? new Set<string>() : mediaRefIDs(messageText(message.content)));
   const resolve = (text: string) => resolveMediaRefs(text, id => mediaImageURL(id, workspace));
+
+  // Raw view is text only: stored media is described, never rendered. Inline
+  // data URLs are not printed, since they can be megabytes of base64.
+  function rawPartLabel(part: ContentPart): string {
+    const fields: string[] = [part.type === 'image_url' ? 'image' : part.type];
+    if (part.name || part.file?.filename) fields.push(part.name || part.file!.filename!);
+    if (part.mime_type) fields.push(part.mime_type);
+    if (part.media_id) fields.push(`media:${part.media_id}`);
+    else if (part.type === 'image_url') {
+      const url = part.image_url?.url || '';
+      fields.push(url.startsWith('data:') ? 'inline data' : url);
+    } else if (part.omitted) fields.push('not saved to history');
+    if (part.bytes) fields.push(formatSize(part.bytes));
+    return `[${fields.join(' · ')}]`;
+  }
 
   let zoomed = $state<{ src: string; alt: string } | null>(null);
 
@@ -97,7 +112,9 @@
   {/if}
 {:else}
   {#each message.content as part}
-    {#if (part.type === 'image' || part.type === 'file') && part.media_id && placed.has(part.media_id)}
+    {#if raw && !user && part.type !== 'text'}
+      <pre class="mb-2 whitespace-pre-wrap break-words font-mono text-xs text-dark-text-muted">{rawPartLabel(part)}</pre>
+    {:else if (part.type === 'image' || part.type === 'file') && part.media_id && placed.has(part.media_id)}
       <!-- Shown where the answer references it. -->
     {:else if (part.type === 'image_url' && part.image_url?.url) || (part.type === 'image' && part.media_id)}
       {@const src = part.type === 'image' ? mediaImageURL(part.media_id!, workspace) : part.image_url!.url}

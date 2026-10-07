@@ -2687,8 +2687,10 @@ artifact a `markdown` snippet such as `![name](media:<media_id>)`
 where the image belongs; `MessageContent.svelte` resolves `media:` targets to
 the workspace-scoped `api/v1/media/{id}` URL at render time
 (`helper/media-ref.ts`) and does not render the same stored part again below
-the text. Unplaced artifacts are still attached after the answer, and Raw view
-shows every part. The stored part keeps the media in history, shares and
+the text. Unplaced artifacts are still attached after the answer. Raw view is
+text only: every non-text part is printed as a one-line descriptor
+(`[image · name · media:<id> · size]`, inline data URLs never printed) instead
+of being rendered. The stored part keeps the media in history, shares and
 copies; share/import rewrite `media:` references in text along with
 `media_id` (`service.ReplaceMediaRefs`). Shares resolve only media in their
 snapshot, otherwise the label is kept. Before this, the tool description told

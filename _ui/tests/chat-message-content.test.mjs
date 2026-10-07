@@ -69,5 +69,19 @@ test('media placed through a media: reference renders in the text, not again bel
   assert.match(output, /\/media\/placed-id\?workspace=selected/);
   assert.doesNotMatch(output, /<img[^>]*placed-id/);
   assert.match(output, /<img[^>]*other-id/);
-  assert.match(html(content, { raw: true }), /<img[^>]*placed-id/);
+});
+
+test('raw view is text only: media parts are described, not rendered', () => {
+  const output = html([
+    { type: 'text', text: '![cat](media:placed-id)' },
+    { type: 'image', media_id: 'placed-id', name: 'cat.png', bytes: 25 },
+    { type: 'file', media_id: 'pdf-id', name: 'report.pdf', mime_type: 'application/pdf' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+  ], { raw: true });
+  for (const tag of ['<img', '<iframe', '<audio', '<video', 'data-markdown']) assert.ok(!output.includes(tag), tag);
+  assert.match(output, /!\[cat\]\(media:placed-id\)/);
+  assert.match(output, /\[image · cat.png · media:placed-id · 25 bytes\]/);
+  assert.match(output, /\[file · report.pdf · application\/pdf · media:pdf-id\]/);
+  assert.match(output, /\[image · inline data\]/);
+  assert.doesNotMatch(output, /AAAA/);
 });
