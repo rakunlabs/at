@@ -181,3 +181,18 @@ test('every endpoint propagates failures once, without retrying', async () => {
     assert.equal(calls.length, before + 1);
   }
 });
+
+test('media listing pages by cursor and tolerates an empty answer', async () => {
+  response = { data: [{ id: 'B' }], next_before: 'B' };
+  assert.deepEqual(await api.listMedia(), { data: [{ id: 'B' }], next_before: 'B' });
+  assert.deepEqual(calls, [['get', '/media', { params: { limit: 100 } }]]);
+  calls = [];
+  response = {};
+  assert.deepEqual(await api.listMedia('B', 20), { data: [], next_before: '' });
+  assert.deepEqual(calls, [['get', '/media', { params: { limit: 20, before: 'B' } }]]);
+});
+
+test('media names carry the stored extension, never a path', () => {
+  assert.equal(api.mediaObjectName({ id: '01ABC', storage_key: 'ws/user/01ABC.PNG' }), '01ABC.png');
+  assert.equal(api.mediaObjectName({ id: '01ABC', storage_key: 'ws/user/01ABC' }), '01ABC');
+});

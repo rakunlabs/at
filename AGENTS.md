@@ -1030,6 +1030,14 @@ region is part of the signature and normally produces HTTP 400.
 `/api/v1/files/*`, which `registerRuntimeRoutes` admits on `files.read`; only
 Studio's one-click setup reaches administration APIs.
 
+Files has a **Chat media** tab (`?view=media`, shown while `playground` is
+enabled). Media keys (`<workspace>/<owner>/<ulid>.<ext>`) live outside the
+Files tree (`workspaces/<ws>/files/`), so the tab lists the catalog instead of
+browsing a folder: `GET /api/v1/media?before=&limit=` (`models.use`, ≤200,
+newest first by ULID, `next_before` cursor) returns only the caller's own
+objects in the selected workspace, the same scope as `GET /media/{id}`.
+Regression: `TestMediaListHTTPContract`.
+
 Sessions later moved out the same way — see *Per-user chat sessions and agent
 tiers* below.
 
@@ -2650,6 +2658,19 @@ Responses carry `Referrer-Policy: no-referrer`. The collector is generic:
 upstream MCP servers' `image`/`audio` blocks are forwarded through it as well,
 and both MCP clients now join all text blocks instead of returning only the
 first one. Agent loops have no collector and keep their text-only behaviour.
+
+**Long tool calls over the gateway MCP endpoint.** AT sets no deadline on a
+gateway `tools/call`; the request context (client disconnect) is the only
+bound. Because a response that writes nothing for minutes is cut by reverse
+proxies (nginx 60s, Cloudflare 100s) and by clients' request timeouts,
+`serveMCPCall` answers plain JSON when the call finishes within 10s and
+otherwise, if the client accepts `text/event-stream`, switches to an SSE
+response: a `: keep-alive` comment every 10s, `notifications/progress` when the
+request carried `_meta.progressToken` (clients that reset their timeout on
+progress then wait indefinitely), and the JSON-RPC result as the final event.
+JSON-only clients still get JSON. Gateway HTTP tools no longer carry a 60s
+client timeout. Agent loops keep their per-agent `tool_timeout`. Regression:
+`TestServeMCPCallKeepsSlowCallsAlive`.
 
 **Using the result** (modelled on fal's MCP, where the result is a durable
 URL and display is the client's job). Each gateway artifact also carries

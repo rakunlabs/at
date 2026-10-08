@@ -17,6 +17,7 @@ import (
 )
 
 var _ service.MediaStorer = (*Postgres)(nil)
+var _ service.MediaListStorer = (*Postgres)(nil)
 var _ service.StorageSettingsStorer = (*Postgres)(nil)
 
 var mediaObjectColumns = []any{"id", "workspace_id", "owner_user_id", "token_id", "backend", "storage_key", "content_type", "size_bytes", "checksum", "created_at"}
@@ -245,6 +246,28 @@ func (p *Postgres) GetMediaObject(ctx context.Context, workspace, owner, id stri
 	}
 	out := mediaObjectRowToRecord(row)
 	return &out, nil
+}
+
+// ListMediaObjects uses the same workspace-and-owner scope as GetMediaObject.
+func (p *Postgres) ListMediaObjects(ctx context.Context, workspace, owner, before string, limit int) ([]service.MediaObject, error) {
+	if workspace == "" || owner == "" {
+		return []service.MediaObject{}, nil
+	}
+	query := p.goqu.From(p.tableMediaObjects).Select(mediaObjectColumns...).Where(goqu.Ex{
+		"workspace_id": workspace, "owner_user_id": owner, "namespace": service.StorageNamespaceMedia,
+	})
+	if before != "" {
+		query = query.Where(goqu.C("id").Lt(before))
+	}
+	var rows []mediaObjectRow
+	if err := query.Order(goqu.I("id").Desc()).Limit(uint(limit)).ScanStructsContext(ctx, &rows); err != nil {
+		return nil, mediaError(err)
+	}
+	out := make([]service.MediaObject, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, mediaObjectRowToRecord(row))
+	}
+	return out, nil
 }
 
 // GetGatewayMediaObject returns an object only to the API token that produced

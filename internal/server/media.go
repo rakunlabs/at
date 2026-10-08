@@ -390,6 +390,63 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, created, http.StatusCreated)
 }
 
+// mediaListMaxLimit bounds one page of GET /v1/media.
+const mediaListMaxLimit = 200
+
+// MediaListAPI handles GET /v1/media: the caller's own media in the selected
+// workspace, newest first, paged by ?before=<id>&limit=N.
+func (s *Server) MediaListAPI(w http.ResponseWriter, r *http.Request) {
+	store, owner := s.mediaAccess(w, r, false)
+	if store == nil {
+		return
+	}
+	lister, ok := store.(service.MediaListStorer)
+	if !ok {
+		nativeError(w, http.StatusServiceUnavailable, "media listing unavailable")
+		return
+	}
+	principal, admitted := service.AccessPrincipalFromContext(r.Context())
+	if !admitted || principal.WorkspaceID == "" {
+		nativeError(w, http.StatusForbidden, "media storage requires a selected workspace")
+		return
+	}
+	query := r.URL.Query()
+	for key := range query {
+		if key != "before" && key != "limit" {
+			nativeError(w, http.StatusBadRequest, fmt.Sprintf("unknown query parameter %q", key))
+			return
+		}
+	}
+	limit := 100
+	if raw := query.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > mediaListMaxLimit {
+			nativeError(w, http.StatusBadRequest, fmt.Sprintf("limit must be between 1 and %d", mediaListMaxLimit))
+			return
+		}
+		limit = n
+	}
+	before := query.Get("before")
+	if before != "" {
+		if _, err := ulid.ParseStrict(before); err != nil {
+			nativeError(w, http.StatusBadRequest, "before must be a media object id")
+			return
+		}
+	}
+	// One extra row tells whether another page exists.
+	objects, err := lister.ListMediaObjects(r.Context(), principal.WorkspaceID, owner, before, limit+1)
+	if err != nil {
+		mediaStoreError(w, err)
+		return
+	}
+	next := ""
+	if len(objects) > limit {
+		objects = objects[:limit]
+		next = objects[limit-1].ID
+	}
+	httpResponseJSON(w, map[string]any{"data": objects, "next_before": next}, http.StatusOK)
+}
+
 // MediaObjectAPI handles GET and DELETE /v1/media/{id}.
 func (s *Server) MediaObjectAPI(w http.ResponseWriter, r *http.Request) {
 	store, owner := s.mediaAccess(w, r, false)

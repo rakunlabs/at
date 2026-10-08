@@ -336,6 +336,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"DELETE", "/chat/sessions/{id}/messages", "agents.execute", "", ""},
 		{"POST", "/chat/sessions/{id}/confirm", "agents.execute", "", ""},
 		{"POST", "/media", "models.use", "", ""},
+		{"GET", "/media", "models.use", "", ""},
 		{"GET", "/media/{id}", "models.use", "", ""},
 		{"DELETE", "/media/{id}", "models.use", "", ""},
 		// Usage and traces are workspace data (cost_events and llm_calls carry

@@ -100,6 +100,60 @@ type MCPUpstream struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+
+	// Auth makes an HTTP upstream authenticate with OAuth 2.1 (the MCP
+	// authorization spec). Nil keeps the static Headers behaviour.
+	Auth *MCPUpstreamAuth `json:"auth,omitempty"`
+}
+
+// MCP upstream account sources, tried in the order the upstream lists them.
+const (
+	// MCPAccountUser uses the personal connection of the account the run
+	// executes as (for a personal gateway API token, the token's owner).
+	MCPAccountUser = "user"
+	// MCPAccountAgent uses the connection the running agent binds for this
+	// upstream's provider (AgentConfig.Connections / SkillRef.Connections).
+	MCPAccountAgent = "agent"
+	// MCPAccountShared uses SharedConnectionID, one workspace connection.
+	MCPAccountShared = "shared"
+)
+
+// MCPUpstreamAuth describes how an HTTP upstream obtains its access token.
+//
+// The upstream's identity for credentials is Provider: every connection that
+// authorizes this server is stored with Connection.Provider == Provider, so
+// one person's GitHub MCP authorization is found by every set that points at
+// the same server, and an agent binds it the same way it binds a skill
+// connection.
+type MCPUpstreamAuth struct {
+	Type string `json:"type"` // "oauth2"
+
+	// Provider is the connection provider key, e.g. "mcp-github". Derived
+	// from the upstream host when empty.
+	Provider string `json:"provider,omitempty"`
+
+	// Accounts is the ordered list of account sources (user, agent, shared).
+	// The first source that yields a usable connection wins; a source that is
+	// not listed is never consulted, so a shared account is never used unless
+	// it is named here. Empty means ["user"].
+	Accounts []string `json:"accounts,omitempty"`
+
+	// SharedConnectionID names the workspace connection used by the shared
+	// source.
+	SharedConnectionID string `json:"shared_connection_id,omitempty"`
+
+	// Scopes requested at authorization. Empty uses the scopes the server
+	// advertises in its protected resource metadata.
+	Scopes []string `json:"scopes,omitempty"`
+
+	// ClientID is a pre-registered OAuth client. Leave empty for servers that
+	// support dynamic client registration (RFC 7591). A confidential client's
+	// secret belongs in encrypted connection credentials, never the MCP config.
+	ClientID string `json:"client_id,omitempty"`
+
+	// AuthorizationServer overrides discovery (an issuer URL). Needed only
+	// for servers that publish no protected resource metadata.
+	AuthorizationServer string `json:"authorization_server,omitempty"`
 }
 
 // MCPServer represents a named, gateway-facing MCP endpoint.

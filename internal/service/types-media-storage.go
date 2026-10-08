@@ -198,6 +198,13 @@ type MediaStorer interface {
 	DeleteMediaObject(ctx context.Context, workspace, owner, id string) (*MediaObject, error)
 }
 
+// MediaListStorer lists one owner's media in one workspace, newest first.
+// Before is an exclusive object-ID cursor (IDs are ULIDs, so they sort by
+// creation); empty starts at the newest object.
+type MediaListStorer interface {
+	ListMediaObjects(ctx context.Context, workspace, owner, before string, limit int) ([]MediaObject, error)
+}
+
 // GatewayMediaStorer resolves media for the API token that produced it.
 type GatewayMediaStorer interface {
 	GetGatewayMediaObject(ctx context.Context, workspace, tokenID, id string) (*MediaObject, error)

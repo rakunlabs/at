@@ -682,6 +682,9 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 	if err := p.rotateConnectionCredentialsKey(ctx, tx, p.encKey, newKey); err != nil {
 		return fmt.Errorf("rotate connection credentials: %w", err)
 	}
+	if err := p.rotateMCPOAuthPendingKey(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate MCP OAuth pending states: %w", err)
+	}
 	// The media settings blob carries the S3 secret access key; leaving it
 	// behind would orphan it under the previous key.
 	if err := p.rotateMediaSettingsKey(ctx, tx, p.encKey, newKey); err != nil {

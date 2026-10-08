@@ -442,3 +442,64 @@ func TestMediaObjectsHTTPContract(t *testing.T) {
 		t.Fatalf("double delete: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestMediaListHTTPContract(t *testing.T) {
+	s, _, tokens := mediaFixture(t)
+	root := filepath.Join(t.TempDir(), "media")
+	if w := mediaRequest(t, s, tokens[0], "PUT", "/settings", mediaFilesystemBody(1, root)); w.Code != 200 {
+		t.Fatalf("configure: %d %s", w.Code, w.Body)
+	}
+	type page struct {
+		Data       []service.MediaObject `json:"data"`
+		NextBefore string                `json:"next_before"`
+	}
+	list := func(token, query string) page {
+		t.Helper()
+		w := mediaRequest(t, s, token, "GET", query, "")
+		if w.Code != 200 {
+			t.Fatalf("list %q: %d %s", query, w.Code, w.Body)
+		}
+		var out page
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err, w.Body.String())
+		}
+		return out
+	}
+	if got := list(tokens[0], ""); got.Data == nil || len(got.Data) != 0 || got.NextBefore != "" {
+		t.Fatalf("empty list: %+v", got)
+	}
+	ids := []string{}
+	for i := range 3 {
+		w := mediaUpload(t, s, tokens[0], fmt.Sprintf("shot-%d.png", i), mediaPNG(t), "image/png")
+		if w.Code != 201 {
+			t.Fatalf("upload: %d %s", w.Code, w.Body)
+		}
+		var obj service.MediaObject
+		if err := json.Unmarshal(w.Body.Bytes(), &obj); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, obj.ID)
+	}
+	if w := mediaUpload(t, s, tokens[1], "other.png", mediaPNG(t), "image/png"); w.Code != 201 {
+		t.Fatalf("foreign upload: %d %s", w.Code, w.Body)
+	}
+
+	// Newest first, paged, and never another owner's objects.
+	first := list(tokens[0], "?limit=2")
+	if len(first.Data) != 2 || first.Data[0].ID != ids[2] || first.Data[1].ID != ids[1] || first.NextBefore != ids[1] {
+		t.Fatalf("first page: %+v", first)
+	}
+	second := list(tokens[0], "?limit=2&before="+first.NextBefore)
+	if len(second.Data) != 1 || second.Data[0].ID != ids[0] || second.NextBefore != "" {
+		t.Fatalf("second page: %+v", second)
+	}
+	if other := list(tokens[1], ""); len(other.Data) != 1 {
+		t.Fatalf("foreign owner sees %d objects", len(other.Data))
+	}
+
+	for _, query := range []string{"?limit=0", "?limit=201", "?before=nope", "?owner=x"} {
+		if w := mediaRequest(t, s, tokens[0], "GET", query, ""); w.Code != 400 {
+			t.Fatalf("%s: %d %s", query, w.Code, w.Body)
+		}
+	}
+}

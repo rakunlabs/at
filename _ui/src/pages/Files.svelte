@@ -10,8 +10,20 @@
     FileCode, FileAudio, Download, X, ChevronRight, Home, Search, Loader2,
   } from 'lucide-svelte';
   import { browseStorageFiles, deleteStorageFile, storageFileServeUrl, uploadStorageFile, type FileEntry } from '@/lib/api/files';
+  import { FEATURE_PLAYGROUND } from '@/lib/api/features';
+  import { isFeatureEnabled } from '@/lib/store/features.svelte';
+  import MediaLibrary from '@/lib/components/MediaLibrary.svelte';
 
   storeNavbar.title = 'Files';
+
+  // Chat media lives in the same storage backend under a different key layout,
+  // so it is listed from its catalog rather than browsed as a folder.
+  const mediaAvailable = $derived(isFeatureEnabled(FEATURE_PLAYGROUND));
+  const view = $derived(mediaAvailable && new URLSearchParams(router.querystring).get('view') === 'media' ? 'media' : 'files');
+  const tabClass = (active: boolean) => [
+    'inline-flex h-8 items-center px-3 text-xs border-b-2 focus-visible:outline-2 focus-visible:outline-accent',
+    active ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-secondary hover:text-dark-text',
+  ];
 
   // All paths are relative to the selected workspace's rooted file API.
   let currentPath = $state('');
@@ -25,7 +37,7 @@
   let browseError = $state('');
   let browseVersion = 0;
   let uploading = $state(false);
-  let uploadInput: HTMLInputElement;
+  let uploadInput = $state<HTMLInputElement>();
   let previewController: AbortController | null = null;
   const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-dark-border px-2 text-xs text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
   const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
@@ -96,6 +108,7 @@
 
   $effect(() => {
     const path = routePath;
+    if (view !== 'files') return;
     untrack(() => { void browse(path, true); });
   });
 
@@ -247,7 +260,17 @@
 </script>
 
 <svelte:head><title>AT | Files</title></svelte:head>
-<div class="flex h-full min-h-0 min-w-0 bg-dark-base text-dark-text">
+<div class="flex h-full min-h-0 min-w-0 flex-col bg-dark-base text-dark-text">
+{#if mediaAvailable}
+  <div role="tablist" aria-label="File sources" class="flex shrink-0 items-end gap-1 border-b border-dark-border px-2">
+    <button role="tab" aria-selected={view === 'files'} class={tabClass(view === 'files')} onclick={() => updateRouteQuery({ view: null })}>Files</button>
+    <button role="tab" aria-selected={view === 'media'} class={tabClass(view === 'media')} onclick={() => updateRouteQuery({ view: 'media', path: null })}>Chat media</button>
+  </div>
+{/if}
+{#if view === 'media'}
+  <div class="flex-1 min-h-0"><MediaLibrary /></div>
+{:else}
+<div class="flex flex-1 min-h-0 min-w-0 bg-dark-base text-dark-text">
   <!-- Main content -->
   <div class={[previewFile ? 'hidden xl:flex' : 'flex', 'flex-1 flex-col min-h-0 min-w-0']}>
     <!-- Header -->
@@ -340,6 +363,9 @@
       {:else if filteredEntries.length === 0}
         <div class="text-center py-12 text-sm text-dark-text-secondary">
           {entries.length > 0 ? 'No matches' : 'Empty directory'}
+          {#if entries.length === 0 && mediaAvailable && (currentPath === '.' || currentPath === '')}
+            <p class="mt-2 text-xs">Images and files from Chats are not stored here. <button class="text-accent hover:underline" onclick={() => updateRouteQuery({ view: 'media', path: null })}>Open Chat media</button></p>
+          {/if}
         </div>
       {:else}
         <table class="w-full table-fixed text-xs">
@@ -496,6 +522,8 @@
       </div>
     </section>
   {/if}
+</div>
+{/if}
 </div>
 
 {#if deleteConfirm}

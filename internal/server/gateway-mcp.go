@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -283,6 +284,9 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 	var params struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
+		Meta      struct {
+			ProgressToken any `json:"progressToken"`
+		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(paramsRaw, &params); err != nil {
 		mcpError(w, req.ID, -32602, fmt.Sprintf("invalid params: %v", err))
@@ -294,28 +298,141 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
-	runtime, err := s.gatewayMCPRuntime(r.Context(), srv)
-	if err != nil {
-		mcpError(w, req.ID, -32000, err.Error())
-		return
+	baseURL := s.publicBaseURL(r)
+	protocolVersion := r.Header.Get("MCP-Protocol-Version")
+	call := func(ctx context.Context) (any, *service.MCPError) {
+		runtime, err := s.gatewayMCPRuntime(ctx, srv)
+		if err != nil {
+			return nil, &service.MCPError{Code: -32000, Message: err.Error()}
+		}
+		defer closeMCPRuntime(ctx, runtime)
+		ctx, collector := service.ContextWithToolContentCollector(ctx)
+		ctx = contextWithGatewayBaseURL(ctx, baseURL)
+		ctx = contextWithMCPProtocolVersion(ctx, protocolVersion)
+		result, err := runtime.CallTool(ctx, params.Name, params.Arguments)
+		if err != nil {
+			var notFound *mcpToolNotFoundError
+			if errors.As(err, &notFound) {
+				return nil, &service.MCPError{Code: -32602, Message: err.Error()}
+			}
+			return nil, &service.MCPError{Code: -32000, Message: err.Error()}
+		}
+		content := []service.ToolContent{{Type: "text", Text: result}}
+		content = append(content, collector.Content()...)
+		return map[string]any{"content": content}, nil
 	}
-	defer closeMCPRuntime(r.Context(), runtime)
-	ctx, collector := service.ContextWithToolContentCollector(r.Context())
-	ctx = contextWithGatewayBaseURL(ctx, s.publicBaseURL(r))
-	ctx = contextWithMCPProtocolVersion(ctx, r.Header.Get("MCP-Protocol-Version"))
-	result, err := runtime.CallTool(ctx, params.Name, params.Arguments)
-	if err != nil {
-		var notFound *mcpToolNotFoundError
-		if errors.As(err, &notFound) {
-			mcpError(w, req.ID, -32602, err.Error())
+	serveMCPCall(w, r, req.ID, params.Meta.ProgressToken, call)
+}
+
+// mcpCallKeepAlive is how long a tools/call may run silently before the
+// response switches to SSE. Image and video generation routinely take minutes,
+// and a response that writes nothing until the end is cut by reverse proxies
+// (nginx defaults to 60s, Cloudflare to 100s) and by MCP clients' own request
+// timeouts, although AT itself sets no deadline on the call.
+var mcpCallKeepAlive = 10 * time.Second
+
+// serveMCPCall runs call and answers with plain JSON when it finishes within
+// mcpCallKeepAlive. Otherwise, if the client accepts Streamable HTTP SSE, it
+// commits an SSE response and keeps it alive with a comment per interval plus
+// notifications/progress when the client supplied a progressToken (clients
+// that reset their timeout on progress then wait indefinitely), and delivers
+// the JSON-RPC response as the final event.
+func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken any, call func(context.Context) (any, *service.MCPError)) {
+	type reply struct {
+		result any
+		err    *service.MCPError
+	}
+	ctx := r.Context()
+	done := make(chan reply, 1)
+	go func() {
+		result, err := call(ctx)
+		done <- reply{result: result, err: err}
+	}()
+	writePlain := func(out reply) {
+		if out.err != nil {
+			mcpError(w, id, out.err.Code, out.err.Message)
 			return
 		}
-		mcpError(w, req.ID, -32000, err.Error())
+		mcpResult(w, id, out.result)
+	}
+
+	flusher, canFlush := w.(http.Flusher)
+	if !canFlush || !acceptsEventStream(r) {
+		select {
+		case out := <-done:
+			writePlain(out)
+		case <-ctx.Done():
+		}
 		return
 	}
-	content := []service.ToolContent{{Type: "text", Text: result}}
-	content = append(content, collector.Content()...)
-	mcpResult(w, req.ID, map[string]any{"content": content})
+
+	ticker := time.NewTicker(mcpCallKeepAlive)
+	defer ticker.Stop()
+	started := time.Now()
+	streaming := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case out := <-done:
+			if !streaming {
+				writePlain(out)
+				return
+			}
+			resp := service.MCPResponse{Jsonrpc: "2.0", ID: id, Error: out.err}
+			if out.err == nil {
+				raw, err := json.Marshal(out.result)
+				if err != nil {
+					resp.Error = &service.MCPError{Code: -32603, Message: fmt.Sprintf("marshal result: %v", err)}
+				} else {
+					resp.Result = raw
+				}
+			}
+			writeMCPEvent(w, resp)
+			flusher.Flush()
+			return
+		case <-ticker.C:
+			if !streaming {
+				streaming = true
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("X-Accel-Buffering", "no")
+				w.WriteHeader(http.StatusOK)
+			}
+			fmt.Fprint(w, ": keep-alive\n\n")
+			if progressToken != nil {
+				elapsed := int(time.Since(started).Seconds())
+				writeMCPEvent(w, map[string]any{
+					"jsonrpc": "2.0",
+					"method":  "notifications/progress",
+					"params": map[string]any{
+						"progressToken": progressToken,
+						"progress":      elapsed,
+						"message":       fmt.Sprintf("still running (%ds)", elapsed),
+					},
+				})
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func writeMCPEvent(w io.Writer, message any) {
+	data, err := json.Marshal(message)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+}
+
+func acceptsEventStream(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept"), ",") {
+		mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(part))
+		if err == nil && mediaType == "text/event-stream" {
+			return true
+		}
+	}
+	return false
 }
 
 // newMCPClient creates an MCPClient for the given upstream, dispatching to
@@ -412,8 +529,9 @@ func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTT
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(httpReq)
+	// No client deadline: the caller's context bounds the call, so a slow
+	// upstream (media generation) is not cut at an arbitrary limit.
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}

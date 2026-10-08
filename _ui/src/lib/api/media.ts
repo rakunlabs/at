@@ -164,6 +164,26 @@ export async function deleteMedia(id: string): Promise<void> {
   await api.delete(mediaPath(id));
 }
 
+export interface MediaPage {
+  data: MediaObject[];
+  /** Pass as `before` for the next (older) page; `''` on the last page. */
+  next_before: string;
+}
+
+/** The caller's own media in the selected workspace, newest first. */
+export async function listMedia(before = '', limit = 100): Promise<MediaPage> {
+  const params: Record<string, string | number> = { limit };
+  if (before) params.before = before;
+  const res = await api.get<MediaPage>('/media', { params });
+  return { data: res.data?.data || [], next_before: res.data?.next_before || '' };
+}
+
+/** Display name: the object id plus the extension its storage key carries. */
+export function mediaObjectName(object: Pick<MediaObject, 'id' | 'storage_key'>): string {
+  const match = /\.[a-z0-9]{1,8}$/i.exec(object.storage_key || '');
+  return object.id + (match ? match[0].toLowerCase() : '');
+}
+
 // ─── Data-URI bridge ───
 
 /** `data:image/png;base64,AAAA` → a `Blob`. Throws on a non-base64 data URI. */

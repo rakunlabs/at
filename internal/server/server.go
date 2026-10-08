@@ -1382,6 +1382,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/storage/settings", s.StorageSettingsAPI)
 	apiGroup.POST("/v1/storage/settings/test", s.StorageSettingsTestAPI)
 	apiGroup.POST("/v1/media", s.MediaUploadAPI)
+	apiGroup.GET("/v1/media", s.MediaListAPI)
 	apiGroup.GET("/v1/media/{id}", s.MediaObjectAPI)
 	apiGroup.DELETE("/v1/media/{id}", s.MediaObjectAPI)
 

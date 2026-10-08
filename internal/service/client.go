@@ -219,8 +219,8 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		return nil, &MCPHTTPError{StatusCode: resp.StatusCode, WWWAuthenticate: resp.Header.Get("WWW-Authenticate"), Body: string(body)}
 	}
 
 	mediaType := resp.Header.Get("Content-Type")
