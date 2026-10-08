@@ -565,7 +565,6 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 	mcpTools := s.newAgentMCPTools("agentic loop", nil)
 	defer mcpTools.Close()
-	mcpTools.Connect(ctx, agent.Config.MCPSets, agent.Config.MCPs)
 
 	// Skills — LAZY (progressive disclosure).
 	//
@@ -585,6 +584,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		return fmt.Errorf("agentic loop: skill runtime: %w", err)
 	}
 	ctx = workflow.ContextWithAgentConnections(ctx, agent.Config.Connections, skillRuntime.ConnectionOverrides(agent.Config.Skills))
+	// Connect after the bindings are installed: an OAuth MCP upstream whose
+	// account source is "agent" reads them while connecting.
+	mcpTools.Connect(ctx, agent.Config.MCPSets, agent.Config.MCPs)
 	// Legacy handlers live in paired MCP sets after the documentation-only
 	// migration. Attach those executable resources automatically so existing
 	// agent skill references continue to work without restoring skill execution.

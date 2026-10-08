@@ -86,7 +86,12 @@ func (p *Postgres) ResolveExecutionResource(ctx context.Context, kind, key strin
 		ID          string `db:"id"`
 		WorkspaceID string `db:"workspace_id"`
 	}
-	err := p.goqu.From(p.executionTable(table)).Select("id", "workspace_id").Where(goqu.Ex{"workspace_id": principal.WorkspaceID}, where).Limit(2).ScanStructsContext(ctx, &rows)
+	ds := p.goqu.From(p.executionTable(table)).Select("id", "workspace_id").Where(goqu.Ex{"workspace_id": principal.WorkspaceID}, where)
+	if kind == "connections" {
+		// Another account's personal connection does not exist for this run.
+		ds = ds.Where(connectionUsePredicate(principal))
+	}
+	err := ds.Limit(2).ScanStructsContext(ctx, &rows)
 	if err != nil {
 		return service.AccessResource{}, fmt.Errorf("resolve execution resource: %w", err)
 	}

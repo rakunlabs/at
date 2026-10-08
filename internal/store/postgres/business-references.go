@@ -238,7 +238,7 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 			return err
 		}
 		for _, id := range skill.Connections {
-			if err := p.businessReference(ctx, w, p.tableConnections, "id", id); err != nil {
+			if err := p.connectionReference(ctx, w, id, personal); err != nil {
 				return err
 			}
 		}
@@ -260,7 +260,7 @@ func (p *Postgres) agentReferences(ctx context.Context, w *businessWrite, c serv
 		}
 	}
 	for _, id := range c.Connections {
-		if err := p.businessReference(ctx, w, p.tableConnections, "id", id); err != nil {
+		if err := p.connectionReference(ctx, w, id, personal); err != nil {
 			return err
 		}
 	}
@@ -452,7 +452,64 @@ func (p *Postgres) approvalReferences(ctx context.Context, w *businessWrite, v s
 	return nil
 }
 
+// mcpUpstreamAuthReferences validates OAuth upstream configuration on every
+// MCP set/server write, whichever surface submits it. A shared account must
+// be a workspace connection of this workspace: naming a personal one would
+// let a set writer spend another account's credential for everyone.
+func (p *Postgres) mcpUpstreamAuthReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig) error {
+	if err := service.NormalizeMCPUpstreamAuth(c.MCPUpstreams); err != nil {
+		return fmt.Errorf("%w: %w", service.ErrInvalidMCPConfig, err)
+	}
+	for _, u := range c.MCPUpstreams {
+		if u.Auth == nil || u.Auth.SharedConnectionID == "" {
+			continue
+		}
+		var id string
+		found, err := w.tx.From(p.tableConnections).Select("id").Where(goqu.Ex{
+			"workspace_id": w.actor.WorkspaceID, "id": u.Auth.SharedConnectionID, "owner_user_id": "",
+		}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+		if err != nil {
+			return fmt.Errorf("validate shared MCP connection: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("%w: shared connection %q is not a workspace connection", service.ErrInvalidMCPConfig, u.Auth.SharedConnectionID)
+		}
+	}
+	return nil
+}
+
+// connectionReference admits a binding to a workspace connection, or, for a
+// personal agent, to the writer's own personal connection. A workspace agent
+// runs for everyone, so it may not carry one person's credential; another
+// account's personal connection does not exist for the writer at all.
+func (p *Postgres) connectionReference(ctx context.Context, w *businessWrite, id string, personal bool) error {
+	if id == "" {
+		return nil
+	}
+	var found string
+	ok, err := w.tx.From(p.tableConnections).Select("id").
+		Where(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.C("id").Eq(id), connectionBindingPredicate(w.actor, personal)).
+		ForKeyShare(goqu.Wait).ScanValContext(ctx, &found)
+	if err != nil {
+		return fmt.Errorf("validate connection reference: %w", err)
+	}
+	if !ok {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
+}
+
+func connectionBindingPredicate(a service.AccessPrincipal, personal bool) exp.Expression {
+	if personal {
+		return connectionUsePredicate(a)
+	}
+	return goqu.C("owner_user_id").Eq("")
+}
+
 func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string) error {
+	if err := p.mcpUpstreamAuthReferences(ctx, w, c); err != nil {
+		return err
+	}
 	for _, id := range c.WorkflowIDs {
 		if err := p.businessReference(ctx, w, p.tableWorkflows, "id", id); err != nil {
 			return err
@@ -469,6 +526,9 @@ func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c servic
 func (p *Postgres) mcpSetReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string, personal bool) error {
 	if !personal {
 		return p.mcpReferences(ctx, w, c, sets)
+	}
+	if err := p.mcpUpstreamAuthReferences(ctx, w, c); err != nil {
+		return err
 	}
 	for _, id := range c.WorkflowIDs {
 		if err := p.businessReference(ctx, w, p.tableWorkflows, "id", id); err != nil {

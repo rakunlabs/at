@@ -13,6 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // Scheduled organization tasks: a cron trigger whose target is an
@@ -137,6 +138,7 @@ func (s *Server) launchScheduledOrganizationTask(ctx context.Context, trigger se
 		bot = s.runningTelegramBot(cfg.NotifyBotID)
 		if bot == nil {
 			slog.Warn("scheduled task: notify bot is not running; the task runs without Telegram messages", "trigger_id", trigger.ID, "bot_id", cfg.NotifyBotID)
+			workflow.CronRunFromContext(ctx).Log(service.CronRunLogError, "The Telegram notify bot is not running; this run sends no Telegram messages.")
 		}
 	}
 
@@ -179,16 +181,33 @@ func (s *Server) launchScheduledOrganizationTask(ctx context.Context, trigger se
 		return fmt.Errorf("create task: %w", err)
 	}
 
-	var completion delegationRunDoneFunc
+	run := workflow.CronRunFromContext(ctx)
+	run.LinkTask(record.ID, identifier)
+	run.Log(service.CronRunLogSystem, fmt.Sprintf("Task %s created for the head agent: %s", identifier, title))
+
+	callbacks := []TaskDoneCallback{func(ident, status, result string) {
+		run.Log(service.CronRunLogSystem, fmt.Sprintf("Task %s finished with status %s.", ident, status))
+		final := cronRunStatusForTask(status)
+		errMsg := ""
+		if final != service.CronRunCompleted {
+			errMsg = truncateTelegram(result, 2000)
+		}
+		run.Finish(final, errMsg, result)
+	}}
 	if bot != nil {
 		chatID := cfg.NotifyChatID
 		s.registerTelegramTaskChannel(s.ctxOrBackground(), bot, chatID, record.ID, identifier)
-		completion = s.botTaskDoneCallback(record.ID, identifier, []TaskDoneCallback{func(ident, status, result string) {
+		callbacks = append(callbacks, func(ident, status, result string) {
 			s.unregisterTelegramTaskChannel(record.ID)
 			sendTelegramTaskOutcome(bot, chatID, ident, status, result)
-		}})
-		sendTelegramText(bot, chatID, fmt.Sprintf("⏰ Scheduled task %s started.\nTitle: %s\n\nProgress and the result will be sent here.", identifier, title))
+		})
+		prefix := "⏰ Scheduled task"
+		if run.Source == service.CronRunSourceManual {
+			prefix = "▶️ Manually started task"
+		}
+		sendTelegramText(bot, chatID, fmt.Sprintf("%s %s started.\nTitle: %s\n\nProgress and the result will be sent here.", prefix, identifier, title))
 	}
+	completion := s.botTaskDoneCallback(record.ID, identifier, callbacks)
 
 	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, record, org.HeadAgentID, 0, completion); err != nil {
 		s.unregisterTelegramTaskChannel(record.ID)

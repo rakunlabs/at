@@ -254,7 +254,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureWorkflowBuilder
-	case "workflow-node-types", "node-configs", "triggers":
+	case "workflow-node-types", "node-configs", "triggers", "cron-runs":
 		return service.FeatureWorkflowBuilder
 	case "webhook-servers":
 		return service.FeatureWebhookServers
@@ -330,7 +330,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 	// ─── Tools ───
 	case "mcp":
 		switch seg(1) {
-		case "servers", "sets", "binaries", "stdio-processes":
+		case "servers", "sets", "binaries", "stdio-processes", "oauth":
 			return service.FeatureMCPServers
 		case "list-tools", "call-tool", "set-tools":
 			return service.FeatureMCPTools
@@ -457,6 +457,8 @@ func builtinToolFeatureKey(name string) string {
 		return service.FeatureFiles
 	case "telegram_notify":
 		return service.FeatureBots
+	case "run_log":
+		return service.FeatureCronTriggers
 	}
 
 	// Longest prefix first: mcp_server_/mcp_set_ must be tested before any

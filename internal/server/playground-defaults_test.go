@@ -134,8 +134,21 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
 		}
 	}
-	// Connections remain installation administration.
-	for _, pattern := range []string{"POST /connections"} {
+	// Connections are personal-or-workspace records: members manage their own
+	// on connections.use and the store keeps workspace rows behind
+	// connections.write + credentials.manage. Connector definitions and the
+	// legacy variable import remain installation administration.
+	for pattern, want := range map[string]string{
+		"POST /connections":        "connections.use",
+		"PUT /connections/{id}":    "connections.use",
+		"DELETE /connections/{id}": "connections.use",
+		"POST /mcp/oauth/start":    "mcp.use",
+	} {
+		if got := policies[pattern]; got != want {
+			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
+		}
+	}
+	for _, pattern := range []string{"POST /connectors", "PUT /connectors/{slug}", "POST /connections/import-from-variables"} {
 		if got, ok := policies[pattern]; ok {
 			t.Errorf("%s became capability-admitted on %q; management must stay installation administration", pattern, got)
 		}

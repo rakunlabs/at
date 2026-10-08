@@ -136,7 +136,9 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 	}
 
 	kit.mcp = s.newAgentMCPTools("developer session", add)
-	kit.mcp.Connect(ctx, append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...), agent.Config.MCPs)
+	// The agent's connection bindings must be on the context while
+	// connecting, for OAuth MCP upstreams that use the agent's account.
+	kit.mcp.Connect(kit.agentContext(ctx, session), append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...), agent.Config.MCPs)
 
 	// Built-in tools run on the AT host, not in the space container; the
 	// system prompt says so, so the agent does not look for project files there.

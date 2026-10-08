@@ -452,9 +452,18 @@ func (s *Server) acquireMCPClient(ctx context.Context, upstream service.MCPUpstr
 		client, err := s.stdioManager.GetOrCreate(upstream)
 		return mcpClientLease{client: client, owned: false}, err
 	}
-	var opts []service.HTTPMCPClientOption
-	if len(upstream.Headers) > 0 {
-		opts = append(opts, service.WithHeaders(upstream.Headers))
+	if upstream.Auth != nil {
+		// An OAuth upstream sends an account's credential, so it always takes
+		// the scoped execution client (mcp.use, tool admission) when a run is
+		// bound, even inside the legacy builder Chats uses for stdio pooling.
+		if _, _, bound := service.ExecutionFromContext(ctx); bound {
+			client, err := s.newExecutionMCPClient(ctx, upstream)
+			return mcpClientLease{client: client, owned: true}, err
+		}
+	}
+	opts, err := s.mcpUpstreamClientOptions(ctx, upstream)
+	if err != nil {
+		return mcpClientLease{}, err
 	}
 	client, err := service.NewHTTPMCPClient(ctx, upstream.URL, opts...)
 	return mcpClientLease{client: client, owned: true}, err

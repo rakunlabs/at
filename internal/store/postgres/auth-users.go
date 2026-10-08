@@ -43,6 +43,10 @@ var authUserDeletionTables = []struct {
 	{"providers", "owner_user_id"},
 	{"skills", "owner_user_id"},
 	{"mcp_sets", "owner_user_id"},
+	// Personal connections hold the account's external credentials (MCP
+	// OAuth tokens included); nobody else may use them once it is gone.
+	{"connections", "owner_user_id"},
+	{"mcp_oauth_pending", "user_id"},
 	// Per-account settings, including the Chats preset and the personal
 	// registry of local MCP endpoints — the latter is encrypted, so leaving
 	// it behind would strand a secret belonging to an account that no longer

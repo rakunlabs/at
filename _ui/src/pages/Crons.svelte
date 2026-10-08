@@ -10,7 +10,11 @@
     createTrigger,
     updateTrigger,
     deleteTrigger,
+    runTriggerNow,
+    listCronRuns,
+    getCronRun,
     type Trigger,
+    type CronRun,
   } from '@/lib/api/triggers';
   import { listWorkflows, getWorkflow, type Workflow, type WorkflowNode } from '@/lib/api/workflows';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
@@ -25,15 +29,21 @@
     RefreshCw,
     Power,
     PowerOff,
+    Play,
+    History,
+    ChevronRight,
+    ChevronDown,
   } from 'lucide-svelte';
-  import { formatDate } from '@/lib/helper/format';
+  import { formatDate, formatDateTime } from '@/lib/helper/format';
+  import { onDestroy } from 'svelte';
 
-  storeNavbar.title = 'Cron Jobs';
+  storeNavbar.title = 'Cron schedules';
 
   // ─── State ───
 
   let triggers = $state<Trigger[]>([]);
   let loading = $state(true);
+  let tab = $state<'schedules' | 'runs'>('schedules');
 
   // Reference data
   let workflows = $state<Workflow[]>([]);
@@ -297,38 +307,183 @@
       addToast(e?.response?.data?.message || 'Failed to update cron job', 'alert');
     }
   }
+
+  // ─── Manual run ───
+
+  let starting = $state<string | null>(null);
+
+  async function runNow(t: Trigger) {
+    starting = t.id;
+    try {
+      await runTriggerNow(t.id);
+      addToast('Run started');
+      runsTriggerId = t.id;
+      tab = 'runs';
+      // The run row is written by the background run; give it a moment.
+      setTimeout(() => loadRuns(), 600);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to start run', 'alert');
+    } finally {
+      starting = null;
+    }
+  }
+
+  // ─── Run history ───
+
+  let runsTriggerId = $state('');
+  let runs = $state<CronRun[]>([]);
+  let runsLoading = $state(false);
+  let runsError = $state('');
+  let runsHasMore = $state(false);
+  let expanded = $state<Record<string, CronRun | null>>({});
+  const runsPage = 30;
+
+  $effect(() => {
+    if (!runsTriggerId && triggers.length) runsTriggerId = triggers[0].id;
+  });
+
+  $effect(() => {
+    if (tab === 'runs' && runsTriggerId) {
+      expanded = {};
+      loadRuns();
+    }
+  });
+
+  async function loadRuns(more = false) {
+    const id = runsTriggerId;
+    if (!id) return;
+    runsLoading = true;
+    runsError = '';
+    try {
+      const before = more && runs.length ? runs[runs.length - 1].id : undefined;
+      const page = await listCronRuns(id, { before, limit: runsPage });
+      if (id !== runsTriggerId) return;
+      runs = more ? [...runs, ...page] : page;
+      runsHasMore = page.length === runsPage;
+      // Refresh open logs so a running run's milestones appear.
+      for (const runID of Object.keys(expanded)) {
+        if (expanded[runID] && runs.find((r) => r.id === runID)?.status === 'running') loadRunDetail(runID);
+      }
+    } catch (e: any) {
+      runsError = e?.response?.data?.message || 'Failed to load runs';
+    } finally {
+      runsLoading = false;
+    }
+  }
+
+  async function loadRunDetail(id: string) {
+    try {
+      expanded = { ...expanded, [id]: await getCronRun(id) };
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load run log', 'alert');
+    }
+  }
+
+  function toggleRun(id: string) {
+    if (id in expanded) {
+      const { [id]: _, ...rest } = expanded;
+      expanded = rest;
+      return;
+    }
+    expanded = { ...expanded, [id]: null };
+    loadRunDetail(id);
+  }
+
+  // Poll while something is running and the page is visible.
+  const poll = setInterval(() => {
+    if (tab === 'runs' && !document.hidden && !runsLoading && runs.some((r) => r.status === 'running')) loadRuns();
+  }, 10000);
+  onDestroy(() => clearInterval(poll));
+
+  function duration(r: CronRun): string {
+    const start = new Date(r.started_at).getTime();
+    const end = r.finished_at ? new Date(r.finished_at).getTime() : Date.now();
+    const s = Math.max(0, Math.round((end - start) / 1000));
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  }
+
+  const statusClass: Record<string, string> = {
+    running: 'text-oc-peach',
+    completed: 'text-oc-green',
+    failed: 'text-oc-red',
+    blocked: 'text-oc-red',
+    cancelled: 'text-dark-text-muted',
+  };
+  const reportClass: Record<string, string> = {
+    completed: 'text-oc-green',
+    partial: 'text-oc-peach',
+    failed: 'text-oc-red',
+  };
+  const levelClass: Record<string, string> = {
+    system: 'text-dark-text-muted',
+    milestone: 'text-dark-text',
+    report: 'text-accent',
+    error: 'text-oc-red',
+  };
+
+  function triggerLabel(t: Trigger): string {
+    return `${getTargetName(t)} · ${t.config?.schedule || ''}`;
+  }
 </script>
 
 <svelte:head>
-  <title>AT | Cron Jobs</title>
+  <title>AT | Cron schedules</title>
 </svelte:head>
 
 <div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex items-center justify-between mb-3">
     <div class="flex items-center gap-2">
       <Clock size={16} class="text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-dark-text">Cron Jobs</h2>
+      <h2 class="text-sm font-medium text-dark-text">Cron schedules</h2>
       <span class="text-xs text-dark-text-muted">({triggers.length})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
-        onclick={load}
+        onclick={() => (tab === 'runs' ? loadRuns() : load())}
         class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
-      <button
-        onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
-      >
-        <Plus size={12} />
-        New Cron Job
-      </button>
+      {#if tab === 'schedules'}
+        <button
+          onclick={openCreate}
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base bg-accent hover:bg-accent-hover"
+        >
+          <Plus size={12} />
+          New Cron Job
+        </button>
+      {/if}
     </div>
   </div>
+
+  <!-- Tabs -->
+  <div class="flex border-b border-dark-border mb-4 text-xs" role="tablist">
+    <button
+      role="tab"
+      aria-selected={tab === 'schedules'}
+      onclick={() => (tab = 'schedules')}
+      class={["flex items-center gap-1.5 px-3 py-2 -mb-px border-b-2", tab === 'schedules' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary']}
+    >
+      <Clock size={12} /> Schedules
+    </button>
+    <button
+      role="tab"
+      aria-selected={tab === 'runs'}
+      onclick={() => (tab = 'runs')}
+      class={["flex items-center gap-1.5 px-3 py-2 -mb-px border-b-2", tab === 'runs' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary']}
+    >
+      <History size={12} /> Runs
+    </button>
+  </div>
+
+  {#if tab === 'runs'}
+    {@render runsView()}
+  {:else}
 
   <!-- Form -->
   {#if showForm}
@@ -573,7 +728,7 @@
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Target</th>
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Timezone</th>
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
-            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-32"></th>
+            <th class="text-right px-4 py-2.5 font-medium text-dark-text-muted text-xs w-44"></th>
           </tr>
         </thead>
         <tbody>
@@ -585,7 +740,7 @@
               </td>
               <td class="px-4 py-2.5">
                 <span class="text-xs px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary">
-                  Workflow
+                  {t.target_type === 'organization' ? 'Organization' : 'Workflow'}
                 </span>
                 <span class="ml-1.5 text-xs text-dark-text-secondary">{getTargetName(t)}</span>
               </td>
@@ -611,6 +766,23 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  <button
+                    onclick={() => runNow(t)}
+                    disabled={starting === t.id}
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-oc-green disabled:opacity-50"
+                    title="Run now"
+                    aria-label="Run now"
+                  >
+                    <Play size={14} />
+                  </button>
+                  <button
+                    onclick={() => { runsTriggerId = t.id; tab = 'runs'; }}
+                    class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
+                    title="Run history"
+                    aria-label="Run history"
+                  >
+                    <History size={14} />
+                  </button>
                   <button
                     onclick={() => openEdit(t)}
                     class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text"
@@ -638,4 +810,148 @@
       </table>
     </div>
   {/if}
+  {/if}
 </div>
+
+{#snippet runsView()}
+  <div class="flex flex-wrap items-center gap-2 mb-3">
+    <label for="runs-trigger" class="text-xs text-dark-text-muted">Schedule</label>
+    <select
+      id="runs-trigger"
+      bind:value={runsTriggerId}
+      class="min-w-0 flex-1 sm:flex-none sm:w-96 border border-dark-border-subtle px-3 py-1.5 text-xs bg-dark-elevated text-dark-text"
+    >
+      {#each triggers as t}
+        <option value={t.id}>{triggerLabel(t)}</option>
+      {/each}
+    </select>
+    {#if runsTriggerId}
+      {@const current = triggers.find((t) => t.id === runsTriggerId)}
+      {#if current}
+        <button
+          onclick={() => runNow(current)}
+          disabled={starting === current.id}
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary disabled:opacity-50"
+        >
+          <Play size={12} /> Run now
+        </button>
+      {/if}
+    {/if}
+  </div>
+
+  {#if !triggers.length}
+    <div class="text-center py-12 border border-dark-border text-sm text-dark-text-muted">No cron jobs configured</div>
+  {:else if runsError && !runs.length}
+    <div class="border border-dark-border p-4 text-sm text-dark-text-secondary flex items-center justify-between">
+      <span>{runsError}</span>
+      <button onclick={() => loadRuns()} class="px-2 py-1 text-xs border border-dark-border-subtle hover:bg-dark-elevated">Retry</button>
+    </div>
+  {:else if runsLoading && !runs.length}
+    <div class="text-center py-12 text-dark-text-muted text-sm">Loading runs...</div>
+  {:else if !runs.length}
+    <div class="text-center py-12 border border-dark-border">
+      <History size={24} class="mx-auto mb-2 text-dark-text-muted" />
+      <p class="text-sm text-dark-text-muted">No runs yet</p>
+      <p class="text-xs text-dark-text-muted mt-1">Runs appear here when the schedule fires or when you press Run now.</p>
+    </div>
+  {:else}
+    <div class="border border-dark-border overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-dark-border">
+            <th class="w-6"></th>
+            <th class="text-left px-3 py-2.5 font-medium text-dark-text-muted text-xs">Started</th>
+            <th class="text-left px-3 py-2.5 font-medium text-dark-text-muted text-xs">Source</th>
+            <th class="text-left px-3 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
+            <th class="text-left px-3 py-2.5 font-medium text-dark-text-muted text-xs">Agent report</th>
+            <th class="text-left px-3 py-2.5 font-medium text-dark-text-muted text-xs">Task</th>
+            <th class="text-right px-3 py-2.5 font-medium text-dark-text-muted text-xs">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each runs as r (r.id)}
+            <tr
+              class="border-b border-dark-border last:border-b-0 hover:bg-dark-surface cursor-pointer"
+              onclick={() => toggleRun(r.id)}
+            >
+              <td class="pl-3 text-dark-text-muted">
+                {#if r.id in expanded}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
+              </td>
+              <td class="px-3 py-2 text-xs text-dark-text whitespace-nowrap">{formatDateTime(r.started_at)}</td>
+              <td class="px-3 py-2 text-xs text-dark-text-secondary">
+                {r.source === 'manual' ? 'Manual' : 'Schedule'}
+                {#if r.triggered_by}<span class="text-dark-text-muted"> · {r.triggered_by}</span>{/if}
+              </td>
+              <td class={["px-3 py-2 text-xs", statusClass[r.status] || 'text-dark-text-secondary']}>{r.status}</td>
+              <td class="px-3 py-2 text-xs max-w-xs">
+                {#if r.reported_status}
+                  <span class={reportClass[r.reported_status]}>{r.reported_status}</span>
+                  {#if r.reported_summary}<span class="text-dark-text-muted"> · {r.reported_summary.length > 80 ? r.reported_summary.slice(0, 80) + '…' : r.reported_summary}</span>{/if}
+                {:else}
+                  <span class="text-dark-text-faint">—</span>
+                {/if}
+              </td>
+              <td class="px-3 py-2 text-xs">
+                {#if r.task_id}
+                  <a href={`#/tasks/${r.task_id}`} onclick={(e) => e.stopPropagation()} class="text-accent hover:underline">{r.task_identifier || r.task_id.slice(0, 8)}</a>
+                  {#if r.task_status}<span class="text-dark-text-muted"> · {r.task_status}</span>{/if}
+                {:else if r.workflow_run_id}
+                  <a href={`#/workflows/${r.target_id}`} onclick={(e) => e.stopPropagation()} class="text-accent hover:underline">workflow</a>
+                {:else}
+                  <span class="text-dark-text-faint">—</span>
+                {/if}
+              </td>
+              <td class="px-3 py-2 text-xs text-dark-text-muted text-right whitespace-nowrap">{duration(r)}</td>
+            </tr>
+            {#if r.id in expanded}
+              <tr class="border-b border-dark-border last:border-b-0">
+                <td colspan="7" class="px-4 py-3">
+                  {#if !expanded[r.id]}
+                    <p class="text-xs text-dark-text-muted">Loading log...</p>
+                  {:else}
+                    {@const detail = expanded[r.id]!}
+                    {#if detail.reported_summary}
+                      <div class="mb-3 text-xs">
+                        <span class="text-dark-text-muted">Agent's final report: </span>
+                        <span class={reportClass[detail.reported_status] || ''}>{detail.reported_status}</span>
+                        <p class="mt-1 text-dark-text whitespace-pre-wrap break-words">{detail.reported_summary}</p>
+                      </div>
+                    {:else if detail.status !== 'running'}
+                      <p class="mb-3 text-xs text-dark-text-muted">The agent did not report an outcome with run_log; judge the result from the status and the log below.</p>
+                    {/if}
+                    {#if detail.logs?.length}
+                      <ol class="space-y-1 font-mono text-xs">
+                        {#each detail.logs as l (l.id)}
+                          <li class="grid grid-cols-[4.5rem_5.5rem_minmax(0,1fr)] gap-2">
+                            <span class="text-dark-text-faint">{new Date(l.created_at).toLocaleTimeString()}</span>
+                            <span class={levelClass[l.level]}>{l.level}</span>
+                            <span class={["whitespace-pre-wrap break-words", levelClass[l.level]]}>{l.message}</span>
+                          </li>
+                        {/each}
+                      </ol>
+                    {:else}
+                      <p class="text-xs text-dark-text-muted">No log entries.</p>
+                    {/if}
+                    {#if detail.result && detail.status !== 'running'}
+                      <details class="mt-3 text-xs">
+                        <summary class="cursor-pointer text-dark-text-muted">Task result</summary>
+                        <pre class="mt-1 whitespace-pre-wrap break-words text-dark-text-secondary max-h-80 overflow-auto">{detail.result}</pre>
+                      </details>
+                    {/if}
+                  {/if}
+                </td>
+              </tr>
+            {/if}
+          {/each}
+        </tbody>
+      </table>
+    </div>
+    {#if runsHasMore}
+      <div class="mt-3 text-center">
+        <button onclick={() => loadRuns(true)} disabled={runsLoading} class="px-3 py-1.5 text-xs border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary disabled:opacity-50">
+          Load older runs
+        </button>
+      </div>
+    {/if}
+  {/if}
+{/snippet}

@@ -319,7 +319,23 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/skill-templates", "skills.read", "", ""},
 		{"GET", "/skill-templates/{slug}", "skills.read", "", ""},
 		{"POST", "/skill-templates/{slug}/install", "skills.read", "", ""},
+		// Connections: reading is open to the workspace; members manage their
+		// own personal connections (MCP OAuth accounts among them) on
+		// connections.use. The store keeps workspace-owned writes behind
+		// connections.write + credentials.manage and hides other accounts'
+		// personal rows. Connectors, variable import and the legacy OAuth
+		// endpoints remain installation administration.
 		{"GET", "/connections", "connections.read", "", ""},
+		{"POST", "/connections", "connections.use", "", ""},
+		{"GET", "/connections/{id}", "connections.read", "", ""},
+		{"PUT", "/connections/{id}", "connections.use", "", ""},
+		{"DELETE", "/connections/{id}", "connections.use", "", ""},
+		{"GET", "/connectors", "connections.read", "", ""},
+		// MCP OAuth: authorizing an account for an MCP upstream the caller may
+		// use. A shared (workspace) target is re-checked in the handler, and
+		// the callback is bound to the starting account/session by the store.
+		{"POST", "/mcp/oauth/start", "mcp.use", "", ""},
+		{"GET", "/mcp/oauth/callback", "mcp.use", "", ""},
 		// Chat sessions are per-account: rows are owner-scoped in the handlers
 		// and the list predicate (an administrator additionally sees ownerless
 		// bot/legacy rows), so the capability only gates entry — agents.read

@@ -9,6 +9,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -36,6 +37,56 @@ type RunRegistrar func(parent context.Context, workflowID, source string) (runID
 // RunRecorder opens a run-history record and returns the function that
 // closes it with the run's outcome.
 type RunRecorder func(ctx context.Context, runID, workflowID, source, triggerID string) (finish func(*RunResult, error))
+
+// CronRun is an open cron run record. Ctx carries the run so launchers that
+// outlive the tick (organization tasks) can close it later.
+type CronRun struct {
+	ID              string
+	Source          string
+	LinkWorkflowRun func(runID string)
+	LinkTask        func(taskID, identifier string)
+	Log             func(level, message string)
+	Report          func(status, summary string)
+	Finish          func(status, errMsg, result string)
+}
+
+func noopCronRun() *CronRun {
+	return &CronRun{
+		LinkWorkflowRun: func(string) {},
+		LinkTask:        func(string, string) {},
+		Log:             func(string, string) {},
+		Report:          func(string, string) {},
+		Finish:          func(string, string, string) {},
+	}
+}
+
+type cronRunContextKey struct{}
+
+// ContextWithCronRun attaches an open cron run to ctx.
+func ContextWithCronRun(ctx context.Context, run *CronRun) context.Context {
+	return context.WithValue(ctx, cronRunContextKey{}, run)
+}
+
+// CronRunFromContext returns the cron run attached to ctx, or a no-op run.
+func CronRunFromContext(ctx context.Context) *CronRun {
+	if run, ok := LookupCronRun(ctx); ok {
+		return run
+	}
+	return noopCronRun()
+}
+
+// LookupCronRun reports whether ctx carries a recorded cron run.
+func LookupCronRun(ctx context.Context) (*CronRun, bool) {
+	run, ok := ctx.Value(cronRunContextKey{}).(*CronRun)
+	return run, ok && run != nil && run.ID != ""
+}
+
+// CronRunRecorder opens a cron run record under the trigger's bound
+// execution identity. It never fails the run; a nil result means unrecorded.
+type CronRunRecorder func(ctx context.Context, trigger service.Trigger, source, triggeredBy string) *CronRun
+
+// ErrCronUnavailable reports that cron execution is not possible right now.
+var ErrCronUnavailable = errors.New("cron execution unavailable")
 
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
@@ -71,8 +122,8 @@ type Scheduler struct {
 	executionContext      func(context.Context, string) (context.Context, error)
 	durableLaunch         func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error
 	organizationLauncher  func(context.Context, service.Trigger) error
-
-	cluster *cluster.Cluster
+	cronRunRecorder       CronRunRecorder
+	cluster               *cluster.Cluster
 
 	mu     sync.Mutex
 	cron   cronRunner
@@ -137,6 +188,11 @@ func (s *Scheduler) SetDurableLauncher(launch func(context.Context, string, serv
 // execution identity. Must be called before Start.
 func (s *Scheduler) SetOrganizationLauncher(launch func(context.Context, service.Trigger) error) {
 	s.organizationLauncher = launch
+}
+
+// SetCronRunRecorder installs the cron run history recorder. Optional.
+func (s *Scheduler) SetCronRunRecorder(r CronRunRecorder) {
+	s.cronRunRecorder = r
 }
 
 // SetExecutionContext installs a resolver for persisted trigger initiators.
@@ -402,221 +458,293 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			logi.Ctx(ctx).Info("scheduler: cron skipped because automation is disabled", "trigger_id", trigger.ID)
 			return nil
 		}
+		_ = s.fire(ctx, trigger, service.CronRunSourceSchedule, "")
+		return nil // never stop the cron loop
+	}
+}
 
-		logi.Ctx(ctx).Info("scheduler: cron triggered",
-			"trigger_id", trigger.ID,
-			"workflow_id", trigger.WorkflowID,
-			"target_type", trigger.TargetType)
+// RunNow fires a cron trigger once, outside its schedule. The trigger is
+// re-read under its own bound execution identity and runs exactly as a
+// scheduled tick would (same identity, history and notifications), in the
+// background. The caller must already be admitted to manage the trigger.
+func (s *Scheduler) RunNow(triggerID, triggeredBy string) error {
+	if s.ctx == nil || s.executionContext == nil {
+		return ErrCronUnavailable
+	}
+	if s.enabledCheck != nil && !s.enabledCheck(s.ctx) {
+		return fmt.Errorf("%w: cron triggers are disabled", ErrCronUnavailable)
+	}
+	boundCtx, err := s.executionContext(s.ctx, triggerID)
+	if err != nil {
+		return fmt.Errorf("%w: bind an execution identity (Run as) for this schedule first", service.ErrExecutionDenied)
+	}
+	trigger, err := s.triggerStore.GetTrigger(boundCtx, triggerID)
+	if err != nil {
+		return fmt.Errorf("load trigger: %w", err)
+	}
+	if trigger == nil || trigger.Type != "cron" {
+		return service.ErrAccessResourceNotFound
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logi.Ctx(s.ctx).Error("scheduler: manual run panicked", "trigger_id", triggerID, "panic", r)
+			}
+		}()
+		_ = s.fire(s.ctx, *trigger, service.CronRunSourceManual, triggeredBy)
+	}()
+	return nil
+}
 
-		// Load the workflow from the store.
-		if s.executionContext == nil {
-			logi.Ctx(ctx).Warn("scheduler: execution identity resolver not configured", "trigger_id", trigger.ID)
-			return nil
+// fire runs one firing of a trigger and records it in cron run history.
+func (s *Scheduler) fire(ctx context.Context, trigger service.Trigger, source, triggeredBy string) error {
+	logi.Ctx(ctx).Info("scheduler: cron triggered",
+		"trigger_id", trigger.ID,
+		"workflow_id", trigger.WorkflowID,
+		"target_type", trigger.TargetType,
+		"source", source)
+
+	if s.executionContext == nil {
+		logi.Ctx(ctx).Warn("scheduler: execution identity resolver not configured", "trigger_id", trigger.ID)
+		return ErrCronUnavailable
+	}
+	boundCtx, authErr := s.executionContext(ctx, trigger.ID)
+	run := noopCronRun()
+	if authErr == nil && s.cronRunRecorder != nil {
+		if r := s.cronRunRecorder(boundCtx, trigger, source, triggeredBy); r != nil {
+			run = r
 		}
-		if trigger.TargetType == service.TriggerTargetOrganization {
-			if s.organizationLauncher == nil {
-				logi.Ctx(ctx).Warn("scheduler: organization launcher not configured", "trigger_id", trigger.ID)
-				return nil
-			}
-			boundCtx, authErr := s.executionContext(ctx, trigger.ID)
-			if authErr == nil {
-				authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "organizations.run", ResourceID: trigger.TargetID})
-			}
-			if authErr != nil {
-				logi.Ctx(ctx).Warn("scheduler: execution authority denied", "trigger_id", trigger.ID, "error", authErr)
-				return nil
-			}
-			if err := s.organizationLauncher(boundCtx, trigger); err != nil {
-				logi.Ctx(ctx).Error("scheduler: organization task launch failed", "trigger_id", trigger.ID, "organization_id", trigger.TargetID, "error", err)
-			}
-			return nil
+	}
+	if trigger.TargetType == service.TriggerTargetOrganization {
+		if s.organizationLauncher == nil {
+			logi.Ctx(ctx).Warn("scheduler: organization launcher not configured", "trigger_id", trigger.ID)
+			run.Finish(service.CronRunFailed, "organization launcher not configured", "")
+			return ErrCronUnavailable
 		}
-		boundCtx, authErr := s.executionContext(ctx, trigger.ID)
 		if authErr == nil {
-			authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID})
+			authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "organizations.run", ResourceID: trigger.TargetID})
 		}
 		if authErr != nil {
 			logi.Ctx(ctx).Warn("scheduler: execution authority denied", "trigger_id", trigger.ID, "error", authErr)
-			return nil
+			run.Finish(service.CronRunFailed, "execution authority denied: "+authErr.Error(), "")
+			return authErr
 		}
-		ctx = boundCtx
-		wf, err := s.workflowStore.GetWorkflow(ctx, trigger.WorkflowID)
-		if err != nil {
-			logi.Ctx(ctx).Error("scheduler: get workflow failed",
-				"trigger_id", trigger.ID,
-				"workflow_id", trigger.WorkflowID,
-				"error", err)
-			return nil // don't stop the cron loop on transient errors
+		// The launcher owns the run from here: it stays open until the
+		// task it starts finishes.
+		if err := s.organizationLauncher(ContextWithCronRun(boundCtx, run), trigger); err != nil {
+			logi.Ctx(ctx).Error("scheduler: organization task launch failed", "trigger_id", trigger.ID, "organization_id", trigger.TargetID, "error", err)
+			run.Finish(service.CronRunFailed, err.Error(), "")
+			return err
 		}
-
-		if wf == nil {
-			logi.Ctx(ctx).Warn("scheduler: workflow not found, skipping",
-				"trigger_id", trigger.ID,
-				"workflow_id", trigger.WorkflowID)
-			return nil
-		}
-
-		// Use the active version's graph if available.
-		graphToRun := wf.Graph
-		if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
-			ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, trigger.WorkflowID, *wf.ActiveVersion)
-			if err != nil {
-				logi.Ctx(ctx).Error("scheduler: get active version failed",
-					"trigger_id", trigger.ID,
-					"workflow_id", trigger.WorkflowID,
-					"version", *wf.ActiveVersion,
-					"error", err)
-				// Fall back to wf.Graph on error.
-			} else if ver != nil {
-				graphToRun = ver.Graph
-			}
-		}
-
-		// Build trigger metadata inputs (merged with static payload by the
-		// cron_trigger node).
-		schedule, _ := trigger.Config["schedule"].(string)
-		timezone, _ := trigger.Config["timezone"].(string)
-		inputs := map[string]any{
-			"trigger_type": "cron",
-			"trigger_id":   trigger.ID,
-			"triggered_at": time.Now().UTC().Format(time.RFC3339),
-			"schedule":     schedule,
-			"timezone":     timezone,
-		}
-
-		// Register the run for tracking if a registrar is available.
-		var runID string
-		runCtx := ctx
-		if s.runRegistrar != nil {
-			var cleanup func()
-			runID, runCtx, cleanup = s.runRegistrar(ctx, trigger.WorkflowID, "cron")
-			defer cleanup()
-		}
-
-		// Enrich context with workflow metadata for structured logging.
-		runCtx = logi.WithContext(runCtx, slog.With(
-			slog.String("workflow_id", trigger.WorkflowID),
-			slog.String("workflow_name", wf.Name),
-		))
-
-		// Build a workflow lookup function for workflow_call nodes.
-		var workflowLookup WorkflowLookup
-		if s.workflowStore != nil {
-			workflowLookup = func(ctx context.Context, id string) (*service.Workflow, error) {
-				return s.workflowStore.GetWorkflow(ctx, id)
-			}
-		}
-
-		// Build an agent lookup function for agent_call nodes.
-		var agentLookup AgentLookup
-		if s.agentStore != nil {
-			agentLookup = func(ctx context.Context, id string) (*service.Agent, error) {
-				return s.agentStore.GetAgent(ctx, id)
-			}
-		}
-
-		// Build a version lookup function for workflow_call nodes.
-		var versionLookup VersionLookupFunc
-		if s.workflowStore != nil && s.workflowVersionStore != nil {
-			versionLookup = func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error) {
-				wf, err := s.workflowStore.GetWorkflow(ctx, workflowID)
-				if err != nil {
-					return nil, fmt.Errorf("get workflow %s: %w", workflowID, err)
-				}
-				if wf == nil || wf.ActiveVersion == nil {
-					return nil, nil
-				}
-				ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, workflowID, *wf.ActiveVersion)
-				if err != nil {
-					return nil, fmt.Errorf("get workflow version %s v%d: %w", workflowID, *wf.ActiveVersion, err)
-				}
-				if ver == nil {
-					return nil, nil
-				}
-				return &ver.Graph, nil
-			}
-		}
-
-		engine := NewEngineWithDependencies(Dependencies{
-			ProviderLookup:        s.providerLookup,
-			ScopedProviderLookup:  s.scopedProviderLookup,
-			SkillLookup:           s.skillLookup,
-			MCPSetToolLister:      s.mcpSetToolLister,
-			MCPSetToolCaller:      s.mcpSetToolCaller,
-			VarLookup:             s.varLookup,
-			VarLister:             s.varLister,
-			ScopedVarLister:       s.scopedVarLister,
-			NodeConfigLookup:      s.nodeConfigLookup,
-			WorkflowLookup:        workflowLookup,
-			WorkflowByNameLookup:  s.workflowByNameLookup,
-			WorkflowExecutor:      s.workflowExecutor,
-			AgentLookup:           agentLookup,
-			ConnectionLookup:      s.connectionLookup,
-			VarSave:               s.varSave,
-			BuiltinToolDispatcher: s.builtinToolDispatcher,
-			BuiltinToolDefs:       s.builtinToolDefs,
-			ChatMessageCreator:    s.chatMessageCreator,
-			ChatSessionLookup:     s.chatSessionLookup,
-			RecordUsage:           s.recordUsage,
-			CheckBudget:           s.checkBudget,
-			RecordObservation:     s.recordObservation,
-			GoalAncestry:          s.goalAncestry,
-			VersionLookup:         versionLookup,
-			LoopGov:               s.loopGov,
-		})
-
-		// Determine entry node(s) for this trigger.
-		var entryNodeIDs []string
-		if trigger.EntryNodeID != "" {
-			// Trigger specifies a particular input node to start from.
-			entryNodeIDs = []string{trigger.EntryNodeID}
-		} else {
-			// Fallback: use all input nodes (same as manual run).
-			for _, n := range graphToRun.Nodes {
-				if n.Type == "input" {
-					entryNodeIDs = append(entryNodeIDs, n.ID)
-				}
-			}
-		}
-
-		if HasDurableWait(graphToRun, entryNodeIDs) {
-			if s.durableLaunch == nil {
-				logi.Ctx(runCtx).Error("scheduler: durable workflow launcher unavailable", "workflow_id", wf.ID)
-				return nil
-			}
-			if err := s.durableLaunch(runCtx, wf.ID, graphToRun, inputs, entryNodeIDs, "cron"); err != nil {
-				logi.Ctx(runCtx).Error("scheduler: durable workflow launch failed", "workflow_id", wf.ID, "error", err)
-			}
-			return nil
-		}
-
-		logi.Ctx(runCtx).Info("scheduler: workflow started",
+		return nil
+	}
+	if authErr == nil {
+		authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID})
+	}
+	if authErr != nil {
+		logi.Ctx(ctx).Warn("scheduler: execution authority denied", "trigger_id", trigger.ID, "error", authErr)
+		run.Finish(service.CronRunFailed, "execution authority denied: "+authErr.Error(), "")
+		return authErr
+	}
+	ctx = boundCtx
+	wf, err := s.workflowStore.GetWorkflow(ctx, trigger.WorkflowID)
+	if err != nil {
+		logi.Ctx(ctx).Error("scheduler: get workflow failed",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
-			"run_id", runID)
-		finish := func(*RunResult, error) {}
-		if s.runRecorder != nil && runID != "" {
-			finish = s.runRecorder(runCtx, runID, trigger.WorkflowID, "cron", trigger.ID)
-		}
-		result, err := engine.Run(runCtx, graphToRun, inputs, entryNodeIDs, nil)
-		finish(result, err)
+			"error", err)
+		run.Finish(service.CronRunFailed, "load workflow: "+err.Error(), "")
+		return err
+	}
+
+	if wf == nil {
+		logi.Ctx(ctx).Warn("scheduler: workflow not found, skipping",
+			"trigger_id", trigger.ID,
+			"workflow_id", trigger.WorkflowID)
+		run.Finish(service.CronRunFailed, "workflow not found", "")
+		return service.ErrAccessResourceNotFound
+	}
+
+	// Use the active version's graph if available.
+	graphToRun := wf.Graph
+	if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, trigger.WorkflowID, *wf.ActiveVersion)
 		if err != nil {
-			logi.Ctx(runCtx).Error("scheduler: workflow execution failed",
+			logi.Ctx(ctx).Error("scheduler: get active version failed",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
-				"run_id", runID,
+				"version", *wf.ActiveVersion,
 				"error", err)
-			return nil // don't stop the cron loop
+			// Fall back to wf.Graph on error.
+		} else if ver != nil {
+			graphToRun = ver.Graph
 		}
+	}
 
-		logi.Ctx(runCtx).Info("scheduler: workflow completed",
+	// Build trigger metadata inputs (merged with static payload by the
+	// cron_trigger node).
+	schedule, _ := trigger.Config["schedule"].(string)
+	timezone, _ := trigger.Config["timezone"].(string)
+	inputs := map[string]any{
+		"trigger_type": "cron",
+		"trigger_id":   trigger.ID,
+		"triggered_at": time.Now().UTC().Format(time.RFC3339),
+		"schedule":     schedule,
+		"timezone":     timezone,
+	}
+
+	// Register the run for tracking if a registrar is available.
+	var runID string
+	runCtx := ctx
+	if s.runRegistrar != nil {
+		var cleanup func()
+		runID, runCtx, cleanup = s.runRegistrar(ctx, trigger.WorkflowID, "cron")
+		defer cleanup()
+	}
+
+	// Enrich context with workflow metadata for structured logging.
+	runCtx = logi.WithContext(runCtx, slog.With(
+		slog.String("workflow_id", trigger.WorkflowID),
+		slog.String("workflow_name", wf.Name),
+	))
+
+	// Build a workflow lookup function for workflow_call nodes.
+	var workflowLookup WorkflowLookup
+	if s.workflowStore != nil {
+		workflowLookup = func(ctx context.Context, id string) (*service.Workflow, error) {
+			return s.workflowStore.GetWorkflow(ctx, id)
+		}
+	}
+
+	// Build an agent lookup function for agent_call nodes.
+	var agentLookup AgentLookup
+	if s.agentStore != nil {
+		agentLookup = func(ctx context.Context, id string) (*service.Agent, error) {
+			return s.agentStore.GetAgent(ctx, id)
+		}
+	}
+
+	// Build a version lookup function for workflow_call nodes.
+	var versionLookup VersionLookupFunc
+	if s.workflowStore != nil && s.workflowVersionStore != nil {
+		versionLookup = func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error) {
+			wf, err := s.workflowStore.GetWorkflow(ctx, workflowID)
+			if err != nil {
+				return nil, fmt.Errorf("get workflow %s: %w", workflowID, err)
+			}
+			if wf == nil || wf.ActiveVersion == nil {
+				return nil, nil
+			}
+			ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, workflowID, *wf.ActiveVersion)
+			if err != nil {
+				return nil, fmt.Errorf("get workflow version %s v%d: %w", workflowID, *wf.ActiveVersion, err)
+			}
+			if ver == nil {
+				return nil, nil
+			}
+			return &ver.Graph, nil
+		}
+	}
+
+	engine := NewEngineWithDependencies(Dependencies{
+		ProviderLookup:        s.providerLookup,
+		ScopedProviderLookup:  s.scopedProviderLookup,
+		SkillLookup:           s.skillLookup,
+		MCPSetToolLister:      s.mcpSetToolLister,
+		MCPSetToolCaller:      s.mcpSetToolCaller,
+		VarLookup:             s.varLookup,
+		VarLister:             s.varLister,
+		ScopedVarLister:       s.scopedVarLister,
+		NodeConfigLookup:      s.nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		WorkflowByNameLookup:  s.workflowByNameLookup,
+		WorkflowExecutor:      s.workflowExecutor,
+		AgentLookup:           agentLookup,
+		ConnectionLookup:      s.connectionLookup,
+		VarSave:               s.varSave,
+		BuiltinToolDispatcher: s.builtinToolDispatcher,
+		BuiltinToolDefs:       s.builtinToolDefs,
+		ChatMessageCreator:    s.chatMessageCreator,
+		ChatSessionLookup:     s.chatSessionLookup,
+		RecordUsage:           s.recordUsage,
+		CheckBudget:           s.checkBudget,
+		RecordObservation:     s.recordObservation,
+		GoalAncestry:          s.goalAncestry,
+		VersionLookup:         versionLookup,
+		LoopGov:               s.loopGov,
+	})
+
+	// Determine entry node(s) for this trigger.
+	var entryNodeIDs []string
+	if trigger.EntryNodeID != "" {
+		// Trigger specifies a particular input node to start from.
+		entryNodeIDs = []string{trigger.EntryNodeID}
+	} else {
+		// Fallback: use all input nodes (same as manual run).
+		for _, n := range graphToRun.Nodes {
+			if n.Type == "input" {
+				entryNodeIDs = append(entryNodeIDs, n.ID)
+			}
+		}
+	}
+
+	if HasDurableWait(graphToRun, entryNodeIDs) {
+		if s.durableLaunch == nil {
+			logi.Ctx(runCtx).Error("scheduler: durable workflow launcher unavailable", "workflow_id", wf.ID)
+			run.Finish(service.CronRunFailed, "durable workflow launcher unavailable", "")
+			return ErrCronUnavailable
+		}
+		if err := s.durableLaunch(runCtx, wf.ID, graphToRun, inputs, entryNodeIDs, "cron"); err != nil {
+			logi.Ctx(runCtx).Error("scheduler: durable workflow launch failed", "workflow_id", wf.ID, "error", err)
+			run.Finish(service.CronRunFailed, "durable launch: "+err.Error(), "")
+			return err
+		}
+		run.Log(service.CronRunLogSystem, "Queued as a durable workflow execution (it contains a Wait step); follow it under Runs.")
+		run.Finish(service.CronRunCompleted, "", "queued as durable execution")
+		return nil
+	}
+
+	logi.Ctx(runCtx).Info("scheduler: workflow started",
+		"trigger_id", trigger.ID,
+		"workflow_id", trigger.WorkflowID,
+		"run_id", runID)
+	finish := func(*RunResult, error) {}
+	if s.runRecorder != nil && runID != "" {
+		finish = s.runRecorder(runCtx, runID, trigger.WorkflowID, "cron", trigger.ID)
+	}
+	if runID != "" {
+		run.LinkWorkflowRun(runID)
+	}
+	run.Log(service.CronRunLogSystem, "Workflow "+wf.Name+" started.")
+	result, err := engine.Run(ContextWithCronRun(runCtx, run), graphToRun, inputs, entryNodeIDs, nil)
+	finish(result, err)
+	if err != nil {
+		logi.Ctx(runCtx).Error("scheduler: workflow execution failed",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID,
-			"output_keys", mapKeys(result.Outputs))
-
-		return nil
+			"error", err)
+		status := service.CronRunFailed
+		if errors.Is(err, context.Canceled) {
+			status = service.CronRunCancelled
+		}
+		run.Finish(status, err.Error(), "")
+		return err
 	}
+	if result != nil {
+		for _, h := range result.HandledErrors {
+			run.Log(service.CronRunLogError, fmt.Sprintf("Step %s (%s) failed and was skipped: %s", h.NodeID, h.NodeType, h.Error))
+		}
+	}
+
+	logi.Ctx(runCtx).Info("scheduler: workflow completed",
+		"trigger_id", trigger.ID,
+		"workflow_id", trigger.WorkflowID,
+		"run_id", runID,
+		"output_keys", mapKeys(result.Outputs))
+	run.Finish(service.CronRunCompleted, "", "")
+
+	return nil
 }
 
 // mapKeys returns the keys of a map for logging.

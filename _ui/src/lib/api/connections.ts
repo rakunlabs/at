@@ -30,8 +30,22 @@ export interface ConnectionCredentials {
   extra?: Record<string, string>;
 }
 
+export type ConnectionScope = 'personal' | 'workspace';
+
+/** State of an MCP OAuth authorization. Never carries tokens. */
+export interface ConnectionMCPOAuth {
+  mcp_url: string;
+  issuer: string;
+  scopes?: string[];
+  expires_at?: string;
+  needs_reauth?: boolean;
+}
+
 export interface Connection {
   id: string;
+  scope: ConnectionScope;
+  owner_user_id?: string;
+  mcp_oauth?: ConnectionMCPOAuth;
   provider: string;
   name: string;
   account_label?: string;
@@ -61,9 +75,11 @@ export interface CreateConnectionInput {
    *  (e.g. {"spotify_client_id": "..."}). Merged into credentials server-side. */
   fields?: Record<string, string>;
   metadata?: Record<string, unknown>;
+  /** Set on create only; personal connections belong to the signed-in account. */
+  scope?: ConnectionScope;
 }
 
-export interface UpdateConnectionInput extends CreateConnectionInput {}
+export interface UpdateConnectionInput extends Omit<CreateConnectionInput, 'scope'> {}
 
 // ─── CRUD ───
 
@@ -122,6 +138,65 @@ export interface ImportConnectionsResult {
 export async function importConnectionsFromVariables(): Promise<ImportConnectionsResult> {
   const res = await api.post<ImportConnectionsResult>('/connections/import-from-variables');
   return res.data;
+}
+
+// ─── MCP OAuth ───
+
+export interface MCPOAuthStartInput {
+  set_id?: string;
+  server_id?: string;
+  upstream_index?: number;
+  /** Renew an existing MCP account instead of naming an upstream. */
+  connection_id?: string;
+  target?: 'personal' | 'shared';
+  connection_name?: string;
+  client_secret?: string;
+}
+
+export async function startMCPOAuth(input: MCPOAuthStartInput): Promise<{ authorize_url: string; provider: string }> {
+  const res = await api.post<{ authorize_url: string; provider: string }>('/mcp/oauth/start', input);
+  return res.data;
+}
+
+export interface MCPOAuthResult { type: 'at-mcp-oauth-result'; ok: boolean; message: string; connection_id?: string }
+
+export function validMCPOAuthMessage(event: Pick<MessageEvent, 'origin' | 'source' | 'data'>, popup: Window | null, origin: string): event is MessageEvent<MCPOAuthResult> {
+  return event.origin === origin && !!popup && event.source === popup && event.data?.type === 'at-mcp-oauth-result' && typeof event.data.ok === 'boolean';
+}
+
+/**
+ * Opens the authorization popup and resolves with the callback's result.
+ * Call it directly from a click handler: opening after an await loses the
+ * user activation browsers require for popups.
+ */
+export function connectMCPAccount(input: MCPOAuthStartInput): Promise<MCPOAuthResult> {
+  const popup = window.open('about:blank', '_blank', 'popup,width=560,height=760');
+  if (!popup) return Promise.reject(new Error('Allow popups for this site, then try again.'));
+  popup.document.title = 'Connecting your MCP account…';
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error, result?: MCPOAuthResult) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer); clearTimeout(timeout); window.removeEventListener('message', receive);
+      if (!popup.closed) popup.close();
+      if (error) reject(error); else resolve(result!);
+    };
+    const receive = (event: MessageEvent) => {
+      if (!validMCPOAuthMessage(event, popup, location.origin)) return;
+      if (event.data.ok) finish(undefined, event.data);
+      else finish(new Error(event.data.message || 'Authorization failed.'));
+    };
+    const timer = window.setInterval(() => { if (popup.closed) finish(new Error('The authorization window closed before completion.')); }, 500);
+    const timeout = window.setTimeout(() => finish(new Error('Authorization expired. Start again.')), 600_000);
+    window.addEventListener('message', receive);
+    startMCPOAuth(input).then(({ authorize_url }) => {
+      if (settled) return;
+      const url = new URL(authorize_url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Invalid authorization URL');
+      popup.location.replace(url.href);
+    }).catch((e: any) => finish(new Error(e?.response?.data?.message || e?.message || 'Cannot start the authorization.')));
+  });
 }
 
 // ─── OAuth helpers ───

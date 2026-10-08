@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -124,6 +125,9 @@ func (s *Server) CreateMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 		if workspaceBusinessError(w, err) {
 			return
 		}
+		if mcpConfigError(w, err) {
+			return
+		}
 		slog.Error("create mcp set failed", "name", req.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create mcp set: %v", err), http.StatusInternalServerError)
 		return
@@ -168,6 +172,9 @@ func (s *Server) UpdateMCPSetAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.mcpSetStore.UpdateMCPSet(r.Context(), id, req)
 	if err != nil {
+		if mcpConfigError(w, err) {
+			return
+		}
 		slog.Error("update mcp set failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update mcp set: %v", err), http.StatusInternalServerError)
 		return
@@ -315,4 +322,14 @@ func (s *Server) PreviewImportMCPSetAPI(w http.ResponseWriter, r *http.Request) 
 	}
 
 	httpResponseJSON(w, req, http.StatusOK)
+}
+
+// mcpConfigError answers configuration mistakes (for example an invalid OAuth
+// upstream) with 400 rather than presenting them as storage failures.
+func mcpConfigError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, service.ErrInvalidMCPConfig) {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return true
+	}
+	return workspaceBusinessError(w, err)
 }

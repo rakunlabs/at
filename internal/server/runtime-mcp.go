@@ -14,7 +14,11 @@ func (s *Server) newExecutionMCPClient(ctx context.Context, upstream service.MCP
 	if upstream.Command != "" {
 		return nil, fmt.Errorf("workspace-scoped stdio MCP runner: %w", service.ErrIsolatedWorkerUnsupported)
 	}
-	return service.NewExecutionHTTPMCPClient(ctx, upstream.URL, service.WithHeaders(upstream.Headers))
+	opts, err := s.mcpUpstreamClientOptions(ctx, upstream)
+	if err != nil {
+		return nil, err
+	}
+	return service.NewExecutionHTTPMCPClient(ctx, upstream.URL, opts...)
 }
 
 // This builder never invokes the legacy process-wide stdio manager, and checks

@@ -44,10 +44,9 @@ var uiPlatformOutsideAPIGroup = []string{
 	"/settings/execution",
 }
 
-// Skills and Connections are probed with their *management* call, not their
-// list. Their read routes are capability-admitted for dependent pickers, while
-// their management surfaces remain installation administration. MCP Sets are
-// different: their CRUD routes are workspace-scoped on mcp.read/mcp.write.
+// Skills, Connections and MCP Sets are probed with their *management* call,
+// not their list: their read routes are capability-admitted for dependent
+// pickers, so only the management call says whether the page is usable.
 var uiRouteProbes = map[string]uiRouteProbe{
 	// Capability-admitted.
 	"/providers":              {"GET", "/providers"},
@@ -65,6 +64,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/settings/trace-export":  {"GET", "/trace-export"},
 	"/settings/trace-privacy": {"GET", "/trace-privacy/rules"},
 	"/mcps":                   {"POST", "/mcp/sets"},
+	"/connections":            {"POST", "/connections"},
 	// Installation administration.
 	"/terminal":                 {"GET", "/terminals"},
 	"/pricing":                  {"GET", "/model-pricing"},
@@ -79,7 +79,6 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/node-configs":             {"GET", "/node-configs"},
 	"/webhooks":                 {"GET", "/triggers"},
 	"/crons":                    {"GET", "/triggers"},
-	"/connections":              {"POST", "/connections"},
 	"/mcp-servers":              {"GET", "/mcp/servers"},
 	"/usage":                    {"GET", "/usage/summary"},
 	"/traces":                   {"GET", "/traces"},

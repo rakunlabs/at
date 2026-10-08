@@ -737,6 +737,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			return err
 		})
 		s.scheduler.SetOrganizationLauncher(s.launchScheduledOrganizationTask)
+		s.scheduler.SetCronRunRecorder(s.startCronRun)
 		s.scheduler.SetEnabledCheck(func(ctx context.Context) bool {
 			enabled, err := s.isFeatureEnabled(ctx, service.FeatureCronTriggers)
 			if err != nil {
@@ -958,6 +959,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/triggers/{id}", s.UpdateTriggerAPI)
 	apiGroup.DELETE("/v1/triggers/{id}", s.DeleteTriggerAPI)
 	apiGroup.GET("/v1/triggers/{id}/deliveries", s.ListWebhookDeliveriesAPI)
+	apiGroup.POST("/v1/triggers/{id}/run", s.RunTriggerNowAPI)
+	apiGroup.GET("/v1/triggers/{id}/runs", s.ListCronRunsAPI)
+	apiGroup.GET("/v1/cron-runs/{id}", s.GetCronRunAPI)
 
 	// Dedicated webhook listeners (installation administration).
 	apiGroup.GET("/v1/webhook-servers", s.ListWebhookServersAPI)
@@ -1343,6 +1347,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/mcp/servers/{id}/stdio-stop", s.MCPServerStdioStopAPI)
 
 	// MCP set management (internal MCPs)
+	apiGroup.POST("/v1/mcp/oauth/start", s.MCPOAuthStartAPI)
+	apiGroup.GET("/v1/mcp/oauth/callback", s.MCPOAuthCallbackAPI)
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
 	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
 	apiGroup.POST("/v1/mcp/sets/import", s.ImportMCPSetAPI)
@@ -1634,6 +1640,14 @@ func (s *Server) connectionLookupFunc() workflow.ConnectionLookup {
 		return nil
 	}
 	return func(ctx context.Context, id string) (*service.Connection, error) {
+		// Runtime use needs the unredacted record behind connections.use,
+		// not the management DTO, which blanks credentials for callers
+		// without credentials.manage and so silently broke bound skills.
+		if resolver, ok := s.store.(service.WorkspaceCredentialStorer); ok {
+			if _, _, bound := service.ExecutionFromContext(ctx); bound {
+				return resolver.ResolveConnectionForUse(ctx, id)
+			}
+		}
 		return s.connectionStore.GetConnection(ctx, id)
 	}
 }

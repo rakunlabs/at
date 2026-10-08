@@ -51,6 +51,9 @@ func (p *Postgres) workspaceResource(ctx context.Context, q workspaceReader, act
 	if kind == "tokens" {
 		ds = ds.Where(tokenOwnershipPredicate(actor))
 	}
+	if kind == "connections" {
+		ds = ds.Where(connectionOwnershipPredicate(actor))
+	}
 	found, err := ds.ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace resource: %w", err)

@@ -271,8 +271,15 @@ func (s *Server) execTelegramNotify(ctx context.Context, args map[string]any) (s
 	if taskID == "" {
 		return "", fmt.Errorf("telegram_notify works only inside a task started from Telegram")
 	}
+	// Scheduled runs keep a run log on the Cron schedules page; the same
+	// milestone is recorded there whether or not a Telegram chat is attached.
+	logged, _ := s.appendCronRunLogForTask(ctx, taskID, service.CronRunLogMilestone, message)
 	channel, _ := s.telegramChannelForTask(ctx, taskID)
 	if channel == nil {
+		if logged {
+			out, _ := json.Marshal(map[string]any{"sent": false, "logged": true, "reason": "no Telegram chat is attached to this scheduled run; the message was recorded in its run log"})
+			return string(out), nil
+		}
 		out, _ := json.Marshal(map[string]any{"sent": false, "reason": "this task was not started from a Telegram chat; nothing was sent"})
 		return string(out), nil
 	}
@@ -289,6 +296,6 @@ func (s *Server) execTelegramNotify(ctx context.Context, args map[string]any) (s
 		text = fmt.Sprintf("[%s] %s", sanitizeUTF8(channel.ident), message)
 	}
 	sendTelegramText(channel.bot, channel.chatID, text)
-	out, _ := json.Marshal(map[string]any{"sent": true})
+	out, _ := json.Marshal(map[string]any{"sent": true, "logged": logged})
 	return string(out), nil
 }

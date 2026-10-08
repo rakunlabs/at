@@ -111,3 +111,53 @@ export async function listWebhookDeliveries(id: string, limit = 50): Promise<Web
   const res = await api.get<{ deliveries: WebhookDelivery[] }>(`/triggers/${encodeURIComponent(id)}/deliveries`, { params: { limit } });
   return res.data.deliveries ?? [];
 }
+
+// ─── Cron runs ───
+
+export type CronRunStatus = 'running' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+
+export interface CronRunLog {
+  id: string;
+  run_id: string;
+  level: 'system' | 'milestone' | 'report' | 'error';
+  message: string;
+  created_at: string;
+}
+
+export interface CronRun {
+  id: string;
+  trigger_id: string;
+  target_type: string;
+  target_id: string;
+  source: 'schedule' | 'manual';
+  status: CronRunStatus;
+  task_id: string;
+  task_identifier: string;
+  workflow_run_id: string;
+  triggered_by: string;
+  error: string;
+  result: string;
+  /** What the agent itself reported with run_log: completed, partial or failed. */
+  reported_status: '' | 'completed' | 'partial' | 'failed';
+  reported_summary: string;
+  started_at: string;
+  finished_at: string | null;
+  log_count: number;
+  task_status?: string;
+  logs?: CronRunLog[];
+}
+
+/** Fire a cron trigger once now, under its bound execution identity. */
+export async function runTriggerNow(id: string): Promise<void> {
+  await api.post(`/triggers/${encodeURIComponent(id)}/run`);
+}
+
+export async function listCronRuns(id: string, params?: { before?: string; limit?: number }): Promise<CronRun[]> {
+  const res = await api.get<{ data: CronRun[] }>(`/triggers/${encodeURIComponent(id)}/runs`, { params });
+  return res.data.data ?? [];
+}
+
+export async function getCronRun(id: string): Promise<CronRun> {
+  const res = await api.get<CronRun>(`/cron-runs/${encodeURIComponent(id)}`);
+  return res.data;
+}

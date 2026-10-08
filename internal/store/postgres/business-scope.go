@@ -149,6 +149,9 @@ func (p *Postgres) businessReadScope(ctx context.Context, table interface{}) (ex
 	if table == p.tableAPITokens {
 		predicate = goqu.And(predicate, tokenOwnershipPredicate(a))
 	}
+	if table == p.tableConnections {
+		predicate = goqu.And(predicate, connectionOwnershipPredicate(a))
+	}
 	return predicate, nil
 }
 

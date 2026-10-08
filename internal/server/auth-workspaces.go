@@ -109,6 +109,15 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 						values = ids
 					}
 				}
+				// The MCP OAuth callback is a navigation from the authorization
+				// server and cannot carry a header. Its state names the workspace
+				// it was started in; the pending row is additionally bound to that
+				// workspace, account and session, so this only selects.
+				if r.Method == http.MethodGet && r.URL.Path == a.CookiePath()+"api/v1/mcp/oauth/callback" && len(values) == 0 {
+					if workspace := mcpOAuthStateWorkspace(r.URL.Query().Get("state")); workspace != "" {
+						values = []string{workspace}
+					}
+				}
 				if len(values) != 1 || strings.TrimSpace(values[0]) == "" || strings.Contains(values[0], ",") {
 					nativeError(w, 400, "X-AT-Workspace-ID is required")
 					return

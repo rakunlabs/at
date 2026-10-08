@@ -239,19 +239,19 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 
 	query, _, err := p.goqu.Insert(p.tableTriggers).Rows(
 		goqu.Record{
-			"workspace_id":  w.actor.WorkspaceID,
-			"id":            id,
-			"workflow_id":   workflowID,
-			"target_type":   targetType,
-			"target_id":     targetID,
-			"entry_node_id": t.EntryNodeID,
-			"type":          t.Type,
-			"config":        types.RawJSON(configJSON),
-			"alias":         alias,
-			"public":        t.Public,
-			"enabled":       t.Enabled,
-			"created_at":    now,
-			"updated_at":    now,
+			"workspace_id":   w.actor.WorkspaceID,
+			"id":             id,
+			"workflow_id":    workflowID,
+			"target_type":    targetType,
+			"target_id":      targetID,
+			"entry_node_id":  t.EntryNodeID,
+			"type":           t.Type,
+			"config":         types.RawJSON(configJSON),
+			"alias":          alias,
+			"public":         t.Public,
+			"enabled":        t.Enabled,
+			"created_at":     now,
+			"updated_at":     now,
 			"created_by":     t.CreatedBy,
 			"updated_by":     t.UpdatedBy,
 			"hide_from_main": t.HideFromMain,
@@ -414,6 +414,9 @@ func (p *Postgres) DeleteTrigger(ctx context.Context, id string) error {
 	}
 	if _, err := w.tx.Delete(p.workspaceTable("webhook_deliveries")).Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID, "trigger_id": id}).Executor().ExecContext(ctx); err != nil {
 		return fmt.Errorf("delete trigger deliveries: %w", err)
+	}
+	if _, err := w.tx.Delete(p.workspaceTable("cron_runs")).Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID, "trigger_id": id}).Executor().ExecContext(ctx); err != nil {
+		return fmt.Errorf("delete trigger cron runs: %w", err)
 	}
 
 	return w.tx.Commit()

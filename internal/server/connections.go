@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/query"
 
@@ -24,6 +25,8 @@ import (
 // are redacted unless the caller explicitly asks for them (?reveal=true).
 type connectionResponse struct {
 	ID           string                   `json:"id"`
+	Scope        string                   `json:"scope"`
+	OwnerUserID  string                   `json:"owner_user_id,omitempty"`
 	Provider     string                   `json:"provider"`
 	Name         string                   `json:"name"`
 	AccountLabel string                   `json:"account_label,omitempty"`
@@ -35,6 +38,17 @@ type connectionResponse struct {
 	CreatedBy    string                   `json:"created_by,omitempty"`
 	UpdatedBy    string                   `json:"updated_by,omitempty"`
 	UsedByAgents []connectionAgentRef     `json:"used_by_agents,omitempty"`
+	// MCPOAuth reports the state of an MCP authorization. It never carries
+	// tokens or client secrets, not even with ?reveal=true.
+	MCPOAuth *connectionMCPOAuthOut `json:"mcp_oauth,omitempty"`
+}
+
+type connectionMCPOAuthOut struct {
+	MCPURL      string   `json:"mcp_url"`
+	Issuer      string   `json:"issuer"`
+	Scopes      []string `json:"scopes,omitempty"`
+	ExpiresAt   string   `json:"expires_at,omitempty"`
+	NeedsReauth bool     `json:"needs_reauth,omitempty"`
 }
 
 // connectionCredentialsOut redacts secrets to booleans by default; when
@@ -94,8 +108,22 @@ func toConnectionResponse(c service.Connection, reveal bool) connectionResponse 
 			creds.Extra = extra
 		}
 	}
+	var mcpOAuth *connectionMCPOAuthOut
+	if m := c.Credentials.MCPOAuth; m != nil {
+		mcpOAuth = &connectionMCPOAuthOut{MCPURL: m.MCPURL, Issuer: m.Issuer, Scopes: m.Scopes, NeedsReauth: m.NeedsReauth}
+		if !m.ExpiresAt.IsZero() {
+			mcpOAuth.ExpiresAt = m.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+	}
+	scope := c.Scope
+	if scope == "" {
+		scope = service.ConnectionScope(c.OwnerUserID)
+	}
 	return connectionResponse{
 		ID:           c.ID,
+		Scope:        scope,
+		OwnerUserID:  c.OwnerUserID,
+		MCPOAuth:     mcpOAuth,
 		Provider:     c.Provider,
 		Name:         c.Name,
 		AccountLabel: c.AccountLabel,
@@ -212,6 +240,9 @@ type connectionRequest struct {
 	// connector field schemas without a fixed credential shape.
 	Fields   map[string]string `json:"fields"`
 	Metadata map[string]any    `json:"metadata"`
+	// Scope is "personal" or "workspace" (default) on create and immutable
+	// afterwards. A personal owner is always the signed-in account.
+	Scope string `json:"scope"`
 }
 
 // mergeFieldsIntoCredentials overlays a dynamic field-value map onto a
@@ -277,9 +308,28 @@ func (s *Server) CreateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Credentials = mergeFieldsIntoCredentials(req.Credentials, req.Fields)
+	// MCP authorizations are written only by the authorization callback, which
+	// pins the endpoints it actually discovered.
+	req.Credentials.MCPOAuth = nil
+
+	owner := ""
+	switch req.Scope {
+	case "", service.ConnectionScopeWorkspace:
+	case service.ConnectionScopePersonal:
+		principal, ok := service.AccessPrincipalFromContext(r.Context())
+		if !ok || principal.UserID == "" {
+			httpResponse(w, "personal connections require a signed-in account", http.StatusBadRequest)
+			return
+		}
+		owner = principal.UserID
+	default:
+		httpResponse(w, "scope must be personal or workspace", http.StatusBadRequest)
+		return
+	}
 
 	userEmail := s.getUserEmail(r)
 	rec, err := s.connectionStore.CreateConnection(r.Context(), service.Connection{
+		OwnerUserID:  owner,
 		Provider:     req.Provider,
 		Name:         req.Name,
 		AccountLabel: req.AccountLabel,
@@ -292,6 +342,9 @@ func (s *Server) CreateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpResponse(w, fmt.Sprintf("connection (%s, %s) already exists", req.Provider, req.Name), http.StatusConflict)
+			return
+		}
+		if workspaceBusinessError(w, err) {
 			return
 		}
 		slog.Error("create connection failed", "provider", req.Provider, "name", req.Name, "error", err)
@@ -393,6 +446,7 @@ func (s *Server) UpdateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec, err := s.connectionStore.UpdateConnection(r.Context(), id, service.Connection{
+		OwnerUserID:  existing.OwnerUserID,
 		Provider:     provider,
 		Name:         name,
 		AccountLabel: accountLabel,
@@ -404,6 +458,9 @@ func (s *Server) UpdateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if isUniqueViolation(err) {
 			httpResponse(w, fmt.Sprintf("connection (%s, %s) already exists", provider, name), http.StatusConflict)
+			return
+		}
+		if workspaceBusinessError(w, err) {
 			return
 		}
 		slog.Error("update connection failed", "id", id, "error", err)
@@ -472,6 +529,9 @@ func (s *Server) DeleteConnectionAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.connectionStore.DeleteConnection(r.Context(), id); err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("delete connection failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to delete connection: %v", err), http.StatusInternalServerError)
 		return

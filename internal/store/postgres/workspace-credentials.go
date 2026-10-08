@@ -42,7 +42,7 @@ func (p *Postgres) ResolveConnectionForUse(ctx context.Context, id string) (*ser
 		return nil, err
 	}
 	var row connectionRow
-	found, err := p.goqu.From(p.tableConnections).Where(scope, goqu.C("id").Eq(id)).ScanStructContext(ctx, &row)
+	found, err := p.goqu.From(p.tableConnections).Where(scope, connectionUsePredicate(a), goqu.C("id").Eq(id)).ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("resolve connection for use: %w", err)
 	}

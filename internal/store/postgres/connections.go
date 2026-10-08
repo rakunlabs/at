@@ -19,6 +19,7 @@ import (
 
 type connectionRow struct {
 	WorkspaceID  string         `db:"workspace_id"`
+	OwnerUserID  string         `db:"owner_user_id"`
 	ID           string         `db:"id"`
 	Provider     string         `db:"provider"`
 	Name         string         `db:"name"`
@@ -39,7 +40,7 @@ func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*servic
 	}
 	sqlStr, total, err := p.buildListQuery(ctx, p.tableConnections, q,
 		"id", "provider", "name", "account_label", "description",
-		"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
+		"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list connections query: %w", err)
 	}
@@ -58,10 +59,10 @@ func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*servic
 	for rows.Next() {
 		var row connectionRow
 		if err := rows.Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
+			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
 		}
-		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		if !connectionCredentialsReadable(a, row) {
 			row.Credentials = "{}"
 		}
 		rec, err := connectionRowToRecord(row, encKey)
@@ -94,7 +95,7 @@ func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider strin
 	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id").
 		Where(scope, goqu.I("provider").Eq(provider)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
@@ -116,10 +117,10 @@ func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider strin
 	for rows.Next() {
 		var row connectionRow
 		if err := rows.Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
+			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
 		}
-		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		if !connectionCredentialsReadable(a, row) {
 			row.Credentials = "{}"
 		}
 		rec, err := connectionRowToRecord(row, encKey)
@@ -143,7 +144,7 @@ func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Conne
 	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id").
 		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -152,7 +153,7 @@ func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Conne
 
 	var row connectionRow
 	err = p.db.QueryRowContext(ctx, sqlStr).Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
+		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -164,7 +165,7 @@ func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Conne
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+	if !connectionCredentialsReadable(a, row) {
 		row.Credentials = "{}"
 	}
 	return connectionRowToRecord(row, encKey)
@@ -181,8 +182,10 @@ func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name strin
 	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
-		Where(scope, goqu.I("provider").Eq(provider), goqu.I("name").Eq(name)).
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id").
+		Where(scope, connectionUsePredicate(a), goqu.I("provider").Eq(provider), goqu.I("name").Eq(name)).
+		Order(goqu.L("CASE WHEN owner_user_id = '' THEN 0 ELSE 1 END").Asc()).
+		Limit(1).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get connection by name query: %w", err)
@@ -190,7 +193,7 @@ func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name strin
 
 	var row connectionRow
 	err = p.db.QueryRowContext(ctx, sqlStr).Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
+		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID, &row.OwnerUserID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -202,14 +205,14 @@ func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name strin
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+	if !connectionCredentialsReadable(a, row) {
 		row.Credentials = "{}"
 	}
 	return connectionRowToRecord(row, encKey)
 }
 
 func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (*service.Connection, error) {
-	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", "")
+	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.read", "")
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +220,15 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
-	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+	if c.OwnerUserID != "" {
+		// A personal connection is always the caller's own. The owner comes
+		// from the authenticated principal, never from a request body.
+		if w.actor.UserID == "" || c.OwnerUserID != w.actor.UserID ||
+			!w.actor.Allows("connections.use", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+			return nil, service.ErrAccessDenied
+		}
+	} else if !w.actor.Allows("connections.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) ||
+		!w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
 		return nil, service.ErrAccessDenied
 	}
 	p.encKeyMu.RLock()
@@ -243,6 +254,7 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 	sqlStr, _, err := p.goqu.Insert(p.tableConnections).Rows(
 		goqu.Record{
 			"workspace_id":  w.actor.WorkspaceID,
+			"owner_user_id": c.OwnerUserID,
 			"id":            id,
 			"provider":      c.Provider,
 			"name":          c.Name,
@@ -269,6 +281,8 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 
 	return &service.Connection{
 		WorkspaceID:  w.actor.WorkspaceID,
+		OwnerUserID:  c.OwnerUserID,
+		Scope:        service.ConnectionScope(c.OwnerUserID),
 		ID:           id,
 		Provider:     c.Provider,
 		Name:         c.Name,
@@ -284,15 +298,12 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 }
 
 func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Connection) (*service.Connection, error) {
-	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", id)
+	w, err := p.beginConnectionWrite(ctx, id, false)
 	if err != nil {
 		return nil, err
 	}
 	defer w.tx.Rollback()
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
-		return nil, service.ErrAccessDenied
-	}
-	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
 		return nil, service.ErrAccessDenied
 	}
 	p.encKeyMu.RLock()
@@ -350,8 +361,11 @@ func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Co
 }
 
 func (p *Postgres) DeleteConnection(ctx context.Context, id string) error {
-	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", id)
+	w, err := p.beginConnectionWrite(ctx, id, true)
 	if err != nil {
+		if errors.Is(err, service.ErrAccessResourceNotFound) {
+			return nil
+		}
 		return err
 	}
 	defer w.tx.Rollback()
@@ -365,6 +379,67 @@ func (p *Postgres) DeleteConnection(ctx context.Context, id string) error {
 		return fmt.Errorf("delete connection %q: %w", id, err)
 	}
 	return w.tx.Commit()
+}
+
+// ─── Ownership ───
+
+// connectionOwnershipPredicate hides other accounts' personal connections.
+// Platform administrators may list them (recovery and account cleanup) but
+// never read their credentials; see connectionCredentialsReadable.
+func connectionOwnershipPredicate(a service.AccessPrincipal) exp.Expression {
+	if a.PlatformAdmin {
+		return goqu.L("TRUE")
+	}
+	return connectionUsePredicate(a)
+}
+
+// connectionUsePredicate is the runtime rule: a personal connection is used
+// only by its owner, administrators included.
+func connectionUsePredicate(a service.AccessPrincipal) exp.Expression {
+	if a.UserID == "" {
+		return goqu.C("owner_user_id").Eq("")
+	}
+	return goqu.Or(goqu.C("owner_user_id").Eq(""), goqu.C("owner_user_id").Eq(a.UserID))
+}
+
+func connectionCredentialsReadable(a service.AccessPrincipal, row connectionRow) bool {
+	if row.OwnerUserID != "" {
+		return a.UserID != "" && row.OwnerUserID == a.UserID
+	}
+	return a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID})
+}
+
+// beginConnectionWrite locks one connection for update or deletion. The
+// owner may change a personal connection; nobody else may, except that a
+// platform administrator may delete one. Workspace connections keep
+// connections.write plus credentials.manage.
+func (p *Postgres) beginConnectionWrite(ctx context.Context, id string, deleting bool) (*businessWrite, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.read", id)
+	if err != nil {
+		return nil, err
+	}
+	var owner string
+	found, err := w.tx.From(p.tableConnections).Select("owner_user_id").
+		Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID, "id": id}, connectionOwnershipPredicate(w.actor)).
+		ForUpdate(goqu.Wait).ScanValContext(ctx, &owner)
+	if err != nil || !found {
+		w.tx.Rollback()
+		if err != nil {
+			return nil, fmt.Errorf("lock connection: %w", err)
+		}
+		return nil, service.ErrAccessResourceNotFound
+	}
+	resource := service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}
+	switch {
+	case owner != "" && owner == w.actor.UserID && w.actor.Allows("connections.use", resource):
+	case owner != "" && deleting && w.actor.PlatformAdmin:
+	case owner == "" && w.actor.Allows("connections.write", resource) && w.actor.Allows("credentials.manage", resource):
+	default:
+		w.tx.Rollback()
+		return nil, service.ErrAccessDenied
+	}
+	w.predicate = goqu.And(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.C("owner_user_id").Eq(owner))
+	return w, nil
 }
 
 // ─── Helpers ───
@@ -463,6 +538,8 @@ func connectionRowToRecord(row connectionRow, encKey []byte) (*service.Connectio
 
 	return &service.Connection{
 		WorkspaceID:  row.WorkspaceID,
+		OwnerUserID:  row.OwnerUserID,
+		Scope:        service.ConnectionScope(row.OwnerUserID),
 		ID:           row.ID,
 		Provider:     row.Provider,
 		Name:         row.Name,

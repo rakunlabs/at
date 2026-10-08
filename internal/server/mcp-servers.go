@@ -102,6 +102,9 @@ func (s *Server) CreateMCPServerAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.mcpServerStore.CreateMCPServer(r.Context(), req)
 	if err != nil {
+		if mcpConfigError(w, err) {
+			return
+		}
 		slog.Error("create mcp server failed", "name", req.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create mcp server: %v", err), http.StatusInternalServerError)
 		return
@@ -139,6 +142,9 @@ func (s *Server) UpdateMCPServerAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.mcpServerStore.UpdateMCPServer(r.Context(), id, req)
 	if err != nil {
+		if mcpConfigError(w, err) {
+			return
+		}
 		slog.Error("update mcp server failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update mcp server: %v", err), http.StatusInternalServerError)
 		return

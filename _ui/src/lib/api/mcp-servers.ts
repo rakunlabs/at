@@ -60,12 +60,27 @@ export interface WSUpstream {
   pass_headers?: string[]; // raw client headers to forward (Authorization/Cookie are blocked)
 }
 
+export type MCPAccountSource = 'user' | 'agent' | 'shared';
+
+// OAuth 2.1 for an HTTP upstream (MCP authorization spec). Account sources
+// are tried in order; one that is not listed is never used.
+export interface MCPUpstreamAuth {
+  type: 'oauth2';
+  provider?: string;
+  accounts?: MCPAccountSource[];
+  shared_connection_id?: string;
+  scopes?: string[];
+  client_id?: string;
+  authorization_server?: string;
+}
+
 export interface MCPUpstream {
   url?: string;
   headers?: Record<string, string>;
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  auth?: MCPUpstreamAuth;
 }
 
 export interface MCPServer {

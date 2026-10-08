@@ -341,6 +341,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	mcpURLs = append(mcpURLs, inputMCPURLs...)
 	uniqueMCPs := uniqueStrings(mcpURLs)
 
+	// Agent connection bindings must precede every MCP connection: OAuth
+	// upstreams with the "agent" account source read them while connecting.
+	// Skill-level overrides are applied once the skill runtime is resolved.
+	if preset != nil {
+		ctx = workflow.ContextWithAgentConnections(ctx, preset.Config.Connections, nil)
+	}
+
 	// 1. MCP tools
 	for _, url := range uniqueMCPs {
 		client, err := service.NewExecutionHTTPMCPClient(ctx, url)

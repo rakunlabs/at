@@ -12,6 +12,9 @@
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import ImageGenerationSettings from '@/lib/components/ImageGenerationSettings.svelte';
+  import McpUpstreamAuth from '@/lib/components/McpUpstreamAuth.svelte';
+  import { listConnections, type Connection } from '@/lib/api/connections';
+  import { withoutAuthorizationHeader } from '@/lib/helper/mcp-oauth';
   import { imageGenerationConfig, imageGenerationForm, type ImageGenerationForm } from '@/lib/helper/image-generation';
   import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users, Image as ImageIcon } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
@@ -31,6 +34,18 @@
   let mayPersonalWrite = $derived(isNativeAdmin() || can('mcp.read'));
   let mayUse = $derived(isNativeAdmin() || can('mcp.use'));
   let platformAdmin = $derived(isNativeAdmin());
+  let mayShareAccounts = $derived(isNativeAdmin() || (can('connections.write') && can('credentials.manage')));
+
+  // Connections back the OAuth account status in the upstream editor. The list
+  // only carries status (never tokens) and hides other accounts' personal rows.
+  let mcpConnections = $state<Connection[]>([]);
+  async function loadMCPConnections() {
+    try {
+      mcpConnections = await listConnections();
+    } catch {
+      mcpConnections = [];
+    }
+  }
 
   $effect(() => {
     if (activeTab === 'binaries' && !platformAdmin) tabRoute.value = 'my-mcps';
@@ -290,7 +305,16 @@
     showBuiltinToolsSection = formBuiltinTools.length > 0;
     showWorkflowsSection = formWorkflowIds.length > 0;
     showUpstreamSection = formMCPUpstreams.length > 0;
+    if (formMCPUpstreams.some(u => u.auth)) loadMCPConnections();
     showForm = true;
+  }
+
+  // An upstream whose URL/auth differ from the saved set cannot be authorized
+  // yet: the server starts authorization from the saved configuration.
+  function upstreamDirty(i: number): boolean {
+    const saved = editingId ? sets.find(s => s.id === editingId)?.config?.mcp_upstreams?.[i] : undefined;
+    const current = formMCPUpstreams[i];
+    return !saved || (saved.url ?? '') !== (current.url ?? '') || JSON.stringify(saved.auth ?? null) !== JSON.stringify(current.auth ?? null);
   }
 
   async function handleSubmit() {
@@ -320,7 +344,9 @@
             .filter(u => (u.url?.trim() || '').length > 0 || (u.command?.trim() || '').length > 0)
             .map(u => u.command !== undefined
               ? { command: u.command!.trim(), args: u.args, env: u.env }
-              : { url: u.url!.trim(), headers: u.headers }),
+              : u.auth
+                ? { url: u.url!.trim(), headers: withoutAuthorizationHeader(u).headers, auth: u.auth }
+                : { url: u.url!.trim(), headers: u.headers }),
           enabled_builtin_tools: formBuiltinTools,
           workflow_ids: formWorkflowIds,
           inline_tools: formInlineTools,
@@ -1171,7 +1197,7 @@
                         <span class="text-xs font-medium text-dark-text-muted">Server #{i + 1}</span>
                         <div class="flex items-center gap-2">
                           <div class="flex items-center gap-1 text-xs">
-                            <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', headers: upstream.headers || {} }; formMCPUpstreams = [...formMCPUpstreams]; }}
+                            <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', headers: upstream.headers || {}, auth: upstream.auth }; formMCPUpstreams = [...formMCPUpstreams]; }}
                               class="px-1.5 py-0.5 {!upstream.command ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}">
                               HTTP
                             </button>
@@ -1318,6 +1344,22 @@
                             </div>
                           </label>
                         </div>
+                        {#key `${editingId}:${i}`}
+                          <McpUpstreamAuth
+                            upstream={upstream}
+                            setID={editingId}
+                            index={i}
+                            dirty={upstreamDirty(i)}
+                            connections={mcpConnections}
+                            mayShare={mayShareAccounts}
+                            onchange={(auth) => {
+                              formMCPUpstreams[i] = { ...formMCPUpstreams[i], auth };
+                              formMCPUpstreams = [...formMCPUpstreams];
+                              if (auth && !mcpConnections.length) loadMCPConnections();
+                            }}
+                            onconnected={loadMCPConnections}
+                          />
+                        {/key}
                         {#if editingId && mayUse}
                           {@const inspection = (upstreamInspections[editingId] || []).find((item) => item.index === i)}
                           <div class="flex items-start gap-2 pt-2 border-t border-dark-border text-xs">

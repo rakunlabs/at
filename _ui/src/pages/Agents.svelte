@@ -920,7 +920,7 @@
                         <option value="">(fall back to global variables)</option>
                         {#each options as opt (opt.id)}
                           <option value={opt.id}>
-                            {opt.name}{opt.account_label ? ` — ${opt.account_label}` : ''}
+                            {opt.name}{opt.account_label ? ` — ${opt.account_label}` : ''}{opt.scope === 'personal' ? ' (personal)' : ''}{opt.mcp_oauth?.needs_reauth ? ' (needs reconnecting)' : ''}
                           </option>
                         {/each}
                       </select>

@@ -282,11 +282,12 @@ func (a *Auth) SameOrigin(w http.ResponseWriter, r *http.Request) bool {
 	}
 	origin := r.Header.Get("Origin")
 	unsafe := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
-	// Only connector returns may navigate cross-site. Their handlers must consume
-	// session-bound state before displaying a code or exchanging credentials.
+	// Only connector and MCP OAuth returns may navigate cross-site. Their handlers
+	// must consume session-bound state before displaying a code or exchanging
+	// credentials.
 	oauthPath := a.session.Cookie.Path + "api/v1/oauth/"
 	callbackNavigation := r.Method == http.MethodGet && r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
-		(r.URL.Path == oauthPath+"callback" || r.URL.Path == oauthPath+"code-display")
+		(r.URL.Path == oauthPath+"callback" || r.URL.Path == oauthPath+"code-display" || r.URL.Path == a.session.Cookie.Path+"api/v1/mcp/oauth/callback")
 	allowed := origin == a.cfg.Origin || slices.Contains(a.allowedOrigins, origin)
 	if len(r.Header.Values("Origin")) > 1 || (unsafe && !allowed) || (origin != "" && !allowed) || (r.Header.Get("Sec-Fetch-Site") == "cross-site" && !callbackNavigation) {
 		WriteError(w, http.StatusForbidden, "same-origin request required")

@@ -27,11 +27,14 @@ const capabilityRoutes: Record<string, string> = {
   '/settings/trace-export': 'workspace.write',
   '/settings/trace-privacy': 'workspace.write',
   '/mcps': 'mcp.read', '/skills': 'skills.read',
+  // Members manage their own personal connections (MCP OAuth accounts
+  // included); workspace connections stay behind connections.write.
+  '/connections': 'connections.read',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are
 // registered on `apiGroup` without a business policy: marketplaces, integration
 // packs and pack sources, variables,
-// node configurations, triggers, connections/connectors/oauth, and MCP servers
+// node configurations, triggers, connectors/legacy oauth, and MCP servers
 // and sets. Scoping any of them backend-side is what moves the route back into
 // `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when one is. The
 // Playground, Usage, Traces and Sessions moved out: they ride models.use,
@@ -43,7 +46,7 @@ const platformRoutes = [
   '/settings/execution',
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/storage', '/settings/system', '/settings/git-credentials',
   '/marketplaces', '/integrations', '/variables',
-  '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers',
+  '/node-configs', '/webhooks', '/crons', '/mcp-servers',
 ];
 // An account with no membership anywhere resolves nothing: every workspace
 // route answers 403, including Documentation, whose guide API is workspace
@@ -90,7 +93,7 @@ export const configurationLinks = [
   { path: '/mcp-servers', label: 'MCP servers', description: 'Tool servers and endpoints' },
   { path: '/node-configs', label: 'Node configurations', description: 'Reusable workflow node settings' },
   { path: '/webhooks', label: 'Webhooks', description: 'Workflow HTTP triggers' },
-  { path: '/crons', label: 'Schedules', description: 'Scheduled workflow triggers' },
+  { path: '/crons', label: 'Cron schedules', description: 'Scheduled triggers, manual runs and run history' },
   { path: '/marketplaces', label: 'Marketplaces', description: 'Skill catalogs and installation' },
   { path: '/settings/tokens', label: 'API tokens', description: 'Workspace gateway credentials' },
   { path: '/settings/features', label: 'Features', description: 'Installation feature availability' },

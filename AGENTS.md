@@ -621,6 +621,37 @@ the upstream open — the event carries no upstream information, so deferring it
 costs nothing and is what makes the failure recoverable.
 
 
+## Cron schedules: manual runs and run log
+
+Migration 98. The settings page `/crons` is labelled **Cron schedules** and has
+two tabs: *Schedules* (list with a ▶ **Run now** button per row) and *Runs*
+(history per schedule, expandable log, polled every 10s while a run is live).
+
+`POST /api/v1/triggers/{id}/run` → `Scheduler.RunNow` re-reads the trigger under
+its **bound execution identity** and fires it exactly like a tick (same
+authority checks, Telegram notifications, run history) in the background. No
+binding answers 409 ("set Run as first"). Scheduled ticks and manual runs share
+`Scheduler.fire`.
+
+Every firing writes a `cron_runs` row (`source` schedule|manual, `triggered_by`)
+plus `cron_run_logs` entries (`system`/`milestone`/`report`/`error`, ≤200 per
+run, ≤200 runs per trigger; deleted with the trigger/workspace). Writes are bound
+to the execution provenance's workspace (`service.CronRunStorer`); reads follow
+trigger visibility (`GET /triggers/{id}/runs`, `GET /cron-runs/{id}`). Workflow
+runs close when the engine returns and link `workflow_run_id`; organization runs
+link the created task and stay `running` until the task finishes
+(done→completed, blocked, cancelled, failed). The open run rides the context
+(`workflow.ContextWithCronRun`) into the launcher.
+
+Agents write to the log with the non-host built-in **`run_log`**
+(`message`, optional final `status` completed|partial|failed, feature
+`cron_triggers`). The run is resolved from the context or the task tree root,
+never from arguments. A `status` stores `reported_status`/`reported_summary`,
+shown next to — never instead of — the system status, because it is the
+agent's claim. `telegram_notify` milestones are mirrored into the same log, so
+a schedule without a Telegram chat still records them. Regression:
+`internal/store/postgres/cron-runs_test.go`.
+
 ## Webhook servers (dedicated webhook ports)
 
 Migration 92. A **webhook server** (`service.WebhookServer`, Webhooks → Servers)
@@ -2529,6 +2560,76 @@ The OAuth2 flow (`internal/server/oauth.go`) is fully connector-driven and **sup
 Built-in skill templates may declare a connector, which is upserted into the
 registry on install. This is setup metadata only: loading the skill does not
 grant credential access or create an executable handler.
+
+## MCP OAuth (per-account MCP credentials)
+
+HTTP MCP upstreams (GitHub, GitLab, any spec-compliant server) can authenticate
+with OAuth 2.1 per the MCP authorization spec, so different people and agents
+use different external accounts with the same MCP set. An upstream opts in with
+`auth` (`service.MCPUpstreamAuth`; MCP set editor → upstream → *Authentication*).
+
+**Personal connections.** `connections.owner_user_id` (migration 97) makes a
+connection personal; `scope` (`personal` | `workspace`) is derived and returned.
+The owner is stamped from the authenticated principal on create and is
+immutable. A personal connection is visible and usable only by its owner —
+platform administrators may list (and delete) it but never read its
+credentials or use it at runtime (`connectionOwnershipPredicate` for reads,
+`connectionUsePredicate` for runtime/`ResolveConnectionForUse`, applied before
+pagination). Members create/update/delete their own on `connections.use`;
+workspace connections still need `connections.write` + `credentials.manage`.
+Connectors, variable import and the legacy `/oauth/*` flow stay installation
+administration. A workspace agent may bind only workspace connections; a
+personal agent also its owner's personal ones. Account deletion sweeps
+personal connections and pending ceremonies. Runtime revalidation of
+`connections.use` now checks `connections.use` (it checked `.read`), and
+`connectionLookupFunc` resolves through `ResolveConnectionForUse` when a run is
+bound (the redacting DTO broke bound skills for members).
+
+**Account selection.** `auth.accounts` is an ordered fallback list over `user`
+(the run's account; for a *personal* gateway API token, the token owner,
+resolved live and used only to read the owner's own connection), `agent` (the
+running agent's binding for `auth.provider`) and `shared`
+(`auth.shared_connection_id`, which must be a workspace connection — enforced in
+the store on every set/server write). Empty means `["user"]`. A source that is
+not listed is never consulted. A candidate must also have been authorized for
+the same canonical MCP URL (`service.SameMCPResource`): a provider key is a
+label any set writer chooses, a token is audience-bound. No usable account is a
+tool error naming the provider (`ErrMCPAccountMissing`), never a fallback to
+static headers; `auth` with a static `Authorization` header is refused.
+
+**Flow.** `POST /api/v1/mcp/oauth/start` (`mcp.use`; a shared target also needs
+`connections.write` + `credentials.manage`) reads the upstream through the
+execution plane, runs `mcpauth.Discover`, reuses `auth.client_id` or the
+connection's registered client, else dynamic registration, and stores the PKCE
+verifier, client and pinned endpoints in `mcp_oauth_pending` keyed by
+`sha256(state)`. `GET /api/v1/mcp/oauth/callback` is a cross-site top-level
+navigation (allowed in `nativeauth.SameOrigin`); its state is
+`<workspace>.<nonce>`, and the workspace prefix only selects which workspace
+admits the request — the pending row is bound to that workspace, account and
+session and consumed once. The redirect URI must be byte-identical to the one
+stored. The popup posts `{type: at-mcp-oauth-result}` to the exact configured
+origin; no tokens or provider error descriptions are shown. Renewal
+(`connection_id`) keeps the row and every agent binding.
+
+**Tokens.** Stored in `ConnectionCredentials.MCPOAuth` (encrypted with the
+credential blob; API responses expose only status). `WithMCPOAuthTokens` holds
+`SELECT … FOR UPDATE` across reload → refresh → save, adopts a token another
+replica already rotated, and pins token endpoint/client/resource/MCP URL.
+`invalid_grant` sets `needs_reauth` and fails with a reconnect error. The token
+source (`mcpOAuthTokenSource`) closes over the connection ID and re-admits on
+every request. All HTTP upstream constructions go through
+`mcpUpstreamClientOptions`; an OAuth upstream always uses the scoped execution
+client when a run is bound. Sessions and workflow `agent_call` now install agent
+connection bindings *before* connecting MCP. Tool observations get an
+`mcp_oauth_account` event (provider, source, connection ID — never tokens).
+Stdio upstreams never take OAuth.
+
+Regressions: `internal/store/postgres/mcp-oauth-connections_test.go`
+(isolation, owner immutability, deletion sweep, concurrent refresh),
+`internal/server/mcp-oauth_test.go` (fake MCP + AS: start → callback → call →
+401 → refresh → invalid_grant → reconnect), `mcp-oauth-resolver_test.go`
+(fallback order, unlisted shared, gateway personal vs workspace token,
+validation), `_ui/tests/mcp-oauth.test.mjs`.
 
 ## Persistent Assets & Avatar Studio
 

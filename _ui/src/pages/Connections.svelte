@@ -13,8 +13,12 @@
     getOAuthStartURLForConnection,
     getManualAuthURL,
     exchangeCode,
+    connectMCPAccount,
     type Connection,
+    type ConnectionScope,
   } from '@/lib/api/connections';
+  import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
+  import { can } from '@/lib/store/workspace.svelte';
   import {
     listConnectors,
     createConnector,
@@ -41,9 +45,18 @@
     X,
     Settings2,
     Cable,
+    KeyRound,
+    User,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Connections';
+
+  // Members manage their own personal accounts; workspace accounts, provider
+  // definitions and the variable import stay with administrators.
+  let admin = $derived(isNativeAdmin());
+  let mayManageWorkspace = $derived(admin || (can('connections.write') && can('credentials.manage')));
+  let mayPersonal = $derived(admin || can('connections.use'));
+  let myUserID = $derived(storeAuth.identity?.subject ?? '');
 
   // ─── State ───
   let connectors = $state<Connector[]>([]);
@@ -59,6 +72,7 @@
   let formName = $state('');
   let formDescription = $state('');
   let formFields = $state<Record<string, string>>({});
+  let formScope = $state<ConnectionScope>('personal');
   let showSecrets = $state(false);
 
   // Manual OAuth flow state (per connection ID).
@@ -111,9 +125,14 @@
     return m;
   });
 
+  // MCP OAuth accounts are listed on their own: they are created by the
+  // authorization flow, never through a connector form.
+  const mcpAccounts = $derived(connections.filter((c) => !!c.mcp_oauth));
+
   const connectionsByProvider = $derived(() => {
     const m = new Map<string, Connection[]>();
     for (const c of connections) {
+      if (c.mcp_oauth) continue;
       const arr = m.get(c.provider) ?? [];
       arr.push(c);
       m.set(c.provider, arr);
@@ -204,6 +223,7 @@
 
   function openCreate(connector: Connector) {
     editor = { kind: 'create', connector };
+    formScope = mayManageWorkspace ? 'workspace' : 'personal';
     formName = '';
     formDescription = '';
     showSecrets = false;
@@ -252,7 +272,7 @@
         if (v && v.trim()) fields[k] = v.trim();
       }
       if (editor.kind === 'create') {
-        await createConnection({ provider, name: formName.trim(), description: formDescription.trim(), fields });
+        await createConnection({ provider, name: formName.trim(), description: formDescription.trim(), fields, scope: formScope });
         addToast(`${providerLabel(provider)} account "${formName.trim()}" created`, 'info');
       } else {
         await updateConnection(editor.connection.id, {
@@ -296,6 +316,17 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete connection', 'alert');
     }
+  }
+
+  // ─── MCP accounts ───
+  function ownsConnection(c: Connection): boolean {
+    return c.scope === 'personal' ? c.owner_user_id === myUserID : mayManageWorkspace;
+  }
+
+  function reconnectMCP(c: Connection) {
+    connectMCPAccount({ connection_id: c.id, target: c.scope === 'personal' ? 'personal' : 'shared' })
+      .then((r) => { addToast(r.message || 'Account reconnected'); load(); })
+      .catch((e: any) => addToast(e?.message || 'Authorization failed', 'alert'));
   }
 
   // ─── OAuth: popup flow ───
@@ -535,6 +566,7 @@
       >
         <RefreshCw size={14} />
       </button>
+      {#if admin}
       <button
         onclick={runImport}
         class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
@@ -551,8 +583,56 @@
         <Cable size={14} />
         Add provider
       </button>
+      {/if}
     </div>
   </div>
+
+  {#if mcpAccounts.length > 0}
+    <section class="border border-dark-border mb-4">
+      <div class="px-4 py-3 border-b border-dark-border">
+        <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><KeyRound size={14} /> MCP accounts</h2>
+        <p class="text-xs text-dark-text-muted mt-0.5">
+          Authorized through an MCP server's OAuth. Connect new ones from the MCP set editor (MCP page → upstream → Authentication).
+          Tokens refresh automatically and are never shown.
+        </p>
+      </div>
+      <div class="divide-y divide-dark-border">
+        {#each mcpAccounts as c (c.id)}
+          <div class="flex items-start justify-between gap-3 px-4 py-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm text-dark-text">{c.name}</span>
+                <span class="px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-muted">{c.scope === 'personal' ? 'personal' : 'workspace'}</span>
+                <span class="text-xs font-mono text-dark-text-muted">{c.provider}</span>
+                {#if c.mcp_oauth?.needs_reauth}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-oc-red text-oc-red"><AlertCircle size={10} /> Needs re-authorization</span>
+                {:else}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-oc-green"><CheckCircle2 size={10} /> Connected</span>
+                {/if}
+                {#if c.used_by_agents?.length}
+                  <span class="inline-flex items-center gap-1 text-[11px] text-dark-text-muted" title={c.used_by_agents.map((a) => a.name).join(', ')}><Users size={10} /> {c.used_by_agents.length}</span>
+                {/if}
+              </div>
+              <p class="text-xs text-dark-text-muted mt-0.5 truncate font-mono" title={c.mcp_oauth?.mcp_url}>{c.mcp_oauth?.mcp_url}</p>
+              {#if c.mcp_oauth?.scopes?.length}
+                <p class="text-xs text-dark-text-muted mt-0.5">Scopes: <span class="font-mono">{c.mcp_oauth.scopes.join(' ')}</span></p>
+              {/if}
+            </div>
+            {#if ownsConnection(c)}
+              <div class="flex items-center gap-1 shrink-0">
+                <button onclick={() => reconnectMCP(c)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated" title="Re-authorize this account">
+                  <RefreshCw size={12} /> Reconnect
+                </button>
+                <button onclick={() => remove(c)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-900/20" title="Disconnect">
+                  <Trash2 size={12} /> Disconnect
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   {#if pageLoad.loading('Connections')}
     <div class="border border-dark-border px-4 py-10 text-center text-sm text-dark-text-muted">
@@ -594,7 +674,7 @@
             {/if}
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            {#if connector}
+            {#if connector && admin}
               <button
                 onclick={() => openConnectorEdit(connector)}
                 class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
@@ -604,6 +684,7 @@
                 <Settings2 size={13} />
               </button>
             {/if}
+            {#if mayPersonal}
             <button
               onclick={() => connector ? openCreate(connector) : openCreate({ slug: section.provider, name: section.provider, auth_kind: 'custom' } as Connector)}
               class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
@@ -611,6 +692,7 @@
               <Plus size={12} />
               Add account
             </button>
+            {/if}
           </div>
         </div>
 
@@ -644,7 +726,12 @@
                       {/if}
                     </div>
                     <div class="min-w-0">
-                      <h3 class="text-sm font-medium text-dark-text truncate">{c.name}</h3>
+                      <h3 class="text-sm font-medium text-dark-text truncate flex items-center gap-1.5">
+                        {c.name}
+                        {#if c.scope === 'personal'}
+                          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-normal border border-dark-border-subtle text-dark-text-muted" title={c.owner_user_id === myUserID ? 'Only you can use this account' : 'Another account\'s personal connection'}><User size={10} /> personal</span>
+                        {/if}
+                      </h3>
                       {#if c.account_label}
                         <p class="text-xs text-dark-text-secondary mt-0.5 truncate">{c.account_label}</p>
                       {/if}
@@ -681,6 +768,7 @@
                       </div>
                     </div>
                   </div>
+                  {#if ownsConnection(c)}
                   <div class="flex items-center gap-1 shrink-0">
                     {#if isOAuth(connector) && isSetupComplete(c, connector) && !isConnected(c, connector)}
                       <button
@@ -714,6 +802,7 @@
                       <Trash2 size={12} />
                     </button>
                   </div>
+                  {/if}
                 </div>
 
                 <!-- Manual OAuth flow panel -->
@@ -810,6 +899,22 @@
       </div>
 
       <div class="p-4 space-y-3">
+        {#if editor.kind === 'create'}
+          <div>
+            <span class="block text-xs font-medium text-dark-text-secondary mb-1">Owner</span>
+            <div class="flex text-xs border border-dark-border-subtle w-fit">
+              <button type="button" onclick={() => (formScope = 'personal')} disabled={!mayPersonal}
+                class="px-2 py-1 {formScope === 'personal' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'} disabled:opacity-50">Personal</button>
+              <button type="button" onclick={() => (formScope = 'workspace')} disabled={!mayManageWorkspace}
+                class="px-2 py-1 {formScope === 'workspace' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'} disabled:opacity-50">Workspace</button>
+            </div>
+            <p class="text-xs text-dark-text-muted mt-1">
+              {formScope === 'personal' ? 'Only you can see and use this account, in this workspace.' : 'Shared with the workspace; agents and MCP sets can bind it.'}
+            </p>
+          </div>
+        {:else}
+          <p class="text-xs text-dark-text-muted">{editor.connection.scope === 'personal' ? 'Personal account — only its owner can use it.' : 'Workspace account.'}</p>
+        {/if}
         <label class="block">
           <span class="block text-xs font-medium text-dark-text-secondary mb-1">Name <span class="text-red-500">*</span></span>
           <input
