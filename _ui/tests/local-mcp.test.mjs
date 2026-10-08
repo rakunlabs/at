@@ -54,6 +54,36 @@ test('a nested endpoint path is accepted unchanged', () => {
   assert.equal(helper.localMCPUrlProblem('http://127.0.0.1:3000/sse'), '');
 });
 
+// Mirrors service.IsGatewayMCPPath / NormalizeLocalMCPServers.
+test('another AT gateway MCP endpoint is accepted over https with a token', () => {
+  for (const ok of [
+    'https://at.example.com/gateway/v1/mcp/tools',
+    'https://at.example.com/gateway/v1/mcp/tools/mcp',
+    'https://example.com/at/gateway/v1/mcp/tools',
+  ]) {
+    assert.equal(helper.localMCPUrlProblem(ok), '', ok);
+    assert.equal(helper.isRemoteGatewayMCP(ok), true, ok);
+  }
+  for (const bad of [
+    'http://at.example.com/gateway/v1/mcp/tools',
+    'https://at.example.com/gateway/v1/mcp/',
+    'https://at.example.com/gateway/v1/mcp/tools/ws',
+    'https://at.example.com/gateway/v1/chat/completions',
+  ]) {
+    assert.notEqual(helper.localMCPUrlProblem(bad), '', bad);
+  }
+  assert.equal(helper.isRemoteGatewayMCP('http://192.168.1.2/gateway/v1/mcp/tools'), false);
+
+  const remote = 'https://at.example.com/gateway/v1/mcp/tools';
+  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, {}), '');
+  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, { Authorization: 'Bearer ' }), '');
+  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, { 'X-Other': 'at_1' }), '');
+  assert.equal(helper.remoteGatewayCredentialProblem(remote, { Authorization: 'Bearer at_1' }), '');
+  assert.equal(helper.remoteGatewayCredentialProblem(remote, { authorization: helper.REDACTED }), '');
+  assert.equal(helper.remoteGatewayCredentialProblem(remote, { 'x-api-key': 'at_1' }), '');
+  assert.equal(helper.remoteGatewayCredentialProblem('http://127.0.0.1:3000/mcp', {}), '');
+});
+
 test('a local tool never displaces an existing tool name', () => {
   const taken = new Set(['search', 'laptop__search']);
   const has = name => taken.has(name);

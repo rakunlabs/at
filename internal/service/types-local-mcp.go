@@ -76,12 +76,67 @@ func ValidateLocalMCPURL(raw string) error {
 		return fmt.Errorf("put credentials in a header, not in the URL")
 	}
 	if !LocalMCPHostAllowed(u.Hostname()) {
+		if u.Scheme == "https" && IsGatewayMCPPath(u.Path) {
+			return nil
+		}
 		return fmt.Errorf(
 			"%q is not a local address; register a reachable MCP server as an MCP set instead, "+
-				"where workspace execution policy and tracing apply", u.Hostname())
+				"where workspace execution policy and tracing apply (another AT's gateway MCP "+
+				"endpoint, https://<host>/gateway/v1/mcp/<name>, is also accepted)", u.Hostname())
 	}
 
 	return nil
+}
+
+// IsGatewayMCPPath reports whether a URL path is an AT gateway MCP endpoint:
+// [<base path>]/gateway/v1/mcp/<name>[/mcp].
+//
+// Such an endpoint is the one non-local address a local MCP record may name.
+// The remote installation still enforces its own token admission, the MCP
+// server's execution identity and workspace policy, and records its own
+// traces, so the browser dialling it bypasses nothing there. The path is a
+// heuristic, not proof that the host runs AT; the token requirement in
+// NormalizeLocalMCPServers is what keeps such a record from being a plain
+// public MCP.
+func IsGatewayMCPPath(p string) bool {
+	_, rest, ok := strings.Cut(p, "/gateway/v1/mcp/")
+	if !ok {
+		return false
+	}
+	rest = strings.TrimSuffix(rest, "/mcp")
+
+	return rest != "" && !strings.ContainsAny(rest, "/?#")
+}
+
+// LocalMCPIsRemoteGateway reports whether a validated record URL addresses a
+// remote AT gateway rather than the user's own machine or network.
+func LocalMCPIsRemoteGateway(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+
+	return !LocalMCPHostAllowed(u.Hostname()) && u.Scheme == "https" && IsGatewayMCPPath(u.Path)
+}
+
+// localMCPHasCredential reports whether a header map carries a gateway token.
+func localMCPHasCredential(headers map[string]string) bool {
+	for k, v := range headers {
+		key := strings.ToLower(strings.TrimSpace(k))
+		value := strings.TrimSpace(v)
+		switch key {
+		case "authorization":
+			if bearer, ok := strings.CutPrefix(value, "Bearer "); ok && strings.TrimSpace(bearer) != "" {
+				return true
+			}
+		case "x-api-key":
+			if value != "" {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // LocalMCPHostAllowed reports whether a host names the user's own machine or
@@ -180,6 +235,14 @@ func NormalizeLocalMCPServers(servers []LocalMCPServer) ([]LocalMCPServer, error
 			s.Headers = headers
 		} else {
 			s.Headers = nil
+		}
+
+		// A remote AT gateway is admitted only with a token: the remote side
+		// opens its MCP endpoints cross-origin solely for token-bearing
+		// requests, and without one the record would be an unauthenticated
+		// public MCP driven from the browser.
+		if LocalMCPIsRemoteGateway(s.URL) && !localMCPHasCredential(s.Headers) {
+			return nil, fmt.Errorf("server %q: a remote AT gateway needs an \"Authorization: Bearer <token>\" header", s.Name)
 		}
 
 		out = append(out, s)

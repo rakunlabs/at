@@ -72,10 +72,55 @@ export function localMCPUrlProblem(url: string): string {
     return 'Put credentials in a header, not in the URL';
   }
   if (!isLocalMCPHostAllowed(parsed.hostname)) {
-    return `${parsed.hostname} is not a local address. Register a reachable MCP server as an MCP set instead, where execution policy and tracing apply.`;
+    if (parsed.protocol === 'https:' && isGatewayMCPPath(parsed.pathname)) return '';
+    return `${parsed.hostname} is not a local address. Register a reachable MCP server as an MCP set instead, where execution policy and tracing apply — or use another AT's gateway MCP endpoint (https://<host>/gateway/v1/mcp/<name>) with a token.`;
   }
 
   return '';
+}
+
+/**
+ * Mirrors service.IsGatewayMCPPath: [<base path>]/gateway/v1/mcp/<name>[/mcp].
+ * Another AT's gateway MCP endpoint is the one non-local address a record may
+ * name; the remote installation still enforces its token, the MCP server's
+ * execution identity and workspace policy, and records its own traces.
+ */
+export function isGatewayMCPPath(path: string): boolean {
+  const marker = '/gateway/v1/mcp/';
+  const at = path.indexOf(marker);
+  if (at < 0) return false;
+  let rest = path.slice(at + marker.length);
+  if (rest.endsWith('/mcp')) rest = rest.slice(0, -4);
+
+  return rest !== '' && !/[/?#]/.test(rest);
+}
+
+/** Mirrors service.LocalMCPIsRemoteGateway. */
+export function isRemoteGatewayMCP(url: string): boolean {
+  try {
+    const parsed = new URL(url.trim());
+
+    return !isLocalMCPHostAllowed(parsed.hostname) && parsed.protocol === 'https:' && isGatewayMCPPath(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A remote AT gateway is admitted only with a token: the remote side opens its
+ * MCP endpoints cross-origin solely for token-bearing requests. A stored
+ * (redacted) value counts — the server checks the real one.
+ */
+export function remoteGatewayCredentialProblem(url: string, headers: Record<string, string>): string {
+  if (!isRemoteGatewayMCP(url)) return '';
+  for (const [k, v] of Object.entries(headers)) {
+    const key = k.trim().toLowerCase();
+    const value = v.trim();
+    if (key === 'authorization' && (value === REDACTED || /^Bearer \s*\S/.test(value))) return '';
+    if (key === 'x-api-key' && value !== '') return '';
+  }
+
+  return 'A remote AT gateway needs an "Authorization: Bearer <token>" header (an API token of that installation).';
 }
 
 /**

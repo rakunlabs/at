@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { X } from 'lucide-svelte';
+  import { Eye, EyeOff, X } from 'lucide-svelte';
   import { saveLocalMCPServers, type LocalMCPServer } from '@/lib/api/local-mcp';
-  import { REDACTED, localMCPUrlProblem } from '@/lib/helper/local-mcp';
+  import { REDACTED, localMCPUrlProblem, remoteGatewayCredentialProblem } from '@/lib/helper/local-mcp';
 
   interface Props {
     /** Record being edited; absent for a new server. */
@@ -24,6 +24,7 @@
   let headers = $state<Record<string, string>>({ ...(server?.headers ?? {}) });
   let headerKey = $state('');
   let headerValue = $state('');
+  let showHeaderValue = $state(false);
   let error = $state('');
   let saving = $state(false);
 
@@ -52,6 +53,20 @@
       error = problem;
 
       return;
+    }
+    // A header typed but not yet added still counts, so a person who filled
+    // in the token and pressed Save is not told it is missing.
+    const pending = headerKey.trim() ? { ...headers, [headerKey.trim()]: headerValue } : headers;
+    const credentialProblem = remoteGatewayCredentialProblem(url, pending);
+    if (credentialProblem) {
+      error = credentialProblem;
+
+      return;
+    }
+    if (pending !== headers) {
+      headers = pending;
+      headerKey = '';
+      headerValue = '';
     }
 
     const id = server?.id ?? '';
@@ -86,7 +101,7 @@
       <input bind:value={url} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-dark-border-subtle px-2 py-1 text-xs font-mono bg-dark-elevated text-dark-text" />
     </label>
     <div class="col-start-2 col-span-3 text-[10px] text-dark-text-muted">
-      Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
+      Full endpoint URL, used exactly as entered. Loopback and private addresses, or another AT's gateway MCP endpoint (<span class="font-mono">https://&lt;host&gt;/gateway/v1/mcp/&lt;name&gt;</span>) with an <span class="font-mono">Authorization: Bearer</span> API token of that installation. Any other reachable server belongs in an MCP set, where execution policy and tracing apply.
     </div>
   </div>
 
@@ -106,7 +121,26 @@
       {/each}
       <div class="flex items-center gap-1">
         <input bind:value={headerKey} placeholder="Authorization" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
-        <input bind:value={headerValue} placeholder="value" type="password" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
+        <div class="flex-1 flex items-center border border-dark-border-subtle bg-dark-elevated">
+          <input
+            bind:value={headerValue}
+            placeholder="value"
+            type={showHeaderValue ? 'text' : 'password'}
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono bg-transparent text-dark-text"
+          />
+          <button
+            type="button"
+            onclick={() => (showHeaderValue = !showHeaderValue)}
+            class="px-1.5 py-1 text-dark-text-muted hover:text-dark-text"
+            aria-label={showHeaderValue ? 'Hide header value' : 'Show header value'}
+            aria-pressed={showHeaderValue}
+            title={showHeaderValue ? 'Hide value' : 'Show value'}
+          >
+            {#if showHeaderValue}<EyeOff size={11} />{:else}<Eye size={11} />{/if}
+          </button>
+        </div>
         <button onclick={addHeader} class="px-2 py-1 text-[10px] border border-dark-border-subtle text-dark-text-muted">Add</button>
       </div>
       <p class="text-[10px] text-dark-text-muted">Stored encrypted and never shown again.</p>

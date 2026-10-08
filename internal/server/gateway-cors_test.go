@@ -88,6 +88,65 @@ func TestGatewayCORS(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 		},
 		{
+			name:   "gateway MCP preflight announcing a token is admitted",
+			method: http.MethodOptions,
+			path:   "/at/gateway/v1/mcp/files/mcp",
+			headers: map[string]string{
+				"Origin":                                 "https://other-at.example.com",
+				"Access-Control-Request-Method":          "POST",
+				"Access-Control-Request-Headers":         "authorization, content-type, mcp-session-id, mcp-protocol-version",
+				"Access-Control-Request-Private-Network": "true",
+			},
+			wantStatus:  http.StatusNoContent,
+			wantOrigin:  "*",
+			wantHeaders: "authorization, content-type, mcp-session-id, mcp-protocol-version",
+			wantPNA:     "true",
+		},
+		{
+			name:   "gateway MCP preflight for GET keeps the default policy",
+			method: http.MethodOptions,
+			path:   "/at/gateway/v1/mcp/files",
+			headers: map[string]string{
+				"Origin":                         "https://other-at.example.com",
+				"Access-Control-Request-Method":  "GET",
+				"Access-Control-Request-Headers": "authorization",
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:   "gateway MCP websocket route keeps the default policy",
+			method: http.MethodOptions,
+			path:   "/at/gateway/v1/mcp/files/ws",
+			headers: map[string]string{
+				"Origin":                         "https://other-at.example.com",
+				"Access-Control-Request-Method":  "POST",
+				"Access-Control-Request-Headers": "authorization",
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:         "gateway MCP request with a token is exposed",
+			method:       http.MethodPost,
+			path:         "/at/gateway/v1/mcp/files",
+			headers:      map[string]string{"Origin": "https://other-at.example.com", "Authorization": "Bearer at_x"},
+			wantStatus:   http.StatusOK,
+			wantReached:  true,
+			wantOrigin:   "*",
+			wantExposeOn: true,
+		},
+		{
+			// Falls back to the default ada policy (which answers simple
+			// requests with "*" but refuses the preflight a JSON-RPC POST
+			// needs); the gateway MCP expose list is not added.
+			name:        "gateway MCP request without a token keeps the default policy",
+			method:      http.MethodPost,
+			path:        "/at/gateway/v1/mcp/files",
+			headers:     map[string]string{"Origin": "https://evil.example.com"},
+			wantStatus:  http.StatusOK,
+			wantReached: true,
+			wantOrigin:  "*",
+		},
+		{
 			name:   "application API keeps the default policy",
 			method: http.MethodOptions,
 			path:   "/at/api/v1/providers",

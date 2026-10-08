@@ -2252,6 +2252,23 @@ through the page would run with no `CheckExecution`, no `mcp_tool` admission
 and no server-side trace, while being exactly as usable as one in an MCP set.
 The URL is dialled verbatim, like every other MCP URL.
 
+**Another AT as a local MCP server.** The one non-local URL accepted is an
+`https` AT gateway MCP endpoint (`[<base>]/gateway/v1/mcp/<name>[/mcp]`,
+`service.IsGatewayMCPPath`), and only with an `Authorization: Bearer <token>`
+(or `x-api-key`) header, enforced by `NormalizeLocalMCPServers` and mirrored
+in the editor. This bypasses nothing: the remote installation still applies its
+token admission, the MCP server's Run-as identity, workspace policy and its own
+traces. On the remote side `gatewayMCPCORS` (`gateway-cors.go`) opens the
+JSON-RPC POST routes cross-origin **only** for preflights announcing
+`authorization`/`x-api-key` and requests carrying one; everything else
+(including SSE/WebSocket routes and token-less requests) keeps the default
+policy, so a website still cannot drive a public MCP server. Because a junk
+header would otherwise satisfy CORS and then fall back to public admission,
+`authorizeGatewayMCPServer` refuses that fallback for a cross-origin request
+whose credential was rejected. Regression: `TestGatewayCORS`,
+`TestGatewayMCPHandler_BrowserRejectedTokenNoPublicFallback`,
+`TestNormalizeLocalMCPServers`.
+
 Header values are redacted to `***` on ordinary reads, the sentinel preserves
 the stored value on write, and real values come only from the per-record
 reveal, called at the point the browser is about to dial — so the page does not

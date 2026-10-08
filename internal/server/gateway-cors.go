@@ -45,6 +45,7 @@ func corsMiddleware(basePath string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fallback := defaultCORS(next)
 		gateway := gatewayCORS(next)
+		gatewayMCP := gatewayMCPCORS(next, fallback)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if gatewayCORSPath(r.URL.Path, gatewayPrefix) {
@@ -52,9 +53,114 @@ func corsMiddleware(basePath string) func(http.Handler) http.Handler {
 
 				return
 			}
+			if gatewayMCPCORSPath(r.URL.Path, gatewayPrefix) {
+				gatewayMCP.ServeHTTP(w, r)
+
+				return
+			}
 			fallback.ServeHTTP(w, r)
 		})
 	}
+}
+
+// gatewayMCPCORSPath reports whether the path is a gateway MCP JSON-RPC
+// endpoint: POST mcp/{name} or mcp/{name}/mcp. The SSE (GET) and WebSocket
+// routes are not included; a browser Chats client only POSTs.
+func gatewayMCPCORSPath(path, prefix string) bool {
+	rest, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return false
+	}
+	name, ok := strings.CutPrefix(rest, "mcp/")
+	if !ok {
+		return false
+	}
+	name = strings.TrimSuffix(name, "/mcp")
+
+	return name != "" && !strings.Contains(name, "/")
+}
+
+// gatewayMCPCORS opens the gateway MCP endpoints to cross-origin browser calls
+// that carry a gateway token, so another AT installation can use one of this
+// installation's MCP servers as a Chats local MCP server.
+//
+// The token is the whole condition. A public MCP server admits requests
+// without one, so opening these paths unconditionally would let any website a
+// person visits drive an MCP server on that person's network. A preflight that
+// does not announce a credential header, and an actual request that carries
+// none, therefore get the default policy, exactly as before. The handler
+// additionally refuses to fall back to public admission for a cross-origin
+// request whose credential was rejected (authorizeGatewayMCPServer), so a junk
+// header cannot buy CORS access to a public server.
+func gatewayMCPCORS(next, fallback http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		requestedMethod := r.Header.Get("Access-Control-Request-Method")
+		if r.Method == http.MethodOptions && requestedMethod != "" {
+			requested := gatewayCORSRequestedHeaders(r)
+			if !strings.EqualFold(requestedMethod, http.MethodPost) || !gatewayCORSAnnouncesCredential(requested) {
+				fallback.ServeHTTP(w, r)
+
+				return
+			}
+
+			h := w.Header()
+			h.Add("Vary", "Origin")
+			h.Add("Vary", "Access-Control-Request-Method")
+			h.Add("Vary", "Access-Control-Request-Headers")
+			h.Set("Access-Control-Allow-Origin", "*")
+			h.Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", requested)
+			if strings.EqualFold(r.Header.Get("Access-Control-Request-Private-Network"), "true") {
+				h.Set("Access-Control-Allow-Private-Network", "true")
+			}
+			h.Set("Access-Control-Max-Age", gatewayCORSMaxAge)
+			w.WriteHeader(http.StatusNoContent)
+
+			return
+		}
+
+		if !gatewayMCPCredentialPresented(r) {
+			fallback.ServeHTTP(w, r)
+
+			return
+		}
+
+		h := w.Header()
+		h.Add("Vary", "Origin")
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Expose-Headers", "Mcp-Session-Id, x-request-id")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// gatewayCORSAnnouncesCredential reports whether a preflight's requested
+// header list names a gateway credential header.
+func gatewayCORSAnnouncesCredential(requested string) bool {
+	for _, name := range strings.Split(requested, ",") {
+		switch strings.TrimSpace(name) {
+		case "authorization", "x-api-key":
+			return true
+		}
+	}
+
+	return false
+}
+
+// gatewayMCPCredentialPresented reports whether the request carries a gateway
+// credential header, valid or not. Validity is the handler's decision.
+func gatewayMCPCredentialPresented(r *http.Request) bool {
+	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && strings.TrimSpace(bearer) != "" {
+		return true
+	}
+
+	return strings.TrimSpace(r.Header.Get("x-api-key")) != ""
 }
 
 // gatewayCORSPath reports whether the path is a token-authenticated gateway

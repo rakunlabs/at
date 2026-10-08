@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { X } from 'lucide-svelte';
+  import { Eye, EyeOff, X } from 'lucide-svelte';
   import { saveLocalChatProviders, type LocalChatProvider } from '@/lib/api/local-providers';
   import { REDACTED } from '@/lib/helper/local-mcp';
   import { localProviderNameProblem, localProviderUrlProblem } from '@/lib/helper/local-providers';
@@ -27,6 +27,8 @@
   let headers = $state<Record<string, string>>({ ...(provider?.headers ?? {}) });
   let headerKey = $state('');
   let headerValue = $state('');
+  let showApiKey = $state(false);
+  let showHeaderValue = $state(false);
   let error = $state('');
   let saving = $state(false);
 
@@ -97,7 +99,26 @@
           <button onclick={() => (apiKey = '')} class="px-2 py-0.5 text-[10px] border border-dark-border-subtle text-dark-text-muted">Replace or remove</button>
         </div>
       {:else}
-        <input bind:value={apiKey} type="password" placeholder="optional" autocomplete="off" class="col-span-3 border border-dark-border-subtle px-2 py-1 text-xs font-mono bg-dark-elevated text-dark-text" />
+        <div class="col-span-3 flex items-center border border-dark-border-subtle bg-dark-elevated">
+          <input
+            bind:value={apiKey}
+            type={showApiKey ? 'text' : 'password'}
+            placeholder="optional"
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 min-w-0 px-2 py-1 text-xs font-mono bg-transparent text-dark-text"
+          />
+          <button
+            type="button"
+            onclick={() => (showApiKey = !showApiKey)}
+            class="px-1.5 py-1 text-dark-text-muted hover:text-dark-text"
+            aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+            aria-pressed={showApiKey}
+            title={showApiKey ? 'Hide value' : 'Show value'}
+          >
+            {#if showApiKey}<EyeOff size={12} />{:else}<Eye size={12} />{/if}
+          </button>
+        </div>
       {/if}
     </label>
   </div>
@@ -118,7 +139,26 @@
       {/each}
       <div class="flex items-center gap-1">
         <input bind:value={headerKey} placeholder="X-Header" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
-        <input bind:value={headerValue} placeholder="value" type="password" class="flex-1 border border-dark-border-subtle px-2 py-1 text-[11px] font-mono bg-dark-elevated text-dark-text" />
+        <div class="flex-1 flex items-center border border-dark-border-subtle bg-dark-elevated">
+          <input
+            bind:value={headerValue}
+            placeholder="value"
+            type={showHeaderValue ? 'text' : 'password'}
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 min-w-0 px-2 py-1 text-[11px] font-mono bg-transparent text-dark-text"
+          />
+          <button
+            type="button"
+            onclick={() => (showHeaderValue = !showHeaderValue)}
+            class="px-1.5 py-1 text-dark-text-muted hover:text-dark-text"
+            aria-label={showHeaderValue ? 'Hide header value' : 'Show header value'}
+            aria-pressed={showHeaderValue}
+            title={showHeaderValue ? 'Hide value' : 'Show value'}
+          >
+            {#if showHeaderValue}<EyeOff size={11} />{:else}<Eye size={11} />{/if}
+          </button>
+        </div>
         <button onclick={addHeader} class="px-2 py-1 text-[10px] border border-dark-border-subtle text-dark-text-muted">Add</button>
       </div>
       <p class="text-[10px] text-dark-text-muted">The key and header values are stored encrypted and fetched only when this browser calls the provider.</p>

@@ -153,6 +153,14 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 	}
 
 	if auth == nil {
+		// A browser request carrying a rejected credential must not fall back
+		// to public admission: gatewayMCPCORS opens these paths cross-origin
+		// for any request presenting a credential header, so the fallback
+		// would let any website read a public server with a junk token.
+		if r.Header.Get("Origin") != "" && gatewayMCPCredentialPresented(r) {
+			httpResponse(w, errMsg, http.StatusUnauthorized)
+			return nil, false
+		}
 		if mcpSrv == nil || !mcpSrv.Public {
 			httpResponse(w, errMsg, http.StatusUnauthorized)
 			return nil, false
