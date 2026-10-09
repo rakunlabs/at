@@ -12,7 +12,7 @@
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
   import { Key, KeyRound, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play, AlertTriangle } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
-  import { formatDateTime } from '@/lib/helper/format';
+  import { formatDateTime, formatDateTimeInput } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -399,12 +399,7 @@
     const presets = ['', '1h', '12h', '24h', '7d', '30d'];
     editResetPreset = presets.includes(editLimitResetInterval) ? editLimitResetInterval : 'custom';
     // Convert expires_at to datetime-local format for the input
-    if (token.expires_at) {
-      const d = new Date(token.expires_at);
-      editExpiresAt = d.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
-    } else {
-      editExpiresAt = '';
-    }
+    editExpiresAt = formatDateTimeInput(token.expires_at);
   }
 
   function cancelEditing() {

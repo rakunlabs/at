@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fileServeUrl } from '@/lib/api/files';
+  import { formatDateTime } from '@/lib/helper/format';
   import {
     episodeAssetPath,
     SHOT_STATUS_COLORS,
@@ -97,7 +98,7 @@
         {#if p.model}<span><span class="text-dark-text-muted">Model:</span> <code>{p.model}</code></span>{/if}
         {#if p.seed != null}<span><span class="text-dark-text-muted">Seed:</span> {p.seed}</span>{/if}
         {#if p.cost_estimate_usd != null}<span><span class="text-dark-text-muted">Est. cost:</span> ${p.cost_estimate_usd}</span>{/if}
-        {#if p.updated_at}<span><span class="text-dark-text-muted">Updated:</span> {p.updated_at}</span>{/if}
+        {#if p.updated_at}<span><span class="text-dark-text-muted">Updated:</span> {formatDateTime(p.updated_at)}</span>{/if}
       </div>
       {#if (p.references || []).length}
         <div><span class="text-dark-text-muted">References:</span> {(p.references || []).join(', ')}</div>

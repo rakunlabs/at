@@ -5,15 +5,23 @@ export function formatDate(date: string | Date | undefined | null, includeTime =
   
   if (isNaN(d.getTime())) return 'Invalid Date';
 
-  if (includeTime) return d.toISOString();
-
   const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   };
 
-  return d.toLocaleDateString('en-US', options);
+  // Omit timeZone deliberately: all UI timestamps use the browser's zone.
+  if (includeTime) {
+    return d.toLocaleString(undefined, {
+      ...options,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+
+  return d.toLocaleDateString(undefined, options);
 }
 
 export function formatDateTime(date: string | Date | undefined | null): string {
@@ -24,7 +32,16 @@ export function formatTime(date: string | Date | undefined | null): string {
   if (!date) return '-';
   const d = typeof date === 'string' ? new Date(date) : date;
   if (isNaN(d.getTime())) return 'Invalid Date';
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** Local wall-clock value for datetime-local inputs; API values remain ISO UTC. */
+export function formatDateTimeInput(date: string | Date | undefined | null): string {
+  if (!date) return '';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /**

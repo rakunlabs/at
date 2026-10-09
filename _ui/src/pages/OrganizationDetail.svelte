@@ -127,7 +127,6 @@
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: organizationBudget?.budget_timezone || 'UTC',
         timeZoneName: 'short',
       });
     } catch {

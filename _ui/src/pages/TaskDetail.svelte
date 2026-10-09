@@ -1423,7 +1423,7 @@
                       {@const isErr = e.status === 'error' || e.level === 'error'}
                       <div class="border-b border-dark-border-subtle {isLive ? 'bg-green-900/10' : ''} {isErr ? 'bg-red-900/10' : ''}">
                         <div class="px-3 py-2 flex items-start gap-2 text-xs">
-                          <span class="text-[10px] text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
+                          <span class="text-[10px] text-dark-text-muted font-mono shrink-0" title={formatDateTime(e.created_at)}>
                             {formatDateTime(e.created_at)}
                           </span>
                           <span class="font-medium text-dark-text-secondary shrink-0 max-w-[140px] truncate">

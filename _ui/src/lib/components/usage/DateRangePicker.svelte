@@ -1,5 +1,6 @@
 <script lang="ts">
   import { presetRange } from '@/lib/api/usage';
+  import { formatDateTimeInput } from '@/lib/helper/format';
 
   interface Props {
     from?: string;
@@ -37,10 +38,7 @@
 
   // dateTime-local input needs yyyy-MM-ddTHH:mm format (no Z, no seconds).
   function isoToLocal(iso: string): string {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return formatDateTimeInput(iso);
   }
 
   function localToIso(local: string): string {

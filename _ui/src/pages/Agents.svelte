@@ -1072,7 +1072,7 @@
                       ${formAgentBudget.current_spend.toFixed(2)} / {formAgentBudget.monthly_limit > 0 ? `$${formAgentBudget.monthly_limit.toFixed(2)}` : 'Unlimited'}
                     </span>
                     <span class="text-[9px] text-dark-text-muted">
-                      Resets {new Date(formAgentBudget.period_end).toLocaleString(undefined, { timeZone: formAgentBudget.budget_timezone || 'UTC' })}
+                      Resets {new Date(formAgentBudget.period_end).toLocaleString()}
                     </span>
                   </div>
                 {/if}
