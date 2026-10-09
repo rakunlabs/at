@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
@@ -900,7 +901,7 @@
             <div class="w-52 min-w-0" title={b.agent_id}>
               <span class="font-medium text-dark-text block truncate">{b.agent_name || b.agent_id}</span>
               <span class="text-[9px] text-dark-text-muted block truncate">
-                {b.budget_period}{b.period_end ? ` · resets ${new Date(b.period_end).toLocaleString()}` : ''}
+                {b.budget_period}{#if b.period_end} · resets <span title={formatUTCDateTime(b.period_end)}>{formatDateTime(b.period_end)}</span>{/if}
               </span>
               <span class="text-[9px] text-dark-text-muted block truncate">
                 {#if projected !== null}Projected ${projected.toFixed(2)} this period{:else if b.request_count > 0}Forecast unavailable · cost coverage incomplete{:else}No calls this period{/if}

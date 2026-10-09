@@ -4,7 +4,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, createWorkflow, deleteWorkflow, getWorkflow, runWorkflowStream, type Workflow, type WorkflowNode, type WorkflowStreamEvent } from '@/lib/api/workflows';
   import { Plus, RefreshCw, Trash2, Pencil, Play, Workflow as WorkflowIcon, Copy, X, Loader2, SquareCheck, AlertTriangle } from 'lucide-svelte';
-  import { formatDateTime } from '@/lib/helper/format';
+  import { formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -394,7 +394,7 @@
             </td>
             <td class="px-4 py-2.5 text-xs text-dark-text-muted">{wf.graph?.nodes?.length ?? 0}</td>
             <td class="px-4 py-2.5 text-xs text-dark-text-muted">
-              <div>{formatDateTime(wf.updated_at)}</div>
+              <div title={formatUTCDateTime(wf.updated_at)}>{formatDateTime(wf.updated_at)}</div>
               {#if wf.updated_by}
                 <div class="text-[10px] text-dark-text-muted">by {wf.updated_by}</div>
               {/if}

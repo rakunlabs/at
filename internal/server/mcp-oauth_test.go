@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"sync"
@@ -31,9 +32,17 @@ type fakeMCPOAuth struct {
 }
 
 func newFakeMCPOAuth(t *testing.T) *fakeMCPOAuth {
+	return newFakeMCPOAuthTLS(t, false)
+}
+
+func newFakeMCPOAuthTLS(t *testing.T, useTLS bool) *fakeMCPOAuth {
 	f := &fakeMCPOAuth{t: t}
-	f.as = httptest.NewServer(http.HandlerFunc(f.serveAS))
-	f.mcp = httptest.NewServer(http.HandlerFunc(f.serveMCP))
+	newServer := httptest.NewServer
+	if useTLS {
+		newServer = httptest.NewTLSServer
+	}
+	f.as = newServer(http.HandlerFunc(f.serveAS))
+	f.mcp = newServer(http.HandlerFunc(f.serveMCP))
 	t.Cleanup(func() { f.mcp.Close(); f.as.Close() })
 	return f
 }
@@ -125,7 +134,42 @@ func (f *fakeMCPOAuth) set(fn func(*fakeMCPOAuth)) {
 }
 
 func TestMCPOAuthEndToEnd(t *testing.T) {
-	fake := newFakeMCPOAuth(t)
+	t.Run("direct", func(t *testing.T) { testMCPOAuthEndToEnd(t, false, false) })
+	t.Run("proxy", func(t *testing.T) { testMCPOAuthEndToEnd(t, true, false) })
+	t.Run("self-signed TLS", func(t *testing.T) { testMCPOAuthEndToEnd(t, false, true) })
+}
+
+func testMCPOAuthEndToEnd(t *testing.T, useProxy, useTLS bool) {
+	fake := newFakeMCPOAuthTLS(t, useTLS)
+	proxyURL := ""
+	if useProxy {
+		var mu sync.Mutex
+		paths := map[string]int{}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.Proxy = nil
+		forward := &httputil.ReverseProxy{Director: func(r *http.Request) {}, Transport: transport}
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			paths[r.URL.Path]++
+			mu.Unlock()
+			forward.ServeHTTP(w, r)
+		}))
+		defer proxy.Close()
+		defer transport.CloseIdleConnections()
+		proxyURL = proxy.URL
+		defer func() {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, path := range []string{"/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server", "/register", "/token", "/mcp"} {
+				if paths[path] == 0 {
+					t.Errorf("no proxy requests for %s: %v", path, paths)
+				}
+			}
+			if paths["/token"] < 4 {
+				t.Errorf("exchange, refresh and reconnect did not all use the proxy: %v", paths)
+			}
+		}()
+	}
 	service.SetTrustedLocalMCPLoader(func(context.Context) ([]string, error) { return []string{fake.mcpURL()}, nil })
 	t.Cleanup(func() { service.SetTrustedLocalMCPLoader(nil) })
 
@@ -143,7 +187,7 @@ func TestMCPOAuthEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	set, err := f.store.CreateMCPSet(f.ctx, service.MCPSet{Name: "github", Config: service.MCPServerConfig{
-		MCPUpstreams: []service.MCPUpstream{{URL: fake.mcpURL(), Auth: &service.MCPUpstreamAuth{Type: "oauth2"}}},
+		MCPUpstreams: []service.MCPUpstream{{URL: fake.mcpURL(), Proxy: proxyURL, InsecureSkipVerify: useTLS, Auth: &service.MCPUpstreamAuth{Type: "oauth2"}}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -227,6 +271,9 @@ func TestMCPOAuthEndToEnd(t *testing.T) {
 	}
 	if got := accounts(); len(got) != 1 || got[0].Account == nil || got[0].Account.ConnectionID != conns[0].ID {
 		t.Fatalf("accounts after connecting: %+v", got)
+	}
+	if conns[0].Credentials.MCPOAuth.Proxy != proxyURL || conns[0].Credentials.MCPOAuth.InsecureSkipVerify != useTLS {
+		t.Fatal("network settings not retained for reconnect")
 	}
 
 	// Tool call with the stored token.

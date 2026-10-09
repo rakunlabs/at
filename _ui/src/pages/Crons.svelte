@@ -34,7 +34,7 @@
     ChevronRight,
     ChevronDown,
   } from 'lucide-svelte';
-  import { formatDate, formatDateTime } from '@/lib/helper/format';
+  import { formatDate, formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { onDestroy } from 'svelte';
 
   storeNavbar.title = 'Cron schedules';
@@ -877,7 +877,7 @@
               <td class="pl-3 text-dark-text-muted">
                 {#if r.id in expanded}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
               </td>
-              <td class="px-3 py-2 text-xs text-dark-text whitespace-nowrap">{formatDateTime(r.started_at)}</td>
+              <td class="px-3 py-2 text-xs text-dark-text whitespace-nowrap" title={formatUTCDateTime(r.started_at)}>{formatDateTime(r.started_at)}</td>
               <td class="px-3 py-2 text-xs text-dark-text-secondary">
                 {r.source === 'manual' ? 'Manual' : 'Schedule'}
                 {#if r.triggered_by}<span class="text-dark-text-muted"> · {r.triggered_by}</span>{/if}

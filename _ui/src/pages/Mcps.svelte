@@ -309,12 +309,12 @@
     showForm = true;
   }
 
-  // An upstream whose URL/auth differ from the saved set cannot be authorized
+  // An upstream whose URL/proxy/auth differ from the saved set cannot be authorized
   // yet: the server starts authorization from the saved configuration.
   function upstreamDirty(i: number): boolean {
     const saved = editingId ? sets.find(s => s.id === editingId)?.config?.mcp_upstreams?.[i] : undefined;
     const current = formMCPUpstreams[i];
-    return !saved || (saved.url ?? '') !== (current.url ?? '') || JSON.stringify(saved.auth ?? null) !== JSON.stringify(current.auth ?? null);
+    return !saved || (saved.url ?? '') !== (current.url ?? '') || (saved.proxy ?? '') !== (current.proxy ?? '') || Boolean(saved.insecure_skip_verify) !== Boolean(current.insecure_skip_verify) || JSON.stringify(saved.auth ?? null) !== JSON.stringify(current.auth ?? null);
   }
 
   async function handleSubmit() {
@@ -1197,7 +1197,7 @@
                         <span class="text-xs font-medium text-dark-text-muted">Server #{i + 1}</span>
                         <div class="flex items-center gap-2">
                           <div class="flex items-center gap-1 text-xs">
-                            <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', headers: upstream.headers || {}, auth: upstream.auth }; formMCPUpstreams = [...formMCPUpstreams]; }}
+                            <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', proxy: upstream.proxy || '', insecure_skip_verify: upstream.insecure_skip_verify || false, headers: upstream.headers || {}, auth: upstream.auth }; formMCPUpstreams = [...formMCPUpstreams]; }}
                               class="px-1.5 py-0.5 {!upstream.command ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}">
                               HTTP
                             </button>
@@ -1314,6 +1314,23 @@
                           <div class="col-start-2 col-span-3 text-[10px] text-dark-text-muted">
                             Streamable HTTP endpoint, used exactly as entered. JSON or SSE responses are detected automatically. Legacy GET <code class="font-mono">/sse</code> transport is not supported.
                           </div>
+                        </div>
+
+                        <div class="space-y-1">
+                          <label for="mcp-proxy-{i}" class="block text-xs font-medium text-dark-text-secondary">Proxy URL (optional)</label>
+                          <input id="mcp-proxy-{i}" type="text" bind:value={formMCPUpstreams[i].proxy}
+                            placeholder="http://proxy:8080 or socks5://proxy:1080"
+                            aria-describedby="mcp-proxy-help-{i}"
+                            class="w-full min-w-0 border border-dark-border-subtle px-2 py-1 text-xs bg-dark-base text-dark-text placeholder:text-dark-text-muted focus-visible:outline focus-visible:outline-accent" />
+                          <p id="mcp-proxy-help-{i}" class="text-xs text-dark-text-muted">Used by AT for MCP calls and OAuth discovery, registration, token exchange and refresh. Leave empty to use the default connection. HTTP, HTTPS and SOCKS5 proxies are supported; credentials in the URL are not. Save before connecting or inspecting. The browser sign-in page uses your device’s network, not this proxy.</p>
+                        </div>
+
+                        <div class="space-y-1">
+                          <label class="flex min-h-11 items-center gap-2 text-xs text-dark-text-secondary sm:min-h-0">
+                            <input type="checkbox" bind:checked={formMCPUpstreams[i].insecure_skip_verify} class="accent-accent" />
+                            Skip TLS certificate verification (insecure)
+                          </label>
+                          <p class={['text-xs', upstream.insecure_skip_verify ? 'text-oc-peach' : 'text-dark-text-muted']}>Off by default. Applies to MCP, OAuth and HTTPS proxy connections from AT, not the browser sign-in page. Disabling verification can expose credentials to interception; prefer a trusted certificate.</p>
                         </div>
 
                         <div class="grid grid-cols-4 gap-2 items-start">

@@ -11,21 +11,32 @@ export function formatDate(date: string | Date | undefined | null, includeTime =
     day: 'numeric',
   };
 
-  // Omit timeZone deliberately: all UI timestamps use the browser's zone.
-  if (includeTime) {
-    return d.toLocaleString(undefined, {
-      ...options,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  }
+  if (includeTime) return localRFC3339(d);
 
   return d.toLocaleDateString(undefined, options);
 }
 
 export function formatDateTime(date: string | Date | undefined | null): string {
   return formatDate(date, true);
+}
+
+/** UTC counterpart for timestamp titles; omit titles for missing/invalid dates. */
+export function formatUTCDateTime(date: string | Date | undefined | null): string {
+  if (!date) return '';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return '';
+  return `${d.toISOString()} (UTC)`;
+}
+
+/** RFC3339 with the browser's offset at this instant (including historical DST). */
+function localRFC3339(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const offset = -date.getTimezoneOffset();
+  const magnitude = Math.abs(offset);
+  const zone = `${offset < 0 ? '-' : '+'}${pad(Math.floor(magnitude / 60))}:${pad(magnitude % 60)}`;
+  const milliseconds = date.getMilliseconds();
+  const fraction = milliseconds ? `.${String(milliseconds).padStart(3, '0')}` : '';
+  return `${formatDateTimeInput(date)}:${pad(date.getSeconds())}${fraction}${zone}`;
 }
 
 export function formatTime(date: string | Date | undefined | null): string {
@@ -77,10 +88,10 @@ export function formatMessageTime(date: string | Date | undefined | null): strin
   return `${day} ${time}`;
 }
 
-/** The full localized stamp, for the `title` behind an abbreviated one. */
+/** The full local RFC3339 stamp, for the `title` behind an abbreviated one. */
 export function formatLocalDateTime(date: string | Date | undefined | null): string {
   if (!date) return '';
   const d = typeof date === 'string' ? new Date(date) : date;
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleString();
+  return localRFC3339(d);
 }

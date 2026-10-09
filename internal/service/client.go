@@ -94,16 +94,17 @@ type ToolContent struct {
 // HTTP (single endpoint, JSON or SSE responses). It also tolerates plain
 // JSON-mode servers (including older AT instances).
 type HTTPMCPClient struct {
-	baseURL         string
-	endpointURL     string
-	httpClient      *http.Client
-	sessionID       string
-	protocolVersion string // negotiated during initialize
-	serverName      string
-	serverVersion   string
-	responseMode    string
-	nextID          int32
-	headers         map[string]string
+	baseURL              string
+	endpointURL          string
+	httpClient           *http.Client
+	closeIdleConnections func()
+	sessionID            string
+	protocolVersion      string // negotiated during initialize
+	serverName           string
+	serverVersion        string
+	responseMode         string
+	nextID               int32
+	headers              map[string]string
 }
 
 // MCPConnectionInfo describes the transport negotiated by an MCP client.
@@ -142,6 +143,9 @@ func NewHTTPMCPClient(ctx context.Context, baseURL string, opts ...HTTPMCPClient
 	}
 
 	if err := client.initialize(ctx); err != nil {
+		if client.closeIdleConnections != nil {
+			client.closeIdleConnections()
+		}
 		return nil, err
 	}
 
@@ -155,6 +159,17 @@ type HTTPMCPClientOption func(*HTTPMCPClient)
 func WithHeaders(headers map[string]string) HTTPMCPClientOption {
 	return func(c *HTTPMCPClient) {
 		c.headers = headers
+	}
+}
+
+// WithMCPHTTPClient supplies the transport for all requests, including session
+// initialization, streaming responses and session deletion.
+func WithMCPHTTPClient(client *http.Client) HTTPMCPClientOption {
+	return func(c *HTTPMCPClient) {
+		c.httpClient = client
+		// Capture the supplied client before an OAuth option wraps it. Only
+		// this owned transport is closed, never the shared DefaultTransport.
+		c.closeIdleConnections = client.CloseIdleConnections
 	}
 }
 
@@ -451,6 +466,9 @@ func (c *HTTPMCPClient) Close() error {
 }
 
 func (c *HTTPMCPClient) CloseContext(ctx context.Context) error {
+	if c.closeIdleConnections != nil {
+		defer c.closeIdleConnections()
+	}
 	// Optional: send shutdown notification
 	req := MCPRequest{
 		Jsonrpc: "2.0",

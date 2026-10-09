@@ -50,16 +50,18 @@ type ConnectionCredentials struct {
 // authorization time so a later configuration edit cannot redirect a stored
 // refresh token to another server.
 type MCPOAuthCredential struct {
-	AccessToken   string    `json:"access_token,omitempty"`
-	RefreshToken  string    `json:"refresh_token,omitempty"`
-	ExpiresAt     time.Time `json:"expires_at,omitzero"`
-	ClientID      string    `json:"client_id"`
-	ClientSecret  string    `json:"client_secret,omitempty"`
-	Issuer        string    `json:"issuer"`
-	TokenEndpoint string    `json:"token_endpoint"`
-	Resource      string    `json:"resource,omitempty"`
-	Scopes        []string  `json:"scopes,omitempty"`
-	MCPURL        string    `json:"mcp_url"`
+	AccessToken        string    `json:"access_token,omitempty"`
+	RefreshToken       string    `json:"refresh_token,omitempty"`
+	ExpiresAt          time.Time `json:"expires_at,omitzero"`
+	ClientID           string    `json:"client_id"`
+	ClientSecret       string    `json:"client_secret,omitempty"`
+	Issuer             string    `json:"issuer"`
+	TokenEndpoint      string    `json:"token_endpoint"`
+	Resource           string    `json:"resource,omitempty"`
+	Scopes             []string  `json:"scopes,omitempty"`
+	MCPURL             string    `json:"mcp_url"`
+	Proxy              string    `json:"proxy,omitempty"` // retained for reconnecting the account
+	InsecureSkipVerify bool      `json:"insecure_skip_verify,omitempty"`
 	// NeedsReauth is set when the authorization server rejected the refresh
 	// token. Only a new authorization clears it.
 	NeedsReauth bool `json:"needs_reauth,omitempty"`

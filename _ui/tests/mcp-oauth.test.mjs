@@ -60,3 +60,14 @@ test('static Authorization is removed and reported', () => {
   assert.ok(mcpAuthProblems({ url: 'https://x/mcp' }, { ...form, accounts: ['shared'] }).some(p => p.includes('shared account')));
   assert.deepEqual(mcpAuthProblems({ url: 'https://x/mcp' }, form), []);
 });
+
+test('MCP proxy is editable and changing it requires saving before OAuth', async () => {
+  const source = await readFile(new URL('../src/pages/Mcps.svelte', import.meta.url), 'utf8');
+  assert.match(source, /bind:value=\{formMCPUpstreams\[i\]\.proxy\}/);
+  assert.match(source, /\(saved\.proxy \?\? ''\) !== \(current\.proxy \?\? ''\)/);
+  assert.match(source, /proxy: upstream\.proxy \|\| ''/);
+  assert.match(source, /browser sign-in page uses your device/);
+  assert.match(source, /bind:checked=\{formMCPUpstreams\[i\]\.insecure_skip_verify\}/);
+  assert.match(source, /Boolean\(saved\.insecure_skip_verify\) !== Boolean\(current\.insecure_skip_verify\)/);
+  assert.match(source, /Disabling verification can expose credentials to interception/);
+});

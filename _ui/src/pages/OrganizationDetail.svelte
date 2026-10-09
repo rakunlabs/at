@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { push } from 'svelte-spa-router';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -120,18 +121,7 @@
   }
 
   function formatBudgetReset(value: string): string {
-    try {
-      return new Date(value).toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short',
-      });
-    } catch {
-      return value;
-    }
+    return formatDateTime(value);
   }
 
   function formatBudget(cents: number): string {
@@ -641,7 +631,7 @@
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
             <span class="text-[11px] font-medium text-dark-text-muted block">Period</span>
             <span class="text-[11px] font-medium text-dark-text-secondary">
-              {organizationBudget ? `Resets ${formatBudgetReset(organizationBudget.next_reset_at)}` : 'Unavailable'}
+              {#if organizationBudget}Resets <span title={formatUTCDateTime(organizationBudget.next_reset_at)}>{formatBudgetReset(organizationBudget.next_reset_at)}</span>{:else}Unavailable{/if}
             </span>
           </div>
         </div>

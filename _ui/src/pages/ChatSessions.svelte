@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatLocalDateTime } from '@/lib/helper/format';
+  import { formatUTCDateTime } from '@/lib/helper/format';
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import { createSessionTurnController, emptySessionTurn, sessionTurnBusy } from '@/lib/helper/session-turn';
   import { onMount, tick, untrack } from 'svelte';
@@ -904,7 +904,7 @@
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline gap-1.5">
         <span class="truncate text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
-        <span class="text-xs text-dark-text-secondary shrink-0 tabular-nums" title={formatLocalDateTime(session.updated_at || session.created_at)}>
+        <span class="text-xs text-dark-text-secondary shrink-0 tabular-nums" title={formatUTCDateTime(session.updated_at || session.created_at)}>
           {formatRelative(session.updated_at || session.created_at)}
         </span>
       </div>

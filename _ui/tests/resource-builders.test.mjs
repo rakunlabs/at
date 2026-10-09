@@ -80,3 +80,13 @@ test('MCP Set builder accepts one transport per upstream and rejects ambiguous e
   assert.throws(() => applyMCPSetBuilderPatch(mcp(), { mcp_upstreams: [{ url: 'https://example.test/mcp', command: 'npx' }] }, mcpCatalog), /either url or command/);
   assert.throws(() => applyMCPSetBuilderPatch(mcp(), { inline_tools: [] }, mcpCatalog), /Unsupported field/);
 });
+
+test('MCP Set builder preserves explicit proxy and TLS options', () => {
+  const next = applyMCPSetBuilderPatch(mcp(), {
+    mcp_upstreams: [{ url: 'https://example.test/mcp', proxy: ' socks5://proxy:1080 ', insecure_skip_verify: true }],
+  }, mcpCatalog);
+  assert.equal(next.mcp_upstreams[0].proxy, 'socks5://proxy:1080');
+  assert.equal(next.mcp_upstreams[0].insecure_skip_verify, true);
+  assert.throws(() => applyMCPSetBuilderPatch(mcp(), { mcp_upstreams: [{ command: 'npx', proxy: 'http://proxy:8080' }] }, mcpCatalog), /HTTP only/);
+  assert.throws(() => applyMCPSetBuilderPatch(mcp(), { mcp_upstreams: [{ url: 'https://example.test/mcp', insecure_skip_verify: 'true' }] }, mcpCatalog), /must be a boolean/);
+});

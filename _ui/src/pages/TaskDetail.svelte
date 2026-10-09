@@ -32,7 +32,7 @@
     removeLabelFromTask,
     type Label,
   } from '@/lib/api/labels';
-  import { formatDate, formatDateTime } from '@/lib/helper/format';
+  import { formatDate, formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import Markdown from '@/lib/components/Markdown.svelte';
   import CommentThread from '@/lib/components/CommentThread.svelte';
   import {
@@ -1248,7 +1248,7 @@
                           <div class="py-1.5">
                             <div class="flex items-baseline gap-2">
                               <span class="text-[11px] font-bold text-blue-400 select-none shrink-0">you</span>
-                              <span class="text-[10px] text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                              <span class="text-[10px] text-dark-text-muted select-none" title={formatUTCDateTime(msg.created_at)}>{formatDateTime(msg.created_at)}</span>
                             </div>
                             <div class="mt-0.5 text-[13px] text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
                           </div>
@@ -1256,7 +1256,7 @@
                           <div class="py-1.5">
                             <div class="flex items-baseline gap-2">
                               <span class="text-[11px] font-bold text-green-400 select-none shrink-0">assistant</span>
-                              <span class="text-[10px] text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                              <span class="text-[10px] text-dark-text-muted select-none" title={formatUTCDateTime(msg.created_at)}>{formatDateTime(msg.created_at)}</span>
                               {#if msg.data.tool_calls}
                                 <span class="text-[10px] text-yellow-400">
                                   [{Array.isArray(msg.data.tool_calls) ? msg.data.tool_calls.map((tc: any) => tc.Name || tc.name || tc.function?.name).join(', ') : 'tools'}]
@@ -1423,7 +1423,7 @@
                       {@const isErr = e.status === 'error' || e.level === 'error'}
                       <div class="border-b border-dark-border-subtle {isLive ? 'bg-green-900/10' : ''} {isErr ? 'bg-red-900/10' : ''}">
                         <div class="px-3 py-2 flex items-start gap-2 text-xs">
-                          <span class="text-[10px] text-dark-text-muted font-mono shrink-0" title={formatDateTime(e.created_at)}>
+                          <span class="text-[10px] text-dark-text-muted font-mono shrink-0" title={formatUTCDateTime(e.created_at)}>
                             {formatDateTime(e.created_at)}
                           </span>
                           <span class="font-medium text-dark-text-secondary shrink-0 max-w-[140px] truncate">
@@ -1798,39 +1798,39 @@
               <div class="px-3 py-2 flex items-center gap-2">
                 <Calendar size={12} class="text-dark-text-muted shrink-0" />
                 <span class="text-xs text-dark-text-muted w-20 shrink-0">Created</span>
-                <span class="text-xs text-dark-text-secondary">{formatDateTime(task.created_at)}</span>
+                <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.created_at)}>{formatDateTime(task.created_at)}</span>
               </div>
               <div class="px-3 py-2 flex items-center gap-2">
                 <Clock size={12} class="text-dark-text-muted shrink-0" />
                 <span class="text-xs text-dark-text-muted w-20 shrink-0">Updated</span>
-                <span class="text-xs text-dark-text-secondary">{formatDateTime(task.updated_at)}</span>
+                <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.updated_at)}>{formatDateTime(task.updated_at)}</span>
               </div>
               {#if task.started_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Clock size={12} class="text-green-500 shrink-0" />
                   <span class="text-xs text-dark-text-muted w-20 shrink-0">Started</span>
-                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.started_at)}</span>
+                  <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.started_at)}>{formatDateTime(task.started_at)}</span>
                 </div>
               {/if}
               {#if task.completed_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Check size={12} class="text-green-500 shrink-0" />
                   <span class="text-xs text-dark-text-muted w-20 shrink-0">Completed</span>
-                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.completed_at)}</span>
+                  <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.completed_at)}>{formatDateTime(task.completed_at)}</span>
                 </div>
               {/if}
               {#if task.cancelled_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <X size={12} class="text-red-500 shrink-0" />
                   <span class="text-xs text-dark-text-muted w-20 shrink-0">Cancelled</span>
-                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.cancelled_at)}</span>
+                  <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.cancelled_at)}>{formatDateTime(task.cancelled_at)}</span>
                 </div>
               {/if}
               {#if task.checked_out_at}
                 <div class="px-3 py-2 flex items-center gap-2">
                   <Clock size={12} class="text-yellow-500 shrink-0" />
                   <span class="text-xs text-dark-text-muted w-20 shrink-0">Checked out</span>
-                  <span class="text-xs text-dark-text-secondary">{formatDateTime(task.checked_out_at)}</span>
+                  <span class="text-xs text-dark-text-secondary" title={formatUTCDateTime(task.checked_out_at)}>{formatDateTime(task.checked_out_at)}</span>
                 </div>
               {/if}
             </div>

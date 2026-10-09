@@ -50,19 +50,21 @@ type mcpOAuthStartRequest struct {
 }
 
 type mcpOAuthPending struct {
-	Provider      string   `json:"provider"`
-	MCPURL        string   `json:"mcp_url"`
-	Target        string   `json:"target"`
-	Name          string   `json:"name"`
-	ConnectionID  string   `json:"connection_id,omitempty"`
-	RedirectURI   string   `json:"redirect_uri"`
-	Verifier      string   `json:"verifier"`
-	ClientID      string   `json:"client_id"`
-	ClientSecret  string   `json:"client_secret,omitempty"`
-	Issuer        string   `json:"issuer"`
-	TokenEndpoint string   `json:"token_endpoint"`
-	Resource      string   `json:"resource,omitempty"`
-	Scopes        []string `json:"scopes,omitempty"`
+	Provider           string   `json:"provider"`
+	MCPURL             string   `json:"mcp_url"`
+	Proxy              string   `json:"proxy,omitempty"`
+	InsecureSkipVerify bool     `json:"insecure_skip_verify,omitempty"`
+	Target             string   `json:"target"`
+	Name               string   `json:"name"`
+	ConnectionID       string   `json:"connection_id,omitempty"`
+	RedirectURI        string   `json:"redirect_uri"`
+	Verifier           string   `json:"verifier"`
+	ClientID           string   `json:"client_id"`
+	ClientSecret       string   `json:"client_secret,omitempty"`
+	Issuer             string   `json:"issuer"`
+	TokenEndpoint      string   `json:"token_endpoint"`
+	Resource           string   `json:"resource,omitempty"`
+	Scopes             []string `json:"scopes,omitempty"`
 }
 
 func (s *Server) mcpOAuthRedirectURI(r *http.Request) string {
@@ -125,7 +127,19 @@ func (s *Server) MCPOAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	pending.Target = req.Target
 	pending.RedirectURI = s.mcpOAuthRedirectURI(r)
 
-	client := mcpauth.Client(mcpauth.AllowsPrivate(pending.MCPURL))
+	if pending.Proxy != "" || pending.InsecureSkipVerify {
+		runCtx, bindErr := s.bindRuntimePrincipal(r.Context(), "mcp-oauth")
+		if bindErr != nil || service.CheckExecution(runCtx, service.ExecutionAction{Kind: "handler", Name: "javascript"}) != nil {
+			httpResponse(w, "MCP network overrides require Trusted host execution permission under Settings → Execution", http.StatusForbidden)
+			return
+		}
+	}
+	client, err := mcpauth.ClientWithTransport(mcpauth.AllowsPrivate(pending.MCPURL), pending.Proxy, pending.InsecureSkipVerify)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer client.CloseIdleConnections()
 	meta, err := mcpauth.Discover(r.Context(), client, pending.MCPURL, auth.AuthorizationServer)
 	if err != nil {
 		httpResponse(w, "MCP authorization discovery failed: "+err.Error(), http.StatusBadGateway)
@@ -261,7 +275,7 @@ func (s *Server) mcpOAuthStartTarget(ctx context.Context, req mcpOAuthStartReque
 	if name == "" {
 		name = "MCP account"
 	}
-	return &mcpOAuthPending{Provider: auth.Provider, MCPURL: strings.TrimSpace(upstream[0].URL), Name: name}, auth, 0, nil
+	return &mcpOAuthPending{Provider: auth.Provider, MCPURL: strings.TrimSpace(upstream[0].URL), Proxy: upstream[0].Proxy, InsecureSkipVerify: upstream[0].InsecureSkipVerify, Name: name}, auth, 0, nil
 }
 
 // mcpOAuthReconnectTarget re-authorizes an existing MCP connection the caller
@@ -289,7 +303,7 @@ func (s *Server) mcpOAuthReconnectTarget(ctx context.Context, req mcpOAuthStartR
 		return nil, service.MCPUpstreamAuth{}, http.StatusBadRequest, errors.New("this connection holds no MCP authorization you can renew")
 	}
 	pending := &mcpOAuthPending{
-		Provider: conn.Provider, MCPURL: m.MCPURL, Name: conn.Name, ConnectionID: conn.ID,
+		Provider: conn.Provider, MCPURL: m.MCPURL, Proxy: m.Proxy, InsecureSkipVerify: m.InsecureSkipVerify, Name: conn.Name, ConnectionID: conn.ID,
 		ClientID: m.ClientID, ClientSecret: m.ClientSecret, Issuer: m.Issuer,
 	}
 	return pending, service.MCPUpstreamAuth{Provider: conn.Provider, Scopes: m.Scopes}, 0, nil
@@ -327,7 +341,12 @@ func (s *Server) MCPOAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		render(false, "The authorization returned to a different address than it started from.", "")
 		return
 	}
-	client := mcpauth.Client(mcpauth.AllowsPrivate(pending.MCPURL))
+	client, err := mcpauth.ClientWithTransport(mcpauth.AllowsPrivate(pending.MCPURL), pending.Proxy, pending.InsecureSkipVerify)
+	if err != nil {
+		render(false, "The saved proxy configuration is invalid. Start again.", "")
+		return
+	}
+	defer client.CloseIdleConnections()
 	tok, err := mcpauth.Exchange(r.Context(), client, pending.TokenEndpoint, pending.ClientID, pending.ClientSecret, code, pending.RedirectURI, pending.Verifier, pending.Resource)
 	if err != nil {
 		slog.Warn("MCP OAuth code exchange failed", "provider", pending.Provider, "error", err)
@@ -341,7 +360,7 @@ func (s *Server) MCPOAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	cred := &service.MCPOAuthCredential{
 		AccessToken: tok.AccessToken, RefreshToken: tok.RefreshToken, ExpiresAt: tok.ExpiresAt(time.Now()),
 		ClientID: pending.ClientID, ClientSecret: pending.ClientSecret, Issuer: pending.Issuer,
-		TokenEndpoint: pending.TokenEndpoint, Resource: pending.Resource, Scopes: scopes, MCPURL: pending.MCPURL,
+		TokenEndpoint: pending.TokenEndpoint, Resource: pending.Resource, Scopes: scopes, MCPURL: pending.MCPURL, Proxy: pending.Proxy, InsecureSkipVerify: pending.InsecureSkipVerify,
 	}
 	conn, err := s.saveMCPOAuthConnection(r, pending, cred)
 	if err != nil {

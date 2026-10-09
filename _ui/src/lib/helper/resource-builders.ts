@@ -83,6 +83,8 @@ export const mcpSetBuilder = formBuilderTools('mcp_set', {
         type: 'object', additionalProperties: false,
         properties: {
           url: { type: 'string' }, headers: keyValueListSchema,
+          proxy: { type: 'string', description: 'Optional HTTP, HTTPS or SOCKS5 forward proxy URL without credentials.' },
+          insecure_skip_verify: { type: 'boolean', description: 'Skip TLS certificate verification for MCP and OAuth. Insecure; keep false unless explicitly requested.' },
           command: { type: 'string' }, args: { type: 'array', items: { type: 'string' } }, env: keyValueListSchema,
         },
       },
@@ -206,7 +208,14 @@ export function applyMCPSetBuilderPatch(current: MCPSetBuilderDraft, input: unkn
       const url = typeof upstream.url === 'string' ? upstream.url.trim() : '';
       const command = typeof upstream.command === 'string' ? upstream.command.trim() : '';
       if (Boolean(url) === Boolean(command)) throw new Error(`mcp_upstreams[${index}] must contain either url or command.`);
-      if (url) return { url, headers: recordStrings(upstream.headers, `mcp_upstreams[${index}] headers`) || {} };
+      if (upstream.proxy !== undefined && typeof upstream.proxy !== 'string') throw new Error(`mcp_upstreams[${index}] proxy must be text.`);
+      if (upstream.insecure_skip_verify !== undefined && typeof upstream.insecure_skip_verify !== 'boolean') throw new Error(`mcp_upstreams[${index}] insecure_skip_verify must be a boolean.`);
+      if (url) return {
+        url, headers: recordStrings(upstream.headers, `mcp_upstreams[${index}] headers`) || {},
+        ...(upstream.proxy !== undefined ? { proxy: (upstream.proxy as string).trim() } : {}),
+        ...(upstream.insecure_skip_verify !== undefined ? { insecure_skip_verify: upstream.insecure_skip_verify as boolean } : {}),
+      };
+      if (upstream.proxy || upstream.insecure_skip_verify) throw new Error(`mcp_upstreams[${index}] proxy and TLS settings apply to HTTP only.`);
       return { command, args: strings(upstream.args ?? [], `mcp_upstreams[${index}] args`), env: recordStrings(upstream.env, `mcp_upstreams[${index}] env`) || {} };
     });
   }

@@ -111,7 +111,7 @@
     deleteWorkspaceChatPreset,
     sortPlaygroundConversations,
   } from '@/lib/api/playground';
-  import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
+  import { formatMessageTime, formatUTCDateTime } from '@/lib/helper/format';
   import {
     dataUrlToBlob,
     getMediaDataURL,
@@ -3599,7 +3599,7 @@
 {#snippet messageTime(index: number)}
   {@const stamp = meta[index]?.created_at ?? ''}
   {#if stamp}
-    <span class="tabular-nums whitespace-nowrap" title={formatLocalDateTime(stamp)}>{formatMessageTime(stamp)}</span>
+    <span class="tabular-nums whitespace-nowrap" title={formatUTCDateTime(stamp)}>{formatMessageTime(stamp)}</span>
   {/if}
 {/snippet}
 

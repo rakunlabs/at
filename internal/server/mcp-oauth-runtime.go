@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -31,6 +33,23 @@ type mcpOAuthAccount struct {
 // a usable account is an error, never a fallback to static headers.
 func (s *Server) mcpUpstreamClientOptions(ctx context.Context, upstream service.MCPUpstream) ([]service.HTTPMCPClientOption, error) {
 	var opts []service.HTTPMCPClientOption
+	if upstream.Proxy != "" || upstream.InsecureSkipVerify {
+		if _, _, bound := service.ExecutionFromContext(ctx); bound {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "handler", Name: "javascript"}); err != nil {
+				return nil, fmt.Errorf("MCP network overrides require Trusted host execution permission: %w", err)
+			}
+		}
+		proxy, err := mcpauth.ParseProxy(upstream.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("MCP proxy: %w", err)
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if proxy != nil {
+			transport.Proxy = http.ProxyURL(proxy)
+		}
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: upstream.InsecureSkipVerify} // explicit operator opt-in
+		opts = append(opts, service.WithMCPHTTPClient(&http.Client{Transport: transport}))
+	}
 	if len(upstream.Headers) > 0 {
 		opts = append(opts, service.WithHeaders(upstream.Headers))
 	}
@@ -225,7 +244,12 @@ func (s *Server) mcpOAuthTokenSource(base context.Context, upstream service.MCPU
 			if c.RefreshToken == "" {
 				return service.ErrMCPOAuthReauthRequired
 			}
-			tok, err := mcpauth.Refresh(reqCtx, mcpauth.Client(mcpauth.AllowsPrivate(c.MCPURL)), c.TokenEndpoint, c.ClientID, c.ClientSecret, c.RefreshToken, c.Resource)
+			client, err := mcpauth.ClientWithTransport(mcpauth.AllowsPrivate(c.MCPURL), upstream.Proxy, upstream.InsecureSkipVerify)
+			if err != nil {
+				return fmt.Errorf("MCP OAuth proxy: %w", err)
+			}
+			defer client.CloseIdleConnections()
+			tok, err := mcpauth.Refresh(reqCtx, client, c.TokenEndpoint, c.ClientID, c.ClientSecret, c.RefreshToken, c.Resource)
 			if err != nil {
 				if mcpauth.IsInvalidGrant(err) {
 					return service.ErrMCPOAuthReauthRequired

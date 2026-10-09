@@ -20,6 +20,18 @@ const MCPAuthTypeOAuth2 = "oauth2"
 func NormalizeMCPUpstreamAuth(upstreams []MCPUpstream) error {
 	for i := range upstreams {
 		u := &upstreams[i]
+		u.Proxy = strings.TrimSpace(u.Proxy)
+		if u.InsecureSkipVerify && (u.Command != "" || strings.TrimSpace(u.URL) == "") {
+			return fmt.Errorf("upstream %d: TLS settings apply to HTTP MCP servers only", i+1)
+		}
+		if u.Proxy != "" {
+			if u.Command != "" || strings.TrimSpace(u.URL) == "" {
+				return fmt.Errorf("upstream %d: proxy applies to HTTP MCP servers only", i+1)
+			}
+			if _, err := mcpauth.ParseProxy(u.Proxy); err != nil {
+				return fmt.Errorf("upstream %d: %w", i+1, err)
+			}
+		}
 		if u.Auth == nil {
 			continue
 		}

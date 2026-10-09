@@ -2662,6 +2662,25 @@ Regressions: `internal/store/postgres/mcp-oauth-connections_test.go`
 (fallback order, unlisted shared, gateway personal vs workspace token,
 validation), `_ui/tests/mcp-oauth.test.mjs`.
 
+## MCP upstream proxy and TLS settings
+
+HTTP MCP upstreams have an optional `proxy` URL (MCP Sets → External MCP →
+Proxy URL) and opt-in `insecure_skip_verify` (off by default), used for MCP initialization/list/call/shutdown and OAuth discovery,
+dynamic registration, code exchange and refresh. HTTP/HTTPS/SOCKS5/SOCKS5H
+forward proxies are supported; embedded credentials, paths, queries and
+fragments are refused because MCP configuration is readable by its writers.
+Blank preserves existing transport behavior. OAuth never uses ambient proxy
+environment variables: `mcpauth.ClientWithTransport` accepts only this explicit
+setting, retains endpoint and redirect validation and trusts the configured
+proxy for destination DNS/routing. Network overrides require trusted-host execution
+when bound; OAuth start enforces it too. The browser's authorization navigation
+still uses the device network. The pending ceremony pins the proxy through
+callback, the connection retains it for reconnect, and runtime refresh uses
+the current upstream network settings. TLS opt-out applies to HTTPS proxies too,
+never the browser, and the editor warns of credential interception. No migration (existing JSON config/credentials).
+Regressions: `mcpauth/proxy_test.go`, `mcp-proxy-config_test.go`, the proxy
+variant of `TestMCPOAuthEndToEnd`, `_ui/tests/mcp-oauth.test.mjs`.
+
 ## AT as an MCP authorization server
 
 Migration 99. A gateway MCP server can let MCP clients (Claude Code, Cursor,

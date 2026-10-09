@@ -4,7 +4,7 @@
   import { loadFeatures } from '../lib/store/features.svelte';
   import { ChevronRight } from 'lucide-svelte';
   import InstallApp from '../lib/components/InstallApp.svelte';
-  import { formatLocalDateTime } from '../lib/helper/format';
+  import { formatLocalDateTime, formatUTCDateTime } from '../lib/helper/format';
   storeNavbar.title = 'Settings';
   $effect(() => { void loadFeatures().catch(() => {}); });
 </script>
@@ -21,7 +21,7 @@
     {#each [['Version', storeInfo.version], ['Commit', storeInfo.commit], ['Build date', formatLocalDateTime(storeInfo.build_date)]] as [label, value]}
       <div class="min-w-0">
         <dt class="settings-note">{label}</dt>
-        <dd class="mt-1 break-all font-mono text-xs tabular-nums text-dark-text">{value || 'Unavailable'}</dd>
+        <dd class="mt-1 break-all font-mono text-xs tabular-nums text-dark-text" title={label === 'Build date' ? formatUTCDateTime(storeInfo.build_date) : undefined}>{value || 'Unavailable'}</dd>
       </div>
     {/each}
   </dl>

@@ -12,7 +12,7 @@
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
   import { Key, KeyRound, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play, AlertTriangle } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
-  import { formatDateTime, formatDateTimeInput } from '@/lib/helper/format';
+  import { formatDateTime, formatDateTimeInput, formatUTCDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -1463,7 +1463,7 @@
           </td>
           <td class="px-4 py-2.5 text-xs">
             {#if token.expires_at}
-              <span class={isExpired(token.expires_at) ? 'text-red-500' : 'text-dark-text-muted'}>
+              <span class={isExpired(token.expires_at) ? 'text-red-500' : 'text-dark-text-muted'} title={formatUTCDateTime(token.expires_at)}>
                 {isExpired(token.expires_at) ? 'Expired' : formatDateTime(token.expires_at)}
               </span>
             {:else}
@@ -1485,7 +1485,7 @@
             {/if}
           </td>
           <td class="px-4 py-2.5 text-xs text-dark-text-muted">
-            {formatDateTime(token.last_used_at)}
+            <span title={formatUTCDateTime(token.last_used_at)}>{formatDateTime(token.last_used_at)}</span>
           </td>
           <td class="px-4 py-2.5 text-right">
             {#if deleteConfirmId === token.id}
@@ -1665,7 +1665,7 @@
                           <td class="px-3 py-1.5 text-xs text-dark-text-muted text-right">{formatNumber(usage.cache_write_tokens || 0)}</td>
                           <td class="px-3 py-1.5 text-xs text-dark-text-secondary text-right font-medium">{formatNumber(usage.total_tokens)}</td>
                           <td class="px-3 py-1.5 text-xs text-dark-text-muted text-right">{usage.request_count}</td>
-                          <td class="px-3 py-1.5 text-xs text-dark-text-muted text-right">{formatDateTime(usage.last_request_at)}</td>
+                          <td class="px-3 py-1.5 text-xs text-dark-text-muted text-right" title={formatUTCDateTime(usage.last_request_at)}>{formatDateTime(usage.last_request_at)}</td>
                         </tr>
                       {/each}
                     </tbody>

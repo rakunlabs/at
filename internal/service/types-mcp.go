@@ -99,11 +99,13 @@ type WSUpstream struct {
 
 // MCPUpstream represents an upstream MCP server — either HTTP or stdio (local command).
 type MCPUpstream struct {
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+	URL                string            `json:"url,omitempty"`
+	Proxy              string            `json:"proxy,omitempty"` // explicit forward proxy for HTTP and OAuth requests
+	InsecureSkipVerify bool              `json:"insecure_skip_verify,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	Command            string            `json:"command,omitempty"`
+	Args               []string          `json:"args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
 
 	// Auth makes an HTTP upstream authenticate with OAuth 2.1 (the MCP
 	// authorization spec). Nil keeps the static Headers behaviour.

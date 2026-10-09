@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
   import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { onMount, untrack } from 'svelte';
@@ -1072,7 +1073,7 @@
                       ${formAgentBudget.current_spend.toFixed(2)} / {formAgentBudget.monthly_limit > 0 ? `$${formAgentBudget.monthly_limit.toFixed(2)}` : 'Unlimited'}
                     </span>
                     <span class="text-[9px] text-dark-text-muted">
-                      Resets {new Date(formAgentBudget.period_end).toLocaleString()}
+                      Resets <span title={formatUTCDateTime(formAgentBudget.period_end)}>{formatDateTime(formAgentBudget.period_end)}</span>
                     </span>
                   </div>
                 {/if}

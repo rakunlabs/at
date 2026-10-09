@@ -114,6 +114,8 @@ export interface MCPUpstreamAuth {
 
 export interface MCPUpstream {
   url?: string;
+  proxy?: string;
+  insecure_skip_verify?: boolean;
   headers?: Record<string, string>;
   command?: string;
   args?: string[];
