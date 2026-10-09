@@ -13,7 +13,7 @@ async function load(path) {
 
 const {
   mcpAuthForm, mcpUpstreamAuth, mcpProviderForURL, moveAccountSource, toggleAccountSource,
-  withoutAuthorizationHeader, mcpAuthProblems,
+  withoutAuthorizationHeader, mcpAuthProblems, mcpUpstreamsForSave,
 } = await load('../src/lib/helper/mcp-oauth.ts');
 
 test('provider key matches the server derivation', () => {
@@ -78,4 +78,40 @@ test('MCP proxy is editable and changing it requires saving before OAuth', async
   assert.match(source, /bind:checked=\{formMCPUpstreams\[i\]\.insecure_skip_verify\}/);
   assert.match(source, /Boolean\(saved\.insecure_skip_verify\) !== Boolean\(current\.insecure_skip_verify\)/);
   assert.match(source, /Disabling verification can expose credentials to interception/);
+  assert.match(source, /mcp_upstreams: mcpUpstreamsForSave\(formMCPUpstreams\)/);
+});
+
+for (const oauth of [false, true]) {
+  test(`save payload retains proxy and TLS settings for ${oauth ? 'OAuth' : 'static'} HTTP`, () => {
+    const upstream = {
+      url: ' https://mcp.example/mcp ', proxy: ' http://proxy:8080 ', insecure_skip_verify: true,
+      headers: { Authorization: 'Bearer static', 'X-Other': 'kept' },
+      ...(oauth ? { auth: { type: 'oauth2', provider: 'mcp-example', accounts: ['user'] } } : {}),
+    };
+    const snapshot = structuredClone(upstream);
+    const saved = JSON.parse(JSON.stringify(mcpUpstreamsForSave([upstream])));
+    assert.deepEqual(saved, [{
+      ...upstream, url: 'https://mcp.example/mcp', proxy: 'http://proxy:8080',
+      headers: oauth ? { 'X-Other': 'kept' } : upstream.headers,
+    }]);
+    assert.deepEqual(upstream, snapshot, 'save must not mutate editor state');
+    assert.deepEqual(mcpUpstreamsForSave(saved), saved, 'loaded settings survive another save');
+
+    const cleared = JSON.parse(JSON.stringify(mcpUpstreamsForSave([{ ...saved[0], proxy: '', insecure_skip_verify: false }])));
+    assert.equal(cleared[0].proxy, '');
+    assert.equal(cleared[0].insecure_skip_verify, false);
+  });
+}
+
+test('save payload omits blank rows and HTTP options on local commands', () => {
+  const saved = JSON.parse(JSON.stringify(mcpUpstreamsForSave([
+    { url: ' ', headers: {} },
+    { command: ' ' },
+    { command: ' npx ', args: ['@example/mcp'], env: { TOKEN: 'secret' }, proxy: 'http://proxy:8080', insecure_skip_verify: true, auth: { type: 'oauth2' } },
+    { url: ' https://legacy.example/mcp ', headers: { 'X-Other': '1' } },
+  ])));
+  assert.deepEqual(saved, [
+    { command: 'npx', args: ['@example/mcp'], env: { TOKEN: 'secret' } },
+    { url: 'https://legacy.example/mcp', headers: { 'X-Other': '1' } },
+  ]);
 });

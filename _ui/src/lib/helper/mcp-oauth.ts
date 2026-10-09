@@ -79,6 +79,21 @@ export function withoutAuthorizationHeader(upstream: MCPUpstream): MCPUpstream {
   return { ...upstream, headers };
 }
 
+/** Build the create/update payload without losing HTTP network settings. */
+export function mcpUpstreamsForSave(upstreams: MCPUpstream[]): MCPUpstream[] {
+  return upstreams
+    .filter(u => !!(u.url?.trim() || u.command?.trim()))
+    .map(u => {
+      if (u.command != null) {
+        return { command: u.command.trim(), args: u.args, env: u.env };
+      }
+      // Keep HTTP fields together rather than rebuilding a partial allowlist
+      // for each authentication mode. OAuth only changes the static headers.
+      const { command, args, env, ...http } = u.auth ? withoutAuthorizationHeader(u) : u;
+      return { ...http, url: u.url!.trim(), proxy: u.proxy?.trim() };
+    });
+}
+
 /** Problems the editor reports before a save would be refused. */
 export function mcpAuthProblems(upstream: MCPUpstream, form: MCPAuthForm): string[] {
   if (!form.enabled) return [];

@@ -14,7 +14,7 @@
   import ImageGenerationSettings from '@/lib/components/ImageGenerationSettings.svelte';
   import McpUpstreamAuth from '@/lib/components/McpUpstreamAuth.svelte';
   import { listConnections, type Connection } from '@/lib/api/connections';
-  import { withoutAuthorizationHeader } from '@/lib/helper/mcp-oauth';
+  import { mcpUpstreamsForSave } from '@/lib/helper/mcp-oauth';
   import { imageGenerationConfig, imageGenerationForm, type ImageGenerationForm } from '@/lib/helper/image-generation';
   import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users, Image as ImageIcon } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
@@ -340,13 +340,7 @@
             method: t.method || 'GET',
             url: t.url.trim(),
           })),
-          mcp_upstreams: formMCPUpstreams
-            .filter(u => (u.url?.trim() || '').length > 0 || (u.command?.trim() || '').length > 0)
-            .map(u => u.command !== undefined
-              ? { command: u.command!.trim(), args: u.args, env: u.env }
-              : u.auth
-                ? { url: u.url!.trim(), headers: withoutAuthorizationHeader(u).headers, auth: u.auth }
-                : { url: u.url!.trim(), headers: u.headers }),
+          mcp_upstreams: mcpUpstreamsForSave(formMCPUpstreams),
           enabled_builtin_tools: formBuiltinTools,
           workflow_ids: formWorkflowIds,
           inline_tools: formInlineTools,
