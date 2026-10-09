@@ -507,6 +507,9 @@ func connectionBindingPredicate(a service.AccessPrincipal, personal bool) exp.Ex
 }
 
 func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c service.MCPServerConfig, sets []string) error {
+	if err := service.NormalizeMCPServerOAuth(c.OAuth); err != nil {
+		return err
+	}
 	if err := p.mcpUpstreamAuthReferences(ctx, w, c); err != nil {
 		return err
 	}

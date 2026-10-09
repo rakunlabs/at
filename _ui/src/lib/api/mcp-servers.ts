@@ -41,6 +41,8 @@ export interface MCPServerConfig {
   workflow_ids?: string[];
   // Pins the provider/model (and defaults) generate_image uses on this endpoint
   image_generation?: ImageGenerationConfig;
+  // MCP clients sign in with an AT account instead of an API token
+  oauth?: MCPServerOAuth;
   // Raw WebSocket passthrough — exposes GET /gateway/v1/mcp/{name}/ws
   ws_upstream?: WSUpstream;
 }
@@ -61,6 +63,42 @@ export interface WSUpstream {
 }
 
 export type MCPAccountSource = 'user' | 'agent' | 'shared';
+
+/** AT as the MCP authorization server for one gateway MCP server. */
+export interface MCPServerOAuth {
+  enabled: boolean;
+  dynamic_clients: boolean;
+  redirect_patterns?: string[];
+  chain_upstreams: boolean;
+}
+
+/** A client pre-registered by an administrator for one MCP server. */
+export interface MCPAuthClient {
+  id: string;
+  client_id: string;
+  name: string;
+  redirect_uris: string[];
+  confidential: boolean;
+  /** Present only in the response that created the client. */
+  client_secret?: string;
+  created_by?: string;
+  created_at: string;
+  last_used_at?: string;
+}
+
+export async function listMCPAuthClients(serverID: string): Promise<MCPAuthClient[]> {
+  const res = await api.get<MCPAuthClient[]>(`/mcp/servers/${encodeURIComponent(serverID)}/oauth-clients`);
+  return res.data ?? [];
+}
+
+export async function createMCPAuthClient(serverID: string, input: { name: string; redirect_uris: string[]; confidential: boolean }): Promise<MCPAuthClient> {
+  const res = await api.post<MCPAuthClient>(`/mcp/servers/${encodeURIComponent(serverID)}/oauth-clients`, input);
+  return res.data;
+}
+
+export async function deleteMCPAuthClient(serverID: string, id: string): Promise<void> {
+  await api.delete(`/mcp/servers/${encodeURIComponent(serverID)}/oauth-clients/${encodeURIComponent(id)}`);
+}
 
 // OAuth 2.1 for an HTTP upstream (MCP authorization spec). Account sources
 // are tried in order; one that is not listed is never used.

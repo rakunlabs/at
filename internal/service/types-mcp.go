@@ -57,6 +57,10 @@ type MCPServerConfig struct {
 	// ImageGeneration configures the generate_image built-in on this endpoint.
 	ImageGeneration *ImageGenerationConfig `json:"image_generation,omitempty"`
 
+	// OAuth lets MCP clients sign in with an AT account (MCP authorization
+	// spec) instead of carrying an API token. Gateway MCP servers only.
+	OAuth *MCPServerOAuth `json:"oauth,omitempty"`
+
 	// Raw WebSocket passthrough (optional). When set, the gateway exposes
 	// GET /gateway/v1/mcp/{name}/ws and transparently proxies WebSocket
 	// frames to the upstream URL. Useful when an installed MCP program also

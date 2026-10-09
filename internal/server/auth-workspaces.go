@@ -118,6 +118,15 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 						values = []string{workspace}
 					}
 				}
+				// MCP sign-in consent is answered in the workspace that owns the
+				// server, which the tab may not have selected. The nonsecret
+				// selector replaces the tab's header for these two calls only;
+				// membership is resolved below exactly as for the header.
+				if r.URL.Path == a.CookiePath()+"api/v1/mcp-auth/authorize" {
+					if ids := r.URL.Query()["at_workspace"]; len(ids) == 1 && strings.TrimSpace(ids[0]) != "" {
+						values = ids
+					}
+				}
 				if len(values) != 1 || strings.TrimSpace(values[0]) == "" || strings.Contains(values[0], ",") {
 					nativeError(w, 400, "X-AT-Workspace-ID is required")
 					return

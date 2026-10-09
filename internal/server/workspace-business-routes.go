@@ -339,6 +339,17 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// The OAuth upstreams of usable sets with the caller's own account
 		// status; no URLs beyond the origin, headers or tokens.
 		{"GET", "/mcp/oauth/accounts", "mcp.use", "", ""},
+		// AT as the MCP authorization server. Consent and the account's own
+		// grants ride mcp.use (the store re-checks the server and binds the
+		// grant to the authenticated account); pre-registered clients are MCP
+		// server management.
+		{"GET", "/mcp-auth/authorize", "mcp.use", "", ""},
+		{"POST", "/mcp-auth/authorize", "mcp.use", "", ""},
+		{"GET", "/mcp-auth/grants", "mcp.use", "", ""},
+		{"DELETE", "/mcp-auth/grants/{id}", "mcp.use", "", ""},
+		{"GET", "/mcp/servers/{id}/oauth-clients", "mcp.write", "", ""},
+		{"POST", "/mcp/servers/{id}/oauth-clients", "mcp.write", "", ""},
+		{"DELETE", "/mcp/servers/{id}/oauth-clients/{client}", "mcp.write", "", ""},
 		// Chat sessions are per-account: rows are owner-scoped in the handlers
 		// and the list predicate (an administrator additionally sees ownerless
 		// bot/legacy rows), so the capability only gates entry — agents.read

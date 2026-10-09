@@ -165,6 +165,8 @@ func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance serv
 		live, _, resolveErr := workspaces.ResolveWorkspaceAccess(ctx, binding.WorkspaceID, binding.UserID, "")
 		err = resolveErr
 		ctx = service.WithAccessPrincipal(ctx, live)
+	} else if provenance.GrantID != "" {
+		ctx, err = s.revalidateMCPAuthGrant(ctx, provenance)
 	} else {
 		ctx, err = s.revalidateAccessPrincipal(ctx)
 	}

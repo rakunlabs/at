@@ -12,6 +12,7 @@
   import AccountRecovery from './lib/components/AccountRecovery.svelte';
   import BackupCodes from './lib/components/BackupCodes.svelte';
   import MobileAuthorize from './pages/MobileAuthorize.svelte';
+  import McpAuthorize from './pages/McpAuthorize.svelte';
   import WorkspaceSettings from './pages/WorkspaceSettings.svelte';
   import { getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
   import { authSession } from './lib/api/transport';
@@ -99,6 +100,7 @@
 {:else if authState === 'login'}<NativeLogin onlogin={checkSession} sessionNotice={notice} />
 {:else if authState === 'loading' || authState === 'error'}{#if authState === 'error' || connecting}<AuthShell title={authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'} subtitle={authState === 'loading' ? 'Checking your session with the server.' : ''}>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button w-full min-h-11 sm:min-h-0" onclick={initialize}>Retry connection</button>{:else}<p class="settings-note" role="status">One moment…</p>{/if}</AuthShell>{/if}
 {:else if router.location === '/mobile-authorize'}<MobileAuthorize query={router.querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
+{:else if router.location === '/oauth/mcp/authorize'}<McpAuthorize query={router.querystring || ''} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}

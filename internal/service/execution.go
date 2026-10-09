@@ -44,6 +44,10 @@ type ExecutionProvenance struct {
 	PolicyVersion     int64  `json:"policy_version"`
 	ServiceID         string `json:"service_id,omitempty"`
 	ServiceVersion    int64  `json:"service_version,omitempty"`
+	// GrantID is set when the run was admitted by an MCP OAuth access token
+	// (AT acting as the MCP authorization server). Revalidation re-reads the
+	// grant, so revoking it stops the account's in-flight calls too.
+	GrantID string `json:"grant_id,omitempty"`
 }
 
 type ExecutionAction struct {

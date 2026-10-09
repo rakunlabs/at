@@ -2662,6 +2662,69 @@ Regressions: `internal/store/postgres/mcp-oauth-connections_test.go`
 (fallback order, unlisted shared, gateway personal vs workspace token,
 validation), `_ui/tests/mcp-oauth.test.mjs`.
 
+## AT as an MCP authorization server
+
+Migration 99. A gateway MCP server can let MCP clients (Claude Code, Cursor,
+ChatGPT, the MCP SDKs) **sign in with an AT account** instead of carrying an
+API token: `config.oauth` (`service.MCPServerOAuth`, MCP Servers editor →
+*Sign-in*) with `enabled`, `dynamic_clients`, `redirect_patterns` and
+`chain_upstreams`. It lives in the config JSON; API tokens keep working.
+
+**Flow** (`internal/server/mcp-auth-server.go`). A token-less request to an
+OAuth-enabled server answers 401 with `WWW-Authenticate: Bearer
+resource_metadata=".../.well-known/oauth-protected-resource<base>/gateway/v1/mcp/<name>"`.
+RFC 9728/8414 metadata sit at the origin root with the deployment path
+appended (where clients derive them from the resource and the issuer =
+`publicBaseURL`). `POST <base>/oauth/mcp/register` is RFC 7591 (rate-limited
+per client address; the store caps dynamic clients at 5000 and prunes unused
+ones first). `GET <base>/oauth/mcp/authorize` validates client and redirect
+first (never redirecting on those errors), then everything else (redirected
+with `error`, `state`, `iss`), and hands the browser to the SPA consent page
+`#/oauth/mcp/authorize` (`McpAuthorize.svelte`, rendered outside the shell
+like mobile approval) with `at_workspace` = the server's workspace. The page
+calls `GET`/`POST /api/v1/mcp-auth/authorize?at_workspace=` — a cookie-
+authenticated, `mcp.use`-admitted API; `at_workspace` replaces the tab's
+`X-AT-Workspace-ID` for those two calls only and membership is still
+resolved. `POST <base>/oauth/mcp/token` does `authorization_code` (PKCE S256
+required, code single-use — a failed exchange still burns it) and rotating
+`refresh_token`; `POST <base>/oauth/mcp/revoke` is RFC 7009. Codes live 10
+minutes, access tokens (`atm_…`) an hour, refresh tokens (`atr_…`) 30 days;
+all secrets are stored as SHA-256 only. These endpoints strip cookies and
+share the gateway's token-only CORS policy.
+
+**Identity.** An `atm_` bearer on `/gateway/v1/mcp/{name}` is resolved in
+`admitMCPAuthAccess` before API-token auth: the token is audience-bound (same
+server ID, workspace and resource URL, and sign-in still enabled), and the run
+is bound as the **grant's account** (`bindMCPAuthGrant`,
+`ExecutionProvenance.GrantID`, source `mcp-oauth`) under its live membership
+and the workspace policy — the server's *Run as* binding is not used.
+Revalidation re-reads the grant (5s cache, cleared on revoke) and membership,
+so revoking the grant or disabling the account stops access at the next
+action. Upstreams with the *Signed-in user* source then use that account's own
+connections — the "everyone reaches GitLab as themselves" case.
+
+**Clients.** Dynamic clients are installation-wide (`workspace_id` NULL) and
+admitted only by servers with `dynamic_clients`, subject to
+`redirect_patterns` (exact URIs or `*` prefixes; empty = any https or loopback
+redirect). Pre-registered clients (`/api/v1/mcp/servers/{id}/oauth-clients`,
+`mcp.write`) are bound to one server; a confidential one's secret is shown
+once. Loopback redirects match on any port (RFC 8252).
+
+**Chained upstream accounts.** With `chain_upstreams`, approval returns
+`pending_accounts` — the server's MCP sets' OAuth upstreams that list the
+*Signed-in user* source and that the account has not connected — and the
+consent page offers *Connect* for each (existing `/mcp/oauth/start` popup)
+before returning to the client.
+
+The account's sign-ins are listed on Connections → *Apps with MCP access*
+(`GET`/`DELETE /api/v1/mcp-auth/grants`). Grants are workspace records and are
+deleted with the account. Regressions: `internal/server/mcp-auth-server_test.go`
+(AT's own MCP OAuth client as the consumer: challenge, discovery,
+registration, foreign redirect, deny, PKCE, code replay, account identity,
+audience binding, refresh rotation, revocation, disabled account, dynamic
+clients off; pre-registered confidential client; chaining),
+`internal/service/types-mcp-auth-server_test.go`, `_ui/tests/mcp-auth.test.mjs`.
+
 ## Persistent Assets & Avatar Studio
 
 Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`). A nonblank explicit `server.workspace.root` selects absolute `<root>/assets`; unset or blank preserves shipped `./data/assets`, resolved against the process working directory. Unlike per-task workspaces it is NOT swept by the workspace janitor: `assets` is reserved before task lookups, and symlink entries are skipped. Approved workflow/shell handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.

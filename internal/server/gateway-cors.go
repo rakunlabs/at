@@ -48,7 +48,7 @@ func corsMiddleware(basePath string) func(http.Handler) http.Handler {
 		gatewayMCP := gatewayMCPCORS(next, fallback)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if gatewayCORSPath(r.URL.Path, gatewayPrefix) {
+			if gatewayCORSPath(r.URL.Path, gatewayPrefix) || mcpAuthCORSPath(r.URL.Path, basePath) {
 				gateway.ServeHTTP(w, r)
 
 				return
@@ -244,4 +244,16 @@ func validHeaderToken(s string) bool {
 	}
 
 	return true
+}
+
+// mcpAuthCORSPath reports the authorization-server endpoints MCP clients call
+// (discovery, registration, token, revocation). Like the gateway they take no
+// ambient credentials, so browser-based MCP clients may read them. The
+// authorize endpoint is a navigation and needs none.
+func mcpAuthCORSPath(path, basePath string) bool {
+	if strings.HasPrefix(path, "/.well-known/oauth-protected-resource") || strings.HasPrefix(path, "/.well-known/oauth-authorization-server") {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, basePath+"/oauth/mcp/")
+	return ok && (rest == "register" || rest == "token" || rest == "revoke")
 }

@@ -339,7 +339,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return ""
-	case "mcp-templates":
+	case "mcp-templates", "mcp-auth":
 		return service.FeatureMCPServers
 	case "terminals":
 		return service.FeatureTerminal

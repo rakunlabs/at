@@ -116,6 +116,13 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 		return nil, false
 	}
 
+	// An access token AT issued as the MCP authorization server runs as the
+	// account that signed in, not as the server's Run as identity.
+	if token := bearerToken(r); strings.HasPrefix(token, mcpAuthAccessPrefix) {
+		r.Header.Del("Authorization")
+		return s.admitMCPAuthAccess(w, r, name, token)
+	}
+
 	auth, errMsg := s.authenticateRequest(r)
 	if errMsg == tokenPausedMessage {
 		httpResponse(w, errMsg, http.StatusUnauthorized)
@@ -158,11 +165,11 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 		// for any request presenting a credential header, so the fallback
 		// would let any website read a public server with a junk token.
 		if r.Header.Get("Origin") != "" && gatewayMCPCredentialPresented(r) {
-			httpResponse(w, errMsg, http.StatusUnauthorized)
+			s.gatewayMCPUnauthorized(w, r, name, true, errMsg)
 			return nil, false
 		}
 		if mcpSrv == nil || !mcpSrv.Public {
-			httpResponse(w, errMsg, http.StatusUnauthorized)
+			s.gatewayMCPUnauthorized(w, r, name, gatewayMCPCredentialPresented(r), errMsg)
 			return nil, false
 		}
 		return s.bindGatewayMCPServer(w, r, mcpSrv, machineStore)

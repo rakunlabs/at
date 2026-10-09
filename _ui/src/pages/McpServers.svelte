@@ -2,6 +2,7 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
+  import McpServerOAuthSettings from '@/lib/components/McpServerOAuthSettings.svelte';
   import {
     listMCPServers,
     createMCPServer,
@@ -10,6 +11,7 @@
     exportMCPServer,
     importMCPServer,
     type MCPServer,
+    type MCPServerOAuth,
   } from '@/lib/api/mcp-servers';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
@@ -53,6 +55,8 @@
   let formName = $state('');
   let formDescription = $state('');
   let formPublic = $state(false);
+  const defaultOAuth = (): MCPServerOAuth => ({ enabled: false, dynamic_clients: true, chain_upstreams: true, redirect_patterns: [] });
+  let formOAuth = $state<MCPServerOAuth>(defaultOAuth());
   let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formWorkflowIds = $state<string[]>([]);
@@ -145,6 +149,7 @@
     formName = '';
     formDescription = '';
     formPublic = false;
+    formOAuth = defaultOAuth();
     formMCPSets = [];
     formBuiltinTools = [];
     formWorkflowIds = [];
@@ -203,6 +208,7 @@
     formName = s.name;
     formDescription = s.config.description || '';
     formPublic = Boolean(s.public);
+    formOAuth = s.config.oauth ? { ...defaultOAuth(), ...s.config.oauth } : defaultOAuth();
     formMCPSets = [...(s.servers || [])];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     formWorkflowIds = s.config.workflow_ids ?? [];
@@ -249,6 +255,12 @@
         }
       } else {
         delete config.ws_upstream;
+      }
+
+      if (formOAuth.enabled) {
+        config.oauth = { ...formOAuth };
+      } else {
+        delete config.oauth;
       }
 
       const imageGeneration = imageGenerationConfig(formImageGeneration, formBuiltinTools);
@@ -357,7 +369,7 @@
       <h1 class="text-lg font-semibold text-dark-text">MCP Servers</h1>
       <p class="text-xs text-dark-text-muted mt-1">
         Gateway endpoints that serve tools to external agents.
-        Connect via <code class="px-1 py-0.5 bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code>; Bearer token auth is required unless Public mode is enabled.
+        Connect via <code class="px-1 py-0.5 bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code>; Bearer token auth is required unless Public mode is enabled; with Sign in with AT, clients can sign in with an AT account instead.
       </p>
     </div>
     <div class="flex items-center gap-2">
@@ -449,6 +461,14 @@
               <span class="block text-dark-text-muted mt-0.5">Allow unauthenticated MCP clients to list and call this server's tools. Only enable this for tools safe to expose without an AT token.</span>
             </span>
           </label>
+        </div>
+
+        <!-- Sign in with AT -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-dark-text-secondary pt-1.5">Sign-in</span>
+          <div class="col-span-3">
+            {#key editingId}<McpServerOAuthSettings bind:value={formOAuth} serverID={editingId} serverName={formName.trim()} />{/key}
+          </div>
         </div>
 
         <!-- MCP sets: where this server's tools come from -->
@@ -808,6 +828,9 @@
                   <div class="font-medium text-dark-text text-sm">{s.name}</div>
                   {#if s.public}
                     <span class="px-1.5 py-0.5 text-[11px] bg-green-950/20 text-green-400 border border-green-900">Public</span>
+                  {/if}
+                  {#if s.config.oauth?.enabled}
+                    <span class="px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-secondary">Sign-in</span>
                   {/if}
                   {#if s.config.ws_upstream?.url}
                     <span class="px-1.5 py-0.5 text-[11px] bg-blue-950/20 text-blue-400 border border-blue-900">WS</span>

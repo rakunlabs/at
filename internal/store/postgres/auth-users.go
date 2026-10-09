@@ -47,6 +47,9 @@ var authUserDeletionTables = []struct {
 	// OAuth tokens included); nobody else may use them once it is gone.
 	{"connections", "owner_user_id"},
 	{"mcp_oauth_pending", "user_id"},
+	// MCP authorization-server grants (and, by cascade, their codes and
+	// tokens): a deleted account must not keep reaching MCP servers.
+	{"mcp_auth_grants", "user_id"},
 	// Per-account settings, including the Chats preset and the personal
 	// registry of local MCP endpoints — the latter is encrypted, so leaving
 	// it behind would strand a secret belonging to an account that no longer

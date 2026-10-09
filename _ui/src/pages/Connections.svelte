@@ -50,6 +50,7 @@
     User,
   } from 'lucide-svelte';
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
+  import { listMCPAuthGrants, revokeMCPAuthGrant, type MCPAuthGrant } from '@/lib/api/mcp-auth';
 
   storeNavbar.title = 'Connections';
 
@@ -65,6 +66,7 @@
   let connectors = $state<Connector[]>([]);
   let connections = $state<Connection[]>([]);
   let mcpTargets = $state<MCPOAuthAccountTarget[]>([]);
+  let mcpGrants = $state<MCPAuthGrant[]>([]);
   let mcpConnecting = $state('');
   let showAllProviders = $state(false);
   let loading = $state(true);
@@ -118,6 +120,9 @@
         mayUseMCP
           ? pageLoad.load('MCP servers', listMCPOAuthAccounts, result => { mcpTargets = result || []; }, 'mcp_servers')
           : Promise.resolve(false),
+        mayUseMCP
+          ? pageLoad.load('MCP sign-ins', listMCPAuthGrants, result => { mcpGrants = result || []; }, 'mcp_servers')
+          : Promise.resolve(false),
       ]);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load connections', 'alert');
@@ -150,6 +155,17 @@
       .then((r) => { addToast(r.message || 'Account connected'); load(); })
       .catch((e: any) => addToast(e?.message || 'Authorization failed', 'alert'))
       .finally(() => { if (mcpConnecting === key) mcpConnecting = ''; });
+  }
+
+  async function revokeGrant(g: MCPAuthGrant) {
+    if (!confirm(`Revoke ${g.client_name}'s access to ${g.server_name || 'this MCP server'}? It will have to sign in again.`)) return;
+    try {
+      await revokeMCPAuthGrant(g.id);
+      mcpGrants = mcpGrants.filter((x) => x.id !== g.id);
+      addToast('Access revoked');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to revoke access', 'alert');
+    }
   }
 
   function mcpSourcesText(t: MCPOAuthAccountTarget): string {
@@ -676,6 +692,33 @@
                 {/if}
               </div>
             {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if mcpGrants.length > 0}
+    <section class="border border-dark-border mb-4">
+      <div class="px-4 py-3 border-b border-dark-border">
+        <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><KeyRound size={14} /> Apps with MCP access</h2>
+        <p class="text-xs text-dark-text-muted mt-0.5">MCP clients you signed in to an MCP server of this workspace. They act as your account; revoke one to sign it out.</p>
+      </div>
+      <div class="divide-y divide-dark-border">
+        {#each mcpGrants as g (g.id)}
+          <div class="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm text-dark-text">{g.client_name}</span>
+                <span class="text-xs text-dark-text-muted">→ {g.server_name || g.mcp_server_id}</span>
+              </div>
+              <p class="text-xs text-dark-text-muted mt-0.5">
+                Approved {new Date(g.created_at).toLocaleString()}{g.last_used_at ? ` · last used ${new Date(g.last_used_at).toLocaleString()}` : ''}
+              </p>
+            </div>
+            <button onclick={() => revokeGrant(g)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-900/20">
+              <Trash2 size={12} /> Revoke
+            </button>
           </div>
         {/each}
       </div>

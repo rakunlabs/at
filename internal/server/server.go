@@ -812,6 +812,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
 	gatewayGroup.GET("/v1/mcp/{name}/ws", s.GatewayMCPWSHandler) // raw WebSocket passthrough to config.ws_upstream
 
+	// AT as the MCP authorization server. RFC 8414/9728 metadata lives at the
+	// origin root with the deployment path appended, which is where clients
+	// derive it from the issuer and the resource URL.
+	s.registerMCPAuthServerRoutes(mux, cfg.BasePath)
+
 	gatewayGroup.GET("/v1/claude-code/marketplace.json", s.ClaudeCodeMarketplaceAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplace.zip", s.ClaudeCodeMarketplaceZipAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
@@ -1350,6 +1355,15 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/mcp/oauth/start", s.MCPOAuthStartAPI)
 	apiGroup.GET("/v1/mcp/oauth/callback", s.MCPOAuthCallbackAPI)
 	apiGroup.GET("/v1/mcp/oauth/accounts", s.MCPOAuthAccountsAPI)
+	// AT as the MCP authorization server: consent, the account's own grants,
+	// and pre-registered clients of an MCP server.
+	apiGroup.GET("/v1/mcp-auth/authorize", s.MCPAuthConsentInfoAPI)
+	apiGroup.POST("/v1/mcp-auth/authorize", s.MCPAuthConsentAPI)
+	apiGroup.GET("/v1/mcp-auth/grants", s.ListMCPAuthGrantsAPI)
+	apiGroup.DELETE("/v1/mcp-auth/grants/{id}", s.RevokeMCPAuthGrantAPI)
+	apiGroup.GET("/v1/mcp/servers/{id}/oauth-clients", s.ListMCPAuthClientsAPI)
+	apiGroup.POST("/v1/mcp/servers/{id}/oauth-clients", s.CreateMCPAuthClientAPI)
+	apiGroup.DELETE("/v1/mcp/servers/{id}/oauth-clients/{client}", s.DeleteMCPAuthClientAPI)
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
 	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
 	apiGroup.POST("/v1/mcp/sets/import", s.ImportMCPSetAPI)
