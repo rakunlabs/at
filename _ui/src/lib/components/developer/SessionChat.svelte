@@ -1,9 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import {
-    ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, CircleAlert, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
+    ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
     Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, Wrench, X,
   } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import {
@@ -293,7 +294,7 @@
       {#if running}
         <LoaderCircle size={13} class="shrink-0 animate-spin text-dark-text-muted motion-reduce:animate-none" />
       {:else if tool.failed}
-        <CircleAlert size={13} class="shrink-0 text-red-400" />
+        <SquareAlert size={13} class="shrink-0 text-red-400" />
       {:else if tool.result !== undefined}
         <Check size={13} class="shrink-0 text-green-400" />
       {/if}
@@ -403,9 +404,9 @@
       {/if}
 
       {#if error}
-        <p role="alert" class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><CircleAlert size={15} class="mt-0.5 shrink-0" /> {error}</p>
+        <p role="alert" class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><SquareAlert size={15} class="mt-0.5 shrink-0" /> {error}</p>
       {:else if session.status === 'failed' && session.error && !busy}
-        <p class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><CircleAlert size={15} class="mt-0.5 shrink-0" /> {session.error}</p>
+        <p class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><SquareAlert size={15} class="mt-0.5 shrink-0" /> {session.error}</p>
       {/if}
     </div>
   </div>

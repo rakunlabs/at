@@ -70,7 +70,7 @@
           {/if}
         {/if}
         <span class={['min-w-0 flex-1 truncate', changed.has(entry.path) ? 'text-amber-300' : '']}>{entry.name}</span>
-        {#if dirty.has(entry.path)}<span class="size-1.5 shrink-0 rounded-full bg-dark-text-secondary" title="Unsaved changes"></span>{/if}
+        {#if dirty.has(entry.path)}<span class="size-1.5 shrink-0 bg-dark-text-secondary" title="Unsaved changes"></span>{/if}
       </button>
       {#if isDir && expanded[entry.path]}
         <FileTree {listings} {expanded} {loading} folder={entry.path} depth={depth + 1} {selected} {dirty} {changed} {ontoggle} {onopen} {onmenu} {ondropfiles} />

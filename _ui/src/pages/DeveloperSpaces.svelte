@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import {
-    ChevronDown, CircleAlert, Download, FilePlus, FolderGit2, FolderPlus, GitBranch, LoaderCircle, MessageSquare,
+    ChevronDown, Download, FilePlus, FolderGit2, FolderPlus, GitBranch, LoaderCircle, MessageSquare,
     PanelBottom, PanelLeft, PanelRight, Plus, Power, RefreshCw, Search, Settings, Trash2, Upload, X, FileText, GitCompare,
   } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo } from '@/lib/api/gateway';
@@ -726,7 +727,7 @@
 
     {#if space}
       <span class="hidden items-center gap-1.5 text-xs text-dark-text-muted sm:inline-flex" title={space.error || ''}>
-        <span class={['size-2 rounded-full', starting ? 'bg-blue-500 animate-pulse motion-reduce:animate-none' : space.status === 'ready' ? 'bg-green-500' : space.status === 'error' ? 'bg-red-500' : 'bg-dark-text-faint']}></span>
+        <span class={['size-2', starting ? 'bg-blue-500 animate-pulse motion-reduce:animate-none' : space.status === 'ready' ? 'bg-green-500' : space.status === 'error' ? 'bg-red-500' : 'bg-dark-text-faint']}></span>
         {starting ? 'Starting…' : space.status === 'ready' ? 'Running' : space.status === 'error' ? 'Error' : space.status === 'stopped' ? 'Stopped' : 'Not started'}
       </span>
       {#if runtimeConnected && space.status === 'ready' && !starting}
@@ -742,7 +743,7 @@
   </div>
 
   {#if space?.status === 'error' && !starting}
-    <p role="alert" class="flex items-start gap-2 border-b border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300"><CircleAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
+    <p role="alert" class="flex items-start gap-2 border-b border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300"><SquareAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
   {/if}
 
   {#if settingsOpen && space}
@@ -790,7 +791,7 @@
             {#each projectSessions as s (s.id)}
               <li class="group flex items-center">
                 <button type="button" onclick={() => openSession(s.id)} class={['flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']} title={STATUS_LABELS[s.status]}>
-                  <span class={['size-1.5 shrink-0 rounded-full', statusDot(s.status)]}></span>
+                  <span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>
                   <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
                 </button>
                 <button type="button" onclick={() => removeSession(s)} class="mr-1 p-1 text-dark-text-muted opacity-0 hover:text-red-300 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100" aria-label={`Delete ${sessionTitle(s)}`}><Trash2 size={12} /></button>
@@ -805,7 +806,7 @@
               {#each otherSessions as s (s.id)}
                 <li>
                   <button type="button" onclick={() => { if (s.project_path !== project) void openProject(s.project_path, false); openSession(s.id); }} class={['flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left text-xs text-dark-text-secondary hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']}>
-                    <span class={['size-1.5 shrink-0 rounded-full', statusDot(s.status)]}></span>
+                    <span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>
                     <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
                     <span class="shrink-0 truncate text-[10px] text-dark-text-muted">{s.project_path || '/'}</span>
                   </button>
@@ -883,7 +884,7 @@
               {#if tab.kind === 'chat'}
                 {@const s = sessions.find(x => x.id === tab.sessionId)}
                 <MessageSquare size={13} class="shrink-0" />
-                {#if s}<span class={['size-1.5 shrink-0 rounded-full', statusDot(s.status)]}></span>{/if}
+                {#if s}<span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>{/if}
               {:else if tab.kind === 'diff'}
                 <GitCompare size={13} class="shrink-0" />
               {:else}
@@ -893,7 +894,7 @@
             </button>
             <button type="button" onclick={() => closeTab(tab.key)} class="flex size-5 items-center justify-center hover:bg-dark-elevated" aria-label={`Close ${tabLabel(tab)}`}>
               {#if tab.kind === 'file' && tab.content !== tab.saved}
-                <span class="size-2 rounded-full group-hover:hidden bg-dark-text-secondary"></span>
+                <span class="size-2 group-hover:hidden bg-dark-text-secondary"></span>
                 <X size={12} class="hidden group-hover:block" />
               {:else}
                 <X size={12} class="opacity-50 group-hover:opacity-100" />

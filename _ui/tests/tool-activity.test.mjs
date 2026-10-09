@@ -56,7 +56,7 @@ test('compact tool rows name the call by its identifying argument', () => {
   assert.equal(toolGlyph('file_read'), '→');
   assert.equal(toolGlyph('file_write'), '✎');
   assert.equal(toolGlyph('grep_search'), '*');
-  assert.equal(toolGlyph('whoami'), '•');
+  assert.equal(toolGlyph('whoami'), '▪');
   assert.equal(toolArgSummary('{"timeout":5,"command":"go test ./..."}'), 'go test ./...');
   assert.equal(toolArgSummary('{"pattern":"chatCallChain"}'), '"chatCallChain"');
   assert.equal(toolArgSummary('{"options":{"a":1},"limit":10}'), '10');

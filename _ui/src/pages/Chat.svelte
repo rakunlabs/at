@@ -4377,7 +4377,7 @@
          page reach on my machine", not "which subsystem is it". -->
     {#if activeBrowserTools.length > 0}
       <div role="status" class="mb-0.5 flex flex-wrap items-center gap-x-[2ch] gap-y-1 border-l-2 border-[var(--oc-green)] bg-dark-surface px-4 py-1.5 text-dark-text-muted sm:px-[22px]">
-        <span class="min-w-0 flex-1"><span class="text-[var(--oc-green)]">●</span> tools active on this device: <span class="text-dark-text-secondary">{activeBrowserTools.map(t => t.name).join(', ')}</span></span>
+        <span class="min-w-0 flex-1"><span class="text-[var(--oc-green)]">■</span> tools active on this device: <span class="text-dark-text-secondary">{activeBrowserTools.map(t => t.name).join(', ')}</span></span>
         {#each activeBrowserTools as active (active.key)}
           <button onclick={active.disable} class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent">disable {active.name}</button>
         {/each}
@@ -4539,7 +4539,7 @@
           aria-haspopup="dialog"
           title="Workbench — system prompt, skills, presets and tools"
           class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent"
-        >{toolCount > 0 ? `tools ${toolCount}` : 'tools'}{#if systemPrompt.trim()}<span class="text-accent" title="A system prompt is set"> •</span>{/if}</button>
+        >{toolCount > 0 ? `tools ${toolCount}` : 'tools'}{#if systemPrompt.trim()}<span class="text-accent" title="A system prompt is set"> ▪</span>{/if}</button>
         <button
           onclick={() => fileInput?.click()}
           disabled={models.length === 0}
@@ -4694,17 +4694,17 @@
           <button onclick={() => openWorkbench()} class="oc-link focus-visible:outline-1 focus-visible:outline-accent">edit</button>
         </div>
         <ul class="space-y-0.5 text-dark-text-muted">
-          <li class="flex gap-[1ch]"><span class={systemPrompt.trim() ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{systemPrompt.trim() ? '●' : '○'}</span>system prompt</li>
+          <li class="flex gap-[1ch]"><span class={systemPrompt.trim() ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{systemPrompt.trim() ? '■' : '□'}</span>system prompt</li>
           {#each selectedSkillNames as name (name)}
-            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{name} <span class="text-dark-text-faint">skill</span></span></li>
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">■</span><span class="truncate">{name} <span class="text-dark-text-faint">skill</span></span></li>
           {/each}
           {#each selectedMCPSetNames as name (name)}
-            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{name} <span class="text-dark-text-faint">mcp</span></span></li>
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">■</span><span class="truncate">{name} <span class="text-dark-text-faint">mcp</span></span></li>
           {/each}
           {#each activeBrowserTools as active (active.key)}
-            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">●</span><span class="truncate">{active.name} <span class="text-dark-text-faint">this device</span></span></li>
+            <li class="flex min-w-0 gap-[1ch]"><span class="text-[var(--oc-green)]">■</span><span class="truncate">{active.name} <span class="text-dark-text-faint">this device</span></span></li>
           {/each}
-          <li class="flex gap-[1ch]"><span class={toolCount > 0 ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{toolCount > 0 ? '●' : '○'}</span><span><span class="tabular-nums">{toolCount}</span> tool{toolCount === 1 ? '' : 's'} available</span></li>
+          <li class="flex gap-[1ch]"><span class={toolCount > 0 ? 'text-[var(--oc-green)]' : 'text-dark-text-faint'}>{toolCount > 0 ? '■' : '□'}</span><span><span class="tabular-nums">{toolCount}</span> tool{toolCount === 1 ? '' : 's'} available</span></li>
         </ul>
       </section>
 
@@ -4714,7 +4714,7 @@
           <ul class="space-y-0.5">
             {#each todos as todo}
               <li class={['flex gap-[1ch]', todo.status === 'completed' || todo.status === 'cancelled' ? 'text-dark-text-faint line-through' : todo.status === 'in_progress' ? 'text-[var(--oc-peach)]' : 'text-dark-text-secondary']}>
-                <span class="shrink-0">{todo.status === 'completed' ? '[✓]' : todo.status === 'in_progress' ? '[•]' : todo.status === 'cancelled' ? '[×]' : '[ ]'}</span>
+                <span class="shrink-0">{todo.status === 'completed' ? '[✓]' : todo.status === 'in_progress' ? '[▪]' : todo.status === 'cancelled' ? '[×]' : '[ ]'}</span>
                 <span class="min-w-0">{todo.content}{#if todo.priority === 'high' && todo.status !== 'completed' && todo.status !== 'cancelled'}<span class="text-[var(--oc-red)] no-underline"> !</span>{/if}</span>
               </li>
             {/each}

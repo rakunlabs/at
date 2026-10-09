@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Sparkles, Wrench, Flag, Bot, Layers, Binary, CircleAlert } from 'lucide-svelte';
+  import { Sparkles, Wrench, Flag, Bot, Layers, Binary } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   interface Props { type: string; error?: boolean; label?: boolean }
   let { type, error = false, label = false }: Props = $props();
 
@@ -15,6 +16,6 @@
 </script>
 
 <span class={['inline-flex shrink-0 items-center gap-1', error ? 'text-red-400' : style.cls]} title={error ? `${type} (error)` : type}>
-  {#if error}<CircleAlert size={12} />{:else}<style.icon size={12} />{/if}
+  {#if error}<SquareAlert size={12} />{:else}<style.icon size={12} />{/if}
   {#if label}<span class="font-mono text-[11px]">{style.text}</span>{/if}
 </span>

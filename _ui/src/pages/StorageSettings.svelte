@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { CheckCircle2, Loader2, XCircle } from 'lucide-svelte';
+  import { SquareCheck, Loader2, SquareX } from 'lucide-svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import {
@@ -287,11 +287,11 @@
               <p class="settings-note flex items-center gap-2"><Loader2 size={14} class="animate-spin shrink-0" />Testing the settings in this form…</p>
             {:else if testResult?.ok}
               <p class="settings-note flex items-center gap-2 text-green-300">
-                <CheckCircle2 size={14} class="shrink-0" />Connection succeeded. These settings are not saved yet.
+                <SquareCheck size={14} class="shrink-0" />Connection succeeded. These settings are not saved yet.
               </p>
             {:else if testResult}
               <p class="settings-error flex items-start gap-2">
-                <XCircle size={14} class="shrink-0 mt-1" />
+                <SquareX size={14} class="shrink-0 mt-1" />
                 <span>Connection failed: <span class="break-all">{testResult.message || 'the server did not report a reason.'}</span></span>
               </p>
             {/if}

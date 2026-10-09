@@ -116,7 +116,7 @@
   {#if scrollThumbHeight > 0}
     <div
       aria-hidden="true"
-      class={['pointer-events-none absolute right-0.5 z-10 w-1 rounded-full bg-dark-text-muted/70', scrollThumbVisible ? '' : 'hidden']}
+      class={['pointer-events-none absolute right-0.5 z-10 w-1 bg-dark-text-muted/70', scrollThumbVisible ? '' : 'hidden']}
       style={`height: ${scrollThumbHeight}px; transform: translateY(${scrollThumbTop}px);`}
     ></div>
   {/if}

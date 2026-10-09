@@ -949,8 +949,8 @@
       <!-- Live pulse: this subtask currently has a running delegation goroutine. -->
       {#if isLive}
         <span class="relative flex w-2 h-2 shrink-0" title="Agent is working on this subtask right now">
-          <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-          <span class="relative inline-flex w-2 h-2 rounded-full bg-green-500"></span>
+          <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+          <span class="relative inline-flex w-2 h-2 bg-green-500"></span>
         </span>
       {/if}
 
@@ -1156,8 +1156,8 @@
                 {/if}
                 {#if delegationActive}
                   <span class="relative flex w-1.5 h-1.5 ml-0.5" title="Live delegation in this tree">
-                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
                   </span>
                 {/if}
               </button>
@@ -1170,8 +1170,8 @@
                 Events
                 {#if delegationActive}
                   <span class="relative flex w-1.5 h-1.5 ml-0.5">
-                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
                   </span>
                 {/if}
               </button>
@@ -1458,8 +1458,8 @@
                           {/if}
                           {#if isLive}
                             <span class="relative flex w-1.5 h-1.5 shrink-0 mt-1" title="In flight">
-                              <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                              <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                              <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+                              <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
                             </span>
                           {/if}
                         </div>
@@ -1498,7 +1498,7 @@
                     {#each taskLabels as label}
                       <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium border border-dark-border">
                         {#if label.color}
-                          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: {label.color}"></span>
+                          <span class="w-2.5 h-2.5 shrink-0" style="background-color: {label.color}"></span>
                         {/if}
                         {label.name}
                         <button
@@ -1547,7 +1547,7 @@
                         <button
                           onclick={() => (newLabelColor = color)}
                           class={[
-                            'w-5 h-5 rounded-full border-2 ',
+                            'w-5 h-5 border-2 ',
                             newLabelColor === color ? 'border-white scale-110' : 'border-transparent hover:border-dark-border-subtle',
                           ]}
                           style="background-color: {color}"
@@ -1566,7 +1566,7 @@
                           class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-dark-elevated/50 {isLabelAttached(label.id) ? 'bg-dark-elevated/30' : ''}"
                         >
                           {#if label.color}
-                            <span class="w-3 h-3 rounded-full shrink-0" style="background-color: {label.color}"></span>
+                            <span class="w-3 h-3 shrink-0" style="background-color: {label.color}"></span>
                           {/if}
                           <span class="flex-1 text-dark-text-secondary">{label.name}</span>
                           {#if isLabelAttached(label.id)}

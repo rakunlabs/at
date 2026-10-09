@@ -41,7 +41,7 @@ export function toolGlyph(name: string): string {
   if (/(read|get|fetch|open|load|view|cat)/.test(n)) return '→';
   if (/(grep|glob|search|find|list|query)/.test(n)) return '*';
   if (/(agent|delegate|skill|run)/.test(n)) return '◇';
-  return '•';
+  return '▪';
 }
 
 const ARG_PRIORITY = ['command', 'path', 'file_path', 'filePath', 'file', 'pattern', 'query', 'url', 'name', 'skill_name', 'id', 'task', 'prompt'];

@@ -1349,6 +1349,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// MCP set management (internal MCPs)
 	apiGroup.POST("/v1/mcp/oauth/start", s.MCPOAuthStartAPI)
 	apiGroup.GET("/v1/mcp/oauth/callback", s.MCPOAuthCallbackAPI)
+	apiGroup.GET("/v1/mcp/oauth/accounts", s.MCPOAuthAccountsAPI)
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
 	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
 	apiGroup.POST("/v1/mcp/sets/import", s.ImportMCPSetAPI)

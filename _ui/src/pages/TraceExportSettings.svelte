@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Loader2, Plus, Trash2, CheckCircle2, XCircle } from 'lucide-svelte';
+  import { Loader2, Plus, Trash2, SquareCheck, SquareX } from 'lucide-svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { workspaceState } from '@/lib/store/workspace.svelte';
   import { getTraceExportSettings, saveTraceExportSettings, testTraceExport, type TraceExportSettings, type TraceExportTestResult } from '@/lib/api/trace-export';
@@ -161,7 +161,7 @@
   {#if notice}<p role="status" class="text-sm text-green-400">{notice}</p>{/if}
   {#if result}
     <div role="status" class="border border-dark-border p-4 space-y-2">
-      <p class="flex items-center gap-2 text-sm font-medium">{#if result.ok}<CheckCircle2 size={16} class="text-green-400 shrink-0" />Receiver accepted the test trace{:else}<XCircle size={16} class="text-red-400 shrink-0" />Connection test failed{/if}</p>
+      <p class="flex items-center gap-2 text-sm font-medium">{#if result.ok}<SquareCheck size={16} class="text-green-400 shrink-0" />Receiver accepted the test trace{:else}<SquareX size={16} class="text-red-400 shrink-0" />Connection test failed{/if}</p>
       <p class="settings-note">{result.message}</p>
       <p class="settings-note">Duration: {result.duration_ms} ms</p>
       <p class="settings-note break-all">Trace ID: <code>{result.trace_id}</code></p>

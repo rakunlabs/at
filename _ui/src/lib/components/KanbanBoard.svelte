@@ -19,10 +19,10 @@
     ArrowUp,
     ArrowDown,
     Minus,
-    Circle,
+    Square,
     Building2,
     Play,
-    CheckCircle2,
+    SquareCheck,
     FileText,
   } from 'lucide-svelte';
 
@@ -302,7 +302,7 @@
             <div class="flex items-center gap-2 flex-wrap">
               {#if item.task.assigned_agent_id}
                 <div class="flex items-center gap-1 text-[10px] text-dark-text-secondary">
-                  <Circle size={8} />
+                  <Square size={8} />
                   <span class="truncate max-w-[100px]">{agentName(item.task.assigned_agent_id)}</span>
                 </div>
               {/if}
@@ -317,7 +317,7 @@
                   {#if isFailedStatus(item.task.status)}
                     <FileText size={10} class="text-dark-text-muted" />
                   {:else}
-                    <CheckCircle2 size={10} class="text-green-400" />
+                    <SquareCheck size={10} class="text-green-400" />
                   {/if}
                 </div>
               {/if}

@@ -36,8 +36,8 @@
   <!-- Header -->
   <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-700 font-medium {data.is_root ? 'bg-indigo-900/30' : 'bg-gray-700/50'}">
     <div class="relative shrink-0">
-      <img src={agentAvatar(data.avatar_seed, data.name || data.label || id, 20)} alt="" class="w-5 h-5 rounded-full bg-gray-600" />
-      <span class="absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full border border-gray-800 {statusColors[data.status || ''] || statusColors.idle}"></span>
+      <img src={agentAvatar(data.avatar_seed, data.name || data.label || id, 20)} alt="" class="w-5 h-5 bg-gray-600" />
+      <span class="absolute -bottom-0.5 -right-0.5 block h-2 w-2 border border-gray-800 {statusColors[data.status || ''] || statusColors.idle}"></span>
     </div>
     <span class="text-gray-100 truncate">{data.name || data.label || 'Agent'}</span>
   </div>

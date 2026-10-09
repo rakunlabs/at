@@ -1613,9 +1613,9 @@
                     <span class="text-xs text-dark-text-muted">
                       {formatNumber(usage.totalTokens)} / {formatNumber(token.total_token_limit)} ({pct}%)
                     </span>
-                    <div class="w-24 h-1.5 bg-dark-border rounded-full overflow-hidden">
+                    <div class="w-24 h-1.5 bg-dark-border overflow-hidden">
                       <div
-                        class="h-full rounded-full {pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}"
+                        class="h-full {pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}"
                         style="width: {pct}%"
                       ></div>
                     </div>

@@ -371,7 +371,7 @@
   }
 
   const inputClass = 'w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted';
-  const toggleTrack = "w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 rounded-full peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:rounded-full after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent";
+  const toggleTrack = "w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent";
 </script>
 
 <svelte:head>

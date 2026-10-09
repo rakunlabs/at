@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Check, ChevronRight, CircleAlert, LoaderCircle, Wrench } from 'lucide-svelte';
+  import { Check, ChevronRight, LoaderCircle, Wrench } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import { getTextContent, type ChatMessage, type ToolCall } from '../helper/chat';
   import { formatToolPayload, toolArgSummary, toolGlyph, toolResultFailed, toolResultSummary } from '../helper/tool-activity';
 
@@ -65,7 +66,7 @@
     <span class="min-w-0 flex-1 break-all font-mono font-medium text-dark-text">{call.function.name}</span>
     {#if source}<span class="text-dark-text-muted">{source}</span>{/if}
     <span class={['flex items-center gap-1', failed ? 'text-red-400' : 'text-dark-text-secondary']}>
-      {#if failed}<CircleAlert size={13} />{:else if result !== undefined}<Check size={13} />{:else if running}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}
+      {#if failed}<SquareAlert size={13} />{:else if result !== undefined}<Check size={13} />{:else if running}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}
       {status}
     </span>
     {#if summary}<span class="basis-full pl-6 break-words text-dark-text-secondary">{summary}</span>{/if}

@@ -31,11 +31,11 @@
     RefreshCw,
     Activity,
     Zap,
-    AlertCircle,
     Clock,
     Download,
     ExternalLink,
   } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
 
   storeNavbar.title = 'Usage';
 
@@ -614,7 +614,7 @@
 
       <div class="p-3 border border-dark-border">
         <div class="flex items-center gap-1.5 text-xs text-dark-text-muted mb-1">
-          <AlertCircle size={12} /> Cost coverage
+          <SquareAlert size={12} /> Cost coverage
         </div>
         <div
           class="text-xl font-semibold tabular-nums"

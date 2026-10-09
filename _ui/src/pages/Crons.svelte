@@ -683,7 +683,7 @@
           <div class="col-span-3 flex items-center gap-3">
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" bind:checked={formEnabled} class="sr-only peer" />
-              <div class="w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 rounded-full peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:rounded-full after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent"></div>
+              <div class="w-9 h-5 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-accent/20 peer bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-dark-border after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-dark-surface after:border after:h-4 after:w-4 after:border-dark-border-subtle peer-checked:bg-accent"></div>
             </label>
           </div>
         </div>

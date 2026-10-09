@@ -20,7 +20,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { Handle, getFlow } from 'kaykay';
-  import { ChevronDown, ChevronRight, CircleAlert, CircleCheck, CircleX, Loader, Pin, TriangleAlert } from 'lucide-svelte';
+  import { ChevronDown, ChevronRight, SquareCheck, SquareX, Loader, Pin, TriangleAlert } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import { workflowRun } from '@/lib/store/workflow-run.svelte';
   import { getWorkflowNodeDefinition } from '@/lib/workflow/node-definitions';
   import { getWorkflowNodeAppearance, workflowKindStripe, workflowKindTile } from '@/lib/workflow/node-appearance';
@@ -109,9 +110,9 @@
       {#if run?.status === 'running'}
         <Loader size={14} class="text-blue-400" aria-label="Running" />
       {:else if run?.status === 'completed'}
-        {#if run.pinned}<Pin size={14} class="text-blue-400" aria-label="Pinned output" />{:else}<CircleCheck size={14} class="text-green-400" aria-label="Completed" />{/if}
+        {#if run.pinned}<Pin size={14} class="text-blue-400" aria-label="Pinned output" />{:else}<SquareCheck size={14} class="text-green-400" aria-label="Completed" />{/if}
       {:else if run?.status === 'error'}
-        {#if run.error_policy}<TriangleAlert size={14} class="text-amber-600" aria-label="Handled failure" />{:else}<CircleX size={14} class="text-red-400" aria-label="Failed" />{/if}
+        {#if run.error_policy}<TriangleAlert size={14} class="text-amber-600" aria-label="Handled failure" />{:else}<SquareX size={14} class="text-red-400" aria-label="Failed" />{/if}
       {/if}
       {#if data.node_number != null}
         <span class="text-[11px] tabular-nums text-dark-text-faint">#{data.node_number}</span>
@@ -173,7 +174,7 @@
     <div class="space-y-2 border-t px-3 py-2.5 border-dark-border">
       {#if setup}
         <div class="flex items-center gap-1.5 border px-2 py-1 text-xs border-amber-900 bg-amber-950/40 text-amber-300">
-          <CircleAlert size={12} class="shrink-0" />{setup}
+          <SquareAlert size={12} class="shrink-0" />{setup}
         </div>
       {/if}
       {#if shownFields.length}

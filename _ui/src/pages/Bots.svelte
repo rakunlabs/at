@@ -1113,7 +1113,7 @@
               <td class="px-4 py-2.5">
                 {#if botStatuses[bot.id]?.running}
                   <span class="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium bg-green-900/30 text-green-300">
-                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    <span class="w-1.5 h-1.5 bg-green-500 animate-pulse"></span>
                     Running
                   </span>
                 {:else if bot.enabled}

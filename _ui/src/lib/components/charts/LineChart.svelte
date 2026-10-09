@@ -105,7 +105,7 @@
       {#each series as s}
         <path d={pathFor(s.values)} fill="none" stroke={s.color} stroke-width="1.5" />
         {#each s.values as pt}
-          <circle cx={xScale(pt.x)} cy={yScale(pt.y)} r="2" fill={s.color} />
+          <rect x={xScale(pt.x) - 2} y={yScale(pt.y) - 2} width="4" height="4" fill={s.color} />
         {/each}
       {/each}
     </g>

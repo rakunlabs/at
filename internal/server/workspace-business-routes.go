@@ -336,6 +336,9 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// the callback is bound to the starting account/session by the store.
 		{"POST", "/mcp/oauth/start", "mcp.use", "", ""},
 		{"GET", "/mcp/oauth/callback", "mcp.use", "", ""},
+		// The OAuth upstreams of usable sets with the caller's own account
+		// status; no URLs beyond the origin, headers or tokens.
+		{"GET", "/mcp/oauth/accounts", "mcp.use", "", ""},
 		// Chat sessions are per-account: rows are owner-scoped in the handlers
 		// and the list predicate (an administrator additionally sees ownerless
 		// bot/legacy rows), so the capability only gates entry — agents.read

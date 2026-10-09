@@ -292,7 +292,7 @@
                 {#if c.manifest.voice}<Mic size={8} />{/if}
                 {#if (c.manifest.turnarounds || []).length}<span>{(c.manifest.turnarounds || []).length + 1} refs</span>{/if}
                 {#if c.manifest.sora_character_id}<Sparkles size={8} />{/if}
-                {#if missing.length}<span class="text-amber-500" title={`Missing: ${missing.join(', ')}`}>•</span>{/if}
+                {#if missing.length}<span class="text-amber-500" title={`Missing: ${missing.join(', ')}`}>▪</span>{/if}
               </div>
             </div>
             <span

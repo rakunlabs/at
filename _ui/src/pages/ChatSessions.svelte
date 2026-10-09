@@ -1129,7 +1129,7 @@
                         : 'border-dark-border text-dark-text-secondary hover:border-dark-text-muted hover:bg-dark-elevated',
                     ]}
                   >
-                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 rounded-full bg-dark-elevated" />
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 bg-dark-elevated" />
                     <span class="break-words text-left">{agent.name}</span>
                     {#if pendingAgentId === agent.id}<Check size={14} class="shrink-0" />{/if}
                   </button>
@@ -1289,7 +1289,7 @@
               {@const toolId = `tool-${msg.id}`}
               <!-- Tool result row -->
               <div class="flex gap-3 group">
-                <div class="shrink-0 w-7 h-7 rounded-full bg-dark-elevated text-dark-text-muted flex items-center justify-center">
+                <div class="shrink-0 w-7 h-7 bg-dark-elevated text-dark-text-muted flex items-center justify-center">
                   <Terminal size={13} />
                 </div>
                 <div class="flex-1 min-w-0">
@@ -1361,7 +1361,7 @@
           {/if}
           {#if toolEvents.length > 0 && showToolActivity}
             <div class="flex gap-3">
-              <div class="shrink-0 w-7 h-7 rounded-full bg-yellow-900/30 text-yellow-400 flex items-center justify-center">
+              <div class="shrink-0 w-7 h-7 bg-yellow-900/30 text-yellow-400 flex items-center justify-center">
                 <Wrench size={13} />
               </div>
               <div class="flex-1 min-w-0 space-y-1">
@@ -1505,7 +1505,7 @@
                 selectedSession?.agent_id === agent.id ? 'bg-dark-elevated' : '',
               ]}
             >
-              <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-dark-elevated" />
+              <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 shrink-0 bg-dark-elevated" />
               <div>
                 <span class="font-medium text-dark-text">{agent.name}</span>
                 {#if agent.scope === 'personal'}

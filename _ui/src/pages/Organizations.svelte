@@ -181,8 +181,8 @@
         {@const totalActive = Object.values(activeByOrg).reduce((s, a) => s + a.length, 0)}
         <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="Active delegations right now">
           <span class="relative flex w-1.5 h-1.5">
-            <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+            <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+            <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
           </span>
           {totalActive} working
         </span>
@@ -299,8 +299,8 @@
               {#if activeByOrg[organization.id]?.length}
                 <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-900/20 text-green-400 border border-green-900/40" title="{activeByOrg[organization.id].length} active task{activeByOrg[organization.id].length === 1 ? '' : 's'}">
                   <span class="relative flex w-1.5 h-1.5">
-                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
                   </span>
                   {activeByOrg[organization.id].length} running
                 </span>

@@ -592,7 +592,7 @@
           <Container size={12} />
           Container
           {#if containerConfig.enabled}
-            <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+            <span class="w-1.5 h-1.5 bg-green-400"></span>
           {/if}
         </button>
         <button
@@ -888,7 +888,7 @@
                   class="flex items-center justify-between px-3 py-2 border-b border-dark-border hover:bg-dark-elevated"
                 >
                   <div class="flex items-center gap-2 min-w-0">
-                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 rounded-full shrink-0 bg-dark-elevated" />
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 shrink-0 bg-dark-elevated" />
                     <div class="min-w-0">
                       <div class="text-xs font-medium text-dark-text truncate">{agent.name}</div>
                       {#if agent.config.model}
@@ -924,7 +924,7 @@
           <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
             {#if membership && agent}
               <div class="flex items-center gap-2.5">
-                <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 rounded-full shrink-0 bg-dark-elevated" />
+                <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 shrink-0 bg-dark-elevated" />
                 <div>
                   <span class="text-[11px] font-medium text-dark-text-muted">Name</span>
                   <div class="text-xs font-medium text-dark-text mt-0.5">{agent.name}</div>

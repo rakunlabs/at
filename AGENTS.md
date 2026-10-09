@@ -2641,6 +2641,20 @@ connection bindings *before* connecting MCP. Tool observations get an
 `mcp_oauth_account` event (provider, source, connection ID — never tokens).
 Stdio upstreams never take OAuth.
 
+**Connecting from Connections.** A member who cannot edit a set gets a
+redacted upstream list, so the set editor's *Connect my account* is only
+reachable for writers. `GET /api/v1/mcp/oauth/accounts` (`mcp.use`,
+`mcp-oauth-accounts.go`) lists the OAuth upstreams of every set the caller may
+use (resolved through `ResolveMCPSetForUse` after the `mcp.use` execution
+check), with the caller's own matching personal connection (same provider and
+`SameMCPResource`). It returns only the server origin, provider and account
+sources — no path, headers or tokens. The Connections page shows these as
+*MCP servers* with Connect/Reconnect/Disconnect, which start the existing
+`/mcp/oauth/start` flow by `set_id` + `upstream_index`. That page also hides
+connectors without accounts behind *Show all providers*, so built-in
+connector definitions (Google, Spotify, …) no longer look like installed
+integrations.
+
 Regressions: `internal/store/postgres/mcp-oauth-connections_test.go`
 (isolation, owner immutability, deletion sweep, concurrent refresh),
 `internal/server/mcp-oauth_test.go` (fake MCP + AS: start → callback → call →

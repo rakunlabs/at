@@ -114,7 +114,7 @@
           >
             <span class="min-w-0 truncate">{item.label}</span>
             {#if item.current}
-              <span class={index === selected ? '' : 'text-[var(--oc-green)]'}>●</span>
+              <span class={index === selected ? '' : 'text-[var(--oc-green)]'}>■</span>
             {:else if item.hint}
               <span class={['shrink-0', index === selected ? '' : 'text-dark-text-muted']}>{item.hint}</span>
             {/if}

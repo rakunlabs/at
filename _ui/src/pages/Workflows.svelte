@@ -3,7 +3,7 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, createWorkflow, deleteWorkflow, getWorkflow, runWorkflowStream, type Workflow, type WorkflowNode, type WorkflowStreamEvent } from '@/lib/api/workflows';
-  import { Plus, RefreshCw, Trash2, Pencil, Play, Workflow as WorkflowIcon, Copy, X, Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte';
+  import { Plus, RefreshCw, Trash2, Pencil, Play, Workflow as WorkflowIcon, Copy, X, Loader2, SquareCheck, AlertTriangle } from 'lucide-svelte';
   import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -243,7 +243,7 @@
       case 'node_skipped': return '⊘';
       case 'run_completed': return '★';
       case 'error': return '✗';
-      default: return '•';
+      default: return '▪';
     }
   }
 
@@ -590,7 +590,7 @@
             </button>
             {#if runStatus === 'completed'}
               <span class="flex items-center gap-1 text-xs text-green-400">
-                <CheckCircle2 size={12} />
+                <SquareCheck size={12} />
                 Completed
               </span>
             {:else if runStatus === 'error'}
@@ -628,7 +628,7 @@
           {@const errorEvents = runEvents.filter(e => e.error)}
           <div class="space-y-3">
             <div class="flex items-center gap-2">
-              <CheckCircle2 size={16} class="text-green-500" />
+              <SquareCheck size={16} class="text-green-500" />
               <span class="text-sm font-medium text-green-400">Done</span>
             </div>
             {#if outputEvent?.outputs}

@@ -143,6 +143,7 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 		"PUT /connections/{id}":    "connections.use",
 		"DELETE /connections/{id}": "connections.use",
 		"POST /mcp/oauth/start":    "mcp.use",
+		"GET /mcp/oauth/accounts":  "mcp.use",
 	} {
 		if got := policies[pattern]; got != want {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)

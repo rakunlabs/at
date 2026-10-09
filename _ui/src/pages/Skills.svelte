@@ -1578,9 +1578,9 @@
                     <button
                       onclick={() => toggleSourceEnabled(src)}
                       aria-label="Toggle {src.name}"
-                      class="w-8 h-5 rounded-full {src.enabled ? 'bg-green-500' : 'bg-dark-border'} relative"
+                      class="w-8 h-5 {src.enabled ? 'bg-green-500' : 'bg-dark-border'} relative"
                     >
-                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-dark-surface shadow "></span>
+                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 bg-dark-surface shadow "></span>
                     </button>
                     <div>
                       <span class="text-sm font-medium text-dark-text">{src.name}</span>

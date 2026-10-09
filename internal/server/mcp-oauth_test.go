@@ -154,6 +154,22 @@ func TestMCPOAuthEndToEnd(t *testing.T) {
 	}
 
 	// Without an account the tool call fails with guidance, never silently.
+	accounts := func() []mcpOAuthAccountTarget {
+		t.Helper()
+		w := httptest.NewRecorder()
+		f.s.MCPOAuthAccountsAPI(w, httptest.NewRequest(http.MethodGet, "/api/v1/mcp/oauth/accounts", nil).WithContext(f.ctx))
+		if w.Code != http.StatusOK {
+			t.Fatalf("accounts: %d %s", w.Code, w.Body.String())
+		}
+		var out []mcpOAuthAccountTarget
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := accounts(); len(got) != 1 || got[0].SetID != set.ID || got[0].Provider != provider || got[0].Account != nil || strings.Contains(got[0].Server, "/mcp") {
+		t.Fatalf("accounts before connecting: %+v", got)
+	}
 	if _, err := f.s.listExecutionMCPSetTools(f.ctx, "github"); err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +224,9 @@ func TestMCPOAuthEndToEnd(t *testing.T) {
 	conns, err := f.store.ListConnectionsByProvider(f.ctx, provider)
 	if err != nil || len(conns) != 1 || conns[0].Scope != service.ConnectionScopePersonal || conns[0].Credentials.MCPOAuth.AccessToken != "access-1" {
 		t.Fatalf("stored connection: %+v %v", conns, err)
+	}
+	if got := accounts(); len(got) != 1 || got[0].Account == nil || got[0].Account.ConnectionID != conns[0].ID {
+		t.Fatalf("accounts after connecting: %+v", got)
 	}
 
 	// Tool call with the stored token.

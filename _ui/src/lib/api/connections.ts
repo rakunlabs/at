@@ -160,6 +160,25 @@ export async function startMCPOAuth(input: MCPOAuthStartInput): Promise<{ author
 
 export interface MCPOAuthResult { type: 'at-mcp-oauth-result'; ok: boolean; message: string; connection_id?: string }
 
+/** An OAuth upstream of an MCP set the caller may use, with their own account for it. */
+export interface MCPOAuthAccountTarget {
+  set_id: string;
+  set_name: string;
+  set_scope: 'personal' | 'workspace';
+  upstream_index: number;
+  provider: string;
+  /** scheme://host only. */
+  server: string;
+  accounts: ('user' | 'agent' | 'shared')[];
+  account?: { connection_id: string; name: string; label?: string; needs_reauth?: boolean };
+  shared?: { connection_id: string };
+}
+
+export async function listMCPOAuthAccounts(): Promise<MCPOAuthAccountTarget[]> {
+  const res = await api.get<MCPOAuthAccountTarget[]>('/mcp/oauth/accounts');
+  return res.data ?? [];
+}
+
 export function validMCPOAuthMessage(event: Pick<MessageEvent, 'origin' | 'source' | 'data'>, popup: Window | null, origin: string): event is MessageEvent<MCPOAuthResult> {
   return event.origin === origin && !!popup && event.source === popup && event.data?.type === 'at-mcp-oauth-result' && typeof event.data.ok === 'boolean';
 }

@@ -14,6 +14,8 @@
     getManualAuthURL,
     exchangeCode,
     connectMCPAccount,
+    listMCPOAuthAccounts,
+    type MCPOAuthAccountTarget,
     type Connection,
     type ConnectionScope,
   } from '@/lib/api/connections';
@@ -30,9 +32,8 @@
   import {
     Plug,
     RefreshCw,
-    CheckCircle2,
-    XCircle,
-    AlertCircle,
+    SquareCheck,
+    SquareX,
     Plus,
     Pencil,
     Trash2,
@@ -48,6 +49,7 @@
     KeyRound,
     User,
   } from 'lucide-svelte';
+  import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
 
   storeNavbar.title = 'Connections';
 
@@ -56,11 +58,15 @@
   let admin = $derived(isNativeAdmin());
   let mayManageWorkspace = $derived(admin || (can('connections.write') && can('credentials.manage')));
   let mayPersonal = $derived(admin || can('connections.use'));
+  let mayUseMCP = $derived(admin || can('mcp.use'));
   let myUserID = $derived(storeAuth.identity?.subject ?? '');
 
   // ─── State ───
   let connectors = $state<Connector[]>([]);
   let connections = $state<Connection[]>([]);
+  let mcpTargets = $state<MCPOAuthAccountTarget[]>([]);
+  let mcpConnecting = $state('');
+  let showAllProviders = $state(false);
   let loading = $state(true);
   let saving = $state(false);
 
@@ -109,6 +115,9 @@
       await Promise.all([
         pageLoad.load('Connector catalog', listConnectors, result => { connectors = result || []; }, 'external_connections'),
         pageLoad.load('Connections', listConnections, result => { connections = result || []; }, 'external_connections'),
+        mayUseMCP
+          ? pageLoad.load('MCP servers', listMCPOAuthAccounts, result => { mcpTargets = result || []; }, 'mcp_servers')
+          : Promise.resolve(false),
       ]);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load connections', 'alert');
@@ -128,6 +137,25 @@
   // MCP OAuth accounts are listed on their own: they are created by the
   // authorization flow, never through a connector form.
   const mcpAccounts = $derived(connections.filter((c) => !!c.mcp_oauth));
+  // Accounts already shown next to an MCP server row are not repeated below.
+  const listedMCPConnectionIDs = $derived(new Set(mcpTargets.map((t) => t.account?.connection_id).filter(Boolean)));
+  const otherMCPAccounts = $derived(mcpAccounts.filter((c) => !listedMCPConnectionIDs.has(c.id)));
+
+  function connectMCPTarget(t: MCPOAuthAccountTarget) {
+    const key = `${t.set_id}:${t.upstream_index}`;
+    mcpConnecting = key;
+    connectMCPAccount(t.account
+      ? { connection_id: t.account.connection_id, target: 'personal' }
+      : { set_id: t.set_id, upstream_index: t.upstream_index, target: 'personal', connection_name: 'My account' })
+      .then((r) => { addToast(r.message || 'Account connected'); load(); })
+      .catch((e: any) => addToast(e?.message || 'Authorization failed', 'alert'))
+      .finally(() => { if (mcpConnecting === key) mcpConnecting = ''; });
+  }
+
+  function mcpSourcesText(t: MCPOAuthAccountTarget): string {
+    const labels: Record<string, string> = { user: 'your account', agent: 'agent binding', shared: 'shared account' };
+    return t.accounts.map((a) => labels[a] ?? a).join(' → ');
+  }
 
   const connectionsByProvider = $derived(() => {
     const m = new Map<string, Connection[]>();
@@ -140,9 +168,10 @@
     return m;
   });
 
-  // Sections: one per connector (sorted by name), plus orphan providers that
-  // have connections but no connector definition.
-  const sections = $derived(() => {
+  // Sections: one per connector that has accounts (sorted by name), plus orphan
+  // providers that have connections but no connector definition. Connectors
+  // nobody has used yet are a catalog, shown only on request.
+  const allSections = $derived(() => {
     const out: { connector?: Connector; provider: string; items: Connection[] }[] = [];
     const seen = new Set<string>();
     for (const c of connectors) {
@@ -156,6 +185,8 @@
     }
     return out;
   });
+  const sections = $derived(() => showAllProviders ? allSections() : allSections().filter((s) => s.items.length > 0));
+  const unusedProviderCount = $derived(allSections().filter((s) => s.items.length === 0).length);
 
   function providerLabel(provider: string): string {
     return connectorBySlug().get(provider)?.name ?? provider;
@@ -551,10 +582,10 @@
     <div>
       <h1 class="text-lg font-semibold text-dark-text">Connections</h1>
       <p class="text-sm text-dark-text-muted mt-0.5">
-        Named external-service accounts. Providers are data-driven — add your own from "Add provider".
+        Your accounts on MCP servers and external services.
       </p>
       <span class="text-xs text-dark-text-muted">
-        {connections.length} account{connections.length === 1 ? '' : 's'} across {sections().length} provider{sections().length === 1 ? '' : 's'}
+        {connections.length} account{connections.length === 1 ? '' : 's'}
       </span>
     </div>
     <div class="flex items-center gap-2 shrink-0">
@@ -587,17 +618,80 @@
     </div>
   </div>
 
-  {#if mcpAccounts.length > 0}
+  {#if mcpTargets.length > 0}
     <section class="border border-dark-border mb-4">
       <div class="px-4 py-3 border-b border-dark-border">
-        <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><KeyRound size={14} /> MCP accounts</h2>
+        <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><KeyRound size={14} /> MCP servers</h2>
         <p class="text-xs text-dark-text-muted mt-0.5">
-          Authorized through an MCP server's OAuth. Connect new ones from the MCP set editor (MCP page → upstream → Authentication).
+          MCP servers in your sets that sign in with OAuth. Connect your own account once; your chats and agents then use it.
           Tokens refresh automatically and are never shown.
         </p>
       </div>
       <div class="divide-y divide-dark-border">
-        {#each mcpAccounts as c (c.id)}
+        {#each mcpTargets as t (`${t.set_id}:${t.upstream_index}`)}
+          {@const key = `${t.set_id}:${t.upstream_index}`}
+          {@const usesMine = t.accounts.includes('user')}
+          <div class="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm text-dark-text">{t.set_name}</span>
+                <span class="px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-muted">{t.set_scope === 'personal' ? 'my set' : 'workspace set'}</span>
+                {#if !usesMine}
+                  <span class="px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-muted">managed account</span>
+                {:else if t.account?.needs_reauth}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-oc-red text-oc-red"><SquareAlert size={10} /> Needs reconnecting</span>
+                {:else if t.account}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-oc-green"><SquareCheck size={10} /> Connected</span>
+                {:else}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-muted"><SquareX size={10} /> Not connected</span>
+                {/if}
+              </div>
+              <p class="text-xs text-dark-text-muted mt-0.5 font-mono truncate">{t.server}{t.account?.label ? ` · ${t.account.label}` : ''}</p>
+              <p class="text-xs text-dark-text-muted mt-0.5">
+                {#if usesMine}
+                  Uses: {mcpSourcesText(t)}
+                {:else}
+                  This server uses {mcpSourcesText(t)}; there is nothing for you to connect.
+                {/if}
+              </p>
+            </div>
+            {#if usesMine && mayPersonal}
+              <div class="flex items-center gap-1 shrink-0">
+                {#if t.account}
+                  <button onclick={() => connectMCPTarget(t)} disabled={mcpConnecting === key}
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50" title="Re-authorize this account">
+                    <RefreshCw size={12} /> Reconnect
+                  </button>
+                  {@const conn = connections.find((c) => c.id === t.account?.connection_id)}
+                  {#if conn}
+                    <button onclick={() => remove(conn)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-900/20" title="Disconnect">
+                      <Trash2 size={12} /> Disconnect
+                    </button>
+                  {/if}
+                {:else}
+                  <button onclick={() => connectMCPTarget(t)} disabled={mcpConnecting === key}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50">
+                    <Plug size={12} /> Connect my account
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if otherMCPAccounts.length > 0}
+    <section class="border border-dark-border mb-4">
+      <div class="px-4 py-3 border-b border-dark-border">
+        <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><KeyRound size={14} /> {mcpTargets.length > 0 ? 'Other MCP accounts' : 'MCP accounts'}</h2>
+        <p class="text-xs text-dark-text-muted mt-0.5">
+          Accounts authorized through an MCP server's OAuth that no set you can use currently points at, plus shared workspace accounts.
+        </p>
+      </div>
+      <div class="divide-y divide-dark-border">
+        {#each otherMCPAccounts as c (c.id)}
           <div class="flex items-start justify-between gap-3 px-4 py-3">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -605,9 +699,9 @@
                 <span class="px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-dark-text-muted">{c.scope === 'personal' ? 'personal' : 'workspace'}</span>
                 <span class="text-xs font-mono text-dark-text-muted">{c.provider}</span>
                 {#if c.mcp_oauth?.needs_reauth}
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-oc-red text-oc-red"><AlertCircle size={10} /> Needs re-authorization</span>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-oc-red text-oc-red"><SquareAlert size={10} /> Needs re-authorization</span>
                 {:else}
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-oc-green"><CheckCircle2 size={10} /> Connected</span>
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-dark-border-subtle text-oc-green"><SquareCheck size={10} /> Connected</span>
                 {/if}
                 {#if c.used_by_agents?.length}
                   <span class="inline-flex items-center gap-1 text-[11px] text-dark-text-muted" title={c.used_by_agents.map((a) => a.name).join(', ')}><Users size={10} /> {c.used_by_agents.length}</span>
@@ -634,18 +728,36 @@
     </section>
   {/if}
 
+  {#if !pageLoad.loading('Connections') && !(pageLoad.error('Connections') && !connections.length) && (allSections().length > 0)}
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><Cable size={14} /> Service accounts</h2>
+      {#if unusedProviderCount > 0}
+        <button onclick={() => (showAllProviders = !showAllProviders)} class="text-xs text-dark-text-muted hover:text-dark-text">
+          {showAllProviders ? 'Show only providers with accounts' : `Show all providers (${unusedProviderCount} without accounts)`}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if pageLoad.loading('Connections')}
     <div class="border border-dark-border px-4 py-10 text-center text-sm text-dark-text-muted">
       Loading connections…
     </div>
   {:else if pageLoad.error('Connections') && !connections.length}
     <p class="text-sm text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
-  {:else if sections().length === 0}
+  {:else if allSections().length === 0}
     <div class="border border-dark-border px-4 py-10 text-center">
       <Cable size={24} class="mx-auto text-dark-text-faint mb-2" />
       <div class="text-dark-text-muted mb-1">No providers yet</div>
       <div class="text-xs text-dark-text-muted">
         Add a provider type to start storing external-service credentials.
+      </div>
+    </div>
+  {:else if sections().length === 0}
+    <div class="border border-dark-border px-4 py-8 text-center">
+      <div class="text-xs text-dark-text-muted">
+        No service accounts yet.
+        {#if mayPersonal}<button onclick={() => (showAllProviders = true)} class="text-accent hover:underline">Show providers</button> to add one.{/if}
       </div>
     </div>
   {:else}
@@ -718,11 +830,11 @@
                           : 'bg-dark-elevated border-dark-border',
                     ]}>
                       {#if connectionVerified}
-                        <CheckCircle2 size={18} class="text-green-400" />
+                        <SquareCheck size={18} class="text-green-400" />
                       {:else if isOAuth(connector) && isConnected(c, connector)}
-                        <AlertCircle size={18} class="text-amber-400" />
+                        <SquareAlert size={18} class="text-amber-400" />
                       {:else}
-                        <XCircle size={18} class="text-dark-text-muted" />
+                        <SquareX size={18} class="text-dark-text-muted" />
                       {/if}
                     </div>
                     <div class="min-w-0">
@@ -741,19 +853,19 @@
                       <div class="mt-2 flex flex-wrap items-center gap-2">
                         {#if isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-900/20 text-green-400 border">
-                            <CheckCircle2 size={10} /> {isOAuth(connector) ? 'Verified' : 'Connected'}
+                            <SquareCheck size={10} /> {isOAuth(connector) ? 'Verified' : 'Connected'}
                           </span>
                         {:else if isOAuth(connector) && isConnected(c, connector)}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-amber-900/20 text-amber-400 border border-amber-800" title="Stored credentials have not been verified by refreshing an access token">
-                            <AlertCircle size={10} /> Stored — re-authorize to verify
+                            <SquareAlert size={10} /> Stored — re-authorize to verify
                           </span>
                         {:else if isSetupComplete(c, connector)}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-900/20 text-yellow-400 border">
-                            <AlertCircle size={10} /> Ready to connect
+                            <SquareAlert size={10} /> Ready to connect
                           </span>
                         {:else}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-dark-elevated text-dark-text-muted border">
-                            <XCircle size={10} /> Not configured
+                            <SquareX size={10} /> Not configured
                           </span>
                         {/if}
                         {#if c.used_by_agents && c.used_by_agents.length > 0}

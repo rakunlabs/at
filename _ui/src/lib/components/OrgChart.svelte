@@ -359,7 +359,7 @@
             <!-- Name row -->
             <div class="flex items-center gap-2 mb-1">
               <div class="relative shrink-0">
-                <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] rounded-full bg-dark-elevated" />
+                <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] bg-dark-elevated" />
                 {#if isHead}
                   <Crown size={8} class="absolute -top-0.5 -right-0.5 text-amber-500 drop-shadow" />
                 {/if}
@@ -373,8 +373,8 @@
                   title="{node.agent.active_count} active delegation{node.agent.active_count === 1 ? '' : 's'}"
                 >
                   <span class="relative flex w-1.5 h-1.5">
-                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                    <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
                   </span>
                   {#if node.agent.active_count > 1}
                     <span class="text-[9px] font-medium text-green-400">{node.agent.active_count}</span>
@@ -382,7 +382,7 @@
                 </span>
               {:else}
                 <span
-                  class="shrink-0 ml-auto w-1.5 h-1.5 rounded-full"
+                  class="shrink-0 ml-auto w-1.5 h-1.5"
                   style="background-color: {statusColor(node.agent.status)}"
                   title={statusLabel(node.agent.status)}
                 ></span>
