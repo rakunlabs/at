@@ -2,7 +2,7 @@
   import { router } from 'svelte-spa-router';
   import { settingsLinkVisible, configurationLinks } from '../helper/navigation';
 </script>
-<aside class="flex flex-col min-h-0 min-w-0 overflow-hidden border-b sm:border-b-0 sm:border-r border-dark-border bg-dark-base p-3">
+<aside class="grain-background flex flex-col min-h-0 min-w-0 overflow-hidden border-b sm:border-b-0 sm:border-r border-dark-border bg-dark-base p-3">
   <!-- No "Settings" heading: the navbar already titles the page and the shell's
        sidebar now marks Settings as the current section, which is also the way
        back to the settings index. -->

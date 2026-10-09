@@ -3309,10 +3309,11 @@ See `_ui/README.md` for install, deployment and device verification instructions
   `oc-peach` (running/selected), `oc-violet`, `oc-green`, `oc-red`. The gray
   scale is remapped onto the same tones; prefer the named tokens.
 - Type is JetBrains Mono everywhere (`--font-sans` and `--font-mono`).
-- The ground (`html`, `body`, `bg-dark-base`) carries a 2px dither grain
-  (`--grain` in `global.css`, the omp.sh texture); raised fills stay flat, so
-  the texture also marks what floats. It is dropped under
-  `prefers-contrast: more`.
+- Page backgrounds (`html`, `body`, `.grain-background`) and the app sidebar/
+  navbar carry a 2px dither grain (`--grain` in `global.css`, the omp.sh
+  texture). `bg-dark-base` alone stays flat; bordered boxes and settings
+  sections mask the underlying grain with a flat base-layer fill, which explicit
+  background utilities may override. Grain is dropped under `prefers-contrast: more`.
 - Solid `bg-accent` fills carry dark ink (`text-dark-base`), never white.
 - When `<style>` needs Tailwind: `@reference` the relative path to
   `src/style/global.css` (not `"tailwindcss"`, and not the `@/` alias, which CSS

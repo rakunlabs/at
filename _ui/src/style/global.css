@@ -91,19 +91,25 @@
 ::selection { background: #5c9cf540; color: #f1ecec; }
 :is(input, textarea) { caret-color: #f1ecec; }
 
-/* Grain: a 2px dither on the ground, with enough contrast to read at normal
-   zoom without changing the warm near-black palette. Only the ground
-   carries it; raised blocks (surface, elevated, dialogs) stay flat, so the
-   texture also marks what sits on top. Off when the reader asks for contrast. */
+/* Grain is opt-in for page backgrounds and navigation, never a side effect of
+   bg-dark-base. Boxed content masks the ground with a flat fill below. */
 :root {
   --grain: conic-gradient(rgb(255 255 255 / 0.08) 90deg, transparent 90deg 180deg, rgb(255 255 255 / 0.08) 180deg 270deg, transparent 270deg);
 }
-html, body, .bg-dark-base, .oc-theme {
+html, body, .grain-background, .app-sidebar, .app-navbar {
   background-image: var(--grain);
   background-size: 2px 2px;
 }
 @media (prefers-contrast: more) {
-  html, body, .bg-dark-base, .oc-theme { background-image: none; }
+  html, body, .grain-background, .app-sidebar, .app-navbar { background-image: none; }
+}
+
+/* Transparent cards would otherwise show the page's grain through them.
+   Keep this in the base layer so explicit background utilities still win. */
+@layer base {
+  :where(.border, .border-2, .settings-section, .settings-button) {
+    background-color: var(--color-dark-base);
+  }
 }
 
 /* Solid accent fills carry dark ink; white text fails contrast on the blue. */

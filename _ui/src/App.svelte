@@ -102,7 +102,7 @@
 {:else if router.location === '/mobile-authorize'}<MobileAuthorize query={router.querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else if router.location === '/oauth/mcp/authorize'}<McpAuthorize query={router.querystring || ''} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
-<div class={['grid h-full w-full min-w-0 bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
+<div class={['grain-background grid h-full w-full min-w-0 bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}
   <dialog bind:this={mobileNavigation} class="mobile-navigation" aria-label="Navigation" onclose={closeNavigation} onclick={event => { if (event.target === mobileNavigation || (event.target instanceof Element && event.target.closest('a'))) closeNavigation(); }}>
     <div class="flex h-full flex-col bg-dark-base">
