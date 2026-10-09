@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ArrowDown, ArrowUp, KeyRound, Link2, RefreshCw } from 'lucide-svelte';
   import type { MCPUpstream, MCPUpstreamAuth } from '@/lib/api/mcp-servers';
   import { connectMCPAccount, type Connection } from '@/lib/api/connections';
@@ -31,8 +32,9 @@
 
   let { upstream, setID = null, index, dirty = false, connections, mayShare = false, onchange, onconnected }: Props = $props();
 
-  let form = $state<MCPAuthForm>(mcpAuthForm(upstream.auth));
-  let showAdvanced = $state(!!(upstream.auth?.client_id || upstream.auth?.authorization_server));
+  // Seed the editable draft once; parent updates must not normalize in-progress input.
+  let form = $state<MCPAuthForm>(untrack(() => mcpAuthForm(upstream.auth)));
+  let showAdvanced = $state(untrack(() => !!(upstream.auth?.client_id || upstream.auth?.authorization_server)));
   let connecting = $state(false);
 
   function update(patch: Partial<MCPAuthForm>) {

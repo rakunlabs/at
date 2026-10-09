@@ -5,6 +5,14 @@ import ts from 'typescript';
 import { moduleURL } from './typescript-module.mjs';
 const { createRouteLoader } = await import(await moduleURL(new URL('../src/lib/helper/route-loader.ts', import.meta.url)));
 
+test('workspace admission screen does not eagerly import the lazy settings page', async () => {
+  const source = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /^\s*import .*from ['"].*\/WorkspaceSettings\.svelte['"]/m);
+  assert.match(source, /\(\) => import\('\.\/pages\/WorkspaceSettings\.svelte'\)/);
+  assert.match(source, /\{#await loadWorkspaceSettings\(\)\}/);
+  assert.match(source, /\(\) => \(\{ default: RouteLoadError \}\)/);
+});
+
 test('simultaneous route visits share one import and keep the same loaded component', async () => {
   let resolve, calls = 0;
   const module = { default: {} };

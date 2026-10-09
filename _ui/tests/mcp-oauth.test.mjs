@@ -25,6 +25,14 @@ test('disabled form stores nothing', () => {
   assert.equal(mcpUpstreamAuth(mcpAuthForm()), undefined);
 });
 
+test('auth editor explicitly snapshots its editable initial state without compiler warnings', async () => {
+  const { compile } = await import('svelte/compiler');
+  const source = await readFile(new URL('../src/lib/components/McpUpstreamAuth.svelte', import.meta.url), 'utf8');
+  const { warnings } = compile(source, { filename: 'McpUpstreamAuth.svelte', generate: 'client' });
+  assert.equal(warnings.filter(w => w.code === 'state_referenced_locally').length, 0);
+  assert.match(source, /untrack\(\(\) => mcpAuthForm\(upstream\.auth\)\)/);
+});
+
 test('defaults are not written back', () => {
   const form = { ...mcpAuthForm(), enabled: true };
   assert.deepEqual(mcpUpstreamAuth(form), { type: 'oauth2' });
