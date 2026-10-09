@@ -158,7 +158,7 @@ export async function startMCPOAuth(input: MCPOAuthStartInput): Promise<{ author
   return res.data;
 }
 
-export interface MCPOAuthResult { type: 'at-mcp-oauth-result'; ok: boolean; message: string; connection_id?: string }
+export interface MCPOAuthResult { type: 'at-mcp-oauth-result'; ok: boolean; message: string; connection_id?: string; state?: string }
 
 /** An OAuth upstream of an MCP set the caller may use, with their own account for it. */
 export interface MCPOAuthAccountTarget {
@@ -194,25 +194,46 @@ export function connectMCPAccount(input: MCPOAuthStartInput): Promise<MCPOAuthRe
   popup.document.title = 'Connecting your MCP account…';
   return new Promise((resolve, reject) => {
     let settled = false;
+    let state = '';
+    let channel: BroadcastChannel | undefined;
     const finish = (error?: Error, result?: MCPOAuthResult) => {
       if (settled) return;
       settled = true;
       clearInterval(timer); clearTimeout(timeout); window.removeEventListener('message', receive);
+      channel?.close();
       if (!popup.closed) popup.close();
       if (error) reject(error); else resolve(result!);
     };
     const receive = (event: MessageEvent) => {
       if (!validMCPOAuthMessage(event, popup, location.origin)) return;
+      if (event.data.state && event.data.state !== state) return;
       if (event.data.ok) finish(undefined, event.data);
       else finish(new Error(event.data.message || 'Authorization failed.'));
     };
-    const timer = window.setInterval(() => { if (popup.closed) finish(new Error('The authorization window closed before completion.')); }, 500);
+    // COOP can make the original WindowProxy report closed while the popup
+    // is still authorizing. When the fallback is available, await its result
+    // (or the ceremony deadline), not that unreliable closed flag.
+    const timer = window.setInterval(() => { if (popup.closed && !channel) finish(new Error('The authorization window closed before completion.')); }, 500);
     const timeout = window.setTimeout(() => finish(new Error('Authorization expired. Start again.')), 600_000);
     window.addEventListener('message', receive);
     startMCPOAuth(input).then(({ authorize_url }) => {
       if (settled) return;
       const url = new URL(authorize_url);
       if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Invalid authorization URL');
+      state = url.searchParams.get('state') || '';
+      if (state && typeof BroadcastChannel !== 'undefined') {
+        try {
+          channel = new BroadcastChannel(`at-mcp-oauth:${state}`);
+          channel.onmessage = (event: MessageEvent<MCPOAuthResult>) => {
+            const result = event.data;
+            // BroadcastChannel is same-origin, but concurrent ceremonies
+            // must never settle each other's promise.
+            if (result?.type !== 'at-mcp-oauth-result' || result.state !== state || typeof result.ok !== 'boolean') return;
+            if (result.ok) finish(undefined, result);
+            else finish(new Error(result.message || 'Authorization failed.'));
+          };
+        } catch { /* Keep the opener path when this browser denies channels. */ }
+      }
       popup.location.replace(url.href);
     }).catch((e: any) => finish(new Error(e?.response?.data?.message || e?.message || 'Cannot start the authorization.')));
   });

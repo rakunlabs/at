@@ -298,37 +298,40 @@ func (s *Server) mcpOAuthReconnectTarget(ctx context.Context, req mcpOAuthStartR
 // MCPOAuthCallbackAPI handles GET /api/v1/mcp/oauth/callback.
 func (s *Server) MCPOAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	render := func(ok bool, message, connectionID string) {
+		s.renderMCPOAuthResult(w, ok, message, connectionID, q.Get("state"))
+	}
 	if code := q.Get("error"); code != "" {
 		// The authorization server's description is not shown: it is
 		// attacker-influenced text rendered on AT's origin.
-		s.renderMCPOAuthResult(w, false, "The authorization server refused the request ("+mcpOAuthErrorCode(code)+").", "")
+		render(false, "The authorization server refused the request ("+mcpOAuthErrorCode(code)+").", "")
 		return
 	}
 	state, code := q.Get("state"), q.Get("code")
 	pendingStore, ok := s.store.(service.MCPOAuthPendingStorer)
 	if state == "" || code == "" || !ok {
-		s.renderMCPOAuthResult(w, false, "The authorization response is incomplete. Start again.", "")
+		render(false, "The authorization response is incomplete. Start again.", "")
 		return
 	}
 	raw, err := pendingStore.TakeMCPOAuthPending(r.Context(), mcpOAuthStateHash(state))
 	if err != nil || raw == nil {
-		s.renderMCPOAuthResult(w, false, "This authorization expired or belongs to another session. Start again.", "")
+		render(false, "This authorization expired or belongs to another session. Start again.", "")
 		return
 	}
 	var pending mcpOAuthPending
 	if err := json.Unmarshal(raw, &pending); err != nil {
-		s.renderMCPOAuthResult(w, false, "The pending authorization is unreadable. Start again.", "")
+		render(false, "The pending authorization is unreadable. Start again.", "")
 		return
 	}
 	if pending.RedirectURI != s.mcpOAuthRedirectURI(r) {
-		s.renderMCPOAuthResult(w, false, "The authorization returned to a different address than it started from.", "")
+		render(false, "The authorization returned to a different address than it started from.", "")
 		return
 	}
 	client := mcpauth.Client(mcpauth.AllowsPrivate(pending.MCPURL))
 	tok, err := mcpauth.Exchange(r.Context(), client, pending.TokenEndpoint, pending.ClientID, pending.ClientSecret, code, pending.RedirectURI, pending.Verifier, pending.Resource)
 	if err != nil {
 		slog.Warn("MCP OAuth code exchange failed", "provider", pending.Provider, "error", err)
-		s.renderMCPOAuthResult(w, false, "The authorization server did not accept the code. Start again.", "")
+		render(false, "The authorization server did not accept the code. Start again.", "")
 		return
 	}
 	scopes := pending.Scopes
@@ -347,11 +350,11 @@ func (s *Server) MCPOAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, service.ErrAccessDenied) {
 			msg = "You are not allowed to save this connection."
 		}
-		s.renderMCPOAuthResult(w, false, msg, "")
+		render(false, msg, "")
 		return
 	}
 	slog.Info("MCP OAuth account connected", "provider", pending.Provider, "connection_id", conn.ID, "scope", conn.Scope)
-	s.renderMCPOAuthResult(w, true, "Account connected. You can close this window.", conn.ID)
+	render(true, "Account connected. You can close this window.", conn.ID)
 }
 
 // saveMCPOAuthConnection creates or renews the connection. A renewal keeps
@@ -425,8 +428,10 @@ func mcpOAuthErrorCode(code string) string {
 }
 
 // renderMCPOAuthResult answers the popup with a document that reports the
-// outcome to the exact opener origin (never "*") and closes itself.
-func (s *Server) renderMCPOAuthResult(w http.ResponseWriter, ok bool, message, connectionID string) {
+// outcome to the exact opener origin (never "*") and closes itself. A
+// state-scoped BroadcastChannel survives authorization servers that sever
+// window.opener via Cross-Origin-Opener-Policy.
+func (s *Server) renderMCPOAuthResult(w http.ResponseWriter, ok bool, message, connectionID, state string) {
 	var nonce [16]byte
 	_, _ = rand.Read(nonce[:])
 	n := base64.RawStdEncoding.EncodeToString(nonce[:])
@@ -434,7 +439,7 @@ func (s *Server) renderMCPOAuthResult(w http.ResponseWriter, ok bool, message, c
 	if s.nativeAuth != nil {
 		origin = s.nativeAuth.Origin()
 	}
-	payload, _ := json.Marshal(map[string]any{"type": "at-mcp-oauth-result", "ok": ok, "message": message, "connection_id": connectionID})
+	payload, _ := json.Marshal(map[string]any{"type": "at-mcp-oauth-result", "ok": ok, "message": message, "connection_id": connectionID, "state": state})
 	var safe bytes.Buffer
 	json.HTMLEscape(&safe, payload)
 	originJSON, _ := json.Marshal(origin)
@@ -450,6 +455,6 @@ func (s *Server) renderMCPOAuthResult(w http.ResponseWriter, ok bool, message, c
 	w.WriteHeader(status)
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>MCP authorization</title></head><body><p>%s</p>
 <script type="application/json" id="result">%s</script>
-<script nonce="%s">(function(){var r=JSON.parse(document.getElementById("result").textContent);var o=%s;if(window.opener&&o){window.opener.postMessage(r,o);setTimeout(function(){window.close();},%s);}})();</script>
+<script nonce="%s">(function(){var r=JSON.parse(document.getElementById("result").textContent);var o=%s;var sent=false;try{if(r.state&&typeof BroadcastChannel!=="undefined"){var c=new BroadcastChannel("at-mcp-oauth:"+r.state);c.postMessage(r);setTimeout(function(){c.close();},1000);sent=true;}}catch(e){}try{if(window.opener&&o){window.opener.postMessage(r,o);sent=true;}}catch(e){}if(sent){setTimeout(function(){window.close();},%s);}})();</script>
 </body></html>`, html.EscapeString(message), safe.String(), n, originJSON, strconv.Itoa(map[bool]int{true: 300, false: 4000}[ok]))
 }

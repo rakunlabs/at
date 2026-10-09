@@ -92,6 +92,8 @@ func TestMCPToolErrorStatus(t *testing.T) {
 	}{
 		{service.ErrAccessResourceNotFound, 404},
 		{service.ErrAccessDenied, 403},
+		{service.ErrExecutionDenied, 403},
+		{&mcpToolNotFoundError{name: "gitlab_search", diagnostics: []error{fmt.Errorf("connect to MCP upstream: %w", service.ErrExecutionDenied)}}, 403},
 		{service.ErrWorkspaceRequired, 400},
 		{service.ErrWorkspaceConflict, 409},
 		{errors.New("database unavailable"), 500},

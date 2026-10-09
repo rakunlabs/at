@@ -177,7 +177,7 @@ func mcpToolErrorStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, service.ErrWorkspaceRequired):
 		return http.StatusBadRequest
-	case errors.Is(err, service.ErrAccessDenied):
+	case errors.Is(err, service.ErrAccessDenied), errors.Is(err, service.ErrExecutionDenied):
 		return http.StatusForbidden
 	case errors.Is(err, service.ErrWorkspaceConflict):
 		return http.StatusConflict

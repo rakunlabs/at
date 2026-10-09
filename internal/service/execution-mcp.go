@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -69,9 +70,12 @@ func isTrustedLocalMCP(ctx context.Context, endpoint string) bool {
 // or an explicitly scoped machine credential, never anonymous HTTP loopback.
 func NewExecutionHTTPMCPClient(ctx context.Context, endpoint string, opts ...HTTPMCPClientOption) (MCPClient, error) {
 	if err := CheckExecution(ctx, ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: endpoint}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("MCP upstream access denied; check access to the MCP set in this workspace: %w", err)
 	}
 	if err := CheckExecution(ctx, ExecutionAction{Kind: "handler", Name: "javascript"}); err != nil {
+		if errors.Is(err, ErrExecutionDenied) {
+			return nil, fmt.Errorf("MCP upstream execution is not permitted; an installation administrator must enable Trusted host mode and host execution permission under Settings → Execution for this workspace (connecting an OAuth account does not grant execution permission): %w", err)
+		}
 		return nil, err
 	}
 	u, err := url.Parse(endpoint)
@@ -118,7 +122,7 @@ func (c *executionMCPClient) CallTool(ctx context.Context, name string, args map
 		return "", err
 	}
 	if err := CheckExecution(ctx, ExecutionAction{Kind: "mcp_tool", Name: name, ResourceID: c.resourceID}); err != nil {
-		return "", err
+		return "", fmt.Errorf("MCP tool %q execution is not permitted; check its MCP tool permission under Settings → Execution: %w", name, err)
 	}
 	return c.client.CallTool(ctx, name, args)
 }

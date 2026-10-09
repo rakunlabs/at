@@ -166,7 +166,7 @@
             <option value="isolated_worker" disabled>Isolated worker — unavailable</option>
           </select>
         </label>
-        <p class="settings-note">{policy.mode === 'trusted_host' ? 'Tools and handlers may run on this host according to the permissions below.' : 'Restricted mode supports only non-host operations. Bash and builtin management tools require Trusted host.'}</p>
+        <p class="settings-note">{policy.mode === 'trusted_host' ? 'Tools and handlers may run on this host according to the permissions below.' : 'Restricted mode supports only non-host operations. Server-side MCP tools, Bash and builtin management tools require Trusted host. Connecting an OAuth account does not grant permission to run its tools.'}</p>
 
         <section class="space-y-3" aria-labelledby="execution-tools-title">
           <h2 id="execution-tools-title" class="settings-subsection-title">Tools</h2>

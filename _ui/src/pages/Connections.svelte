@@ -1,6 +1,7 @@
 <script lang="ts">
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
   import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  import { connectionSections } from '@/lib/helper/connection-sections';
   const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -68,7 +69,10 @@
   let mcpTargets = $state<MCPOAuthAccountTarget[]>([]);
   let mcpGrants = $state<MCPAuthGrant[]>([]);
   let mcpConnecting = $state('');
-  let showAllProviders = $state(false);
+  let showProviderCatalog = $state(false);
+  let providerSearch = $state('');
+  let providerDialog = $state<HTMLDialogElement>();
+  let providerSearchInput = $state<HTMLInputElement>();
   let loading = $state(true);
   let saving = $state(false);
 
@@ -173,36 +177,23 @@
     return t.accounts.map((a) => labels[a] ?? a).join(' → ');
   }
 
-  const connectionsByProvider = $derived(() => {
-    const m = new Map<string, Connection[]>();
-    for (const c of connections) {
-      if (c.mcp_oauth) continue;
-      const arr = m.get(c.provider) ?? [];
-      arr.push(c);
-      m.set(c.provider, arr);
-    }
-    return m;
-  });
+  const sections = $derived(connectionSections(connections, connectors));
+  const catalogProviders = $derived(connectors.filter(connector =>
+    `${connector.name} ${connector.slug} ${connector.description ?? ''}`.toLowerCase().includes(providerSearch.trim().toLowerCase())));
 
-  // Sections: one per connector that has accounts (sorted by name), plus orphan
-  // providers that have connections but no connector definition. Connectors
-  // nobody has used yet are a catalog, shown only on request.
-  const allSections = $derived(() => {
-    const out: { connector?: Connector; provider: string; items: Connection[] }[] = [];
-    const seen = new Set<string>();
-    for (const c of connectors) {
-      seen.add(c.slug);
-      out.push({ connector: c, provider: c.slug, items: connectionsByProvider().get(c.slug) ?? [] });
+  function openProviderCatalog() {
+    providerSearch = '';
+    showProviderCatalog = true;
+  }
+
+  $effect(() => {
+    if (showProviderCatalog && providerDialog && !providerDialog.open) {
+      providerDialog.showModal();
+      providerSearchInput?.focus();
+    } else if (!showProviderCatalog && providerDialog?.open) {
+      providerDialog.close();
     }
-    for (const [provider, items] of connectionsByProvider()) {
-      if (!seen.has(provider)) {
-        out.push({ connector: undefined, provider, items });
-      }
-    }
-    return out;
   });
-  const sections = $derived(() => showAllProviders ? allSections() : allSections().filter((s) => s.items.length > 0));
-  const unusedProviderCount = $derived(allSections().filter((s) => s.items.length === 0).length);
 
   function providerLabel(provider: string): string {
     return connectorBySlug().get(provider)?.name ?? provider;
@@ -269,6 +260,7 @@
   }
 
   function openCreate(connector: Connector) {
+    showProviderCatalog = false;
     editor = { kind: 'create', connector };
     formScope = mayManageWorkspace ? 'workspace' : 'personal';
     formName = '';
@@ -604,7 +596,7 @@
         {connections.length} account{connections.length === 1 ? '' : 's'}
       </span>
     </div>
-    <div class="flex items-center gap-2 shrink-0">
+    <div class="flex flex-wrap items-center gap-2">
       <button
         onclick={() => load()}
         class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
@@ -624,12 +616,17 @@
       </button>
       <button
         onclick={openConnectorCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-gray-950 hover:bg-accent-hover"
-        title="Add a new provider type (connector)"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
+        title="Define a custom connection template"
       >
         <Cable size={14} />
-        Add provider
+        Add custom provider
       </button>
+      {/if}
+      {#if mayPersonal}
+        <button onclick={openProviderCatalog} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover">
+          <Plus size={14} /> Add connection
+        </button>
       {/if}
     </div>
   </div>
@@ -771,15 +768,8 @@
     </section>
   {/if}
 
-  {#if !pageLoad.loading('Connections') && !(pageLoad.error('Connections') && !connections.length) && (allSections().length > 0)}
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-      <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5"><Cable size={14} /> Service accounts</h2>
-      {#if unusedProviderCount > 0}
-        <button onclick={() => (showAllProviders = !showAllProviders)} class="text-xs text-dark-text-muted hover:text-dark-text">
-          {showAllProviders ? 'Show only providers with accounts' : `Show all providers (${unusedProviderCount} without accounts)`}
-        </button>
-      {/if}
-    </div>
+  {#if sections.length > 0}
+    <h2 class="text-sm font-medium text-dark-text flex items-center gap-1.5 mb-2"><Cable size={14} /> External service connections</h2>
   {/if}
 
   {#if pageLoad.loading('Connections')}
@@ -788,24 +778,16 @@
     </div>
   {:else if pageLoad.error('Connections') && !connections.length}
     <p class="text-sm text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
-  {:else if allSections().length === 0}
-    <div class="border border-dark-border px-4 py-10 text-center">
-      <Cable size={24} class="mx-auto text-dark-text-faint mb-2" />
-      <div class="text-dark-text-muted mb-1">No providers yet</div>
-      <div class="text-xs text-dark-text-muted">
-        Add a provider type to start storing external-service credentials.
-      </div>
-    </div>
-  {:else if sections().length === 0}
+  {:else if sections.length === 0}
     <div class="border border-dark-border px-4 py-8 text-center">
       <div class="text-xs text-dark-text-muted">
-        No service accounts yet.
-        {#if mayPersonal}<button onclick={() => (showAllProviders = true)} class="text-accent hover:underline">Show providers</button> to add one.{/if}
+        No external service connections yet.
+        {#if mayPersonal}<button onclick={openProviderCatalog} class="text-accent hover:underline">Add connection</button> to connect an account.{/if}
       </div>
     </div>
   {:else}
     <div class="space-y-4">
-    {#each sections() as section (section.provider)}
+    {#each sections as section (section.provider)}
       {@const connector = section.connector}
       <section class="border border-dark-border overflow-hidden">
         <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border">
@@ -851,13 +833,6 @@
           </div>
         </div>
 
-        {#if section.items.length === 0}
-          <div class="px-4 py-8 text-center">
-            <div class="text-xs text-dark-text-muted">
-              No {providerLabel(section.provider)} accounts yet — use "Add account" to create one.
-            </div>
-          </div>
-        {:else}
           <div class="divide-y divide-dark-border">
             {#each section.items as c (c.id)}
               {@const connectionVerified = isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
@@ -1032,12 +1007,53 @@
               </div>
             {/each}
           </div>
-        {/if}
       </section>
     {/each}
     </div>
   {/if}
 </div>
+
+<!-- Templates are a creation choice, never entries in the saved-account list. -->
+<dialog bind:this={providerDialog} onclose={() => (showProviderCatalog = false)} aria-labelledby="provider-catalog-title"
+  class="m-auto p-0 w-[calc(100%-2rem)] max-w-xl max-h-[85dvh] border border-dark-border bg-dark-surface text-dark-text backdrop:bg-black/60">
+  <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-dark-border">
+    <div>
+      <h2 id="provider-catalog-title" class="text-sm font-medium">Provider catalog</h2>
+      <p class="text-xs text-dark-text-secondary mt-1">Choose a template to add a connection. These are not connected accounts.</p>
+    </div>
+    <button onclick={() => (showProviderCatalog = false)} aria-label="Close provider catalog" class="p-1.5 hover:bg-dark-elevated"><X size={16} /></button>
+  </div>
+  <div class="p-4">
+    <label class="block text-xs text-dark-text-secondary mb-1" for="provider-search">Search providers</label>
+    <input id="provider-search" bind:this={providerSearchInput} bind:value={providerSearch} type="search"
+      class="w-full px-3 py-1.5 text-sm border border-dark-border-subtle bg-dark-base text-dark-text focus:outline-2 focus:outline-accent" />
+  </div>
+  <div class="max-h-[50dvh] overflow-y-auto border-t border-dark-border">
+    {#if pageLoad.loading('Connector catalog')}
+      <p class="p-4 text-xs text-dark-text-secondary">Loading provider catalog…</p>
+    {:else if pageLoad.error('Connector catalog')}
+      <div class="p-4 text-xs text-dark-text-secondary">Provider catalog could not be loaded. <button onclick={load} class="text-accent hover:underline">Retry</button></div>
+    {:else if connectors.length === 0}
+      <p class="p-4 text-xs text-dark-text-secondary">No connection templates available.{admin ? ' Add a custom provider to define one.' : ''}</p>
+    {:else if catalogProviders.length === 0}
+      <p class="p-4 text-xs text-dark-text-secondary">No providers match your search.</p>
+    {:else}
+      <div class="divide-y divide-dark-border">
+        {#each catalogProviders as connector (connector.slug)}
+          <button onclick={() => openCreate(connector)} class="block w-full px-4 py-3 text-left hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2">
+            <span class="text-sm">{connector.name || connector.slug}</span>
+            {#if connector.description}<span class="block text-xs text-dark-text-secondary mt-1">{connector.description}</span>{/if}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
+  {#if admin}
+    <div class="px-4 py-3 border-t border-dark-border">
+      <button onclick={() => { showProviderCatalog = false; openConnectorCreate(); }} class="inline-flex items-center gap-1.5 text-xs text-dark-text-secondary hover:text-dark-text"><Plus size={12} /> Add custom provider</button>
+    </div>
+  {/if}
+</dialog>
 
 <!-- Connection editor modal -->
 {#if editor}

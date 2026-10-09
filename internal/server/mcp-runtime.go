@@ -308,6 +308,12 @@ func (e *mcpToolNotFoundError) Error() string {
 	return fmt.Sprintf("unknown tool: %s; MCP discovery failed: %v", e.name, errors.Join(e.diagnostics...))
 }
 
+// A tool absent because its upstream was denied is an admission failure,
+// not an upstream outage. Preserve the causes for HTTP status selection.
+func (e *mcpToolNotFoundError) Unwrap() []error {
+	return e.diagnostics
+}
+
 type mcpRuntimeBuilder struct {
 	server          *Server
 	acquireUpstream func(context.Context, service.MCPUpstream) (mcpClientLease, error)
