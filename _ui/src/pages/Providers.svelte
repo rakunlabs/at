@@ -46,6 +46,7 @@
   import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff, Boxes } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import { priceFormFromConfig, priceConfigFromForm, validatePriceForm, setPriceField, type ModelPriceForm } from '@/lib/helper/model-pricing';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import VirtualProvidersDialog from '@/lib/components/VirtualProvidersDialog.svelte';
@@ -1091,6 +1092,8 @@
   let newModelInput = $state('');
   let formModelLimits = $state<Record<string, { context: string; output: string }>>({});
   let showModelLimitsSection = $state(false);
+  let formModelPricing = $state<Record<string, ModelPriceForm>>({});
+  let showModelPricingSection = $state(false);
   /** Per-model override being edited; a model absent here is fully automatic. */
   let formModelCapabilities = $state<Record<string, ModelCapabilityConfig>>({});
   /** Detected (automatic) capabilities of the record being edited, for display. */
@@ -1130,6 +1133,9 @@
   let showRateLimitSection = $state(false);
   let modelLimitModels = $derived(
     [...new Set((formModels.length > 0 ? formModels : [formModel]).map((model) => model.trim()))].filter(Boolean),
+  );
+  let pricedModels = $derived(
+    [...new Set([...modelLimitModels, ...formEmbeddingModels.map((model) => model.trim())])].filter(Boolean),
   );
 
   // Device auth state (subscription-backed provider device flows)
@@ -1215,6 +1221,8 @@
     newModelInput = '';
     formModelLimits = {};
     showModelLimitsSection = false;
+    formModelPricing = {};
+    showModelPricingSection = false;
     formModelCapabilities = {};
     detectedCapabilities = {};
     openCapabilityModel = null;
@@ -1310,6 +1318,8 @@
       ]),
     );
     showModelLimitsSection = Object.keys(formModelLimits).length > 0;
+    formModelPricing = priceFormFromConfig(rec.config.model_pricing);
+    showModelPricingSection = Object.keys(formModelPricing).length > 0;
     formModelCapabilities = structuredClone($state.snapshot(rec.config.model_capabilities || {}));
     detectedCapabilities = { ...(rec.model_capabilities || {}) };
     showModelCapabilitiesSection = Object.keys(formModelCapabilities).length > 0;
@@ -1372,6 +1382,9 @@
       if (override) modelCapabilities[model] = override;
     }
     if (Object.keys(modelCapabilities).length > 0) cfg.model_capabilities = modelCapabilities;
+
+    const modelPricing = priceConfigFromForm(pricedModels, formModelPricing);
+    if (modelPricing) cfg.model_pricing = modelPricing;
 
     const embeddingModels = formEmbeddingModels.filter(Boolean);
     if (embeddingModels.length > 0) cfg.embedding_models = embeddingModels;
@@ -1441,6 +1454,11 @@
     const limitsError = validateModelLimitsForm();
     if (limitsError) {
       addToast(limitsError, 'warn');
+      return;
+    }
+    const pricingError = validatePriceForm(pricedModels, formModelPricing);
+    if (pricingError) {
+      addToast(pricingError, 'warn');
       return;
     }
 
@@ -2902,6 +2920,56 @@
                       aria-label={`${model} maximum output tokens`}
                       class="border border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text placeholder-dark-text-muted"
                     />
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <!-- Model pricing -->
+        <div class="border border-dark-border">
+          <button
+            type="button"
+            onclick={() => showModelPricingSection = !showModelPricingSection}
+            class="w-full flex items-center justify-between px-3 py-2 bg-dark-base text-left"
+          >
+            <span>
+              <span class="block text-sm font-medium text-dark-text-secondary">Model pricing</span>
+              <span class="block text-xs text-dark-text-muted">USD per 1M tokens — used for usage cost, budgets and the gateway model catalog</span>
+            </span>
+            <ChevronDown size={15} class={showModelPricingSection ? 'rotate-180' : ''} />
+          </button>
+          {#if showModelPricingSection}
+            <div class="p-3 space-y-3 border-t border-dark-border">
+              <p class="text-xs text-dark-text-muted">
+                Leave a row empty when the model has no known price; enter 0 for a free model. A price set by an installation administrator on the Pricing page for this provider and model takes precedence.
+              </p>
+              {#if pricedModels.length === 0}
+                <p class="text-xs text-dark-text-muted">Enter a default model or add models above first.</p>
+              {:else}
+                <div class="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem] gap-2 text-xs font-medium text-dark-text-muted">
+                  <span>Model</span>
+                  <span>Input</span>
+                  <span>Output</span>
+                  <span>Cache read</span>
+                  <span>Cache write</span>
+                </div>
+                {#each pricedModels as model}
+                  <div class="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem] gap-2 items-center">
+                    <span class="col-span-2 sm:col-span-1 truncate font-mono text-xs text-dark-text-secondary" title={model}>{model}</span>
+                    {#each [['input', 'Input', '3'], ['output', 'Output', '15'], ['cache_read', 'Cache read', '0.3'], ['cache_write', 'Cache write', '3.75']] as [field, label, placeholder]}
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={formModelPricing[model]?.[field as keyof ModelPriceForm] || ''}
+                        oninput={(e) => formModelPricing = setPriceField(formModelPricing, model, field as keyof ModelPriceForm, e.currentTarget.value)}
+                        {placeholder}
+                        aria-label={`${model} ${label.toLowerCase()} price per 1M tokens`}
+                        class="border border-dark-border-subtle px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 bg-dark-elevated text-dark-text placeholder-dark-text-muted"
+                      />
+                    {/each}
                   </div>
                 {/each}
               {/if}

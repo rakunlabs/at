@@ -170,7 +170,35 @@ func (s *developerStream) fail(message string) {
 	s.send(map[string]any{"type": "error", "error": message})
 }
 
+func (s *developerStream) keepAlive(ctx context.Context) func() {
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.mu.Lock()
+				fmt.Fprint(s.w, ": ping\n\n")
+				s.flusher.Flush()
+				s.mu.Unlock()
+			}
+		}
+	}()
+	return func() { close(done); <-stopped }
+}
+
 func (s *Server) RunDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
+	s.startDeveloperStream(w, r, s.runDeveloperSessionAPI)
+}
+
+func (s *Server) runDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return
@@ -217,6 +245,7 @@ func (s *Server) RunDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) 
 		_, _ = store.SetDeveloperSessionRuntime(r.Context(), session.ID, service.DeveloperSessionFailed, "streaming not supported")
 		return
 	}
+	defer stream.keepAlive(r.Context())()
 	s.runDeveloperSession(r, stream, h, session, "")
 }
 
@@ -226,7 +255,9 @@ func (s *Server) RunDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) 
 func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, traceID string) {
 	store := h.store
 	finish := func(status, message string) {
-		updated, _ := store.SetDeveloperSessionRuntime(context.WithoutCancel(r.Context()), session.ID, status, message)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer cancel()
+		updated, _ := store.SetDeveloperSessionRuntime(ctx, session.ID, status, message)
 		if status == service.DeveloperSessionFailed || status == service.DeveloperSessionCancelled {
 			stream.send(map[string]any{"type": "status", "session": updated})
 			stream.fail(message)
@@ -278,9 +309,11 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 		step := len(records)
 		s.captureDeveloperSnapshot(r, session, h, step, "before")
 		stream.send(map[string]any{"type": "turn_start"})
+		var partial strings.Builder
 		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, func(delta agentloop.StreamDelta) {
 			event := map[string]any{"type": "delta"}
 			if delta.Content != "" {
+				partial.WriteString(delta.Content)
 				event["content"] = delta.Content
 			}
 			if delta.Reasoning != "" {
@@ -330,6 +363,11 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 			metadata: developerObservationMetadata(session, map[string]any{"iteration": iteration}),
 		})
 		if err != nil {
+			if partial.Len() > 0 {
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+				_, _ = store.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Content: []service.ContentBlock{{Type: "text", Text: partial.String()}}})
+				cancel()
+			}
 			status := service.DeveloperSessionFailed
 			if errors.Is(err, context.Canceled) {
 				status = service.DeveloperSessionCancelled
@@ -614,6 +652,12 @@ func (s *Server) AnswerDeveloperSessionQuestionAPI(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
+	s.startDeveloperStream(w, r, func(w http.ResponseWriter, r *http.Request) {
+		s.resumeDeveloperSessionRun(w, r, kind, resolve)
+	})
+}
+
+func (s *Server) resumeDeveloperSessionRun(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return
@@ -644,6 +688,7 @@ func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
+	defer stream.keepAlive(r.Context())()
 	kit, err := s.buildDeveloperToolkit(r.Context(), h.space, session)
 	if err != nil {
 		// Keep the calls pending so the user can retry once the agent is fixed.
@@ -687,6 +732,7 @@ func (s *Server) CancelDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 	if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
 		value.(*activeDeveloperSession).cancel()
 	}
+	s.cancelDeveloperStreams(session)
 	_ = store.DeleteDeveloperPendingTool(r.Context(), session.ID)
 	updated, err := store.SetDeveloperSessionRuntime(r.Context(), session.ID, service.DeveloperSessionCancelled, "cancelled by user")
 	if err != nil {

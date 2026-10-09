@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"log/slog"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
+	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/gateway/wire"
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -38,11 +42,90 @@ func (s *Server) estimateGatewayUsageCost(ctx context.Context, providerKey, actu
 	if s.agentBudgetStore == nil {
 		return 0, false
 	}
-	pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
+	pricingList, err := s.modelPricingFor(ctx, pricingWorkspaceID(ctx), providerKey)
 	if err != nil {
 		return 0, false
 	}
 	return estimateUsageCost(pricingList, providerKey, actualModel, fullModel, usage)
+}
+
+type pricingWorkspaceKey struct{}
+
+// withPricingWorkspace names the workspace whose providers price a call when
+// the context carries no principal, e.g. a gateway request authenticated by
+// an API token.
+func withPricingWorkspace(ctx context.Context, workspaceID string) context.Context {
+	if workspaceID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, pricingWorkspaceKey{}, workspaceID)
+}
+
+func pricingWorkspaceID(ctx context.Context) string {
+	if id, ok := ctx.Value(pricingWorkspaceKey{}).(string); ok && id != "" {
+		return id
+	}
+	if p, _, ok := service.ExecutionFromContext(ctx); ok && p.WorkspaceID != "" {
+		return p.WorkspaceID
+	}
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok && a.WorkspaceID != "" {
+		return a.WorkspaceID
+	}
+	if token := gatewayTokenFromContext(ctx); token != nil {
+		return token.WorkspaceID
+	}
+	return service.DefaultWorkspaceID
+}
+
+// modelPricingFor returns the installation price table followed by the prices
+// the named providers declare in their own config. Installation rows come
+// first, so an administrator's price for a provider and model always wins;
+// a provider's own price beats only an installation-wide ("") row.
+func (s *Server) modelPricingFor(ctx context.Context, workspaceID string, providerKeys ...string) ([]service.ModelPricing, error) {
+	pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prices, ok := s.store.(service.ProviderPriceStorer)
+	if !ok || len(providerKeys) == 0 {
+		return pricingList, nil
+	}
+	declared, err := prices.ProviderModelPrices(ctx, workspaceID, providerKeys)
+	if err != nil {
+		// Accounting must not fail a call; fall back to installation prices.
+		slog.Warn("load provider model prices failed", "error", err)
+		return pricingList, nil
+	}
+	return appendProviderPrices(pricingList, declared), nil
+}
+
+func appendProviderPrices(pricingList []service.ModelPricing, declared map[string]map[string]config.ModelPrice) []service.ModelPricing {
+	keys := make([]string, 0, len(declared))
+	for key := range declared {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := slices.Clip(pricingList)
+	for _, key := range keys {
+		models := make([]string, 0, len(declared[key]))
+		for model := range declared[key] {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+		for _, model := range models {
+			price := declared[key][model]
+			out = append(out, service.ModelPricing{
+				ProviderKey:          key,
+				Model:                model,
+				PromptPricePer1M:     price.Input,
+				CompletionPricePer1M: price.Output,
+				CacheReadPricePer1M:  price.CacheRead,
+				CacheWritePricePer1M: price.CacheWrite,
+				Source:               service.ModelPricingSourceProvider,
+			})
+		}
+	}
+	return out
 }
 
 func estimateUsageCostCents(pricingList []service.ModelPricing, providerKey, actualModel, fullModel string, usage service.Usage) float64 {

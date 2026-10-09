@@ -281,6 +281,12 @@ type LLMConfig struct {
 	// an explicit false disables that inference for the model.
 	ModelCapabilities map[string]ModelCapability `cfg:"model_capabilities" json:"model_capabilities,omitempty"`
 
+	// ModelPricing lets whoever manages this provider price its models (USD per
+	// 1M tokens), keyed by provider-local model ID. It is the fallback for
+	// models the installation Pricing table does not price: an installation
+	// price for the same provider and model always wins.
+	ModelPricing map[string]ModelPrice `cfg:"model_pricing" json:"model_pricing,omitempty"`
+
 	// EmbeddingModels is the list of embedding models this provider serves via
 	// POST /gateway/v1/embeddings. They are advertised by /gateway/v1/models
 	// alongside chat models. Advisory — requests for models outside this list
@@ -363,6 +369,15 @@ type LLMConfig struct {
 type ModelLimit struct {
 	Context int `cfg:"context" json:"context"`
 	Output  int `cfg:"output" json:"output"`
+}
+
+// ModelPrice is a provider-supplied price in USD per 1M tokens. All-zero
+// declares the model free, which is different from having no price.
+type ModelPrice struct {
+	Input      float64 `cfg:"input" json:"input"`
+	Output     float64 `cfg:"output" json:"output"`
+	CacheRead  float64 `cfg:"cache_read" json:"cache_read,omitempty"`
+	CacheWrite float64 `cfg:"cache_write" json:"cache_write,omitempty"`
 }
 
 // ModelCapability describes optional client-facing capabilities for one model.

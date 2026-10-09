@@ -12,6 +12,27 @@ async function load(file, replacements = []) {
 
 const helper = await load('../src/lib/helper/developer-space.ts');
 const pageSource = await readFile(new URL('../src/pages/DeveloperSpaces.svelte', import.meta.url), 'utf8');
+const chatSource = await readFile(new URL('../src/lib/components/developer/SessionChat.svelte', import.meta.url), 'utf8');
+
+test('developer chat detaches on destruction and resumes discovered runs without POST', () => {
+  assert.match(chatSource, /controller\?\.abort\(\); \/\/ Detach only/);
+  assert.match(chatSource, /if \(action === 'resume'\) await resumeDeveloperStream/);
+  assert.match(chatSource, /epoch !== generation/);
+  assert.match(chatSource, /cancelDeveloperSession\(id\)/);
+  assert.match(pageSource, /at\.developer-space\.session:\$\{space\.id\}/);
+});
+
+test('metadata polling compares saved history revision, not parent-updated props', () => {
+  assert.match(chatSource, /state\.session\.status\}` !== loadedRevision/);
+  assert.doesNotMatch(chatSource, /state\.session\.updated_at !== session\.updated_at/);
+});
+
+test('developer transcript shares compact tools and palettes with Chats', () => {
+  assert.match(chatSource, /<ToolActivity compact/);
+  assert.match(chatSource, /<CommandPalette/);
+  assert.match(chatSource, /border-l-2 border-accent bg-dark-surface/);
+  assert.doesNotMatch(chatSource, /<select/);
+});
 
 test('opening Developer Spaces does not start the container or access its files', () => {
   const boot = pageSource.match(/async function boot\(\) \{([\s\S]*?)\n  \}/)[1];
@@ -23,6 +44,7 @@ test('opening Developer Spaces does not start the container or access its files'
 const api = await load('../src/lib/api/developer-spaces.ts', [
   ["import axios from 'axios';", 'const axios = { create: () => ({}) };'],
   ["import { authFetch, workspaceTransport } from './transport';", 'const authFetch = null; const workspaceTransport = { selected: "" };'],
+  ["import { resumableStream } from '../helper/resumable-stream';", 'const resumableStream = null;'],
 ]);
 
 test('path helpers stay inside the given folder', () => {

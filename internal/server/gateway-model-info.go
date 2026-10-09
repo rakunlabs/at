@@ -80,10 +80,21 @@ func (s *Server) ListLiteLLMModelInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	models := s.gatewayModels(r.Context(), auth)
 	pricing := []service.ModelPricing{}
 	if s.agentBudgetStore != nil {
+		keys := make([]string, 0, len(models))
+		for _, model := range models {
+			if model.OwnedBy != "" && !slices.Contains(keys, model.OwnedBy) {
+				keys = append(keys, model.OwnedBy)
+			}
+		}
+		workspaceID := service.DefaultWorkspaceID
+		if auth != nil && auth.token != nil && auth.token.WorkspaceID != "" {
+			workspaceID = auth.token.WorkspaceID
+		}
 		var err error
-		pricing, err = s.agentBudgetStore.ListModelPricing(r.Context())
+		pricing, err = s.modelPricingFor(r.Context(), workspaceID, keys...)
 		if err != nil {
 			slog.Error("list gateway model pricing failed", "error", err)
 			httpResponseJSON(w, map[string]any{
@@ -97,7 +108,6 @@ func (s *Server) ListLiteLLMModelInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	models := s.gatewayModels(r.Context(), auth)
 	entries := make([]liteLLMModelInfoEntry, 0, len(models))
 	for _, model := range models {
 		metadata := liteLLMModelMetadata{

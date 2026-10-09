@@ -209,6 +209,7 @@ func (s *Server) ResetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for _, session := range sessions {
+		s.cancelDeveloperStreams(&session)
 		if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
 			value.(*activeDeveloperSession).cancel()
 		}

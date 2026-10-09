@@ -358,7 +358,7 @@ func (s *Server) resolveModel(ctx context.Context, auth *authResult, fullModel s
 		if auth != nil && auth.token != nil {
 			ownerUserID = auth.token.OwnerUserID
 		}
-		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: pInfo.providerID, Key: providerKey}, ActualModel: actualModel}
+		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: pInfo.providerID, Key: providerKey, WorkspaceID: service.DefaultWorkspaceID}, ActualModel: actualModel}
 		pInfo.provider = s.providerForRoute(route, pInfo.provider, ownerUserID)
 	}
 	return providerKey, actualModel, pInfo, nil

@@ -35,6 +35,7 @@ type chatStream struct {
 	expires                   time.Time
 	expireTimer               *time.Timer
 	owner, workspace, session string
+	developer                 bool
 	cancel                    context.CancelFunc
 }
 
@@ -72,6 +73,10 @@ func (stream *chatStream) Flush() {
 }
 
 func (s *Server) startChatStream(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc) {
+	s.startReplayStream(w, r, handler, false)
+}
+
+func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc, developer bool) {
 	principal, ok := service.AccessPrincipalFromContext(r.Context())
 	id := r.Header.Get("X-AT-Stream-ID")
 	if !ok || principal.UserID == "" {
@@ -143,7 +148,7 @@ func (s *Server) startChatStream(w http.ResponseWriter, r *http.Request, handler
 	if session != "" {
 		for _, active := range s.chatStreams.streams {
 			active.mu.Lock()
-			busy := !active.done && active.session == session && active.workspace == principal.WorkspaceID
+			busy := !active.done && active.developer == developer && active.session == session && active.workspace == principal.WorkspaceID
 			active.mu.Unlock()
 			if busy {
 				s.chatStreams.mu.Unlock()
@@ -157,7 +162,8 @@ func (s *Server) startChatStream(w http.ResponseWriter, r *http.Request, handler
 	if s.ctx != nil {
 		stopShutdown = context.AfterFunc(s.ctx, cancel)
 	}
-	stream := &chatStream{header: make(http.Header), notify: make(chan struct{}), owner: principal.UserID, workspace: principal.WorkspaceID, session: session, cancel: cancel}
+	stream := &chatStream{header: make(http.Header), notify: make(chan struct{}), owner: principal.UserID, workspace: principal.WorkspaceID, session: session, cancel: cancel,
+		developer: developer}
 	s.chatStreams.streams[id] = stream
 	s.chatStreams.mu.Unlock()
 	request := r.Clone(ctx)
@@ -197,7 +203,7 @@ func (s *Server) ChatStreamAPI(w http.ResponseWriter, r *http.Request) {
 	s.chatStreams.mu.Lock()
 	stream := s.chatStreams.streams[r.PathValue("stream")]
 	s.chatStreams.mu.Unlock()
-	if !ok || stream == nil || stream.owner != p.UserID || stream.workspace != p.WorkspaceID || stream.session != r.PathValue("id") {
+	if !ok || stream == nil || stream.developer || stream.owner != p.UserID || stream.workspace != p.WorkspaceID || stream.session != r.PathValue("id") {
 		nativeError(w, http.StatusNotFound, "stream replay unavailable on this server; check saved history, do not resend automatically")
 		return
 	}

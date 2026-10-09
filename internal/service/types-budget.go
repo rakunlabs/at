@@ -170,6 +170,10 @@ type AgentUsageRecord struct {
 	CreatedAt        string  `json:"created_at"`
 }
 
+// ModelPricingSourceProvider marks a price taken from the provider's own
+// config.model_pricing rather than the installation Pricing table.
+const ModelPricingSourceProvider = "provider"
+
 // ModelPricing defines the cost per token for a specific provider/model combination.
 type ModelPricing struct {
 	ID                         string  `json:"id"`

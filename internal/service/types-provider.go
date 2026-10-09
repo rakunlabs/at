@@ -65,6 +65,16 @@ type ProviderStorer interface {
 	DeleteProvider(ctx context.Context, key string) error
 }
 
+// ProviderPriceStorer reads the provider-supplied model prices
+// (config.model_pricing) used for cost accounting. keys are provider keys as
+// they appear in cost events: a personal reference (provider:<id>) or a bare
+// key, resolved in workspaceID first and then in the Default workspace. The
+// result is keyed by the requested key, then by model. Prices are not
+// credentials, so this is an internal accounting read without a principal.
+type ProviderPriceStorer interface {
+	ProviderModelPrices(ctx context.Context, workspaceID string, keys []string) (map[string]map[string]config.ModelPrice, error)
+}
+
 // PersonalProviderStorer owns account-scoped credentials independently of a
 // workspace lifecycle. Personal records are addressed by immutable ID; legacy
 // workspace/global providers keep their key-based contract.

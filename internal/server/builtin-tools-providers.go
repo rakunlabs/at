@@ -178,6 +178,9 @@ func (s *Server) execProviderCreate(ctx context.Context, args map[string]any) (s
 	if msg := validateModelCapabilities(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
+	if msg := validateModelPricing(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
 	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
@@ -235,6 +238,9 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("%s", msg)
 	}
 	if msg := validateModelCapabilities(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
+	if msg := validateModelPricing(cfg); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
 

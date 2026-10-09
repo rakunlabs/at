@@ -30,6 +30,7 @@
   import { listAgents } from '@/lib/api/agents';
   import { FEATURE_AGENTS } from '@/lib/api/features';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
+  import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
 
   storeNavbar.title = 'Developer Space';
 
@@ -107,9 +108,26 @@
     } catch { /* defaults */ }
     if (window.matchMedia('(max-width: 767px)').matches) { showLeft = false; rightView = 'none'; showTerminal = false; }
     void boot();
+    const poll = createAdaptivePoll({
+      active: () => !!space && !document.hidden && navigator.onLine,
+      poll: async () => {
+        const records = await listDeveloperSessions();
+        const changed = JSON.stringify(records) !== JSON.stringify(sessions);
+        if (changed) sessions = records;
+        return changed;
+      },
+    });
+    const wake = () => poll.wake();
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty.size) event.preventDefault(); };
     window.addEventListener('beforeunload', beforeUnload);
-    return () => window.removeEventListener('beforeunload', beforeUnload);
+    return () => {
+      poll.stop();
+      window.removeEventListener('beforeunload', beforeUnload);
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+    };
   });
 
   $effect(() => {
@@ -136,7 +154,19 @@
     void loadAgents();
     // Opening the page loads metadata only; starting the container is explicit.
     await loadSessions();
+    // Restore only an owned session returned by the API. This is a metadata
+    // operation: reconnecting chat must not start a container or a terminal.
+    const key = `at.developer-space.session:${space.id}`;
+    let saved = '';
+    try { saved = localStorage.getItem(key) || ''; } catch { /* optional */ }
+    const restore = sessions.find(s => s.id === saved) ?? sessions.find(s => s.status === 'running' || s.status.startsWith('waiting'));
+    if (restore) { project = restore.project_path; openSession(restore.id); }
   }
+
+  $effect(() => {
+    if (!space || !activeKey.startsWith('chat:')) return;
+    try { localStorage.setItem(`at.developer-space.session:${space.id}`, activeKey.slice(5)); } catch { /* optional */ }
+  });
 
   async function start() {
     starting = true;

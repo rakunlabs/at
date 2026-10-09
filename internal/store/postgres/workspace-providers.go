@@ -203,6 +203,6 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 func providerReadDTO(a service.AccessPrincipal, record *service.ProviderRecord) {
 	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: record.WorkspaceID, ID: record.ID}) {
 		c := record.Config
-		record.Config = config.LLMConfig{Type: c.Type, AuthType: c.AuthType, Model: c.Model, Models: c.Models, EmbeddingModels: c.EmbeddingModels, EmbeddingMaxInputs: c.EmbeddingMaxInputs, SharedWithAllWorkspaces: c.SharedWithAllWorkspaces, Disabled: c.Disabled}
+		record.Config = config.LLMConfig{Type: c.Type, AuthType: c.AuthType, Model: c.Model, Models: c.Models, ModelPricing: c.ModelPricing, EmbeddingModels: c.EmbeddingModels, EmbeddingMaxInputs: c.EmbeddingMaxInputs, SharedWithAllWorkspaces: c.SharedWithAllWorkspaces, Disabled: c.Disabled}
 	}
 }

@@ -1166,6 +1166,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/developer-sessions/{id}/snapshots", s.ListDeveloperSessionSnapshotsAPI)
 	apiGroup.GET("/v1/developer-sessions/{id}/snapshots/{snapshotID}", s.GetDeveloperSessionSnapshotAPI)
 	apiGroup.GET("/v1/developer-sessions/{id}/pending", s.GetDeveloperSessionPendingToolAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/active-stream", s.GetDeveloperActiveStreamAPI)
+	apiGroup.GET("/v1/developer-sessions/{id}/streams/{stream}", s.DeveloperStreamAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/run", s.RunDeveloperSessionAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/confirm", s.ConfirmDeveloperSessionToolAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/answer", s.AnswerDeveloperSessionQuestionAPI)
@@ -1715,7 +1717,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 		var costCents float64
 		var costAvailable bool
 		if s.agentBudgetStore != nil {
-			pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
+			pricingList, err := s.modelPricingFor(ctx, pricingWorkspaceID(ctx), event.Provider)
 			if err == nil {
 				fullModel := event.Model
 				if event.Provider != "" && !strings.Contains(event.Model, "/") {

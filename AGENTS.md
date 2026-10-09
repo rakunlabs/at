@@ -468,6 +468,35 @@ is enforced in the store but has no UI yet. Regression:
 `internal/store/postgres/provider-governance_test.go`,
 `internal/server/provider-governance_test.go`.
 
+### Provider-declared model prices
+
+Whoever manages a provider can price its models in the provider editor
+(*Model pricing*), stored as `config.model_pricing.<model>` =
+`{input, output, cache_read?, cache_write?}` in USD per 1M tokens (plain JSON
+in the existing config, no migration; the keys must be the provider's chat or
+embedding models). This is what lets an account price a **personal** provider:
+the installation Pricing table is administrator-only and keyed by provider key.
+
+`modelPricingFor` (`cost_helpers.go`) appends these prices after the
+installation table, so the order is: installation row for the provider+model,
+then the provider's own price, then an installation-wide (`""`) row. An
+administrator therefore always overrides a self-declared price, which matters
+because a shared personal provider's price is what other members' allowances are
+charged at. All-zero means free; an empty row means unpriced. Lookup is
+`ProviderModelPrices` (store, no principal — prices are not credentials):
+personal providers by `provider:<id>`, bare keys in the caller's workspace with
+fallback to Default, where a selected-workspace provider shadows Default's even
+when it declares no prices. The workspace comes from the token, execution or
+principal (`pricingWorkspaceID`).
+
+`budgetedProvider` prices under `pricingKey` — the personal reference for a
+personal provider. It previously used the bare key, so a personal provider
+named like an installation provider reserved budget at that provider's price.
+Cost events, Chats cost, budgets and `/gateway/v1/model/info` all use the same
+lookup. Regressions: `internal/server/provider-pricing_test.go`,
+`internal/store/postgres/provider-prices_test.go`,
+`_ui/tests/model-pricing.test.mjs`.
+
 ### System 1 decision services
 
 A decision model (Laya, TypeSafe Jev) answers typed questions about a state —
@@ -3092,6 +3121,22 @@ The agent's built-in tools run on the AT host, not in the container, and the
 system prompt says so. Every resource passes the same execution admission as
 Sessions (`agents.run`, `skills.use`, `mcp.use`, tool class). A deleted agent
 fails the run with an explicit message rather than silently falling back.
+
+**Background chat runs.** Developer `run`/`confirm`/`answer` use the bounded
+replay transport (`developer-streams.go`, `chat-streams.go`): the initiating
+identity is retained, HTTP disconnects do not cancel execution, and server
+shutdown or the 30-minute run deadline still does. Closing a chat tab or the
+page detaches only; explicit **Stop**, session deletion and space stop/reset
+cancel local execution. Owner-scoped `GET .../{id}/active-stream` discovers a
+live run and `GET .../{id}/streams/{stream}?offset=` replays it; neither starts
+work. Streams are replica-local and restart-volatile, so multiple replicas
+need sticky routing. Missing replay never triggers an automatic POST retry.
+Pending approvals/questions and completed messages remain in the database.
+The page restores the last owned chat per space, polls session metadata and
+reconnects to live work. The transcript uses Chats' blue-ruled user blocks,
+plain assistant text, shared compact `ToolActivity` and searchable model/agent
+palettes while preserving file/diff actions and the editor shell. Regressions:
+`internal/server/developer-streams_test.go`, `_ui/tests/resumable-stream.test.mjs`.
 
 **Source control** works on the selected project: NUL-separated
 `git status --porcelain=v2` (paths with spaces are safe), per-file diff (untracked

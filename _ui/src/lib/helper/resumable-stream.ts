@@ -5,8 +5,9 @@ export async function resumableStream(
   url: string,
   init: RequestInit,
   replayBase: string,
+  options: { id?: string; resume?: boolean; cancelOnAbort?: boolean } = {},
 ): Promise<Response> {
-  const id = crypto.randomUUID();
+  const id = options.id ?? crypto.randomUUID();
   const replay = `${replayBase}/${id}`;
   const headers = new Headers(init.headers);
   headers.set('X-AT-Stream-ID', id);
@@ -15,7 +16,7 @@ export async function resumableStream(
     // Stop/navigation is explicit cancellation, unlike a network disconnect.
     void fetcher(replay, { method: 'DELETE', keepalive: true }).catch(() => {});
   };
-  signal?.addEventListener('abort', cancel, { once: true });
+  if (options.cancelOnAbort !== false) signal?.addEventListener('abort', cancel, { once: true });
   let offset = 0;
   let response: Response | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -60,7 +61,7 @@ export async function resumableStream(
     finally { clearTimeout(timer); }
   };
   try {
-    try { response = await request(url, { ...init, headers }); }
+    try { response = await request(options.resume ? `${replay}?offset=0` : url, options.resume ? { signal, headers: init.headers } : { ...init, headers }); }
     catch (e) { if (signal?.aborted) throw e; await reconnect(); }
     if (!response) throw new Error('No stream response');
     // Old servers and ordinary rejection responses keep their original behavior.

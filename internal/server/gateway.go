@@ -643,7 +643,7 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		if auth != nil && auth.token != nil {
 			ownerUserID = auth.token.OwnerUserID
 		}
-		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: info.providerID, Key: providerKey}, ActualModel: proxyModel}
+		route := &service.ProviderRoute{Record: service.ProviderRecord{ID: info.providerID, Key: providerKey, WorkspaceID: service.DefaultWorkspaceID}, ActualModel: proxyModel}
 		info.provider = s.providerForRoute(route, info.provider, ownerUserID)
 	}
 
@@ -1758,7 +1758,11 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 		var costCents float64
 		var costAvailable bool
 		if hasUsage {
-			costCents, costAvailable = s.estimateGatewayUsageCost(context.WithoutCancel(ctx), providerKey, actualModel, fullModel, usage)
+			pricingCtx := context.WithoutCancel(ctx)
+			if auth != nil && auth.token != nil {
+				pricingCtx = withPricingWorkspace(pricingCtx, auth.token.WorkspaceID)
+			}
+			costCents, costAvailable = s.estimateGatewayUsageCost(pricingCtx, providerKey, actualModel, fullModel, usage)
 		}
 
 		// There is no billing_code on APIToken today; use the token Name as a

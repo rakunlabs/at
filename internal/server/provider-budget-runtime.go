@@ -21,13 +21,24 @@ type budgetedProvider struct {
 	actualModel       string
 	virtualProviderID string
 	fallbackUserID    string
+	// pricingKey is the key the provider's prices are filed under: the
+	// personal reference for a personal provider, so a personal provider
+	// named like an installation one is never priced as that one.
+	pricingKey       string
+	pricingWorkspace string
 }
 
 func (s *Server) providerForRoute(route *service.ProviderRoute, provider service.LLMProvider, fallbackUserID string) service.LLMProvider {
 	if route == nil || provider == nil {
 		return provider
 	}
-	return &budgetedProvider{server: s, inner: provider, providerID: route.Record.ID, providerKey: route.Record.Key, actualModel: route.ActualModel, virtualProviderID: route.VirtualProviderID, fallbackUserID: fallbackUserID}
+	pricingKey := route.Record.Key
+	if route.Record.Reference != "" {
+		pricingKey = route.Record.Reference
+	} else if route.Record.OwnerUserID != "" && route.Record.ID != "" {
+		pricingKey = service.PersonalProviderReference(route.Record.ID)
+	}
+	return &budgetedProvider{server: s, inner: provider, providerID: route.Record.ID, providerKey: route.Record.Key, actualModel: route.ActualModel, virtualProviderID: route.VirtualProviderID, fallbackUserID: fallbackUserID, pricingKey: pricingKey, pricingWorkspace: route.Record.WorkspaceID}
 }
 
 func providerBudgetUserID(ctx context.Context, fallback string) string {
@@ -52,11 +63,15 @@ func (p *budgetedProvider) estimate(ctx context.Context, model string, usage ser
 	if p.server.agentBudgetStore == nil {
 		return nil
 	}
-	pricing, err := p.server.agentBudgetStore.ListModelPricing(ctx)
+	workspaceID := p.pricingWorkspace
+	if workspaceID == "" {
+		workspaceID = pricingWorkspaceID(ctx)
+	}
+	pricing, err := p.server.modelPricingFor(ctx, workspaceID, p.pricingKey)
 	if err != nil {
 		return nil
 	}
-	value, ok := estimateUsageCost(pricing, p.providerKey, model, p.providerKey+"/"+model, usage)
+	value, ok := estimateUsageCost(pricing, p.pricingKey, model, p.pricingKey+"/"+model, usage)
 	if !ok {
 		return nil
 	}
@@ -79,7 +94,7 @@ func (p *budgetedProvider) reserve(ctx context.Context, model string, usage serv
 		case errors.Is(err, service.ErrProviderUserBlocked):
 			return nil, fmt.Errorf("%w: access was disabled by the provider owner", err)
 		case errors.Is(err, service.ErrProviderPricingRequired):
-			return nil, fmt.Errorf("%w: configure pricing for %s/%s before using its enforced budget", err, p.providerKey, model)
+			return nil, fmt.Errorf("%w: configure pricing for %s/%s before using its enforced budget", err, p.pricingKey, model)
 		default:
 			return nil, fmt.Errorf("reserve provider budget: %w", err)
 		}

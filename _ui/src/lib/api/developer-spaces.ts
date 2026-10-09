@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { authFetch, workspaceTransport } from './transport';
+import { resumableStream } from '../helper/resumable-stream';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -120,6 +121,7 @@ export async function createDeveloperSession(body: { project_path: string; mode:
 export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
 export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
 export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
+export async function getDeveloperActiveStream(id: string) { return (await api.get<{ stream_id: string; session: DeveloperSession }>(`/developer-sessions/${encodeURIComponent(id)}/active-stream`)).data; }
 export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }
 export async function cancelDeveloperSession(id: string) { return (await api.post<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}/cancel`)).data; }
 
@@ -145,17 +147,26 @@ export async function streamDeveloperSession(
   onEvent: (event: DeveloperStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await authFetch(new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}/${action}`, document.baseURI), {
+  const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
+  const response = await resumableStream(authFetch, `${base}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal,
-  });
+  }, `${base}/streams`, { cancelOnAbort: false });
   if (!response.ok) {
     let message = `request failed (${response.status})`;
     try { const data = await response.json(); message = data.message || data.error || message; } catch { /* keep status */ }
     throw new Error(message);
   }
+  await consumeDeveloperEvents(response, onEvent);
+}
+
+/** Reattach with GET only. Leaving a page detaches; Stop uses the cancel API. */
+export async function resumeDeveloperStream(id: string, streamId: string, onEvent: (event: DeveloperStreamEvent) => void, signal?: AbortSignal) {
+  const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
+  const response = await resumableStream(authFetch, '', { signal }, `${base}/streams`, { id: streamId, resume: true, cancelOnAbort: false });
+  if (!response.ok) throw new Error(`Live run unavailable (${response.status}). Check saved history; do not resend automatically.`);
   await consumeDeveloperEvents(response, onEvent);
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 
@@ -177,6 +178,42 @@ func validateModelLimits(cfg config.LLMConfig) string {
 	return ""
 }
 
+// validateModelPricing checks provider-declared prices. Embedding models may be
+// priced too, since embeddings are billed per input token.
+func validateModelPricing(cfg config.LLMConfig) string {
+	served := make(map[string]bool, len(cfg.Models)+len(cfg.EmbeddingModels)+1)
+	for _, model := range cfg.Models {
+		served[model] = true
+	}
+	for _, model := range cfg.EmbeddingModels {
+		served[model] = true
+	}
+	if cfg.Model != "" {
+		served[cfg.Model] = true
+	}
+	for model, price := range cfg.ModelPricing {
+		if strings.TrimSpace(model) == "" {
+			return "model_pricing keys must not be empty"
+		}
+		if !served[model] {
+			return fmt.Sprintf("model_pricing.%s does not match a model of this provider", model)
+		}
+		fields := []struct {
+			name  string
+			value float64
+		}{{"input", price.Input}, {"output", price.Output}, {"cache_read", price.CacheRead}, {"cache_write", price.CacheWrite}}
+		for _, f := range fields {
+			if math.IsNaN(f.value) || math.IsInf(f.value, 0) || f.value < 0 {
+				return fmt.Sprintf("model_pricing.%s.%s must be a non-negative number", model, f.name)
+			}
+			if f.value > 100_000 {
+				return fmt.Sprintf("model_pricing.%s.%s must be at most 100000 USD per 1M tokens", model, f.name)
+			}
+		}
+	}
+	return ""
+}
+
 // validateModelCapabilities ensures overrides can only describe chat models
 // that the provider actually advertises. An empty entry is ambiguous and is
 // rejected; omit it to retain automatic detection.
@@ -333,6 +370,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
+	if msg := validateModelPricing(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
 
 	if msg := validateProviderCredentialsJSON(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
@@ -416,6 +457,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := validateModelCapabilities(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+	if msg := validateModelPricing(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}

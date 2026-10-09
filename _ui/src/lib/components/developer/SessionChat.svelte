@@ -1,14 +1,17 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import {
-    ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
-    Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, Wrench, X,
+    ArrowUp, Bot, Brain, Check, ChevronDown, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
+    Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, X,
   } from 'lucide-svelte';
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
+  import ToolActivity from '@/lib/components/ToolActivity.svelte';
+  import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
+  import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import {
-    getDeveloperGitStatus, getDeveloperSessionPendingTool, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
+    getDeveloperGitStatus, getDeveloperSessionPendingTool, getDeveloperActiveStream, resumeDeveloperStream, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
     type DeveloperMode, type DeveloperPendingTool, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
   } from '@/lib/api/developer-spaces';
   import {
@@ -48,6 +51,8 @@
   let liveThinking = $state('');
   let runningTools = $state<Record<string, boolean>>({});
   let controller: AbortController | null = null;
+  let generation = 0;
+  let disposed = false;
   let scroller: HTMLDivElement;
   let stickToBottom = true;
 
@@ -63,6 +68,7 @@
   let changesSeq = 0;
   let recording = $state(false);
   let transcribing = $state(false);
+  let palette = $state<'model' | 'agent' | ''>('');
   let textarea = $state<HTMLTextAreaElement>();
   const totals = $derived(changes.reduce((sum, c) => ({ add: sum.add + c.additions, del: sum.del + c.deletions }), { add: 0, del: 0 }));
 
@@ -99,6 +105,9 @@
     }
     return groups;
   });
+  const paletteGroups = $derived<PaletteGroup[]>(palette === 'model'
+    ? modelGroups.map(group => ({ label: group.label, items: group.models.map(model => ({ label: model, current: model === modelValue, disabled: working, run: () => chooseModel(model) })) }))
+    : agentGroups.map(group => ({ label: group.label, items: group.choices.map(choice => ({ label: choice.label, current: choice.value === agentValue, disabled: working, run: () => chooseAgent(choice.value) })) })));
 
   function chooseAgent(value: string) {
     if (working || value === agentValue) return;
@@ -106,31 +115,72 @@
   }
 
   let loadedFor = '';
+  let loadedRevision = '';
   let voiceContext = $state(0);
   $effect(() => {
     const id = session.id;
     if (id === loadedFor) return;
+    generation++;
+    controller?.abort();
+    busy = false;
     loadedFor = id;
     voiceContext++;
     void load(id);
   });
 
-  async function load(id: string) {
+  onMount(() => {
+    const poll = createAdaptivePoll({
+      active: () => !disposed && !busy && !loading && !document.hidden && navigator.onLine,
+      poll: async () => {
+        const id = session.id;
+        const epoch = generation;
+        const state = await getDeveloperActiveStream(id);
+        if (disposed || epoch !== generation || busy) return false;
+        const changed = `${state.session.updated_at}:${state.session.status}` !== loadedRevision;
+        onsession(state.session);
+        if (state.stream_id) void stream('resume', {}, state.stream_id);
+        else if (changed) await load(id, false);
+        return changed;
+      },
+    });
+    const wake = () => poll.wake();
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
+    return () => {
+      disposed = true;
+      generation++;
+      changesSeq++;
+      controller?.abort(); // Detach only; never cancel the server's run.
+      poll.stop();
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+    };
+  });
+
+  async function load(id: string, attach = true) {
+    const epoch = generation;
     loading = true;
-    error = '';
-    liveText = '';
-    liveThinking = '';
     try {
+      // Read metadata first so its revision can never describe a completion
+      // newer than the history we adopt. A later change is caught by polling.
+      const state = await getDeveloperActiveStream(id);
       const [records, waiting] = await Promise.all([listDeveloperSessionMessages(id), getDeveloperSessionPendingTool(id)]);
-      if (id !== session.id) return;
+      if (disposed || epoch !== generation || id !== session.id) return;
       messages = records;
       pending = waiting;
+      liveText = '';
+      liveThinking = '';
+      loadedRevision = `${state.session.updated_at}:${state.session.status}`;
+      onsession(state.session);
       stickToBottom = true;
       await scrollToEnd();
+      if (attach && state.stream_id && !busy) void stream('resume', {}, state.stream_id);
+      else if (attach && state.session.status === 'running' && !state.stream_id) error = 'This run is not available on this server. It may be running on another replica or have been interrupted by a restart. Refresh to check, or Stop before starting new work.';
     } catch (e: any) {
+      if (disposed || epoch !== generation) return;
       error = e?.response?.data?.message || e?.message || 'Could not load this session';
     } finally {
-      loading = false;
+      if (!disposed && epoch === generation) loading = false;
     }
   }
 
@@ -148,6 +198,7 @@
     switch (event.type) {
       case 'status':
       case 'done':
+        if (event.session.status === 'running') pending = null;
         onsession(event.session);
         break;
       case 'turn_start':
@@ -160,6 +211,7 @@
         void scrollToEnd();
         break;
       case 'message':
+        if (event.message.role === 'user') messages = messages.filter(m => !m.id.startsWith('local-'));
         if (!messages.some(m => m.id === event.message.id)) messages = [...messages, event.message];
         if (event.message.role === 'assistant') { liveText = ''; liveThinking = ''; }
         void scrollToEnd();
@@ -180,23 +232,28 @@
     }
   }
 
-  async function stream(action: 'run' | 'confirm' | 'answer', body: Record<string, unknown>) {
+  async function stream(action: 'run' | 'confirm' | 'answer' | 'resume', body: Record<string, unknown>, streamId = '') {
+    if (busy) return;
+    const id = session.id;
+    const epoch = generation;
     busy = true;
     error = '';
     controller = new AbortController();
     try {
-      await streamDeveloperSession(session.id, action, body, handle, controller.signal);
+      const receive = (event: DeveloperStreamEvent) => { if (!disposed && epoch === generation) handle(event); };
+      if (action === 'resume') await resumeDeveloperStream(id, streamId, receive, controller.signal);
+      else await streamDeveloperSession(id, action, body, receive, controller.signal);
     } catch (e: any) {
+      if (disposed || epoch !== generation) return;
       if (e?.name !== 'AbortError') error = e?.message || 'The agent stopped unexpectedly';
-      // Whatever was saved before the failure is authoritative.
-      await load(session.id);
     } finally {
-      busy = false;
-      liveText = '';
-      liveThinking = '';
-      runningTools = {};
-      controller = null;
-      void loadChanges();
+      if (!disposed && epoch === generation) {
+        busy = false;
+        runningTools = {};
+        controller = null;
+        await load(id, false);
+        void loadChanges();
+      }
     }
   }
 
@@ -210,27 +267,28 @@
     messages = [...messages, { id: `local-${Date.now()}`, session_id: session.id, role: 'user', content: text, created_at: new Date().toISOString() }];
     await scrollToEnd();
     await stream('run', { prompt: text });
-    messages = messages.filter(m => !m.id.startsWith('local-'));
-    await load(session.id);
   }
 
   async function decide(approved: boolean) {
-    pending = null;
+    if (busy) return;
     await stream('confirm', { approved });
   }
 
   async function reply() {
     const text = answer.trim();
-    if (!text) return;
+    if (!text || busy) return;
     answer = '';
-    pending = null;
     await stream('answer', { answer: text });
   }
 
   async function stop() {
+    const id = session.id;
+    const epoch = generation;
     controller?.abort();
     try {
-      onsession(await cancelDeveloperSession(session.id));
+      const updated = await cancelDeveloperSession(id);
+      if (disposed || epoch !== generation) return;
+      onsession(updated);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not stop the session', 'alert');
     }
@@ -252,6 +310,16 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'm') {
+      event.preventDefault();
+      if (!working) palette = 'model';
+      return;
+    }
+    if (event.key === 'Escape' && working) {
+      event.preventDefault();
+      void stop();
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void send();
@@ -281,38 +349,17 @@
 </script>
 
 {#snippet toolRow(tool: TranscriptEntry['tools'][number])}
-  {@const running = runningTools[tool.id]}
-  <details class="min-w-0 border border-dark-border bg-dark-base group/tool">
-    <summary class="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-      <ChevronRight size={13} class="shrink-0 text-dark-text-muted group-open/tool:rotate-90" />
-      <Wrench size={12} class="shrink-0 text-dark-text-muted" />
-      <span class="shrink-0 font-mono font-medium text-dark-text">{tool.name}</span>
-      <span class="min-w-0 flex-1 truncate font-mono text-dark-text-muted">{toolSummary(tool)}</span>
-      {#if fileArg(tool)}
-        <button type="button" class="shrink-0 text-dark-text-muted hover:text-dark-text underline-offset-2 hover:underline" onclick={event => { event.preventDefault(); onopenfile(projectFile(fileArg(tool))); }}>Open</button>
-      {/if}
-      {#if running}
-        <LoaderCircle size={13} class="shrink-0 animate-spin text-dark-text-muted motion-reduce:animate-none" />
-      {:else if tool.failed}
-        <SquareAlert size={13} class="shrink-0 text-red-400" />
-      {:else if tool.result !== undefined}
-        <Check size={13} class="shrink-0 text-green-400" />
-      {/if}
-    </summary>
-    <div class="space-y-2 border-t border-dark-border p-2.5">
-      <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words border border-dark-border p-2 text-[11px] text-dark-text">{JSON.stringify(tool.input, null, 2)}</pre>
-      {#if tool.result !== undefined}
-        <pre class={['max-h-72 overflow-auto whitespace-pre-wrap break-words border bg-dark-surface p-2 text-[11px]', tool.failed ? 'border-red-900 text-red-300' : 'border-dark-border text-dark-text']}>{tool.result || '(empty)'}</pre>
-      {:else}
-        <p class="text-[11px] text-dark-text-muted">{running ? 'Running…' : 'No result recorded.'}</p>
-      {/if}
+  <div class="flex min-w-0 items-start gap-2 text-xs">
+    <div class="min-w-0 flex-1">
+      <ToolActivity compact call={{ id: tool.id, type: 'function', function: { name: tool.name, arguments: JSON.stringify(tool.input) } }} result={tool.result === undefined ? undefined : { role: 'tool', content: tool.failed ? `tool error: ${tool.result}` : tool.result, tool_call_id: tool.id }} running={!!runningTools[tool.id]} />
     </div>
-  </details>
+    {#if fileArg(tool)}<button type="button" class="shrink-0 text-dark-text-muted hover:text-dark-text focus-visible:outline-1 focus-visible:outline-accent" onclick={() => onopenfile(projectFile(fileArg(tool)))}>Open</button>{/if}
+  </div>
 {/snippet}
 
 <div class="flex h-full min-h-0 flex-col bg-dark-base">
   <!-- Session bar -->
-  <div class="flex min-h-10 flex-wrap items-center gap-2 border-b border-dark-border bg-dark-surface px-3 py-1.5 text-xs">
+  <div class="flex min-h-10 flex-wrap items-center gap-2 border-b border-dark-border px-3 py-1.5 text-xs">
     <span class="inline-flex min-w-0 items-center gap-1 text-dark-text-muted" title="The agent works inside this folder">
       <FolderGit2 size={13} class="shrink-0" />
       <span class="truncate font-mono">/workspace{session.project_path ? `/${session.project_path}` : ''}</span>
@@ -322,11 +369,13 @@
       {#if working}<LoaderCircle size={12} class="animate-spin motion-reduce:animate-none" />{/if}
       {STATUS_LABELS[session.status] ?? session.status}
     </span>
+    <span class="ml-auto text-dark-text-faint" title="Closing this page does not stop the agent. Use Stop to cancel.">Runs on server</span>
   </div>
 
   <!-- Transcript -->
   <div bind:this={scroller} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-    <div class="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-5">
+    <div class="mx-auto flex w-full max-w-4xl flex-col gap-4 px-3 py-5 sm:px-5">
+      {#if transcript.length}<h2 class="px-4 text-sm font-medium text-dark-text">{session.title || 'Coding session'}</h2>{/if}
       {#if loading}
         <p class="text-sm text-dark-text-muted">Loading…</p>
       {:else if transcript.length === 0 && !liveText}
@@ -337,15 +386,13 @@
       {/if}
       {#each transcript as entry (entry.key)}
         {#if entry.role === 'user'}
-          <div class="flex justify-end">
-            <div class="max-w-[85%]">
-              <div class="whitespace-pre-wrap break-words bg-accent px-4 py-2.5 text-sm leading-relaxed text-dark-base">{entry.text}</div>
-              {#if entry.created_at && !entry.key.startsWith('local-')}<div class="mt-1 text-right text-[11px] text-dark-text-muted">{formatMessageTime(entry.created_at)}</div>{/if}
-            </div>
+          <div class="border-l-2 border-accent bg-dark-surface px-4 py-3 sm:px-[22px]">
+            <div class="whitespace-pre-wrap break-words text-sm leading-relaxed text-dark-text">{entry.text}</div>
+            {#if entry.created_at && !entry.key.startsWith('local-')}<div class="mt-2 text-[11px] text-dark-text-faint">{formatMessageTime(entry.created_at)}</div>{/if}
           </div>
         {:else}
           <div class="min-w-0">
-            <div class="min-w-0 border border-dark-border-subtle bg-dark-elevated px-4 py-2.5 text-sm leading-relaxed text-dark-text shadow-sm">
+            <div class="min-w-0 px-4 py-2.5 text-sm leading-relaxed text-dark-text sm:px-[22px]">
               {#if entry.thinking}
                 <details class="mb-2 text-xs text-dark-text-muted">
                   <summary class="inline-flex cursor-pointer items-center gap-1"><Brain size={12} /> Reasoning</summary>
@@ -354,18 +401,18 @@
               {/if}
               {#if entry.text}<Markdown source={entry.text} enhance />{/if}
               {#if entry.tools.length}
-                <div class={['space-y-1', entry.text ? 'mt-2 border-t border-dark-border pt-2' : '']}>
+                <div class={['space-y-1', entry.text ? 'mt-3' : '']}>
                   {#each entry.tools as tool (tool.id)}{@render toolRow(tool)}{/each}
                 </div>
               {/if}
             </div>
-            {#if entry.created_at}<div class="mt-1 text-[11px] text-dark-text-muted">{formatMessageTime(entry.created_at)}</div>{/if}
+            {#if entry.created_at}<div class="mt-1 px-4 text-[11px] text-dark-text-faint sm:px-[22px]">{formatMessageTime(entry.created_at)}</div>{/if}
           </div>
         {/if}
       {/each}
 
       {#if busy && (liveText || liveThinking || Object.keys(runningTools).length === 0)}
-        <div class="border border-dark-border-subtle bg-dark-elevated px-4 py-2.5 text-sm leading-relaxed text-dark-text shadow-sm">
+        <div class="px-4 py-2.5 text-sm leading-relaxed text-dark-text sm:px-[22px]" role="status">
           {#if liveThinking && !liveText}
             <p class="flex items-center gap-1.5 text-xs text-dark-text-muted"><Brain size={12} /> Thinking…</p>
           {/if}
@@ -413,7 +460,7 @@
 
   <!-- Composer -->
   <div class="bg-dark-base px-3 pb-3 pt-1">
-    <div class="mx-auto max-w-3xl">
+    <div class="mx-auto max-w-4xl">
       {#if changes.length}
         <div class="mb-1.5 text-xs">
           <button
@@ -454,7 +501,7 @@
         </div>
       {/if}
 
-      <div class="border border-dark-border focus-within:border-dark-text-muted">
+      <div class={['border-l-2 bg-dark-elevated px-1 pt-1', working ? 'border-oc-peach' : 'border-accent']}>
         <textarea
           bind:this={textarea}
           bind:value={prompt}
@@ -466,7 +513,7 @@
           disabled={!!pending && !busy}
           class="block w-full resize-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-[22px] focus:outline-none focus:ring-0 disabled:opacity-60 text-dark-text placeholder:text-dark-text-muted"
         ></textarea>
-        <div class="flex items-center gap-1 px-1.5 pb-1.5">
+        <div class="flex flex-wrap items-center gap-1 px-1.5 pb-1.5">
           <button
             type="button"
             onclick={() => (expandedComposer = !expandedComposer)}
@@ -479,31 +526,24 @@
           </button>
           <span class="flex-1"></span>
 
-          <label
+          <button
+            type="button"
+            disabled={working}
+            onclick={() => (palette = 'model')}
+            aria-label="Choose model"
             class={['relative inline-flex h-7 min-w-0 max-w-56 items-center gap-1.5 px-2 text-xs text-dark-text-secondary', working ? 'opacity-50' : 'cursor-pointer hover:bg-dark-elevated']}
             title={modelValue || 'Choose a model'}
           >
             <Cpu size={13} class="shrink-0 text-dark-text-muted" />
             <span class={['truncate font-medium', modelValue ? '' : 'text-amber-400']}>{modelLabel}</span>
             <ChevronDown size={12} class="shrink-0 text-dark-text-muted" />
-            <select
-              value={modelValue}
-              disabled={working}
-              onchange={event => chooseModel(event.currentTarget.value)}
-              aria-label="Model"
-              class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
-            >
-              {#if !modelValue}<option value="">Choose a model…</option>{/if}
-              {#if modelValue && !modelGroups.some(g => g.models.includes(modelValue))}<option value={modelValue}>{modelValue}</option>{/if}
-              {#each modelGroups as group}
-                <optgroup label={group.label}>
-                  {#each group.models as model}<option value={model}>{model.slice(model.indexOf('/') + 1)}</option>{/each}
-                </optgroup>
-              {/each}
-            </select>
-          </label>
+          </button>
 
-          <label
+          <button
+            type="button"
+            disabled={working}
+            onclick={() => (palette = 'agent')}
+            aria-label="Choose agent"
             class={['relative inline-flex h-7 min-w-0 max-w-48 items-center gap-1.5 px-2 text-xs font-medium', working ? 'opacity-50' : 'cursor-pointer hover:bg-dark-elevated',
               session.agent_id ? (agentChoice ? 'text-dark-text' : 'text-amber-400')
                 : session.mode === 'build' ? 'text-green-400' : session.mode === 'plan' ? 'text-blue-400' : 'text-violet-400']}
@@ -512,21 +552,7 @@
             {#if session.agent_id}<Bot size={13} class="shrink-0" />{:else if session.mode === 'build'}<Hammer size={13} class="shrink-0" />{:else if session.mode === 'plan'}<ListChecks size={13} class="shrink-0" />{:else}<Eye size={13} class="shrink-0" />{/if}
             <span class="truncate">{agentLabel}</span>
             <ChevronDown size={12} class="shrink-0 text-dark-text-muted" />
-            <select
-              value={agentValue}
-              disabled={working}
-              onchange={event => chooseAgent(event.currentTarget.value)}
-              aria-label="Agent"
-              class="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-default"
-            >
-              {#if !agentChoice}<option value={agentValue}>{agentLabel}</option>{/if}
-              {#each agentGroups as group}
-                <optgroup label={group.label}>
-                  {#each group.choices as choice}<option value={choice.value}>{choice.label}</option>{/each}
-                </optgroup>
-              {/each}
-            </select>
-          </label>
+          </button>
 
           <VoiceInput
             compact
@@ -547,3 +573,7 @@
     </div>
   </div>
 </div>
+
+{#if palette}
+  <CommandPalette title={palette === 'model' ? 'Choose model' : 'Choose agent'} groups={paletteGroups} onclose={() => { palette = ''; textarea?.focus(); }} />
+{/if}

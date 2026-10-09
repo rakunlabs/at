@@ -24,6 +24,14 @@ export interface ModelLimitConfig {
   output: number;
 }
 
+/** Provider-declared price, USD per 1M tokens. All zero means free. */
+export interface ModelPriceConfig {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+}
+
 /**
  * Per-model override. Every field is optional: an absent field keeps AT's
  * automatic detection, a present one replaces it.
@@ -58,6 +66,9 @@ export interface LLMConfig {
   models?: string[];
   model_limits?: Record<string, ModelLimitConfig>;
   model_capabilities?: Record<string, ModelCapabilityConfig>;
+  // Used for cost accounting when the installation Pricing table has no
+  // price for this provider and model; an installation price always wins.
+  model_pricing?: Record<string, ModelPriceConfig>;
   embedding_models?: string[];
   // Optional operator cap for texts in one embedding request. Omitted = unlimited.
   embedding_max_inputs?: number;

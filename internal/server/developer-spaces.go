@@ -222,6 +222,7 @@ func (s *Server) DeleteDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 	if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
 		value.(*activeDeveloperSession).cancel()
 	}
+	s.cancelDeveloperStreams(session)
 	if err := store.DeleteDeveloperSession(r.Context(), session.ID); err != nil {
 		developerSpaceError(w, err)
 		return

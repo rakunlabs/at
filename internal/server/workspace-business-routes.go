@@ -65,6 +65,8 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/developer-sessions/{id}/snapshots", "agents.read", "", ""},
 		{"GET", "/developer-sessions/{id}/snapshots/{snapshotID}", "agents.read", "", ""},
 		{"GET", "/developer-sessions/{id}/pending", "agents.read", "", ""},
+		{"GET", "/developer-sessions/{id}/active-stream", "agents.read", "", ""},
+		{"GET", "/developer-sessions/{id}/streams/{stream}", "agents.read", "", ""},
 		{"POST", "/developer-sessions/{id}/run", "agents.execute", "", ""},
 		{"POST", "/developer-sessions/{id}/confirm", "agents.execute", "", ""},
 		{"POST", "/developer-sessions/{id}/answer", "agents.execute", "", ""},
