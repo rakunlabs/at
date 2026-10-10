@@ -2,8 +2,9 @@
 
 ## Status and scope
 
-An experimental Kubernetes driver is available through the bootstrap
-`server.sandbox` configuration. Docker remains the default. Kubernetes currently
+An experimental Kubernetes driver is configured in **Settings → System → Sandbox
+runtime**, persisted in PostgreSQL, and applied without an AT restart. Docker
+remains the default. Kubernetes currently
 requires **one AT replica** and explicit operator declarations for CNI enforcement
 and kubelet PID limits. Those declarations are not automatic cluster validation.
 Do not mount the node's Docker socket as a substitute for this backend.
@@ -109,28 +110,26 @@ stop them before upgrading. Session run receipts are durable; replay remains loc
    AT refuses a sandbox requesting a smaller ceiling. This is an operator
    assertion, not an API-discovered kubelet guarantee. A RuntimeClass/dedicated
    node pool and CSI-enforced quotas are recommended for untrusted workloads.
-5. Configure bootstrap YAML (replace image, classes and limits for your cluster):
+5. As an installation administrator, open Settings → System, select Kubernetes
+   and enter the dedicated namespace (e.g. `at-sandboxes`), deployment ID (e.g.
+   `at-main`), published helper image, storage classes and volume sizes (`20Gi`
+   workspace / `5Gi` home by default), home access mode and actual kubelet PID
+   limit. Optionally set RuntimeClass, blocked CIDRs and a kubeconfig **host file
+   path**. Confirm the CNI enforces NetworkPolicy and that one AT replica is
+   running, then confirm stopping sandbox activity and choose **Save, stop
+   sandbox work & apply**. `server.sandbox.*` YAML/env settings are removed;
+   existing deployments must enter their configuration in the UI after upgrading.
 
-   ```yaml
-   server:
-     sandbox:
-       backend: kubernetes
-       kubernetes:
-         namespace: at-sandboxes
-         deployment_id: at-main
-         helper_image: registry.example.com/at-sandbox-helper:<version>
-         storage_class: workspace-storage
-         workspace_size: 20Gi
-         home_storage_class: shared-home-storage
-         home_access_mode: ReadWriteMany
-         home_size: 5Gi
-         pod_pids_limit: 256
-         network_policy_enforced: true
-         single_replica: true
-         # runtime_class: gvisor
-         # blocked_cidrs: ["203.0.113.0/24"]
-         # kubeconfig: /operator-owned/config  # local development only
-   ```
+Applying a change closes local sandbox admission, cancels/drains coding turns,
+isolated organization runs, commands and terminals, and stops the previous
+backend before switching. Docker containers are stopped without deleting their
+roots or volumes; Kubernetes Pods are deleted but PVCs remain. A failed drain
+keeps execution suspended until you resolve the error and save again. The UI
+reports saved versus active settings when application fails. Settings can be
+saved even if application fails, and are loaded on the next startup. Invalid
+stored backend credentials suspend sandbox execution but leave AT's UI available
+to correct them. Construction validates configuration/credentials, not cluster
+readiness; Lease acquisition and workload recovery still occur on first use.
 
 Credentials default to in-cluster service-account auth. The helper image must be
 pullable by the sandbox namespace; configure its default service account's image
@@ -150,8 +149,8 @@ policy keeps storage after PVC deletion and requires separate operator cleanup.
 
 ### Backend migration
 
-There is no automatic Docker-to-PVC migration. Stop all runs/terminals and AT,
-back up each account/workspace volume and account home, configure Kubernetes,
+There is no automatic Docker-to-PVC migration. Back up each account/workspace
+volume and account home, stop producers, apply Kubernetes through System settings,
 then import each backup into its correctly scoped PVC using operator tooling.
 Keep the Docker backup until restore checks pass. Do not run both controllers
 against the same accounts during migration. Switching configuration back to

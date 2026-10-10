@@ -52,6 +52,10 @@ func (m *Manager) beginUse(ctx context.Context, scope string, cfg Config) (conte
 // This is local draining, not proof that remote effects are fenced after an outage.
 func (m *Manager) endScope(ctx context.Context, scope string, purge bool) error {
 	m.mu.Lock()
+	if m.reconfiguring {
+		m.mu.Unlock()
+		return fmt.Errorf("sandbox backend is changing; retry after the transition")
+	}
 	info := m.containers[scope]
 	if info == nil && !purge {
 		if _, ok := m.driver.(ScopeStopper); !ok {

@@ -14,7 +14,6 @@ import (
 	"github.com/rakunlabs/chu/loader/loaderenv"
 	"github.com/rakunlabs/logi"
 
-	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	"github.com/rakunlabs/chu"
 	"github.com/rakunlabs/tell"
 )
@@ -32,6 +31,8 @@ var Service = ""
 // governor and the database holds the provider, gateway-token, and
 // bot-config rows.
 type Config struct {
+	// LogLevel is the startup log level only. Once Settings → System is
+	// saved, the stored log level overrides it.
 	LogLevel string `cfg:"log_level,no_prefix" default:"info"`
 
 	Store     Store       `cfg:"store"`
@@ -77,29 +78,19 @@ type Server struct {
 	Port string `cfg:"port" default:"8080"`
 	Host string `cfg:"host"`
 
-	// Name is the display name of the server, shown in the UI.
+	// Name is the display name of the server, shown in the UI. Initial
+	// default only; Settings → System overrides it once saved.
 	Name string `cfg:"name" default:"AT"`
-
-	// ForwardAuth, if set, configures the API to forward auth requests to an external
-	// authentication service.
-	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
 
 	// NativeAuth is a migration-only import of legacy product settings. Runtime
 	// authentication is enabled by default; settings live in PostgreSQL.
 	NativeAuth *NativeAuth `cfg:"native_auth"`
 
-	// AdminToken, if set, protects the /api/v1/settings/* endpoints with bearer
-	// token authentication. Requests must include "Authorization: Bearer <token>".
-	// If not set, all settings endpoints are disabled (403 Forbidden).
-	AdminToken string `cfg:"admin_token" log:"-"`
-
-	// UserHeader is the HTTP header name that contains the authenticated user's
-	// email address (populated by the forward auth middleware).
-	UserHeader string `cfg:"user_header" default:"X-User"`
-
 	// ExternalURL is the public URL of this server (e.g. "https://at.example.com").
 	// Used to generate OAuth callback links sent to bot users.
 	// If empty, OAuth login commands in bots will not be available.
+	// Initial default only; Settings → System (Public URL) overrides it
+	// once saved.
 	ExternalURL string `cfg:"external_url"`
 
 	// PacksDir is the directory where user-created integration packs are stored.
@@ -144,32 +135,6 @@ type Server struct {
 	// persistent data disk (e.g. `/mnt/at-workspace`) so the video pipeline
 	// doesn't fill the root filesystem.
 	Workspace *Workspace `cfg:"workspace"`
-
-	// Sandbox selects the installation-owned execution backend. Omitted means
-	// Docker. Kubernetes is currently restricted to a single AT replica.
-	Sandbox *Sandbox `cfg:"sandbox"`
-}
-
-type Sandbox struct {
-	Backend    string             `cfg:"backend"`
-	Kubernetes *KubernetesSandbox `cfg:"kubernetes"`
-}
-
-type KubernetesSandbox struct {
-	Namespace             string   `cfg:"namespace"`
-	DeploymentID          string   `cfg:"deployment_id"`
-	Kubeconfig            string   `cfg:"kubeconfig" log:"-"`
-	HelperImage           string   `cfg:"helper_image"`
-	StorageClass          string   `cfg:"storage_class"`
-	HomeStorageClass      string   `cfg:"home_storage_class"`
-	HomeAccessMode        string   `cfg:"home_access_mode"`
-	HomeSize              string   `cfg:"home_size"`
-	WorkspaceSize         string   `cfg:"workspace_size"`
-	RuntimeClass          string   `cfg:"runtime_class"`
-	PodPidsLimit          int      `cfg:"pod_pids_limit"`
-	NetworkPolicyEnforced bool     `cfg:"network_policy_enforced"`
-	SingleReplica         bool     `cfg:"single_replica"`
-	BlockedCIDRs          []string `cfg:"blocked_cidrs"`
 }
 
 // NativeAuth retains backwards-compatible import fields. New installations use
@@ -207,6 +172,8 @@ type Workspace struct {
 	// The reserved assets/ directory is never swept.
 	// A negative value disables the janitor entirely (workspaces and
 	// dumps are kept forever; useful for debugging).
+	// Initial default only; Settings → System (workspace retention)
+	// overrides it once saved.
 	TTLHours int `cfg:"ttl_hours"`
 }
 

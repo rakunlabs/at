@@ -19,13 +19,13 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/client-go/util/exec"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/sandboxruntime"
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
-func testOptions() config.KubernetesSandbox {
-	return config.KubernetesSandbox{Namespace: "at-sandboxes", DeploymentID: "test", HelperImage: "example/helper:v1", SingleReplica: true, NetworkPolicyEnforced: true, PodPidsLimit: 128}
+func testOptions() service.KubernetesSandbox {
+	return service.KubernetesSandbox{Namespace: "at-sandboxes", DeploymentID: "test", HelperImage: "example/helper:v1", SingleReplica: true, NetworkPolicyEnforced: true, PodPidsLimit: 128}
 }
 
 func testDriver(t *testing.T) (*Driver, *fake.Clientset) {
@@ -56,17 +56,17 @@ func testConfig() container.Config {
 func TestKubernetesOptionsFailClosed(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
-		change func(*config.KubernetesSandbox)
+		change func(*service.KubernetesSandbox)
 	}{
-		{"multi replica", func(o *config.KubernetesSandbox) { o.SingleReplica = false }},
-		{"unverified network", func(o *config.KubernetesSandbox) { o.NetworkPolicyEnforced = false }},
-		{"missing PID ceiling", func(o *config.KubernetesSandbox) { o.PodPidsLimit = 0 }},
-		{"system namespace", func(o *config.KubernetesSandbox) { o.Namespace = "kube-system" }},
-		{"missing deployment", func(o *config.KubernetesSandbox) { o.DeploymentID = "" }},
-		{"missing helper", func(o *config.KubernetesSandbox) { o.HelperImage = "" }},
-		{"invalid home mode", func(o *config.KubernetesSandbox) { o.HomeAccessMode = "ReadOnlyMany" }},
-		{"invalid size", func(o *config.KubernetesSandbox) { o.HomeSize = "-1Gi" }},
-		{"invalid network", func(o *config.KubernetesSandbox) { o.BlockedCIDRs = []string{"garbage"} }},
+		{"multi replica", func(o *service.KubernetesSandbox) { o.SingleReplica = false }},
+		{"unverified network", func(o *service.KubernetesSandbox) { o.NetworkPolicyEnforced = false }},
+		{"missing PID ceiling", func(o *service.KubernetesSandbox) { o.PodPidsLimit = 0 }},
+		{"system namespace", func(o *service.KubernetesSandbox) { o.Namespace = "kube-system" }},
+		{"missing deployment", func(o *service.KubernetesSandbox) { o.DeploymentID = "" }},
+		{"missing helper", func(o *service.KubernetesSandbox) { o.HelperImage = "" }},
+		{"invalid home mode", func(o *service.KubernetesSandbox) { o.HomeAccessMode = "ReadOnlyMany" }},
+		{"invalid size", func(o *service.KubernetesSandbox) { o.HomeSize = "-1Gi" }},
+		{"invalid network", func(o *service.KubernetesSandbox) { o.BlockedCIDRs = []string{"garbage"} }},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			o := testOptions()

@@ -48,9 +48,5 @@ func withAuthSettings(s config.Server, v service.AuthSettings) config.Server {
 	n.RememberTTL = time.Duration(v.RememberTTLSeconds) * time.Second
 	n.InsecureHTTP = strings.HasPrefix(v.Origin, "http://")
 	s.NativeAuth = &n
-	// Legacy forward-header identity is not a second management authentication
-	// path once native runtime policy owns the installation. The outer server
-	// must likewise stop installing ForwardAuth for management routes.
-	s.ForwardAuth = nil
 	return s
 }

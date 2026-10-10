@@ -109,9 +109,13 @@ func DefaultConfig() Config {
 // Manager tracks live sandboxes per scope and delegates running them to a
 // Driver.
 type Manager struct {
-	driver     Driver
-	mu         sync.RWMutex
-	containers map[string]*containerInfo // scope -> container info
+	driver        Driver
+	mu            sync.RWMutex
+	transitionMu  sync.Mutex
+	reconfiguring bool
+	runtimeErr    error
+	runtimeUses   map[*sandboxUse]struct{}
+	containers    map[string]*containerInfo // scope -> container info
 	// installMu serializes helper installs so a concurrent call never execs a
 	// half-copied file. Only first use of a sandbox waits on it.
 	installMu sync.Mutex
@@ -147,7 +151,11 @@ func NewWithDriver(driver Driver) *Manager {
 }
 
 // Driver returns the backend this manager runs sandboxes on.
-func (m *Manager) Driver() Driver { return m.driver }
+func (m *Manager) Driver() Driver {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.driver
+}
 
 // EnsureContainer creates or returns an existing container for the given org.
 func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
@@ -163,6 +171,12 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 // ensureContainer is called with mu held. Registering activity under the same
 // lock closes the gap between provisioning and idle/explicit removal.
 func (m *Manager) ensureContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
+	if m.reconfiguring {
+		return "", fmt.Errorf("sandbox backend is changing; retry when the transition finishes")
+	}
+	if m.runtimeErr != nil {
+		return "", fmt.Errorf("sandbox backend unavailable; reapply System settings: %w", m.runtimeErr)
+	}
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -260,7 +274,7 @@ func (m *Manager) run(ctx context.Context, scopeID string, cfg Config, req ExecR
 
 	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
 	req.Stdout, req.Stderr = stdout, stderr
-	exitCode, err := m.driver.Exec(ctx, containerID, req)
+	exitCode, err := m.Driver().Exec(ctx, containerID, req)
 	if err != nil {
 		return "", "", -1, err
 	}
@@ -291,15 +305,15 @@ func (m *Manager) markActive(scopeID string, delta int) {
 // without an error when the driver cannot install files or no content matches
 // the platform, so the caller can fall back to something else.
 func (m *Manager) EnsureFile(ctx context.Context, scopeID string, cfg Config, dest string, mode fs.FileMode, source func(platform string) []byte) (bool, error) {
-	installer, ok := m.driver.(FileInstaller)
-	if !ok {
-		return false, nil
-	}
 	ctx, handle, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return false, err
 	}
 	defer finish()
+	installer, ok := m.Driver().(FileInstaller)
+	if !ok {
+		return false, nil
+	}
 	if handle == "" {
 		return false, fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
@@ -320,7 +334,7 @@ func (m *Manager) EnsureFile(ctx context.Context, scopeID string, cfg Config, de
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
-		slog.Warn("container: could not read sandbox platform", "driver", m.driver.Name(), "container_id", shortHandle(handle), "error", err.Error())
+		slog.Warn("container: could not read sandbox platform", "driver", m.Driver().Name(), "container_id", shortHandle(handle), "error", err.Error())
 	default:
 		data := source(platform)
 		if data == nil {
@@ -331,7 +345,7 @@ func (m *Manager) EnsureFile(ctx context.Context, scopeID string, cfg Config, de
 			if ctx.Err() != nil {
 				return false, ctx.Err()
 			}
-			slog.Warn("container: helper install failed", "driver", m.driver.Name(), "container_id", shortHandle(handle), "path", dest, "error", err.Error())
+			slog.Warn("container: helper install failed", "driver", m.Driver().Name(), "container_id", shortHandle(handle), "path", dest, "error", err.Error())
 			break
 		}
 		installed = true
@@ -382,7 +396,9 @@ func (m *Manager) RemoveScope(ctx context.Context, scopeID string) error {
 // Shutdown drains backend-owned work before stopping workloads and releasing
 // control resources. Failed cleanup retains the local tracking for diagnosis.
 func (m *Manager) Shutdown(ctx context.Context) error {
-	if driver, ok := m.driver.(ShutdownDriver); ok {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	if driver, ok := m.Driver().(ShutdownDriver); ok {
 		if err := driver.Shutdown(ctx); err != nil {
 			return fmt.Errorf("shut down sandbox backend: %w", err)
 		}
@@ -412,7 +428,7 @@ func (m *Manager) StopAll(ctx context.Context) {
 	m.mu.RUnlock()
 	for _, orgID := range scopes {
 		if err := m.StopContainer(ctx, orgID); err != nil {
-			slog.Warn("container: shutdown cleanup failed", "driver", m.driver.Name(), "org_id", orgID, "error", err.Error())
+			slog.Warn("container: shutdown cleanup failed", "driver", m.Driver().Name(), "org_id", orgID, "error", err.Error())
 			continue
 		}
 		slog.Info("container: stopped", "org_id", orgID)
@@ -426,7 +442,7 @@ func (m *Manager) CleanupIdle(ctx context.Context, maxIdle time.Duration) {
 
 	now := time.Now()
 	for orgID, info := range m.containers {
-		if !info.stopping && !info.drainFailed && info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
+		if !m.reconfiguring && m.runtimeErr == nil && !info.stopping && !info.drainFailed && info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
 			if err := m.release(ctx, info); err != nil {
 				slog.Warn("container: idle cleanup failed", "driver", m.driver.Name(), "org_id", orgID, "error", err.Error())
 				continue
@@ -468,7 +484,7 @@ func (m *Manager) release(ctx context.Context, info *containerInfo) error {
 // same on every backend.
 func (m *Manager) workspaceUsage(ctx context.Context, handle string) (int64, error) {
 	out := newBoundedOutput(4096)
-	code, err := m.driver.Exec(ctx, handle, ExecRequest{Argv: []string{"du", "-sk", "/workspace"}, Stdout: out, Stderr: out})
+	code, err := m.Driver().Exec(ctx, handle, ExecRequest{Argv: []string{"du", "-sk", "/workspace"}, Stdout: out, Stderr: out})
 	if err != nil {
 		return 0, fmt.Errorf("measure workspace: %w", err)
 	}
@@ -527,12 +543,15 @@ type HomeRemover interface {
 // are forgotten only after success. The optional scopes also cover callers
 // whose local configuration predates the home setting.
 func (m *Manager) RemoveHome(ctx context.Context, homeScope string, scopes ...string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.reconfiguring {
+		return fmt.Errorf("sandbox backend is changing")
+	}
 	remover, ok := m.driver.(HomeRemover)
 	if !ok {
 		return fmt.Errorf("the %s runtime does not support persistent homes", m.driver.Name())
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for scope, info := range m.containers {
 		if (info.config.HomeScope == homeScope || slices.Contains(scopes, scope)) && (info.active > 0 || info.stopping || info.drainFailed) {
 			return errors.New("persistent home is in use; stop its spaces before resetting it")
@@ -556,15 +575,15 @@ func (m *Manager) RemoveHome(ctx context.Context, homeScope string, scopes ...st
 // running anything in it. Unlike command execution it is not limited to
 // /workspace, so it is used only for destinations the caller has validated.
 func (m *Manager) CopyFile(ctx context.Context, scopeID string, cfg Config, dest string, data []byte, mode fs.FileMode) error {
-	installer, ok := m.driver.(FileInstaller)
-	if !ok {
-		return fmt.Errorf("the %s runtime cannot copy files", m.driver.Name())
-	}
 	ctx, handle, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return err
 	}
 	defer finish()
+	installer, ok := m.Driver().(FileInstaller)
+	if !ok {
+		return fmt.Errorf("the %s runtime cannot copy files", m.Driver().Name())
+	}
 	if handle == "" {
 		return fmt.Errorf("container not enabled for scope %s", scopeID)
 	}

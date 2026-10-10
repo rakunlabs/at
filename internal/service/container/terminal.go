@@ -21,7 +21,7 @@ func (m *Manager) AttachShell(ctx context.Context, scopeID string, cfg Config, w
 	if containerID == "" {
 		return nil, fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
-	inner, err := m.driver.Attach(ctx, containerID, workDir, cols, rows)
+	inner, err := m.Driver().Attach(ctx, containerID, workDir, cols, rows)
 	if err != nil {
 		finish()
 		return nil, err

@@ -131,9 +131,6 @@ func New(cfg config.Server, store any) (*Auth, error) {
 	if cfg.NativeAuth == nil || !cfg.NativeAuth.Enabled {
 		return nil, nil
 	}
-	if cfg.ForwardAuth != nil {
-		return nil, fmt.Errorf("native_auth and forward_auth cannot both be enabled")
-	}
 	if cfg.BasePath != "" && (cfg.BasePath == "/" || !strings.HasPrefix(cfg.BasePath, "/") || path.Clean(cfg.BasePath) != cfg.BasePath || strings.ContainsAny(cfg.BasePath, "?#%\\")) {
 		return nil, fmt.Errorf("native_auth requires a canonical base_path without a trailing slash")
 	}

@@ -14,7 +14,7 @@ Start AT with its usual PostgreSQL, bind, encryption and telemetry configuration
 then open the app to create the first local administrator and sign in. There is no
 required `native_auth.enabled`, origin YAML, or bootstrap-token copy/paste step.
 Authentication product settings live in PostgreSQL and are managed in Settings.
-Administrator sessions protect Settings; `admin_token` and forwarded user headers
+Administrator sessions protect Settings; legacy operator tokens and forwarded user headers
 are not alternative login credentials. Gateway tokens remain separate.
 
 ```yaml
@@ -511,7 +511,7 @@ governed by its existing gateway token/public-server policy.
   gateway calls, gateway bearer/API keys cannot authenticate management, and native
   mode removes Cookie headers from gateway requests before upstream passthrough.
   Webhook and public gateway-MCP policies are unchanged and must be reviewed by
-  the operator. The old caller-controlled `user_header` is ignored for native
+  the operator. Caller-controlled user headers are not accepted for native
   management attribution; the database user ID is used instead.
 
 ## Passkeys: Backend Contract

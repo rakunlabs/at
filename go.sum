@@ -399,8 +399,6 @@ github.com/rakunlabs/ada/middleware/auth v0.5.3 h1:nwPbrtJJ3ZQMRBoSGP7nmr0862o7Q
 github.com/rakunlabs/ada/middleware/auth v0.5.3/go.mod h1:lfQOR0YtGDt0oYsR7hE59rAIw3aVEGeZbesGQLEDhaY=
 github.com/rakunlabs/ada/middleware/cors v0.5.3 h1:TZfcavXvklB4Aih7EgdjaTRKd5HO2TeV8agHHysyJ8U=
 github.com/rakunlabs/ada/middleware/cors v0.5.3/go.mod h1:QnLErCedHN1gzYRRS2Il96SKv2BTIirZhwBKhzyhmdY=
-github.com/rakunlabs/ada/middleware/forwardauth v0.5.3 h1:38l0lH1GleB3iOuBmALuy6eB5wb/SbpR7doKxjshCWs=
-github.com/rakunlabs/ada/middleware/forwardauth v0.5.3/go.mod h1:VKGGrYrYgLUBduqYHFgpo29gp86fwryi/5ZgGbfgIg8=
 github.com/rakunlabs/ada/middleware/log v0.5.3 h1:ZzNlXi2kZJZeYrLyPhTApMmCj1Jwucw0t+VJMCpf0Ww=
 github.com/rakunlabs/ada/middleware/log v0.5.3/go.mod h1:mvtSrd1q4Krq5+b6Itpj3Lmv6DyAp3m1HrnszfRs/Dg=
 github.com/rakunlabs/ada/middleware/recover v0.5.3 h1:TQ4scZRRoLhAZ7F6JFzdNRrTTG6x8PiqZxWB40ME/Fk=

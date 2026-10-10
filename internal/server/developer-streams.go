@@ -71,6 +71,15 @@ func (s *Server) startDeveloperStream(w http.ResponseWriter, r *http.Request, ha
 				slog.Error("developer run release failed", "session", r.PathValue("id"), "error", err.Error())
 			}
 		}()
+		if s.containerManager != nil {
+			runtimeCtx, finish, err := s.containerManager.BeginRuntimeRun(ctx)
+			if err != nil {
+				httpResponse(w, err.Error(), http.StatusConflict)
+				return
+			}
+			defer finish()
+			ctx = runtimeCtx
+		}
 		handler(w, r.WithContext(ctx))
 	}, true)
 }

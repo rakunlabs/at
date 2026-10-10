@@ -23,8 +23,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/sandboxruntime"
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
@@ -65,7 +65,7 @@ func clusterDriver(t *testing.T) (*Driver, container.Config) {
 			t.Errorf("delete test namespace %s: %v", namespace, err)
 		}
 	})
-	d := &Driver{client: client, restConfig: rc, opts: config.KubernetesSandbox{Namespace: namespace, DeploymentID: "cluster-test", HelperImage: helper,
+	d := &Driver{client: client, restConfig: rc, opts: service.KubernetesSandbox{Namespace: namespace, DeploymentID: "cluster-test", HelperImage: helper,
 		HomeAccessMode: string(corev1.ReadWriteOnce), HomeSize: "64Mi", WorkspaceSize: "128Mi", SingleReplica: true, PodPidsLimit: 256}}
 	d.stream = d.streamExec
 	// Use the shipped controller Role, not the cluster administrator, for

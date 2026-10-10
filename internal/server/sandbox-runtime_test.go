@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -13,7 +12,7 @@ func TestSandboxBootstrapAndCapabilities(t *testing.T) {
 	if err != nil || m.Driver().Name() != "docker" {
 		t.Fatalf("default backend: %v", err)
 	}
-	for _, cfg := range []*config.Sandbox{{Backend: "unknown"}, {Backend: "kubernetes"}, {Kubernetes: &config.KubernetesSandbox{}}, {Backend: "kubernetes", Kubernetes: &config.KubernetesSandbox{}}} {
+	for _, cfg := range []*service.Sandbox{{Backend: "unknown"}, {Backend: "kubernetes"}, {Kubernetes: &service.KubernetesSandbox{}}, {Backend: "kubernetes", Kubernetes: &service.KubernetesSandbox{}}} {
 		if _, err := sandboxManager(cfg); err == nil {
 			t.Fatalf("invalid backend configuration accepted: %+v", cfg)
 		}

@@ -43,7 +43,7 @@ func (s *Server) startWorkspaceJanitor(ctx context.Context) {
 		return
 	}
 	cfg := s.loopGov.Config()
-	if cfg.WorkspaceRoot == "" || cfg.WorkspaceTTL < 0 {
+	if cfg.WorkspaceRoot == "" {
 		slog.Info("workspace_janitor: disabled",
 			"workspace_root", cfg.WorkspaceRoot,
 			"workspace_ttl", cfg.WorkspaceTTL)
@@ -53,7 +53,9 @@ func (s *Server) startWorkspaceJanitor(ctx context.Context) {
 	go func() {
 		// Run once on start so a fresh process immediately picks up
 		// stale workspaces from a previous run that crashed.
-		s.sweepWorkspaceOnce(ctx, cfg.WorkspaceRoot, cfg.WorkspaceTTL)
+		if ttl := s.workspaceRetention(); ttl >= 0 {
+			s.sweepWorkspaceOnce(ctx, cfg.WorkspaceRoot, ttl)
+		}
 
 		ticker := time.NewTicker(workspaceJanitorInterval)
 		defer ticker.Stop()
@@ -62,7 +64,9 @@ func (s *Server) startWorkspaceJanitor(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				s.sweepWorkspaceOnce(ctx, cfg.WorkspaceRoot, cfg.WorkspaceTTL)
+				if ttl := s.workspaceRetention(); ttl >= 0 {
+					s.sweepWorkspaceOnce(ctx, cfg.WorkspaceRoot, ttl)
+				}
 			}
 		}
 	}()

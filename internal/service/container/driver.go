@@ -72,17 +72,17 @@ type ScopeStopper interface {
 }
 
 func (m *Manager) Close() error {
-	if closer, ok := m.driver.(DriverCloser); ok {
+	if closer, ok := m.Driver().(DriverCloser); ok {
 		return closer.Close()
 	}
 	return nil
 }
 
 func (m *Manager) Capabilities() RuntimeCapabilities {
-	if driver, ok := m.driver.(CapabilityProvider); ok {
+	if driver, ok := m.Driver().(CapabilityProvider); ok {
 		return driver.Capabilities()
 	}
-	return RuntimeCapabilities{Backend: m.driver.Name()}
+	return RuntimeCapabilities{Backend: m.Driver().Name()}
 }
 
 // FileInstaller is implemented by drivers that can place a file into a

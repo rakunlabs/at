@@ -654,8 +654,8 @@ func (s *Server) publicClaudeMarketplacePluginURL(r *http.Request, name string) 
 }
 
 func (s *Server) publicBaseURL(r *http.Request) string {
-	if s.config.ExternalURL != "" {
-		return strings.TrimSuffix(s.config.ExternalURL, "/") + strings.TrimSuffix(s.config.BasePath, "/")
+	if externalURL := s.activeSystemSettings().ExternalURL; externalURL != "" {
+		return strings.TrimSuffix(externalURL, "/") + strings.TrimSuffix(s.config.BasePath, "/")
 	}
 
 	scheme := firstHeaderValue(r.Header.Get("X-Forwarded-Proto"))

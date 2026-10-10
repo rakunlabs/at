@@ -3240,8 +3240,14 @@ sandbox) and terminal bookkeeping. The driver owns create/resume, running,
 exec, attach, stop, remove and purge. The default driver is `docker.go`,
 which uses the host's docker CLI: `DOCKER_HOST` or the docker context selects
 a local, rootless or remote daemon. Experimental `internal/service/sandboxkube`
-is selected through bootstrap `server.sandbox.backend: kubernetes` with
-operator-owned `server.sandbox.kubernetes` settings. It requires a dedicated
+is selected through Settings → System with installation-owned sandbox settings
+persisted in PostgreSQL (migration 102). Live backend changes require single-replica
+confirmation, cancel/drain local sandbox activity, stop the old backend without
+purging persistent storage and apply the new driver. Failed drains suspend execution
+until explicit retry; invalid stored credentials leave the UI available for recovery.
+Server name, public URL, log level and workspace retention share that versioned
+System configuration; bootstrap values are initial defaults only. Other replicas
+load saved values on restart. It requires a dedicated
 namespace, a built helper image (`ci/Dockerfile.sandbox-helper`), declared CNI/PID
 guarantees and **one AT replica**. Kubernetes Stop deletes the pod, preserving
 PVCs but not installed system packages; runtime capabilities drive the UI

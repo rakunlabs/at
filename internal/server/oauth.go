@@ -929,7 +929,8 @@ func jsonDotPath(v any, path string) string {
 // buildOAuthLoginURL builds the full OAuth start URL for a bot user.
 // Returns empty string if ExternalURL is not configured or client_id is missing.
 func (s *Server) buildOAuthLoginURL(ctx context.Context, provider, platform, platformUserID string) string {
-	if s.config.ExternalURL == "" {
+	externalURL := s.activeSystemSettings().ExternalURL
+	if externalURL == "" {
 		return ""
 	}
 
@@ -946,7 +947,7 @@ func (s *Server) buildOAuthLoginURL(ctx context.Context, provider, platform, pla
 		return ""
 	}
 
-	base := strings.TrimSuffix(s.config.ExternalURL, "/") + strings.TrimSuffix(s.config.BasePath, "/")
+	base := strings.TrimSuffix(externalURL, "/") + strings.TrimSuffix(s.config.BasePath, "/")
 	userID := platform + "::" + platformUserID
 
 	params := url.Values{

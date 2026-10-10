@@ -10,7 +10,6 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
-	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	"golang.org/x/time/rate"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -55,8 +54,7 @@ func TestNativeAuthConfig(t *testing.T) {
 		{"short remember", func(c *config.Server) { c.NativeAuth.RememberTTL = time.Hour }, true},
 		{"long remember", func(c *config.Server) { c.NativeAuth.RememberTTL = 31 * 24 * time.Hour }, true},
 		{"custom remember", func(c *config.Server) { c.NativeAuth.RememberTTL = 24 * time.Hour }, false},
-		{"disabled", func(c *config.Server) { c.NativeAuth.Enabled = false; c.ForwardAuth = &mforwardauth.ForwardAuth{} }, false},
-		{"forward conflict", func(c *config.Server) { c.ForwardAuth = &mforwardauth.ForwardAuth{} }, true},
+		{"disabled", func(c *config.Server) { c.NativeAuth.Enabled = false }, false},
 		{"missing origin", func(c *config.Server) { c.NativeAuth.Origin = "" }, true},
 		{"origin path", func(c *config.Server) { c.NativeAuth.Origin += "/at" }, true},
 		{"origin credentials", func(c *config.Server) { c.NativeAuth.Origin = "https://user:pass@at.example" }, true},

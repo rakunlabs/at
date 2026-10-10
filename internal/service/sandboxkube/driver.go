@@ -16,8 +16,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/sandboxruntime"
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
@@ -31,7 +31,7 @@ const sandboxContainer = "sandbox"
 type Driver struct {
 	client     kubernetes.Interface
 	restConfig *rest.Config
-	opts       config.KubernetesSandbox
+	opts       service.KubernetesSandbox
 	ownership  *controllerOwnership
 	recoveryMu sync.Mutex
 	recovered  bool
@@ -43,7 +43,7 @@ var _ container.Driver = (*Driver)(nil)
 var _ container.FileInstaller = (*Driver)(nil)
 var _ container.HomeRemover = (*Driver)(nil)
 
-func New(opts config.KubernetesSandbox) (*Driver, error) {
+func New(opts service.KubernetesSandbox) (*Driver, error) {
 	opts, err := normalizeOptions(opts)
 	if err != nil {
 		return nil, err

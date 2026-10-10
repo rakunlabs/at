@@ -6,15 +6,10 @@ const api = axios.create({
 
 // ─── Rotate Encryption Key ───
 
-export async function rotateKey(adminToken: string, encryptionKey: string): Promise<string> {
+export async function rotateKey(encryptionKey: string): Promise<string> {
   const res = await api.post<{ message: string }>(
     '/rotate-key',
-    { encryption_key: encryptionKey },
-    {
-      headers: adminToken ? {
-        Authorization: `Bearer ${adminToken}`,
-      } : {},
-    }
+    { encryption_key: encryptionKey }
   );
   return res.data.message;
 }

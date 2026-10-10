@@ -87,7 +87,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, infoResponse{
 		Providers:     providerList,
 		StoreType:     storeType,
-		Name:          s.config.Name,
+		Name:          s.activeSystemSettings().Name,
 		User:          s.getUserEmail(r),
 		Version:       s.version,
 		Commit:        s.commit,

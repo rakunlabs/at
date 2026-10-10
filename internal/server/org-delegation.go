@@ -73,6 +73,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if org == nil || task == nil {
 		return service.ErrExecutionDenied
 	}
+	if org.ContainerConfig != nil && org.ContainerConfig.Enabled && s.containerManager != nil {
+		runtimeCtx, finish, err := s.containerManager.BeginRuntimeRun(ctx)
+		if err != nil {
+			return err
+		}
+		defer finish()
+		ctx = runtimeCtx
+	}
 	for _, action := range []service.ExecutionAction{
 		{Kind: "resource", Name: "agents.run", ResourceID: agentID},
 		{Kind: "resource", Name: "tasks.run", ResourceID: task.ID},

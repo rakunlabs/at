@@ -14,6 +14,19 @@ const helper = await load('../src/lib/helper/developer-space.ts');
 const pageSource = await readFile(new URL('../src/pages/DeveloperSpaces.svelte', import.meta.url), 'utf8');
 const chatSource = await readFile(new URL('../src/lib/components/developer/SessionChat.svelte', import.meta.url), 'utf8');
 
+test('developer sidebars use the shared textured navigation ground, not a flat raised surface', async () => {
+  const sidebars = [...pageSource.matchAll(/<aside class="([^"]+)"/g)];
+  assert.equal(sidebars.length, 2);
+  for (const [, classes] of sidebars) {
+    assert.match(classes, /\bgrain-background\b/);
+    assert.match(classes, /\bbg-dark-base\b/);
+    assert.doesNotMatch(classes, /\bbg-dark-surface\b/);
+  }
+  const css = await readFile(new URL('../src/style/global.css', import.meta.url), 'utf8');
+  assert.match(css, /\.grain-background[^\{]*\{\s*background-image: var\(--grain\);\s*background-size: 2px 2px/);
+  assert.match(css, /@media \(prefers-contrast: more\) \{[^}]*\.grain-background[^}]*background-image: none/);
+});
+
 test('Kubernetes stop warns about package loss and displays runtime limitations', () => {
   const stop = pageSource.match(/async function stop\(\) \{([\s\S]*?)\n  \}/)[1];
   assert.match(stop, /runtime\?\.backend === 'kubernetes'/);
@@ -69,6 +82,39 @@ test('opening Developer Spaces does not start the container or access its files'
   assert.match(boot, /await loadSessions\(\)/);
   assert.doesNotMatch(boot, /\bstart\(|startDeveloperSpace\(|loadRoot\(|openProject\(|newTerminal\(/);
   assert.match(pageSource, /onclick=\{start\}/);
+});
+
+test('file and project controls require explicit runtime connection, even with cached listings', () => {
+  assert.match(pageSource, /runtimeAvailable = \$derived\(runtimeConnected && space\?\.status === 'ready' && !space.execution_suspended && !space.active_control_id\)/);
+  assert.match(pageSource, /disabled=\{!runtimeAvailable\} onclick=\{event => \{ event.stopPropagation\(\); projectMenu/);
+  assert.match(pageSource, /sidebarView === 'files' && runtimeAvailable/);
+  assert.match(pageSource, /\{#if !runtimeAvailable\}[\s\S]*?Start the space to browse, create or upload files/);
+  assert.doesNotMatch(pageSource, /!Object.keys\(listings\).length/);
+  assert.match(pageSource, /\{#if menu && runtimeAvailable\}/);
+  assert.match(pageSource, /\{#if newProjectMode && runtimeAvailable\}/);
+});
+
+test('file actions, shortcuts and late upload callbacks cannot start a disconnected runtime', async () => {
+  const names = ['loadFolder', 'refreshTree', 'toggleFolder', 'refreshGitMarks', 'openFile', 'loadFileTab',
+    'saveTab', 'overwrite', 'filesChanged', 'download', 'showMenu', 'createEntry', 'renameEntry',
+    'deleteEntry', 'pickUpload', 'uploadFiles', 'createProject', 'openDiff', 'loadDiff', 'runSearch', 'newTerminal'];
+  for (const name of names) {
+    const source = pageSource.match(new RegExp(`(?:async )?function ${name}\\([^\\n]*\\) \\{[\\s\\S]*?\\n  \\}`))?.[0];
+    assert.ok(source, name);
+    const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+    // No API, prompt, DOM or other dependencies are supplied: touching any of
+    // them before checking runtime availability makes this invocation fail.
+    const action = new Function('runtimeAvailable', `${code}; return ${name};`)(false);
+    await action();
+  }
+});
+
+test('switching saved chat projects while disconnected only changes metadata', async () => {
+  const source = pageSource.match(/async function openProject\([^\n]*\) \{[\s\S]*?\n  \}/)[0];
+  const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const result = await new Function(`let project = '', projectMenu = true; const runtimeAvailable = false;
+    ${code}; return openProject('saved-project', false).then(() => ({ project, projectMenu }));`)();
+  assert.deepEqual(result, { project: 'saved-project', projectMenu: false });
 });
 const api = await load('../src/lib/api/developer-spaces.ts', [
   ["import axios from 'axios';", 'const axios = { create: () => ({}) };'],

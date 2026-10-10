@@ -3,13 +3,12 @@ package server
 import (
 	"fmt"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 	"github.com/rakunlabs/at/internal/service/sandboxkube"
 )
 
-func sandboxManager(cfg *config.Sandbox) (*container.Manager, error) {
+func sandboxManager(cfg *service.Sandbox) (*container.Manager, error) {
 	if cfg == nil || cfg.Backend == "" || cfg.Backend == "docker" {
 		if cfg != nil && cfg.Kubernetes != nil {
 			return nil, fmt.Errorf("sandbox.kubernetes requires backend: kubernetes")

@@ -4,72 +4,20 @@ package sandboxkube
 
 import (
 	"fmt"
-	"net/netip"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/sandboxruntime"
+	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
-func normalizeOptions(opts config.KubernetesSandbox) (config.KubernetesSandbox, error) {
-	if !opts.SingleReplica {
-		return opts, fmt.Errorf("Kubernetes sandboxes currently require single_replica: true and one AT replica")
-	}
-	if !opts.NetworkPolicyEnforced {
-		return opts, fmt.Errorf("Kubernetes sandboxes require network_policy_enforced: true after verifying the cluster CNI enforces NetworkPolicy")
-	}
-	if opts.PodPidsLimit <= 0 {
-		return opts, fmt.Errorf("pod_pids_limit must declare the positive kubelet podPidsLimit configured on every sandbox node")
-	}
-	if len(validation.IsDNS1123Label(opts.Namespace)) != 0 || len(validation.IsDNS1123Label(opts.DeploymentID)) != 0 {
-		return opts, fmt.Errorf("namespace and deployment_id must be non-empty DNS labels")
-	}
-	if opts.Namespace == "default" || opts.Namespace == "kube-system" || opts.Namespace == "kube-public" || opts.Namespace == "kube-node-lease" {
-		return opts, fmt.Errorf("use a dedicated sandbox namespace, not %q", opts.Namespace)
-	}
-	if opts.HelperImage == "" || strings.HasPrefix(opts.HelperImage, "-") || strings.ContainsAny(opts.HelperImage, " \t\r\n") {
-		return opts, fmt.Errorf("helper_image must name the operator-built at-sandbox helper image")
-	}
-	if opts.RuntimeClass != "" && len(validation.IsDNS1123Subdomain(opts.RuntimeClass)) != 0 {
-		return opts, fmt.Errorf("invalid runtime_class")
-	}
-	for _, class := range []string{opts.StorageClass, opts.HomeStorageClass} {
-		if class != "" && len(validation.IsDNS1123Subdomain(class)) != 0 {
-			return opts, fmt.Errorf("invalid storage class")
-		}
-	}
-	if opts.HomeAccessMode == "" {
-		opts.HomeAccessMode = string(corev1.ReadWriteMany)
-	}
-	if opts.HomeAccessMode != string(corev1.ReadWriteMany) && opts.HomeAccessMode != string(corev1.ReadWriteOnce) {
-		return opts, fmt.Errorf("home_access_mode must be ReadWriteMany or ReadWriteOnce")
-	}
-	if opts.HomeSize == "" {
-		opts.HomeSize = "5Gi"
-	}
-	if opts.WorkspaceSize == "" {
-		opts.WorkspaceSize = "20Gi"
-	}
-	for _, size := range []string{opts.HomeSize, opts.WorkspaceSize} {
-		q, err := resource.ParseQuantity(size)
-		if err != nil || q.Sign() <= 0 {
-			return opts, fmt.Errorf("home_size and workspace_size must be positive Kubernetes quantities")
-		}
-	}
-	for _, cidr := range opts.BlockedCIDRs {
-		if _, err := netip.ParsePrefix(cidr); err != nil {
-			return opts, fmt.Errorf("invalid blocked CIDR %q: %w", cidr, err)
-		}
-	}
-	return opts, nil
+func normalizeOptions(opts service.KubernetesSandbox) (service.KubernetesSandbox, error) {
+	return service.NormalizeKubernetesSandbox(opts)
 }
 
-func validateSandbox(cfg container.Config, opts config.KubernetesSandbox) error {
+func validateSandbox(cfg container.Config, opts service.KubernetesSandbox) error {
 	if cfg.Image == "" || strings.HasPrefix(cfg.Image, "-") || strings.ContainsAny(cfg.Image, " \t\r\n") {
 		return fmt.Errorf("invalid sandbox image")
 	}

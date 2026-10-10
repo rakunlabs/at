@@ -17,7 +17,6 @@ require (
 	github.com/rakunlabs/ada/handler/folder v0.5.3
 	github.com/rakunlabs/ada/middleware/auth v0.5.3
 	github.com/rakunlabs/ada/middleware/cors v0.5.3
-	github.com/rakunlabs/ada/middleware/forwardauth v0.5.3
 	github.com/rakunlabs/ada/middleware/log v0.5.3
 	github.com/rakunlabs/ada/middleware/recover v0.5.3
 	github.com/rakunlabs/ada/middleware/requestid v0.5.3

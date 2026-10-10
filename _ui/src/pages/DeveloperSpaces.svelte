@@ -88,6 +88,7 @@
   let uploadFolder = '';
 
   const activeTab = $derived(tabs.find(t => t.key === activeKey));
+  const runtimeAvailable = $derived(runtimeConnected && space?.status === 'ready' && !space.execution_suspended && !space.active_control_id);
   const dirty = $derived(new Set(tabs.filter((t): t is FileTab => t.kind === 'file' && t.content !== t.saved).map(t => t.path)));
   const projectSessions = $derived(sessions.filter(s => s.project_path === project || (project === '' && !s.project_path)));
   const otherSessions = $derived(sessions.filter(s => !projectSessions.includes(s)));
@@ -300,6 +301,7 @@
   // ─── Files ───
 
   async function loadFolder(folder: string) {
+    if (!runtimeAvailable) return;
     folderLoading = { ...folderLoading, [folder]: true };
     try {
       const result = await listDeveloperFiles(folder);
@@ -318,12 +320,14 @@
   const loadRoot = () => loadFolder('');
 
   async function refreshTree() {
+    if (!runtimeAvailable) return;
     const open = ['', ...Object.keys(expanded).filter(k => expanded[k])];
     await Promise.all(open.map(loadFolder));
     await refreshGitMarks();
   }
 
   async function toggleFolder(path: string) {
+    if (!runtimeAvailable) return;
     const next = !expanded[path];
     expanded = { ...expanded, [path]: next };
     if (next && !listings[path]) await loadFolder(path);
@@ -332,6 +336,8 @@
   async function openProject(path: string, focusChat = true) {
     project = path;
     projectMenu = false;
+    // History selection is metadata-only until the user explicitly starts.
+    if (!runtimeAvailable) return;
     expanded = { ...expanded, [path]: true };
     if (!listings[path]) await loadFolder(path);
     await refreshGitMarks();
@@ -342,6 +348,7 @@
   }
 
   async function refreshGitMarks() {
+    if (!runtimeAvailable) return;
     if (!project) { gitChanged = new Set(); return; }
     try {
       const status = await getDeveloperGitStatus(project);
@@ -357,6 +364,7 @@
   }
 
   async function openFile(path: string) {
+    if (!runtimeAvailable) return;
     const key = `file:${path}`;
     const existing = tabs.find(t => t.key === key);
     activeKey = key;
@@ -376,6 +384,7 @@
   }
 
   async function loadFileTab(key: string) {
+    if (!runtimeAvailable) return;
     const tab = fileTab(key);
     if (!tab) return;
     patchTab(key, { loading: true, error: '' });
@@ -397,6 +406,7 @@
   }
 
   async function saveTab(key: string) {
+    if (!runtimeAvailable) return;
     const tab = fileTab(key);
     if (!tab || tab.binary || tab.tooLarge || tab.content === tab.saved) return;
     const content = tab.content;
@@ -414,6 +424,7 @@
   }
 
   async function overwrite(key: string) {
+    if (!runtimeAvailable) return;
     const tab = fileTab(key);
     if (!tab) return;
     try {
@@ -427,6 +438,7 @@
 
   // Files the agent wrote: clean tabs reload silently, edited ones get a banner.
   async function filesChanged(paths: string[], tree: boolean) {
+    if (!runtimeAvailable) return;
     for (const path of paths) {
       const tab = fileTab(`file:${path}`);
       if (!tab) continue;
@@ -450,6 +462,7 @@
   }
 
   async function download(path: string) {
+    if (!runtimeAvailable) return;
     try {
       const blob = await fetchDeveloperFileBlob(path);
       const url = URL.createObjectURL(blob);
@@ -464,10 +477,12 @@
   // ─── Tree actions ───
 
   function showMenu(event: MouseEvent, entry: DeveloperFileEntry | null, folder = '') {
+    if (!runtimeAvailable) return;
     menu = { x: Math.min(event.clientX, window.innerWidth - 200), y: Math.min(event.clientY, window.innerHeight - 260), entry, folder: entry ? (entry.type === 'dir' ? entry.path : parentPath(entry.path)) : folder };
   }
 
   async function createEntry(folder: string, type: 'file' | 'dir') {
+    if (!runtimeAvailable) return;
     menu = null;
     const name = prompt(type === 'dir' ? 'New folder name' : 'New file name');
     if (name === null) return;
@@ -485,6 +500,7 @@
   }
 
   async function renameEntry(entry: DeveloperFileEntry) {
+    if (!runtimeAvailable) return;
     menu = null;
     const name = prompt('New name', entry.name);
     if (name === null || name.trim() === entry.name) return;
@@ -504,6 +520,7 @@
   }
 
   async function deleteEntry(entry: DeveloperFileEntry) {
+    if (!runtimeAvailable) return;
     menu = null;
     const what = entry.type === 'dir' ? `the folder "${entry.path}" and everything in it` : `"${entry.path}"`;
     if (!confirm(`Delete ${what}? This cannot be undone.`)) return;
@@ -520,12 +537,14 @@
   }
 
   function pickUpload(folder: string) {
+    if (!runtimeAvailable) return;
     menu = null;
     uploadFolder = folder;
     uploadInput.click();
   }
 
   async function uploadFiles(folder: string, files: FileList | File[]) {
+    if (!runtimeAvailable) return;
     const list = [...files];
     if (!list.length) return;
     let failed = 0;
@@ -542,6 +561,7 @@
   // ─── Projects ───
 
   async function createProject() {
+    if (!runtimeAvailable) return;
     creatingProject = true;
     try {
       if (newProjectMode === 'folder') {
@@ -611,6 +631,7 @@
   // ─── Diff tabs ───
 
   async function openDiff(file: string, opts: { staged?: boolean; untracked?: boolean; head?: boolean }) {
+    if (!runtimeAvailable) return;
     const key = `diff:${project}:${opts.head ? 'head' : opts.staged ? 'staged' : 'work'}:${file}`;
     if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'diff', key, project, file, staged: !!opts.staged, untracked: !!opts.untracked, head: !!opts.head, diff: '', loading: true }];
     activeKey = key;
@@ -625,6 +646,7 @@
   }
 
   async function loadDiff(key: string) {
+    if (!runtimeAvailable) return;
     const tab = tabs.find(t => t.key === key);
     if (tab?.kind !== 'diff') return;
     patchTab(key, { loading: true });
@@ -647,6 +669,7 @@
   // ─── Search ───
 
   async function runSearch() {
+    if (!runtimeAvailable) return;
     if (!searchQuery.trim()) return;
     searching = true;
     try {
@@ -664,6 +687,7 @@
 
   let terminalSeq = 0;
   function newTerminal() {
+    if (!runtimeAvailable) return;
     const id = `t${Date.now()}-${terminalSeq++}`;
     terminals = [...terminals, { id, cwd: project, generation: 0 }];
     activeTerminal = id;
@@ -745,12 +769,12 @@
     <button type="button" onclick={() => (showLeft = !showLeft)} class={['p-1.5 hover:bg-dark-elevated', showLeft ? 'text-dark-text' : 'text-dark-text-muted']} title="Toggle side bar" aria-label="Toggle side bar" aria-pressed={showLeft}><PanelLeft size={15} /></button>
 
     <div class="relative">
-      <button type="button" onclick={event => { event.stopPropagation(); projectMenu = !projectMenu; }} class="inline-flex max-w-72 items-center gap-1.5 border border-dark-border-subtle bg-dark-base px-2.5 py-1 text-xs hover:bg-dark-elevated" aria-haspopup="menu" aria-expanded={projectMenu}>
+      <button type="button" disabled={!runtimeAvailable} onclick={event => { event.stopPropagation(); projectMenu = !projectMenu; }} class="inline-flex max-w-72 items-center gap-1.5 border border-dark-border-subtle bg-dark-base px-2.5 py-1 text-xs hover:bg-dark-elevated disabled:opacity-50" aria-haspopup="menu" aria-expanded={projectMenu}>
         <FolderGit2 size={13} class="shrink-0 text-dark-text-muted" />
         <span class="truncate font-medium">{project || 'All files'}</span>
         <ChevronDown size={12} class="shrink-0 text-dark-text-muted" />
       </button>
-      {#if projectMenu}
+      {#if projectMenu && runtimeAvailable}
         <div role="menu" tabindex="-1" class="absolute left-0 top-full z-30 mt-1 w-72 border border-dark-border bg-dark-surface py-1 text-xs shadow-lg" onclick={event => event.stopPropagation()} onkeydown={() => {}}>
           <button type="button" role="menuitem" onclick={() => { project = ''; projectMenu = false; void refreshGitMarks(); }} class={['block w-full px-3 py-1.5 text-left hover:bg-dark-elevated', project === '' ? 'font-semibold' : '']}>All files <span class="text-dark-text-muted">/workspace</span></button>
           {#each projects as p (p.path)}
@@ -822,7 +846,7 @@
     </form>
   {/if}
 
-  {#if newProjectMode}
+  {#if newProjectMode && runtimeAvailable}
     <form class="flex flex-wrap items-end gap-2 border-b border-dark-border bg-dark-surface px-3 py-2 text-xs" onsubmit={event => { event.preventDefault(); void createProject(); }}>
       {#if newProjectMode === 'clone'}
         <label class="min-w-64 flex-[2]">Repository URL<input bind:value={cloneRemote} required placeholder="https://github.com/org/repo.git" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
@@ -837,7 +861,7 @@
   <div class="flex min-h-0 flex-1">
     <!-- Left: sessions + explorer -->
     {#if showLeft}
-      <aside class="flex min-h-0 shrink-0 flex-col border-r border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
+      <aside class="grain-background flex min-h-0 shrink-0 flex-col border-r border-dark-border bg-dark-base max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
         <section class="flex max-h-[40%] min-h-0 flex-col border-b border-dark-border">
           <div class="flex items-center gap-1 px-2 py-1.5">
             <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Sessions</h3>
@@ -876,7 +900,7 @@
           <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold', sidebarView === 'files' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Files</button>
           <button type="button" onclick={() => (sidebarView = 'search')} class={['px-2 py-0.5 text-[11px] font-semibold', sidebarView === 'search' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Search</button>
           <span class="flex-1"></span>
-          {#if sidebarView === 'files'}
+          {#if sidebarView === 'files' && runtimeAvailable}
             <button type="button" onclick={() => createEntry(project, 'file')} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="New file" aria-label="New file"><FilePlus size={13} /></button>
             <button type="button" onclick={() => createEntry(project, 'dir')} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="New folder" aria-label="New folder"><FolderPlus size={13} /></button>
             <button type="button" onclick={() => pickUpload(project)} class="p-1 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Upload files" aria-label="Upload files"><Upload size={13} /></button>
@@ -884,7 +908,9 @@
           {/if}
         </div>
 
-        {#if sidebarView === 'files'}
+        {#if !runtimeAvailable}
+          <p role="status" class="min-h-0 flex-1 px-3 py-3 text-xs text-dark-text-muted">{starting ? 'Starting your space…' : 'Start the space to browse, create or upload files.'}</p>
+        {:else if sidebarView === 'files'}
           <div
             role="region"
             aria-label="Files"
@@ -893,9 +919,7 @@
             ondragover={event => event.preventDefault()}
             ondrop={event => { event.preventDefault(); if (event.dataTransfer?.files.length) void uploadFiles(project, event.dataTransfer.files); }}
           >
-            {#if (!runtimeConnected || space?.status !== 'ready') && !Object.keys(listings).length}
-              <p class="px-3 py-2 text-xs text-dark-text-muted">{starting ? 'Starting your space…' : 'Start the space to browse files.'}</p>
-            {:else if project}
+            {#if project}
               <FileTree {listings} {expanded} loading={folderLoading} folder={project} selected={activeTab?.kind === 'file' ? activeTab.path : ''} {dirty} changed={gitChanged} ontoggle={toggleFolder} onopen={entry => openFile(entry.path)} onmenu={(event, entry) => showMenu(event, entry)} ondropfiles={(folder, files) => uploadFiles(folder, files)} />
             {:else}
               <FileTree {listings} {expanded} loading={folderLoading} folder="" selected={activeTab?.kind === 'file' ? activeTab.path : ''} {dirty} changed={gitChanged} ontoggle={toggleFolder} onopen={entry => openFile(entry.path)} onmenu={(event, entry) => showMenu(event, entry)} ondropfiles={(folder, files) => uploadFiles(folder, files)} />
@@ -971,6 +995,8 @@
               {:else}
                 <p class="p-4 text-sm text-dark-text-muted">This session no longer exists.</p>
               {/if}
+            {:else if !runtimeAvailable}
+              <p role="status" class="p-4 text-xs text-dark-text-muted">Start the space to access this file. Unsaved edits are kept.</p>
             {:else if tab.kind === 'file'}
               <div class="flex h-8 shrink-0 items-center gap-2 border-b border-dark-border px-3 text-xs text-dark-text-muted">
                 <span class="min-w-0 flex-1 truncate font-mono">{tab.path}</span>
@@ -1031,7 +1057,7 @@
             <p class="max-w-md">Pick a project from the top bar, open a file from the side bar, or start a chat with the coding agent.</p>
             <div class="flex flex-wrap justify-center gap-2">
               <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base hover:bg-dark-highest bg-accent"><MessageSquare size={13} /> New chat{project ? ` in ${project}` : ''}</button>
-              <button type="button" onclick={() => (newProjectMode = 'clone')} class="inline-flex items-center gap-1.5 border border-dark-border px-3 py-1.5 text-xs hover:bg-dark-elevated"><GitBranch size={13} /> Clone a repository</button>
+              <button type="button" disabled={!runtimeAvailable} onclick={() => (newProjectMode = 'clone')} class="inline-flex items-center gap-1.5 border border-dark-border px-3 py-1.5 text-xs hover:bg-dark-elevated disabled:opacity-50"><GitBranch size={13} /> Clone a repository</button>
             </div>
           </div>
         {/each}
@@ -1041,7 +1067,7 @@
         {#if !terminalMinimized || space?.status !== 'ready'}
           <div role="separator" aria-orientation="horizontal" aria-label="Resize terminal" class="h-1 shrink-0 cursor-row-resize hover:bg-accent/50 bg-dark-border" onpointerdown={resizeTerminal}></div>
         {/if}
-        {#if runtimeConnected && space?.status === 'ready'}
+        {#if runtimeAvailable}
           <!-- Minimizing clips the panel to its tab strip instead of unmounting
                it, so the shells stay connected and xterm keeps its size. -->
           <div class="shrink-0 overflow-hidden" style={`height:${terminalMinimized ? 32 : terminalHeight}px`}>
@@ -1058,12 +1084,12 @@
     <!-- Right: source control -->
     {#if rightView === 'git'}
       <div role="separator" aria-orientation="vertical" aria-label="Resize source control" class="w-1 shrink-0 cursor-col-resize hover:bg-accent/40 max-md:hidden" onpointerdown={resizeRight}></div>
-      <aside class="flex min-h-0 shrink-0 flex-col border-l border-dark-border bg-dark-surface max-md:absolute max-md:inset-y-10 max-md:right-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${rightWidth}px`}>
+      <aside class="grain-background flex min-h-0 shrink-0 flex-col border-l border-dark-border bg-dark-base max-md:absolute max-md:inset-y-10 max-md:right-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${rightWidth}px`}>
         <div class="flex h-9 shrink-0 items-center border-b border-dark-border px-3">
           <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Source control{project ? ` · ${project}` : ''}</h3>
         </div>
         <div class="min-h-0 flex-1">
-          {#if runtimeConnected && space?.status === 'ready'}
+          {#if runtimeAvailable}
             <GitPanel project={project} revision={gitRevision} ondiff={openDiff} onchanged={() => { void refreshTree(); for (const t of tabs) if (t.kind === 'file' && t.content === t.saved) void loadFileTab(t.key); }} />
           {:else}
             <p class="p-3 text-xs text-dark-text-muted">Start the space to see changes.</p>
@@ -1075,7 +1101,7 @@
 </div>
 {/if}
 
-{#if menu}
+{#if menu && runtimeAvailable}
   <div role="menu" tabindex="-1" class="fixed z-50 w-48 border border-dark-border bg-dark-surface py-1 text-xs shadow-lg" style={`left:${menu.x}px;top:${menu.y}px`} onclick={event => event.stopPropagation()} onkeydown={() => {}}>
     {#if menu.entry && menu.entry.type !== 'dir'}
       <button type="button" role="menuitem" onclick={() => { const p = menu!.entry!.path; menu = null; void openFile(p); }} class="block w-full px-3 py-1.5 text-left hover:bg-dark-elevated">Open</button>

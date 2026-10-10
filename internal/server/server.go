@@ -17,6 +17,7 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
+	"github.com/rakunlabs/logi"
 
 	"github.com/rakunlabs/at/internal/clientip"
 	"github.com/rakunlabs/at/internal/cluster"
@@ -80,8 +81,12 @@ func (p ProviderInfo) RetryAfterCap() time.Duration {
 type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
 
 type Server struct {
-	config     config.Server
-	nativeAuth *nativeauth.Auth
+	config              config.Server
+	systemMu            sync.RWMutex
+	systemApplyMu       sync.Mutex
+	systemSettings      *service.SystemSettings
+	systemSettingsStore service.SystemSettingsStorer
+	nativeAuth          *nativeauth.Auth
 
 	// authSettings owns the database-backed authentication policy and the
 	// immutable per-version coordinator each request runs under. It is the
@@ -367,16 +372,10 @@ type Server struct {
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
-	if s.authSettings != nil || s.nativeAuth != nil {
-		if id := identity.FromContext(r.Context()); id != nil {
-			return id.Subject
-		}
-		return ""
+	if id := identity.FromContext(r.Context()); id != nil {
+		return id.Subject
 	}
-	if s.config.UserHeader == "" {
-		return ""
-	}
-	return r.Header.Get(s.config.UserHeader)
+	return ""
 }
 
 // thoughtSigTTL is how long cached thought_signature entries are kept.
@@ -461,14 +460,31 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
-	sandboxes, err := sandboxManager(cfg.Sandbox)
-	if err != nil {
-		return nil, err
-	}
 	// Boot-time catalog enumeration (schedulers, bots, migrations, janitors)
 	// runs under maintenance authority. It only permits discovery: every
 	// discovered subject still resolves its own live workspace binding.
 	ctx = service.WithExecutionMaintenance(ctx)
+	system := initialSystemSettings(cfg)
+	systemStore, _ := store.(service.SystemSettingsStorer)
+	if systemStore != nil {
+		stored, err := systemStore.GetSystemSettings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load installation settings: %w", err)
+		}
+		if stored != nil {
+			system = *stored
+		}
+	}
+	sandboxes, sandboxErr := sandboxManager(&system.Sandbox)
+	if sandboxErr != nil {
+		// Fail closed for sandbox execution, but retain the UI for recovery.
+		sandboxes = container.New()
+		sandboxes.Suspend(sandboxErr)
+		slog.Error("sandbox backend unavailable; correct Settings > System", "error", sandboxErr.Error())
+	}
+	if err := logi.SetLogLevel(system.LogLevel); err != nil {
+		return nil, fmt.Errorf("apply installation log level: %w", err)
+	}
 	native, err := nativeauth.New(cfg, store)
 	if err != nil {
 		return nil, err
@@ -527,6 +543,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		nativeAuth:                native,
 		authSettings:              runtimeAuth,
 		config:                    cfg,
+		systemSettings:            &system,
+		systemSettingsStore:       systemStore,
 		ctx:                       ctx,
 		server:                    mux,
 		providers:                 providers,
@@ -804,7 +822,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Legacy unversioned proxy endpoint.
 	gatewayGroup.Handle("/proxy/{provider}/*", http.HandlerFunc(s.ProxyRequest))
 
-	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
+	// Webhook endpoint (top-level, like gateway — independent of browser auth).
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.Use(s.featureGateMiddleware())
 	webhookGroup.POST("/{id}", s.WebhookAPI)
@@ -848,12 +866,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	internalGroup.POST("/v1/mcp/{name}/mcp", s.InternalMCPHandler)
 
 	// ////////////////////////////////////////////
-	// Human identity is always native now, so forward auth is no longer an
-	// admission path. Configure an identity provider in Settings instead.
-	if cfg.ForwardAuth != nil {
-		slog.Warn("forward_auth is ignored: human authentication is managed in Settings")
-	}
-
 	apiGroup := baseGroup.Group("/api")
 	// Workspace-classified business routes admit scoped members; every other
 	// management route stays installation-only until its whole path is scoped.
@@ -1437,6 +1449,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	settingsGroup.POST("/rotate-key", s.RotateKeyAPI)
 	settingsGroup.GET("/agent-runtime", s.AgentRuntimeSettingsAPI)
 	settingsGroup.PUT("/agent-runtime", s.AgentRuntimeSettingsAPI)
+	settingsGroup.GET("/system", s.SystemSettingsAPI)
+	settingsGroup.PUT("/system", s.SystemSettingsAPI)
 
 	// ////////////////////////////////////////////
 
@@ -1621,10 +1635,8 @@ func (s *Server) removeProvider(key string) {
 	slog.Info("provider removed from registry", "key", key)
 }
 
-// adminAuthMiddleware uses native admin sessions when enabled. Otherwise it
-// preserves the legacy operator-token check for settings endpoints.
-// If no admin_token is configured, all admin requests are rejected with 403.
-// If configured, requests must provide a matching Authorization: Bearer <token> header.
+// adminAuthMiddleware requires an installation administrator session. Missing
+// authentication fails closed; bearer tokens and user headers are not identities.
 func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
 	if s.authSettings != nil {
 		return s.authSettings.Require(true)
@@ -1634,24 +1646,7 @@ func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if s.config.AdminToken == "" {
-				httpResponse(w, "admin token not configured", http.StatusForbidden)
-				return
-			}
-
-			auth := r.Header.Get("Authorization")
-			if auth == "" {
-				httpResponse(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			token := strings.TrimPrefix(auth, "Bearer ")
-			if token == auth || token != s.config.AdminToken {
-				httpResponse(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			next.ServeHTTP(w, r)
+			httpResponse(w, "administrator sign-in required", http.StatusForbidden)
 		})
 	}
 }
