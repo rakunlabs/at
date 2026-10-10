@@ -115,7 +115,7 @@
     <code
       class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
       >/gateway/v1/models</code
-    > at startup, so
+    > when discovery runs, so
     <code
       class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
       >models</code
@@ -142,6 +142,25 @@
       class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
       >opencode service restart</code
     > once.
+  </p>
+  <p class="text-sm leading-relaxed text-dark-text-secondary">
+    The generated config pins opencode-models-discovery 1.9.0 and enables a 24-hour cache
+    (<code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
+      >{'cache: { enabled: true, ttlSeconds: 86400 }'}</code
+    >). OpenCode V2 stores the discovered models and metadata in its persistent plugin storage.
+    A fresh cache lets discovery reuse the catalog without waiting for the gateway endpoints,
+    reducing the startup window in which a selected model may be unavailable. The cache is
+    populated after successful discovery; it does not guarantee availability before the first
+    discovery or after expiry. After changing providers or model metadata, run
+    <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
+      >/models-discovery-refresh</code
+    > to refresh without waiting for the cache to expire. The agent tools
+    <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
+      >models_discovery_refresh</code
+    > and
+    <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
+      >models_discovery_status</code
+    > can refresh the catalog or inspect its cache status.
   </p>
 {:else}
   <p class="text-sm leading-relaxed text-dark-text-secondary">

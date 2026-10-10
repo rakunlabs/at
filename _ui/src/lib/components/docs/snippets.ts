@@ -142,7 +142,7 @@ function gatewayPath(baseUrl: string, endpoint: string): string {
  * `plugins` as `{package, options}` objects.
  */
 const opencodeProviderPackage = '@opencode/ai/providers/openai-compatible';
-const opencodeDiscoveryPlugin = 'opencode-models-discovery@1.7.1';
+const opencodeDiscoveryPlugin = 'opencode-models-discovery@1.9.0';
 
 function opencodeConfig(opts: {
   instanceName: string;
@@ -185,6 +185,10 @@ export function opencodeDiscoveryConfig(opts: { baseUrl: string; instanceName: s
         smartModelName: true,
         modelInfoFormat: 'litellm',
         modelInfoEndpoint: gatewayPath(opts.baseUrl, 'model/info'),
+        cache: {
+          enabled: true,
+          ttlSeconds: 86400,
+        },
       },
     },
     models: {},
