@@ -1,38 +1,29 @@
 <script lang="ts">
-  // The single navigation surface for /docs: one search box and two
-  // collapsible groups. Implemented as an ARIA tree with roving tabindex —
-  // arrow keys walk the visible rows, Enter/Space activate (native button
-  // behaviour), ArrowLeft/Right collapse/expand and move between levels.
-  import {
-    Search,
-    X,
-    Plus,
-    ChevronRight,
-    Lock,
-    Pencil,
-    Loader2,
-    AlertTriangle,
-  } from 'lucide-svelte';
+  // The single navigation surface for /docs: one search box and collapsible
+  // groups (the reference sections plus the guide library). Implemented as an
+  // ARIA tree with roving tabindex — arrow keys walk the visible rows,
+  // Enter/Space activate (native button behaviour), ArrowLeft/Right
+  // collapse/expand and move between levels.
+  import { Search, X, Plus, ChevronRight, Loader2, AlertTriangle } from 'lucide-svelte';
   import {
     buildNavRows,
+    groupExpanded,
+    groupRowKey,
     navRowKey,
     stepIndex,
-    type DocsGroupId,
     type DocsGroupState,
+    type DocsKind,
     type DocsSelection,
   } from '@/lib/helper/docs-nav';
-  import type { ApiSectionMeta } from './api-sections';
   import type { DisplayGuide } from './builtin-guides';
+  import type { SidebarGroup } from './docs-types';
   import { iconFor } from './guide-icons';
 
   interface Props {
-    apiEntries: ApiSectionMeta[];
-    guideEntries: DisplayGuide[];
-    apiTotal: number;
-    guideTotal: number;
+    groups: SidebarGroup[];
     selection: DocsSelection;
     query: string;
-    groups: DocsGroupState;
+    expanded: DocsGroupState;
     guidesLoading?: boolean;
     guidesError?: string;
     onselect: (selection: DocsSelection) => void;
@@ -41,13 +32,10 @@
   }
 
   let {
-    apiEntries,
-    guideEntries,
-    apiTotal,
-    guideTotal,
+    groups,
     selection,
     query = $bindable(''),
-    groups = $bindable(),
+    expanded = $bindable(),
     guidesLoading = false,
     guidesError = '',
     onselect,
@@ -59,9 +47,9 @@
   let focusKey = $state('');
 
   const searching = $derived(query.trim().length > 0);
-  const rows = $derived(buildNavRows(apiEntries, guideEntries, groups));
+  const rows = $derived(buildNavRows(groups, expanded));
   const activeKey = $derived(navRowKey(selection.kind, selection.id));
-  const noResults = $derived(searching && apiEntries.length === 0 && guideEntries.length === 0);
+  const noResults = $derived(searching && groups.every((g) => g.entries.length === 0));
 
   // Exactly one row is in the tab order. Prefer the row the user last moved
   // focus to, then the selected row, then the first row.
@@ -70,10 +58,6 @@
     if (rows.some((r) => r.key === activeKey)) return activeKey;
     return rows[0]?.key ?? '';
   });
-
-  // The first user (non-builtin) guide starts the "My guides" run. Headings are
-  // decorative, so arrow-key order still matches buildNavRows exactly.
-  const firstUserIndex = $derived(guideEntries.findIndex((g) => !g.builtin));
 
   function rowEl(key: string): HTMLElement | null {
     return treeEl?.querySelector<HTMLElement>(`[data-nav-key="${CSS.escape(key)}"]`) ?? null;
@@ -93,12 +77,12 @@
   // owning group being expanded puts it outside the scroll viewport.
   $effect(() => {
     const key = activeKey;
-    if (!groups[selection.kind]) return;
+    void rows.length;
     rowEl(key)?.scrollIntoView({ block: 'nearest' });
   });
 
-  function toggleGroup(id: DocsGroupId) {
-    groups = { ...groups, [id]: !groups[id] };
+  function setGroup(id: string, open: boolean) {
+    expanded = { ...expanded, [id]: open };
   }
 
   function onTreeKeydown(e: KeyboardEvent) {
@@ -129,16 +113,16 @@
       case 'ArrowRight':
         e.preventDefault();
         if (row.kind === 'group') {
-          if (!groups[row.group]) groups = { ...groups, [row.group]: true };
+          if (!groupExpanded(expanded, row.group)) setGroup(row.group, true);
           else focusAt(stepIndex(rows, index, 1));
         }
         break;
       case 'ArrowLeft':
         e.preventDefault();
         if (row.kind === 'group') {
-          if (groups[row.group]) groups = { ...groups, [row.group]: false };
+          if (groupExpanded(expanded, row.group)) setGroup(row.group, false);
         } else {
-          focusRow(`group:${row.group}`);
+          focusRow(groupRowKey(row.group));
         }
         break;
     }
@@ -148,63 +132,37 @@
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       focusAt(0);
+    } else if (e.key === 'Enter') {
+      // Jump straight to the first hit.
+      const first = rows.find((r) => r.kind === 'entry');
+      if (first) {
+        e.preventDefault();
+        onselect({ kind: first.entryKind, id: first.id });
+      }
     } else if (e.key === 'Escape' && query) {
       e.preventDefault();
       query = '';
     }
   }
 
-  const rowBase =
-    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
-  const groupRow = `${rowBase} font-semibold text-dark-text hover:bg-dark-elevated`;
-  const subHeading =
-    'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[11px] font-semibold text-dark-text-secondary';
+  function isGuide(entry: unknown): entry is DisplayGuide {
+    return typeof (entry as DisplayGuide).iconName === 'string';
+  }
+
+  /** The user-authored guide group owns loading state and the + button. */
+  const LIBRARY_GROUP = 'my-guides';
+
+  const focusRing =
+    'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
 </script>
 
-{#snippet entryRow(group: DocsGroupId, id: string, title: string, description: string, IconCmp: any)}
-  {@const key = navRowKey(group, id)}
-  {@const active = key === activeKey}
-  <li role="none">
-    <button
-      type="button"
-      role="treeitem"
-      data-nav-key={key}
-      aria-selected={active}
-      tabindex={key === tabKey ? 0 : -1}
-      onclick={() => {
-        focusKey = key;
-        onselect({ kind: group, id });
-      }}
-      class={[
-        rowBase,
-        'items-start border-l-2 pl-4',
-        active
-          ? 'font-medium border-accent bg-dark-elevated text-dark-text'
-          : 'border-transparent text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text',
-      ]}
-    >
-      {#if IconCmp}
-        <IconCmp size={13} class="mt-0.5 shrink-0" aria-hidden="true" />
-      {/if}
-      <span class="min-w-0 flex-1">
-        <span class="block truncate">{title}</span>
-        {#if description}
-          <span class="mt-0.5 block truncate text-[11px] text-dark-text-secondary">
-            {description}
-          </span>
-        {/if}
-      </span>
-    </button>
-  </li>
-{/snippet}
-
-<div class="flex h-full min-h-0 flex-col bg-dark-surface">
-  <div class="shrink-0 border-b p-3 border-dark-border">
+<div class="flex h-full min-h-0 flex-col">
+  <div class="shrink-0 border-b border-dark-border p-3">
     <label for="docs-search" class="sr-only">Search documentation</label>
     <div class="relative">
       <Search
         size={13}
-        class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-secondary"
+        class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-dark-text-muted"
         aria-hidden="true"
       />
       <input
@@ -212,192 +170,147 @@
         type="search"
         bind:value={query}
         onkeydown={onSearchKeydown}
-        placeholder="Search docs and guides…"
-        class="h-8 w-full border pl-7 pr-7 text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-secondary focus-visible:outline-accent"
+        placeholder="Search docs…"
+        autocomplete="off"
+        class={[
+          'h-8 w-full border border-dark-border-subtle bg-dark-base pl-7 pr-12 text-xs text-dark-text placeholder:text-dark-text-muted',
+          focusRing,
+        ]}
       />
       {#if query}
         <button
           type="button"
           onclick={() => (query = '')}
           aria-label="Clear search"
-          class="absolute right-1 top-1/2 -translate-y-1/2 p-1 focus-visible:outline-2 focus-visible:outline-offset-1 text-dark-text-secondary hover:text-dark-text focus-visible:outline-accent"
+          class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-dark-text-muted hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
         >
           <X size={12} aria-hidden="true" />
         </button>
+      {:else}
+        <kbd
+          class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 border border-dark-border-subtle px-1 text-[10px] text-dark-text-faint"
+          aria-hidden="true">/</kbd
+        >
       {/if}
     </div>
   </div>
 
-  <nav aria-label="Documentation" class="min-h-0 flex-1 overflow-y-auto">
-    <ul
-      bind:this={treeEl}
-      role="tree"
-      aria-label="Documentation sections"
-      onkeydown={onTreeKeydown}
-      class="py-1"
-    >
-      <!-- ─── API docs ─── -->
-      <li role="none">
-        <button
-          type="button"
-          role="treeitem"
-          data-nav-key="group:api"
-          aria-expanded={groups.api}
-          aria-selected="false"
-          aria-owns={groups.api ? 'docs-group-api' : undefined}
-          tabindex={tabKey === 'group:api' ? 0 : -1}
-          onclick={() => {
-            focusKey = 'group:api';
-            toggleGroup('api');
-          }}
-          class={groupRow}
-        >
-          <ChevronRight
-            size={13}
-            class="shrink-0 {groups.api
-              ? 'rotate-90'
-              : ''}"
-            aria-hidden="true"
-          />
-          <span class="flex-1">API docs</span>
-          <span class="text-[11px] font-normal tabular-nums text-dark-text-secondary">
-            {searching ? `${apiEntries.length}/${apiTotal}` : apiTotal}
-          </span>
-        </button>
-        {#if groups.api}
-          <ul role="group" id="docs-group-api">
-            {#each apiEntries as section (section.id)}
-              {@render entryRow('api', section.id, section.title, section.description, null)}
-            {:else}
-              <li role="none" class="px-4 py-2 text-[11px] text-dark-text-secondary">
-                No API section matches.
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </li>
-
-      <!-- ─── Guides ─── -->
-      <li role="none">
-        <div class="mt-1 flex items-center border-t pt-1 border-dark-border">
-          <button
-            type="button"
-            role="treeitem"
-            data-nav-key="group:guides"
-            aria-expanded={groups.guides}
-            aria-selected="false"
-            aria-owns={groups.guides ? 'docs-group-guides' : undefined}
-            tabindex={tabKey === 'group:guides' ? 0 : -1}
-            onclick={() => {
-              focusKey = 'group:guides';
-              toggleGroup('guides');
-            }}
-            class={[groupRow, 'flex-1']}
-          >
-            <ChevronRight
-              size={13}
-              class="shrink-0 {groups.guides
-                ? 'rotate-90'
-                : ''}"
-              aria-hidden="true"
-            />
-            <span class="flex-1">Guides</span>
-            {#if guidesLoading}
-              <span class="sr-only">Loading guides</span>
-              <Loader2
+  <nav aria-label="Documentation" class="min-h-0 flex-1 overflow-y-auto py-2">
+    <ul bind:this={treeEl} role="tree" aria-label="Documentation sections" onkeydown={onTreeKeydown}>
+      {#each groups as group (group.id)}
+        {@const open = groupExpanded(expanded, group.id)}
+        {@const gKey = groupRowKey(group.id)}
+        {@const isLibrary = group.id === LIBRARY_GROUP}
+        <li role="none" class="mb-2">
+          <div class="flex items-center pr-2">
+            <button
+              type="button"
+              role="treeitem"
+              data-nav-key={gKey}
+              aria-expanded={open}
+              aria-selected="false"
+              aria-owns={open ? `docs-group-${group.id}` : undefined}
+              tabindex={tabKey === gKey ? 0 : -1}
+              onclick={() => {
+                focusKey = gKey;
+                setGroup(group.id, !open);
+              }}
+              class={[
+                'flex min-w-0 flex-1 items-center gap-1.5 px-3 py-1 text-left text-[11px] font-medium text-dark-text-muted hover:text-dark-text',
+                focusRing,
+              ]}
+            >
+              <ChevronRight
                 size={12}
-                class="animate-spin motion-reduce:animate-none text-dark-text-secondary"
+                class={`shrink-0 text-dark-text-faint ${open ? 'rotate-90' : ''}`}
                 aria-hidden="true"
               />
-            {:else if guidesError}
-              <AlertTriangle size={12} class="text-amber-300" aria-hidden="true" />
-            {:else}
-              <span class="text-[11px] font-normal tabular-nums text-dark-text-secondary">
-                {searching ? `${guideEntries.length}/${guideTotal}` : guideTotal}
-              </span>
+              <span class="flex-1 truncate">{group.title}</span>
+              {#if isLibrary && guidesLoading}
+                <span class="sr-only">Loading guides</span>
+                <Loader2 size={11} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              {:else if isLibrary && guidesError}
+                <AlertTriangle size={11} class="text-oc-peach" aria-hidden="true" />
+              {:else if searching}
+                <span class="tabular-nums text-dark-text-faint">{group.entries.length}/{group.total}</span>
+              {/if}
+            </button>
+            {#if isLibrary}
+              <button
+                type="button"
+                onclick={onnewguide}
+                aria-label="New guide"
+                title="New guide"
+                class="shrink-0 p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <Plus size={12} aria-hidden="true" />
+              </button>
             {/if}
-          </button>
-          <button
-            type="button"
-            onclick={onnewguide}
-            aria-label="New guide"
-            title="New guide"
-            class="mr-2 shrink-0 border p-1 focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-accent"
-          >
-            <Plus size={13} aria-hidden="true" />
-          </button>
-        </div>
+          </div>
 
-        {#if groups.guides}
-          <ul role="group" id="docs-group-guides">
-            {#if guidesError}
-              <li role="none" class="px-4 py-2">
-                <p class="text-[11px] leading-relaxed text-amber-300">
-                  {guidesError}
-                </p>
-                <button
-                  type="button"
-                  onclick={onretryguides}
-                  class="mt-1.5 border px-2 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
-                >
-                  Retry
-                </button>
-              </li>
-            {/if}
-
-            {#each guideEntries as guide, i (guide.id)}
-              {#if i === 0 && guide.builtin}
-                <li role="none" class={subHeading}>
-                  <Lock size={10} aria-hidden="true" />
-                  Built-in
+          {#if open}
+            <ul role="group" id={`docs-group-${group.id}`}>
+              {#if isLibrary && guidesError}
+                <li role="none" class="px-4 py-1.5">
+                  <p class="text-[11px] leading-relaxed text-oc-peach">{guidesError}</p>
+                  <button type="button" onclick={onretryguides} class="settings-button mt-1.5">Retry</button>
                 </li>
               {/if}
-              {#if i === firstUserIndex}
-                <li role="none" class={subHeading}>
-                  <Pencil size={10} aria-hidden="true" />
-                  My guides
+
+              {#each group.entries as entry (entry.id)}
+                {@const key = navRowKey(group.kind as DocsKind, entry.id)}
+                {@const active = key === activeKey}
+                {@const Icon = isGuide(entry) ? iconFor(entry.iconName) : null}
+                <li role="none">
+                  <button
+                    type="button"
+                    role="treeitem"
+                    data-nav-key={key}
+                    aria-selected={active}
+                    aria-current={active ? 'page' : undefined}
+                    tabindex={key === tabKey ? 0 : -1}
+                    title={entry.description}
+                    onclick={() => {
+                      focusKey = key;
+                      onselect({ kind: group.kind, id: entry.id });
+                    }}
+                    class={[
+                      'flex w-full items-center gap-2 border-l-2 py-1 pl-6 pr-3 text-left text-xs',
+                      focusRing,
+                      active
+                        ? 'border-oc-peach bg-dark-elevated text-dark-text'
+                        : 'border-transparent text-dark-text-secondary hover:bg-dark-surface hover:text-dark-text',
+                    ]}
+                  >
+                    {#if Icon}
+                      <Icon
+                        size={12}
+                        class={`shrink-0 ${active ? 'text-oc-peach' : 'text-dark-text-faint'}`}
+                        aria-hidden="true"
+                      />
+                    {/if}
+                    <span class="min-w-0 flex-1 truncate">{entry.title}</span>
+                  </button>
                 </li>
-              {/if}
-              {@render entryRow(
-                'guides',
-                guide.id,
-                guide.title,
-                guide.description,
-                iconFor(guide.iconName),
-              )}
-            {/each}
-
-            {#if !guidesLoading && !guidesError && firstUserIndex < 0 && !searching}
-              <li role="none" class="px-4 pb-2 pt-1">
-                <p class="text-[11px] leading-relaxed text-dark-text-secondary">
-                  No guides of your own yet. Use
-                  <span class="font-medium text-dark-text">+</span> above to write one.
-                </p>
-              </li>
-            {/if}
-
-            {#if searching && guideEntries.length === 0 && !guidesError}
-              <li role="none" class="px-4 py-2 text-[11px] text-dark-text-secondary">
-                No guide matches.
-              </li>
-            {/if}
-          </ul>
-        {/if}
-      </li>
+              {:else}
+                {#if !(isLibrary && (guidesLoading || guidesError))}
+                  <li role="none" class="py-1 pl-6 pr-3 text-[11px] text-dark-text-faint">
+                    {searching ? 'No match.' : isLibrary ? 'None yet — use + to write one.' : 'Empty.'}
+                  </li>
+                {/if}
+              {/each}
+            </ul>
+          {/if}
+        </li>
+      {/each}
     </ul>
 
     {#if noResults}
-      <div class="border-t px-4 py-6 text-center border-dark-border">
-        <Search size={20} class="mx-auto text-dark-text-secondary" aria-hidden="true" />
-        <p class="mt-2 text-xs leading-relaxed text-dark-text-secondary">
-          Nothing matches <span class="font-medium text-dark-text">“{query}”</span>
-          in the API docs or guides.
+      <div class="mx-3 mt-2 border border-dark-border px-3 py-4 text-center">
+        <p class="text-xs leading-relaxed text-dark-text-secondary">
+          Nothing matches <span class="text-dark-text">“{query}”</span>.
         </p>
-        <button
-          type="button"
-          onclick={() => (query = '')}
-          class="mt-3 border px-2.5 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
-        >
+        <button type="button" onclick={() => (query = '')} class="settings-button mt-3">
           Clear search
         </button>
       </div>

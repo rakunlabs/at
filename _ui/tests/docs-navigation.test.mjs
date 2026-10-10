@@ -93,46 +93,76 @@ test('filterEntries returns nothing when there is no hit', () => {
   assert.deepEqual(nav.filterEntries(entries, 'kubernetes'), []);
 });
 
+// ─── Section aliases ───
+
+test('parseDocsQuery maps merged sections onto the page that replaced them', () => {
+  assert.deepEqual(nav.parseDocsQuery('section=code-examples'), { kind: 'api', id: 'quickstart' });
+  assert.deepEqual(nav.parseDocsQuery('section=list-models'), { kind: 'api', id: 'available-models' });
+});
+
+test('filterEntries requires every search term, in any field', () => {
+  assert.deepEqual(
+    nav.filterEntries(entries, 'speech ffmpeg').map((e) => e.id),
+    ['whisper'],
+  );
+  assert.deepEqual(nav.filterEntries(entries, 'speech gateway'), []);
+});
+
 // ─── Persisted group state ───
 
 test('parseGroupState round-trips', () => {
-  const state = { api: false, guides: true };
+  const state = { start: false, guides: true };
   assert.deepEqual(nav.parseGroupState(nav.serializeGroupState(state)), state);
 });
 
-test('parseGroupState falls back to both open on junk', () => {
-  for (const raw of [null, '', 'not json', '[1,2]', '{"api":"yes"}']) {
-    assert.deepEqual(nav.parseGroupState(raw), { api: true, guides: true });
+test('parseGroupState keeps only boolean entries and falls back to all open on junk', () => {
+  for (const raw of [null, '', 'not json', '[1,2]', '"x"']) {
+    assert.deepEqual(nav.parseGroupState(raw), {});
   }
+  assert.deepEqual(nav.parseGroupState('{"api":"yes","guides":false}'), { guides: false });
+});
+
+test('groupExpanded treats an unknown group as open', () => {
+  assert.equal(nav.groupExpanded({}, 'start'), true);
+  assert.equal(nav.groupExpanded({ start: false }, 'start'), false);
 });
 
 // ─── Keyboard row model ───
 
-const apiEntries = [{ id: 'a' }, { id: 'b' }];
-const guideEntries = [{ id: 'g1' }];
+const groups = [
+  { id: 'start', kind: 'api', entries: [{ id: 'a' }, { id: 'b' }] },
+  { id: 'guides', kind: 'guides', entries: [{ id: 'g1' }] },
+];
 
 test('buildNavRows lists group headers plus expanded children in order', () => {
-  const rows = nav.buildNavRows(apiEntries, guideEntries, { api: true, guides: true });
+  const rows = nav.buildNavRows(groups, {});
   assert.deepEqual(
     rows.map((r) => r.key),
-    ['group:api', 'api:a', 'api:b', 'group:guides', 'guides:g1'],
+    ['group:start', 'api:a', 'api:b', 'group:guides', 'guides:g1'],
   );
 });
 
 test('buildNavRows hides the children of a collapsed group', () => {
-  const rows = nav.buildNavRows(apiEntries, guideEntries, { api: false, guides: true });
+  const rows = nav.buildNavRows(groups, { start: false });
   assert.deepEqual(
     rows.map((r) => r.key),
-    ['group:api', 'group:guides', 'guides:g1'],
+    ['group:start', 'group:guides', 'guides:g1'],
   );
 });
 
 test('stepIndex clamps at both ends', () => {
-  const rows = nav.buildNavRows(apiEntries, guideEntries, { api: true, guides: true });
+  const rows = nav.buildNavRows(groups, {});
   assert.equal(nav.stepIndex(rows, 0, -1), 0);
   assert.equal(nav.stepIndex(rows, 0, 1), 1);
   assert.equal(nav.stepIndex(rows, rows.length - 1, 1), rows.length - 1);
   assert.equal(nav.stepIndex([], 0, 1), -1);
+});
+
+test('adjacentEntries returns neighbours and nulls at the ends', () => {
+  const order = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(nav.adjacentEntries(order, 'b'), { prev: { id: 'a' }, next: { id: 'c' } });
+  assert.deepEqual(nav.adjacentEntries(order, 'a'), { prev: null, next: { id: 'b' } });
+  assert.deepEqual(nav.adjacentEntries(order, 'zzz'), { prev: null, next: null });
 });
 
 // ─── Snippets ───
@@ -213,4 +243,44 @@ test('codeExampleFor covers every advertised tab', () => {
     assert.ok(code.includes('https://at/gateway/v1'), `${tab.id} must use the gateway base URL`);
     assert.ok(code.includes('openai/gpt-4o'), `${tab.id} must use the selected model`);
   }
+});
+
+test('every gateway snippet targets the deployment base URL', () => {
+  const builders = [
+    snippets.curlChatExtensionsExample('https://h/at', 'a/b', 'c/d'),
+    snippets.curlResponsesExample('https://h/at', 'a/b'),
+    snippets.curlImageExample('https://h/at'),
+    snippets.curlSpeechExample('https://h/at'),
+    snippets.curlTranscriptionExample('https://h/at'),
+    snippets.curlModerationExample('https://h/at'),
+    snippets.curlRerankExample('https://h/at'),
+    snippets.curlDecisionExample('https://h/at'),
+    snippets.curlProxyExample('https://h/at'),
+    snippets.curlScoreExample('https://h/at'),
+  ];
+  for (const code of builders) assert.ok(code.includes('https://h/at/gateway/v1/'), code);
+});
+
+test('Anthropic snippets use the /gateway base without /v1', () => {
+  assert.match(snippets.claudeCodeEnv('https://h', 'claude-x'), /ANTHROPIC_BASE_URL="https:\/\/h\/gateway"/);
+  assert.match(snippets.anthropicPythonExample('https://h', 'm'), /base_url="https:\/\/h\/gateway"/);
+});
+
+test('the chat extensions example is valid JSON inside the -d payload', () => {
+  const code = snippets.curlChatExtensionsExample('https://h', 'a/b', 'c/d');
+  const body = JSON.parse(code.slice(code.indexOf("-d '") + 4, code.lastIndexOf("'")));
+  assert.deepEqual(body.at_fallbacks, ['c/d']);
+  assert.equal(body.model, 'a/b');
+});
+
+test('every reference section belongs to a group and is rendered by the dispatcher', async () => {
+  const pane = await readFile(new URL('../src/lib/components/docs/DocsApiPane.svelte', import.meta.url), 'utf8');
+  const src = await readFile(new URL('../src/lib/components/docs/api-sections.ts', import.meta.url), 'utf8');
+  const ids = [...src.matchAll(/^\s+id: '([a-z-]+)',\n\s+group:/gm)].map((m) => m[1]);
+  const groups = [...src.matchAll(/^\s+id: '([a-z-]+)',\n\s+title:/gm)].map((m) => m[1]);
+  assert.ok(ids.length > 10);
+  assert.deepEqual(new Set(ids).size, ids.length, 'section ids must be unique');
+  for (const id of ids) assert.ok(pane.includes(`sectionId === '${id}'`), `${id} has no renderer`);
+  for (const target of Object.values(nav.DOCS_SECTION_ALIASES)) assert.ok(ids.includes(target));
+  for (const m of src.matchAll(/group: '([a-z-]+)'/g)) assert.ok(groups.includes(m[1]), m[1]);
 });

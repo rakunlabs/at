@@ -1,7 +1,7 @@
 <script lang="ts">
   // Syntax-highlighted code panel with a copy button and an optional caption.
-  // Every API reference snippet goes through here so the copy affordance,
-  // focus ring and colours stay identical across sections.
+  // Every reference snippet goes through here so the copy affordance, focus
+  // ring and colours stay identical across sections.
   import { Copy, Check } from 'lucide-svelte';
   import { highlightCode } from '@/lib/helper/markdown';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -36,20 +36,18 @@
 </script>
 
 <figure class="border border-dark-border">
-  <figcaption
-    class="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-dark-border bg-dark-elevated"
-  >
-    <span class="min-w-0 truncate font-mono text-[11px] text-dark-text-secondary">
+  <figcaption class="flex items-center justify-between gap-3 border-b border-dark-border bg-dark-surface py-1 pl-3 pr-1">
+    <span class="min-w-0 truncate font-mono text-[11px] text-dark-text-muted">
       {label || lang || 'code'}
     </span>
     <button
       type="button"
       onclick={copy}
       aria-label={copyLabel}
-      class="inline-flex shrink-0 items-center gap-1.5 border px-2 py-1 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-highest focus-visible:outline-accent"
+      class="inline-flex shrink-0 items-center gap-1.5 px-2 py-1 text-[11px] text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
     >
       {#if copied}
-        <Check size={12} aria-hidden="true" />
+        <Check size={12} class="text-oc-green" aria-hidden="true" />
         Copied
       {:else}
         <Copy size={12} aria-hidden="true" />
@@ -57,7 +55,7 @@
       {/if}
     </button>
   </figcaption>
-  <pre class="overflow-x-auto p-3 text-[12px] leading-relaxed"><code class="hljs">{@html html}</code></pre>
+  <pre class="overflow-x-auto px-4 py-3 text-[12.5px] leading-relaxed"><code class="hljs">{@html html}</code></pre>
 </figure>
 
 <style>
@@ -68,6 +66,6 @@
     display: block;
     padding: 0;
     background: transparent;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: inherit;
   }
 </style>

@@ -176,6 +176,17 @@ html, body, .grain-background, .app-sidebar, .app-navbar {
 
   .settings-note { @apply text-xs font-normal text-dark-text-muted; }
   .settings-error { @apply text-sm text-red-300; }
+
+  /* Documentation reference pages. Inline code and links inherit the
+     markdown-body look so hand-written pages and guides read the same. */
+  .docs-prose { @apply space-y-3 text-sm leading-relaxed text-dark-text-secondary; }
+  :is(.docs-prose, .docs-callout) :not(pre) > code { @apply font-mono text-[12.5px] text-oc-peach break-words; }
+  :is(.docs-prose, .docs-callout) a:not(.docs-card) { @apply text-accent-text underline underline-offset-2 hover:text-accent-hover; }
+  :is(.docs-prose, .docs-callout) strong { @apply font-semibold text-dark-text; }
+  .docs-prose ul { @apply list-disc space-y-1 pl-5; }
+  .docs-prose ol { @apply list-decimal space-y-1 pl-5; }
+  .docs-prose li::marker { @apply text-dark-text-faint; }
+  .docs-prose h3 { @apply pt-2 text-sm font-semibold text-dark-text; }
 }
 
 html,

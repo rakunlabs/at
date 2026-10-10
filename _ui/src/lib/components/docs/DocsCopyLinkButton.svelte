@@ -19,20 +19,15 @@
       copied = true;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => (copied = false), 2000);
-      addToast('Link copied to clipboard');
     } catch {
       addToast('Failed to copy link', 'alert');
     }
   }
 </script>
 
-<button
-  type="button"
-  onclick={copy}
-  class="inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
->
+<button type="button" onclick={copy} class="settings-button focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
   {#if copied}
-    <Check size={12} aria-hidden="true" />
+    <Check size={12} class="text-oc-green" aria-hidden="true" />
     Copied
   {:else}
     <Link2 size={12} aria-hidden="true" />

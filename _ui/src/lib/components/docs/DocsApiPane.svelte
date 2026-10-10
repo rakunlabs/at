@@ -1,19 +1,25 @@
 <script lang="ts">
-  // Dispatches the selected API reference section. Keeping the switch here
+  // Dispatches the selected reference section. Keeping the switch here
   // rather than in Docs.svelte lets the page stay a layout shell.
   import type { InfoProvider } from '@/lib/api/gateway';
   import type { MCPServer } from '@/lib/api/mcp-servers';
   import ApiOverview from './ApiOverview.svelte';
-  import ApiEndpoints from './ApiEndpoints.svelte';
-  import ApiProxy from './ApiProxy.svelte';
-  import ApiEmbeddings from './ApiEmbeddings.svelte';
+  import ApiQuickstart from './ApiQuickstart.svelte';
   import ApiAuthentication from './ApiAuthentication.svelte';
-  import ApiCodeExamples from './ApiCodeExamples.svelte';
+  import ApiModels from './ApiModels.svelte';
+  import ApiEndpoints from './ApiEndpoints.svelte';
+  import ApiChat from './ApiChat.svelte';
+  import ApiAnthropic from './ApiAnthropic.svelte';
+  import ApiRouting from './ApiRouting.svelte';
+  import ApiEmbeddings from './ApiEmbeddings.svelte';
+  import ApiMedia from './ApiMedia.svelte';
+  import ApiDecisions from './ApiDecisions.svelte';
+  import ApiProxy from './ApiProxy.svelte';
+  import ApiTracing from './ApiTracing.svelte';
+  import ApiErrors from './ApiErrors.svelte';
   import ApiOpencodeConfig from './ApiOpencodeConfig.svelte';
   import ApiMcpConfig from './ApiMcpConfig.svelte';
   import ApiClaudeMarketplace from './ApiClaudeMarketplace.svelte';
-  import ApiListModels from './ApiListModels.svelte';
-  import ApiModels from './ApiModels.svelte';
 
   interface Props {
     sectionId: string;
@@ -23,6 +29,7 @@
     mcpServers: MCPServer[];
     models: string[];
     exampleModel: string;
+    fallbackModel: string;
     loading?: boolean;
     infoError?: string;
     onretry?: () => void;
@@ -38,6 +45,7 @@
     mcpServers,
     models,
     exampleModel,
+    fallbackModel,
     loading = false,
     infoError = '',
     onretry,
@@ -47,25 +55,37 @@
 </script>
 
 {#if sectionId === 'overview'}
-  <ApiOverview {baseUrl} />
-{:else if sectionId === 'endpoints'}
-  <ApiEndpoints {baseUrl} />
-{:else if sectionId === 'proxy'}
-  <ApiProxy {baseUrl} />
-{:else if sectionId === 'embeddings'}
-  <ApiEmbeddings {baseUrl} model={exampleModel} />
+  <ApiOverview {baseUrl} modelCount={models.length} providerCount={providers.length} {loading} />
+{:else if sectionId === 'quickstart'}
+  <ApiQuickstart {baseUrl} model={exampleModel} bind:activeTab={codeTab} />
 {:else if sectionId === 'authentication'}
   <ApiAuthentication />
-{:else if sectionId === 'code-examples'}
-  <ApiCodeExamples {baseUrl} model={exampleModel} bind:activeTab={codeTab} />
+{:else if sectionId === 'available-models'}
+  <ApiModels {baseUrl} {providers} {loading} error={infoError} {onretry} />
+{:else if sectionId === 'endpoints'}
+  <ApiEndpoints {baseUrl} />
+{:else if sectionId === 'chat-completions'}
+  <ApiChat {baseUrl} model={exampleModel} {fallbackModel} />
+{:else if sectionId === 'anthropic-messages'}
+  <ApiAnthropic {baseUrl} model={exampleModel} />
+{:else if sectionId === 'routing'}
+  <ApiRouting model={exampleModel} {fallbackModel} />
+{:else if sectionId === 'embeddings'}
+  <ApiEmbeddings {baseUrl} model={exampleModel} />
+{:else if sectionId === 'media'}
+  <ApiMedia {baseUrl} />
+{:else if sectionId === 'decisions'}
+  <ApiDecisions {baseUrl} />
+{:else if sectionId === 'proxy'}
+  <ApiProxy {baseUrl} />
+{:else if sectionId === 'tracing'}
+  <ApiTracing {baseUrl} model={exampleModel} />
+{:else if sectionId === 'errors'}
+  <ApiErrors />
 {:else if sectionId === 'opencode-config'}
   <ApiOpencodeConfig {baseUrl} {instanceName} {providers} {loading} />
 {:else if sectionId === 'mcp-configuration'}
   <ApiMcpConfig {baseUrl} servers={mcpServers} bind:selectedName={mcpName} />
 {:else if sectionId === 'claude-marketplace'}
   <ApiClaudeMarketplace {baseUrl} />
-{:else if sectionId === 'list-models'}
-  <ApiListModels {baseUrl} />
-{:else if sectionId === 'available-models'}
-  <ApiModels {models} {loading} error={infoError} {onretry} />
 {/if}

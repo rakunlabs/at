@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { MCPServer } from '@/lib/api/mcp-servers';
   import DocsCodeBlock from './DocsCodeBlock.svelte';
+  import DocsCodeTabs from './DocsCodeTabs.svelte';
+  import DocsCallout from './DocsCallout.svelte';
   import { opencodeMcpConfig } from './snippets';
 
   interface Props {
@@ -12,106 +14,115 @@
 
   let { baseUrl, servers, selectedName = $bindable('') }: Props = $props();
 
+  let client = $state('opencode');
+
   const selected = $derived(servers.find((s) => s.name === selectedName));
-  const config = $derived(
-    opencodeMcpConfig({
-      baseUrl,
-      serverName: selectedName,
-      isPublic: Boolean(selected?.public),
-    }),
+  const name = $derived(selectedName || 'management');
+  const isPublic = $derived(Boolean(selected?.public));
+  const oauth = $derived(Boolean(selected?.config?.oauth?.enabled));
+  const url = $derived(`${baseUrl}/gateway/v1/mcp/${name}`);
+
+  const claudeCommand = $derived(
+    isPublic || oauth
+      ? `claude mcp add --transport http at-${name} ${url}`
+      : `claude mcp add --transport http at-${name} ${url} \\\n  --header "Authorization: Bearer at_xxxxx"`,
+  );
+  const genericConfig = $derived(
+    JSON.stringify(
+      {
+        mcpServers: {
+          [`at-${name}`]: isPublic || oauth
+            ? { type: 'http', url }
+            : { type: 'http', url, headers: { Authorization: 'Bearer at_xxxxx' } },
+        },
+      },
+      null,
+      2,
+    ),
   );
 
-  const linkClass =
-    'underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-2 text-accent-text focus-visible:outline-accent';
+  const tabs = $derived([
+    {
+      id: 'opencode',
+      label: 'opencode',
+      lang: 'json',
+      code: opencodeMcpConfig({ baseUrl, serverName: selectedName, isPublic: isPublic || oauth }),
+    },
+    { id: 'claude', label: 'Claude Code', lang: 'bash', code: claudeCommand },
+    { id: 'json', label: 'Cursor / mcp.json', lang: 'json', code: genericConfig },
+  ]);
 </script>
 
-<p class="text-sm leading-relaxed text-dark-text-secondary">
-  Add an AT-hosted MCP server to opencode by extending your
-  <code
-    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-    >opencode.json</code
-  >
-  with an
-  <code
-    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-    >mcp</code
-  >
-  entry of type
-  <code
-    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-    >remote</code
-  >. Private servers include an
-  <code
-    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-    >Authorization</code
-  > header; public servers omit it.
-</p>
+<div class="docs-prose">
+  <p>
+    An <a href="#/mcp-servers">MCP server</a> publishes a selection of AT tools — MCP sets, built-in
+    tools, workflows — at <code>/gateway/v1/mcp/&lt;name&gt;</code> using the Streamable HTTP
+    transport. Any MCP client can connect to it.
+  </p>
+</div>
 
-{#if servers.length > 1}
-  <div>
-    <label for="docs-mcp-server" class="block text-xs font-medium text-dark-text-secondary">
-      MCP server
-    </label>
+{#if servers.length > 0}
+  <div class="flex flex-wrap items-center gap-2">
+    <label for="docs-mcp-server" class="text-xs text-dark-text-muted">Server</label>
     <select
       id="docs-mcp-server"
       bind:value={selectedName}
-      class="mt-1 w-full border px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-64 border-dark-border-subtle bg-dark-elevated text-dark-text focus-visible:outline-accent"
+      class="h-8 border border-dark-border-subtle bg-dark-base px-2 text-xs text-dark-text focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
     >
       {#each servers as s (s.id)}
         <option value={s.name}>{s.name}{s.public ? ' (public)' : ''}</option>
       {/each}
     </select>
+    <span class="text-[11px] text-dark-text-muted">
+      {isPublic ? 'Public — no token needed' : oauth ? 'Sign in with an AT account' : 'Requires an API token'}
+    </span>
   </div>
-{:else if servers.length === 0}
+{:else}
   <p class="text-sm leading-relaxed text-dark-text-secondary">
-    No MCP servers are configured yet — the example below uses
-    <code
-      class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-      >management</code
-    >
-    as a placeholder. Add servers on the
-    <a href="#/mcp-servers" class={linkClass}>MCP Servers</a> page.
+    No MCP servers are configured yet — the examples use <code class="text-oc-peach">management</code>
+    as a placeholder. Create one on the
+    <a href="#/mcp-servers" class="text-accent-text underline underline-offset-2">MCP servers</a> page.
   </p>
 {/if}
 
-<DocsCodeBlock
-  code={config}
-  lang="json"
-  label="~/.config/opencode/opencode.json"
-  copyLabel="Copy MCP config"
-/>
+<DocsCodeTabs {tabs} bind:active={client} name="mcp" />
 
-<p class="text-sm leading-relaxed text-dark-text-secondary">
-  The full endpoint list is on the <a href="#/mcp-servers" class={linkClass}>MCP Servers</a> page. Each
-  entry advertises its own
-  <code
-    class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary"
-    >/gateway/v1/mcp/&lt;name&gt;</code
-  > URL — point opencode at any of them.
-</p>
+<div class="docs-prose">
+  <h3>Authentication</h3>
+  <ul>
+    <li><strong>API token</strong> — the default. Tools run under the server’s <em>Run as</em> identity.</li>
+    <li>
+      <strong>Sign-in</strong> — when the server enables it, MCP clients that support OAuth open a
+      browser and ask you to approve access. Tools then run as <em>your</em> account, so connected
+      services (GitHub, GitLab…) use your own credentials. Manage approved apps under
+      <a href="#/connections">Connections</a>.
+    </li>
+    <li><strong>Public</strong> — anyone who can reach the URL may call the server without a token.</li>
+  </ul>
+</div>
 
-<h4 class="pt-2 text-sm font-semibold text-dark-text">Generating images from opencode</h4>
-<ol class="list-decimal space-y-1 pl-5 text-sm leading-relaxed text-dark-text-secondary">
-  <li>
-    On the <a href="#/mcp-servers" class={linkClass}>MCP Servers</a> page, add the
-    <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary">generate_image</code>
-    built-in tool to a server and bind its execution identity.
-  </li>
-  <li>
-    Make sure an image-capable provider exists: an OpenAI provider with an API key, an OpenAI provider with
-    <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary">chatgpt</code>
-    auth (billed to the ChatGPT subscription), or MiniMax. Media storage must be enabled in storage settings.
-  </li>
-  <li>Add the server to opencode with the config above, using a workspace API token.</li>
-</ol>
-<p class="text-sm leading-relaxed text-dark-text-secondary">
-  The tool result carries the image itself, so the model sees what it generated, plus a
-  <code class="font-mono bg-dark-elevated px-1.5 py-0.5 text-[12px] text-dark-text-secondary">download_url</code>.
-  The file can be saved into the project with the same token; only the token that generated an image can download it:
-</p>
+<div class="docs-prose">
+  <h3>Generating images from a coding agent</h3>
+  <ol>
+    <li>Add the <code>generate_image</code> built-in tool to an MCP server and set its Run as identity.</li>
+    <li>Make sure an image-capable provider exists (OpenAI with an API key or ChatGPT sign-in, or MiniMax) and media storage is enabled.</li>
+    <li>Connect the server as above.</li>
+  </ol>
+  <p>
+    The tool result includes a preview the model can see and a <code>download_url</code> that works
+    without the token for 24 hours:
+  </p>
+</div>
 <DocsCodeBlock
-  code={`curl -fsSL -H "Authorization: Bearer at_xxxxx" -o fox.png ${baseUrl}/gateway/v1/media/<media_id>`}
+  code={`curl -fsSL -o fox.png "<download_url>"`}
   lang="bash"
-  label="Download a generated image"
+  label="Save a generated image"
   copyLabel="Copy command"
 />
+
+<DocsCallout>
+  <p>
+    Long tool calls are kept alive automatically: after 10 seconds the response switches to a
+    stream with keep-alive messages, so proxies and client timeouts do not cut it off.
+  </p>
+</DocsCallout>

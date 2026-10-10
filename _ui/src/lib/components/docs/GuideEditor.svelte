@@ -49,10 +49,10 @@
   }
 
   const field =
-    'w-full border px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-secondary focus-visible:outline-accent';
+    'w-full border px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle bg-dark-base text-dark-text placeholder:text-dark-text-muted focus-visible:outline-accent';
   const label = 'block text-xs font-medium text-dark-text-secondary';
   const paneLabel =
-    'shrink-0 border-b px-3 py-1.5 text-[11px] font-medium border-dark-border bg-dark-elevated text-dark-text-secondary';
+    'shrink-0 border-b px-3 py-1.5 text-[11px] font-medium border-dark-border bg-dark-surface text-dark-text-muted';
 </script>
 
 <form onsubmit={submit} class="flex h-full min-h-0 flex-col">
@@ -68,7 +68,7 @@
         type="button"
         onclick={oncancel}
         disabled={saving}
-        class="inline-flex items-center gap-1.5 border px-3 py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent"
+        class="settings-button"
       >
         <X size={12} aria-hidden="true" />
         Cancel
@@ -76,7 +76,7 @@
       <button
         type="submit"
         disabled={!canSave}
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 bg-accent text-gray-950 hover:bg-accent-hover focus-visible:outline-accent"
+        class="settings-primary"
       >
         {#if saving}
           <Loader2 size={12} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -132,7 +132,7 @@
         aria-labelledby="guide-markdown-label"
         placeholder="# Start writing your guide…"
         spellcheck="false"
-        class="min-h-0 flex-1 resize-none p-4 font-mono text-[12px] leading-relaxed focus-visible:outline-2 focus-visible:-outline-offset-2 bg-dark-surface text-dark-text placeholder:text-dark-text-secondary focus-visible:outline-accent"
+        class="min-h-0 flex-1 resize-none p-4 font-mono text-[12px] leading-relaxed focus-visible:outline-2 focus-visible:-outline-offset-2 bg-dark-base text-dark-text placeholder:text-dark-text-muted focus-visible:outline-accent"
       ></textarea>
     </div>
 

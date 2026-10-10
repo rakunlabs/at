@@ -1,14 +1,15 @@
 // Pure navigation logic for the /docs page.
 //
-// Kept free of Svelte and DOM APIs so the URL scheme, the search matcher and
-// the persisted group state can be unit-tested from tests/*.test.mjs without a
-// browser. The components in lib/components/docs/ own the rendering; this file
-// owns the rules.
+// Kept free of Svelte and DOM APIs so the URL scheme, the search matcher, the
+// persisted group state and the reading order can be unit-tested from
+// tests/*.test.mjs without a browser. The components in lib/components/docs/
+// own the rendering; this file owns the rules.
 
-export type DocsGroupId = 'api' | 'guides';
+/** URL-level kind: a reference section (`?section=`) or a guide (`?guide=`). */
+export type DocsKind = 'api' | 'guides';
 
 export interface DocsSelection {
-  kind: DocsGroupId;
+  kind: DocsKind;
   /** Section id for `api`, guide id for `guides`. Empty means "first entry". */
   id: string;
 }
@@ -22,20 +23,36 @@ export interface DocsSearchable {
   body?: string;
 }
 
-export const DOCS_GROUP_STORAGE_KEY = 'at.docs.groups';
-
-export interface DocsGroupState {
-  api: boolean;
-  guides: boolean;
+/** One collapsible sidebar group. `kind` decides which URL key its entries use. */
+export interface DocsNavGroup {
+  id: string;
+  kind: DocsKind;
+  entries: DocsSearchable[];
 }
 
-export const DOCS_DEFAULT_GROUP_STATE: DocsGroupState = { api: true, guides: true };
+export const DOCS_GROUP_STORAGE_KEY = 'at.docs.groups';
+
+/** Group id → expanded. A missing key means expanded. */
+export type DocsGroupState = Record<string, boolean>;
+
+/**
+ * Old section ids that were merged into another page. Links to them keep
+ * working and land on the page that now carries their content.
+ */
+export const DOCS_SECTION_ALIASES: Record<string, string> = {
+  'code-examples': 'quickstart',
+  'list-models': 'available-models',
+};
+
+export function resolveSectionAlias(id: string): string {
+  return DOCS_SECTION_ALIASES[id] ?? id;
+}
 
 /**
  * Parse the `/docs` query string into a selection.
  *
  * Supported (current):
- *   ?section=<api-section-id>   → an API reference section
+ *   ?section=<section-id>       → a reference section
  *   ?guide=<guide-id>           → a guide
  *
  * Supported (legacy, emitted by the previous two-tab page):
@@ -44,7 +61,7 @@ export const DOCS_DEFAULT_GROUP_STATE: DocsGroupState = { api: true, guides: tru
  *   ?section=guides&g=<id>      → a guide
  *
  * Returns null when the query selects nothing, so the caller can fall back to
- * its own default (the first API section).
+ * its own default (the overview).
  */
 export function parseDocsQuery(queryString: string): DocsSelection | null {
   const qs = new URLSearchParams(queryString || '');
@@ -56,7 +73,7 @@ export function parseDocsQuery(queryString: string): DocsSelection | null {
   if (!section) return null;
   // Legacy tab name — no specific guide, so let the caller pick the first one.
   if (section === 'guides') return { kind: 'guides', id: '' };
-  return { kind: 'api', id: section };
+  return { kind: 'api', id: resolveSectionAlias(section) };
 }
 
 /** Build the hash-router path for a selection. Inverse of parseDocsQuery. */
@@ -77,17 +94,16 @@ export function sameSelection(a: DocsSelection | null, b: DocsSelection | null):
 }
 
 /**
- * Case-insensitive substring match over title, description and body. An empty
- * query matches everything so callers can use one code path.
+ * Case-insensitive match over title, description and body. Every
+ * whitespace-separated term must appear somewhere, so "stream fallback" finds
+ * the page that mentions both words in different places. An empty query
+ * matches everything so callers can use one code path.
  */
 export function matchesQuery(entry: DocsSearchable, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  return (
-    entry.title.toLowerCase().includes(q) ||
-    entry.description.toLowerCase().includes(q) ||
-    (entry.body ?? '').toLowerCase().includes(q)
-  );
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+  const haystack = `${entry.title}\n${entry.description}\n${entry.body ?? ''}`.toLowerCase();
+  return terms.every((t) => haystack.includes(t));
 }
 
 export function filterEntries<T extends DocsSearchable>(entries: T[], query: string): T[] {
@@ -97,59 +113,67 @@ export function filterEntries<T extends DocsSearchable>(entries: T[], query: str
 }
 
 /**
- * Read the persisted expand/collapse state. Anything unparseable falls back to
- * "both groups open" — a corrupted key must never hide the navigation.
+ * Read the persisted expand/collapse state. Only boolean values survive;
+ * anything unparseable yields `{}` ("everything open") — a corrupted key must
+ * never hide the navigation.
  */
 export function parseGroupState(raw: string | null | undefined): DocsGroupState {
-  if (!raw) return { ...DOCS_DEFAULT_GROUP_STATE };
+  if (!raw) return {};
   try {
-    const parsed = JSON.parse(raw) as Partial<Record<DocsGroupId, unknown>>;
-    if (!parsed || typeof parsed !== 'object') return { ...DOCS_DEFAULT_GROUP_STATE };
-    return {
-      api: typeof parsed.api === 'boolean' ? parsed.api : DOCS_DEFAULT_GROUP_STATE.api,
-      guides: typeof parsed.guides === 'boolean' ? parsed.guides : DOCS_DEFAULT_GROUP_STATE.guides,
-    };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: DocsGroupState = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'boolean') out[k] = v;
+    }
+    return out;
   } catch {
-    return { ...DOCS_DEFAULT_GROUP_STATE };
+    return {};
   }
 }
 
 export function serializeGroupState(state: DocsGroupState): string {
-  return JSON.stringify({ api: state.api, guides: state.guides });
+  return JSON.stringify(state);
+}
+
+export function groupExpanded(state: DocsGroupState, id: string): boolean {
+  return state[id] !== false;
 }
 
 /**
  * Flatten the sidebar into the row order the arrow keys walk. Group headers are
- * always present; their children only when the group is expanded and non-empty.
- * The `key` is what the tree uses for roving focus and DOM lookup.
+ * always present; their children only when the group is expanded. The `key` is
+ * what the tree uses for roving focus and DOM lookup.
  */
 export interface DocsNavRow {
   key: string;
   kind: 'group' | 'entry';
-  group: DocsGroupId;
+  group: string;
+  entryKind: DocsKind;
   id: string;
 }
 
-export function navRowKey(group: DocsGroupId, id: string): string {
-  return `${group}:${id}`;
+export function navRowKey(kind: DocsKind, id: string): string {
+  return `${kind}:${id}`;
 }
 
-export function buildNavRows(
-  apiEntries: DocsSearchable[],
-  guideEntries: DocsSearchable[],
-  state: DocsGroupState,
-): DocsNavRow[] {
+export function groupRowKey(group: string): string {
+  return `group:${group}`;
+}
+
+export function buildNavRows(groups: DocsNavGroup[], state: DocsGroupState): DocsNavRow[] {
   const rows: DocsNavRow[] = [];
-  rows.push({ key: 'group:api', kind: 'group', group: 'api', id: '' });
-  if (state.api) {
-    for (const e of apiEntries) {
-      rows.push({ key: navRowKey('api', e.id), kind: 'entry', group: 'api', id: e.id });
-    }
-  }
-  rows.push({ key: 'group:guides', kind: 'group', group: 'guides', id: '' });
-  if (state.guides) {
-    for (const e of guideEntries) {
-      rows.push({ key: navRowKey('guides', e.id), kind: 'entry', group: 'guides', id: e.id });
+  for (const g of groups) {
+    rows.push({ key: groupRowKey(g.id), kind: 'group', group: g.id, entryKind: g.kind, id: '' });
+    if (!groupExpanded(state, g.id)) continue;
+    for (const e of g.entries) {
+      rows.push({
+        key: navRowKey(g.kind, e.id),
+        kind: 'entry',
+        group: g.id,
+        entryKind: g.kind,
+        id: e.id,
+      });
     }
   }
   return rows;
@@ -162,4 +186,14 @@ export function stepIndex(rows: DocsNavRow[], current: number, delta: number): n
   if (next < 0) return 0;
   if (next > rows.length - 1) return rows.length - 1;
   return next;
+}
+
+/** Previous and next entries of a reading order, for the page footer. */
+export function adjacentEntries<T extends { id: string }>(
+  order: T[],
+  id: string,
+): { prev: T | null; next: T | null } {
+  const i = order.findIndex((e) => e.id === id);
+  if (i < 0) return { prev: null, next: null };
+  return { prev: order[i - 1] ?? null, next: order[i + 1] ?? null };
 }

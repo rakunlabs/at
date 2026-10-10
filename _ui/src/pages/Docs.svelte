@@ -1,8 +1,9 @@
 <script lang="ts">
-  // One sidebar-driven documentation surface: the API reference and the guide
-  // library share a single navigation tree, a single search box and a single
-  // URL scheme. This page is the shell — data loading, selection state and
-  // layout. Rendering lives in lib/components/docs/.
+  // One sidebar-driven documentation surface: the reference pages and the
+  // guide library share a single navigation tree, a single search box, a
+  // single reading order and a single URL scheme. This page is the shell —
+  // data loading, selection state and layout. Rendering lives in
+  // lib/components/docs/.
   import { untrack, tick } from 'svelte';
   import { push, router } from 'svelte-spa-router';
   import { Menu, X, RefreshCw, BookOpen } from 'lucide-svelte';
@@ -21,10 +22,11 @@
   } from '@/lib/api/guides';
 
   import {
-    DOCS_DEFAULT_GROUP_STATE,
     DOCS_GROUP_STORAGE_KEY,
+    adjacentEntries,
     docsPath,
     filterEntries,
+    groupExpanded,
     parseDocsQuery,
     parseGroupState,
     sameSelection,
@@ -32,11 +34,13 @@
     type DocsGroupState,
     type DocsSelection,
   } from '@/lib/helper/docs-nav';
-  import { apiSections, findApiSection } from '@/lib/components/docs/api-sections';
+  import { apiGroups, apiSections, findApiSection } from '@/lib/components/docs/api-sections';
   import { builtinGuides, type DisplayGuide } from '@/lib/components/docs/builtin-guides';
+  import type { SidebarGroup } from '@/lib/components/docs/docs-types';
   import DocsSidebar from '@/lib/components/docs/DocsSidebar.svelte';
   import DocsApiPane from '@/lib/components/docs/DocsApiPane.svelte';
   import DocsPaneHeader from '@/lib/components/docs/DocsPaneHeader.svelte';
+  import DocsPager from '@/lib/components/docs/DocsPager.svelte';
   import DocsCopyLinkButton from '@/lib/components/docs/DocsCopyLinkButton.svelte';
   import GuideViewer from '@/lib/components/docs/GuideViewer.svelte';
   import GuideEditor from '@/lib/components/docs/GuideEditor.svelte';
@@ -46,7 +50,7 @@
 
   const DEFAULT_SELECTION: DocsSelection = { kind: 'api', id: 'overview' };
 
-  // ─── Gateway info (API reference live data) ───
+  // ─── Gateway info (reference live data) ───
   let providers = $state<InfoProvider[]>([]);
   let mcpServers = $state<MCPServer[]>([]);
   let infoLoading = $state(true);
@@ -62,7 +66,7 @@
   // ─── Navigation ───
   let query = $state('');
   let selection = $state<DocsSelection>(DEFAULT_SELECTION);
-  let groups = $state<DocsGroupState>(readGroupState());
+  let expanded = $state<DocsGroupState>(readGroupState());
   let navOpen = $state(false);
   let mainEl = $state<HTMLElement | null>(null);
   let navToggleEl = $state<HTMLButtonElement | null>(null);
@@ -79,12 +83,12 @@
     try {
       return parseGroupState(localStorage.getItem(DOCS_GROUP_STORAGE_KEY));
     } catch {
-      return { ...DOCS_DEFAULT_GROUP_STATE };
+      return {};
     }
   }
 
   $effect(() => {
-    const raw = serializeGroupState(groups);
+    const raw = serializeGroupState(expanded);
     try {
       localStorage.setItem(DOCS_GROUP_STORAGE_KEY, raw);
     } catch {
@@ -93,9 +97,8 @@
   });
 
   // ─── Derived data ───
-  const allGuides = $derived<DisplayGuide[]>([
-    ...builtinGuides,
-    ...userGuides.map<DisplayGuide>((g) => ({
+  const myGuides = $derived<DisplayGuide[]>(
+    userGuides.map((g) => ({
       id: g.id,
       title: g.title || '(untitled)',
       description: g.description || '',
@@ -104,10 +107,37 @@
       builtin: false,
       body: g.content || '',
     })),
+  );
+  const allGuides = $derived<DisplayGuide[]>([...builtinGuides, ...myGuides]);
+
+  // Sidebar groups double as the reading order for previous/next.
+  const navGroups = $derived<SidebarGroup[]>([
+    ...apiGroups.map((g) => {
+      const entries = apiSections.filter((s) => s.group === g.id);
+      return { id: g.id, kind: 'api' as const, title: g.title, total: entries.length, entries };
+    }),
+    { id: 'guides', kind: 'guides', title: 'Guides', total: builtinGuides.length, entries: builtinGuides },
+    { id: 'my-guides', kind: 'guides', title: 'My guides', total: myGuides.length, entries: myGuides },
   ]);
 
-  const filteredApi = $derived(filterEntries(apiSections, query));
-  const filteredGuides = $derived(filterEntries(allGuides, query));
+  const visibleGroups = $derived(
+    navGroups.map((g) => ({ ...g, entries: filterEntries(g.entries, query) })),
+  );
+
+  const readingOrder = $derived(
+    navGroups.flatMap((g) =>
+      g.entries.map((e) => ({
+        id: `${g.kind}:${e.id}`,
+        selection: { kind: g.kind, id: e.id } as DocsSelection,
+        title: e.title,
+        group: g.title,
+      })),
+    ),
+  );
+  const currentEntry = $derived(
+    readingOrder.find((e) => e.id === `${selection.kind}:${selection.id}`),
+  );
+  const pager = $derived(adjacentEntries(readingOrder, `${selection.kind}:${selection.id}`));
 
   const activeSection = $derived(
     selection.kind === 'api' ? findApiSection(selection.id) : undefined,
@@ -116,7 +146,6 @@
     selection.kind === 'guides' ? allGuides.find((g) => g.id === selection.id) : undefined,
   );
 
-  const groupLabel = $derived(selection.kind === 'api' ? 'API docs' : 'Guides');
   const currentTitle = $derived(
     mode === 'new'
       ? 'New guide'
@@ -134,10 +163,19 @@
     providers.flatMap((p) =>
       p.models && p.models.length > 0
         ? p.models.map((m) => `${p.key}/${m}`)
-        : [`${p.key}/${p.default_model}`],
+        : p.default_model
+          ? [`${p.key}/${p.default_model}`]
+          : [],
     ),
   );
-  const exampleModel = $derived(allModels.length > 0 ? allModels[0] : 'provider/model-name');
+  const exampleModel = $derived(allModels[0] ?? 'openai/gpt-4o');
+  // A fallback from another provider when one exists — that is the case the
+  // examples are meant to show.
+  const fallbackModel = $derived(
+    allModels.find((m) => m.split('/')[0] !== exampleModel.split('/')[0]) ??
+      allModels[1] ??
+      'anthropic/claude-sonnet-4-5',
+  );
 
   // ─── URL ⇆ selection ───
   function resolveSelection(parsed: DocsSelection | null): DocsSelection {
@@ -162,25 +200,28 @@
     }
   });
 
+  function groupOf(sel: DocsSelection): string | undefined {
+    return navGroups.find((g) => g.kind === sel.kind && g.entries.some((e) => e.id === sel.id))?.id;
+  }
+
   // Expand the group that owns the selection whenever the selection changes —
   // but never fight a deliberate collapse of an already-selected group.
   let lastSelectionKey = '';
   $effect(() => {
     const key = `${selection.kind}:${selection.id}`;
-    if (key === lastSelectionKey) return;
+    const owner = groupOf(selection);
+    if (key === lastSelectionKey || !owner) return;
     lastSelectionKey = key;
     untrack(() => {
-      if (!groups[selection.kind]) groups = { ...groups, [selection.kind]: true };
+      if (!groupExpanded(expanded, owner)) expanded = { ...expanded, [owner]: true };
     });
   });
 
-  // Searching reveals hits in both groups.
+  // Searching reveals hits in every group.
   let wasSearching = false;
   $effect(() => {
     const searching = query.trim().length > 0;
-    if (searching && !wasSearching) {
-      untrack(() => (groups = { api: true, guides: true }));
-    }
+    if (searching && !wasSearching) untrack(() => (expanded = {}));
     wasSearching = searching;
   });
 
@@ -197,12 +238,9 @@
   async function loadInfo() {
     infoLoading = true;
     infoError = '';
-    // Both are best-effort: the API reference is static content and must stay
+    // Both are best-effort: the reference is static content and must stay
     // readable when the gateway info endpoint is unavailable.
-    const [info, mcpRes] = await Promise.allSettled([
-      getInfo(),
-      listMCPServers({ _limit: 100 }),
-    ]);
+    const [info, mcpRes] = await Promise.allSettled([getInfo(), listMCPServers({ _limit: 100 })]);
 
     if (info.status === 'fulfilled') {
       providers = info.value.providers;
@@ -265,7 +303,7 @@
     editingGuide = null;
     mode = 'new';
     navOpen = false;
-    if (!groups.guides) groups = { ...groups, guides: true };
+    if (!groupExpanded(expanded, 'my-guides')) expanded = { ...expanded, 'my-guides': true };
   }
 
   function startEditGuide(guide: DisplayGuide) {
@@ -335,64 +373,73 @@
     navToggleEl?.focus();
   }
 
-  function onWindowKeydown(e: KeyboardEvent) {
+  function isTyping(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (!el) return false;
+    return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+  }
+
+  async function onWindowKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && navOpen) {
       e.preventDefault();
       closeNav();
+      return;
+    }
+    // "/" focuses search, like most documentation sites.
+    if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && mode === 'view' && !isTyping(e.target)) {
+      if (document.querySelector('dialog[open], [role="dialog"]')) return;
+      e.preventDefault();
+      if (window.matchMedia('(min-width: 1024px)').matches) {
+        document.getElementById('docs-search')?.focus();
+      } else {
+        await openNav();
+      }
     }
   }
-
-  const toolbarButton =
-    'inline-flex items-center gap-1.5 border px-2 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-accent';
 </script>
 
 <svelte:head>
-  <title>AT | Documentation</title>
+  <title>AT | {currentTitle}</title>
 </svelte:head>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="flex h-full min-h-0 bg-dark-base">
+<div class="flex h-full min-h-0">
   {#if navOpen}
     <!-- Mobile scrim. Desktop keeps the sidebar in flow, so it is hidden there. -->
     <button
       type="button"
       aria-label="Close navigation"
       onclick={closeNav}
-      class="fixed inset-0 z-30 bg-dark-elevated/50 lg:hidden"
+      class="fixed inset-0 z-30 bg-black/50 lg:hidden"
     ></button>
   {/if}
 
   <aside
     id="docs-nav"
     class={[
-      'z-40 flex-col border-dark-border bg-dark-surface',
-      'lg:static lg:z-auto lg:flex lg:w-64 lg:shrink-0 lg:border-r lg:shadow-none',
-      navOpen ? 'fixed inset-y-0 left-0 flex w-72 max-w-[85vw] border-r shadow-xl' : 'hidden',
+      'z-40 flex-col border-dark-border bg-dark-base',
+      'lg:static lg:z-auto lg:flex lg:w-64 lg:shrink-0 lg:border-r',
+      navOpen ? 'fixed inset-y-0 left-0 flex w-72 max-w-[85vw] border-r bg-dark-surface' : 'hidden',
     ]}
   >
-    <div
-      class="flex shrink-0 items-center justify-between border-b px-3 py-2 lg:hidden border-dark-border"
-    >
+    <div class="flex shrink-0 items-center justify-between border-b border-dark-border px-3 py-2 lg:hidden">
       <span class="text-xs font-semibold text-dark-text">Contents</span>
       <button
         type="button"
         onclick={closeNav}
         aria-label="Close navigation"
-        class="p-1 focus-visible:outline-2 focus-visible:outline-offset-2 text-dark-text-secondary hover:text-dark-text focus-visible:outline-accent"
+        class="p-1 text-dark-text-muted hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
       >
         <X size={14} aria-hidden="true" />
       </button>
     </div>
 
     <DocsSidebar
-      apiEntries={filteredApi}
-      guideEntries={filteredGuides}
-      apiTotal={apiSections.length}
-      guideTotal={allGuides.length}
+      groups={visibleGroups}
       {selection}
       bind:query
-      bind:groups
+      bind:expanded
       {guidesLoading}
       {guidesError}
       onselect={select}
@@ -402,40 +449,42 @@
   </aside>
 
   <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-    <div
-      class="flex shrink-0 items-center gap-2 border-b px-3 py-2 border-dark-border bg-dark-surface"
-    >
+    <div class="flex shrink-0 items-center gap-2 border-b border-dark-border px-3 py-1.5">
       <button
         type="button"
         bind:this={navToggleEl}
         onclick={openNav}
         aria-expanded={navOpen}
         aria-controls="docs-nav"
-        class={[toolbarButton, 'lg:hidden']}
+        class="settings-button lg:hidden"
       >
         <Menu size={13} aria-hidden="true" />
         Contents
       </button>
-      <p class="min-w-0 flex-1 truncate text-xs text-dark-text-secondary">
-        <span class="hidden sm:inline">{groupLabel} <span aria-hidden="true">/</span> </span>
-        <span class="font-medium text-dark-text">{currentTitle}</span>
+      <p class="min-w-0 flex-1 truncate text-xs text-dark-text-muted">
+        {#if currentEntry && mode === 'view'}
+          <span class="hidden sm:inline">{currentEntry.group} <span aria-hidden="true">/</span> </span>
+        {/if}
+        <span class="text-dark-text">{currentTitle}</span>
       </p>
-      <button type="button" onclick={refreshAll} class={toolbarButton} aria-label="Refresh gateway data and guides">
+      <button
+        type="button"
+        onclick={refreshAll}
+        class="settings-button"
+        aria-label="Refresh gateway data and guides"
+        title="Refresh gateway data and guides"
+      >
         <RefreshCw
           size={13}
           class={infoLoading || guidesLoading ? 'animate-spin motion-reduce:animate-none' : ''}
           aria-hidden="true"
         />
-        <span class="hidden sm:inline">Refresh</span>
       </button>
     </div>
 
     <main
       bind:this={mainEl}
-      class={[
-        'min-h-0 min-w-0 flex-1',
-        mode === 'view' ? 'overflow-y-auto' : 'overflow-hidden',
-      ]}
+      class={['min-h-0 min-w-0 flex-1', mode === 'view' ? 'overflow-y-auto' : 'overflow-hidden']}
     >
       {#if mode !== 'view'}
         {#key `${mode}:${editingGuide?.id ?? ''}`}
@@ -449,13 +498,12 @@
         {/key}
       {:else if selection.kind === 'api'}
         {#if activeSection}
-          <div
-            class={[
-              'mx-auto w-full px-5 py-6 sm:px-8',
-              activeSection.wide ? 'max-w-6xl' : 'max-w-5xl',
-            ]}
-          >
-            <DocsPaneHeader title={activeSection.title} description={activeSection.description}>
+          <div class="mx-auto w-full max-w-4xl px-5 pb-12 pt-8 sm:px-10">
+            <DocsPaneHeader
+              title={activeSection.title}
+              description={activeSection.description}
+              eyebrow={currentEntry?.group}
+            >
               {#snippet actions()}
                 <DocsCopyLinkButton {selection} />
               {/snippet}
@@ -469,6 +517,7 @@
                 {mcpServers}
                 models={allModels}
                 {exampleModel}
+                {fallbackModel}
                 loading={infoLoading}
                 {infoError}
                 onretry={loadInfo}
@@ -476,43 +525,34 @@
                 bind:mcpName
               />
             </div>
+            <DocsPager prev={pager.prev} next={pager.next} />
           </div>
         {/if}
       {:else if activeGuide}
-        <div class="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8">
+        <div class="mx-auto w-full max-w-5xl px-5 pb-12 pt-8 sm:px-10">
           <GuideViewer
             guide={activeGuide}
+            eyebrow={currentEntry?.group}
             onedit={startEditGuide}
             ondelete={removeGuide}
             {deleting}
           />
+          <DocsPager prev={pager.prev} next={pager.next} />
         </div>
       {:else if guidesLoading}
-        <div class="mx-auto w-full max-w-5xl px-5 py-10">
-          <p class="text-sm text-dark-text-secondary">Loading guide…</p>
+        <div class="mx-auto w-full max-w-4xl px-5 py-10 sm:px-10">
+          <p class="text-sm text-dark-text-muted">Loading guide…</p>
         </div>
       {:else}
-        <div class="mx-auto w-full max-w-5xl px-5 py-10 text-center">
-          <BookOpen
-            size={22}
-            class="mx-auto text-dark-text-secondary"
-            aria-hidden="true"
-          />
-          <h1 class="mt-3 text-base font-semibold text-dark-text">
-            Guide not found
-          </h1>
-          <p class="mt-1 text-sm leading-relaxed text-dark-text-secondary">
-            {guidesError
-              ? guidesError
-              : 'This guide no longer exists, or the link points at another workspace.'}
+        <div class="mx-auto w-full max-w-4xl px-5 py-16 text-center sm:px-10">
+          <BookOpen size={22} class="mx-auto text-dark-text-muted" aria-hidden="true" />
+          <h1 class="mt-3 text-base font-semibold text-dark-text">Guide not found</h1>
+          <p class="mt-1 text-sm leading-relaxed text-dark-text-muted">
+            {guidesError || 'This guide no longer exists, or the link points at another workspace.'}
           </p>
           <div class="mt-4 flex flex-wrap justify-center gap-2">
-            <button type="button" onclick={loadGuides} class={toolbarButton}>Reload guides</button>
-            <button
-              type="button"
-              onclick={() => select({ kind: 'api', id: 'overview' })}
-              class={toolbarButton}
-            >
+            <button type="button" onclick={loadGuides} class="settings-button">Reload guides</button>
+            <button type="button" onclick={() => select(DEFAULT_SELECTION)} class="settings-button">
               Go to Overview
             </button>
           </div>
