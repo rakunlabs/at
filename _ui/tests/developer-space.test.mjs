@@ -14,6 +14,14 @@ const helper = await load('../src/lib/helper/developer-space.ts');
 const pageSource = await readFile(new URL('../src/pages/DeveloperSpaces.svelte', import.meta.url), 'utf8');
 const chatSource = await readFile(new URL('../src/lib/components/developer/SessionChat.svelte', import.meta.url), 'utf8');
 
+test('Kubernetes stop warns about package loss and displays runtime limitations', () => {
+  const stop = pageSource.match(/async function stop\(\) \{([\s\S]*?)\n  \}/)[1];
+  assert.match(stop, /runtime\?\.backend === 'kubernetes'/);
+  assert.match(stop, /installed system packages will be lost/);
+  assert.match(pageSource, /space\.runtime\.notice/);
+  assert.match(pageSource, /Use a prepared Linux image/);
+});
+
 test('developer chat detaches on destruction and resumes discovered runs without POST', () => {
   assert.match(chatSource, /controller\?\.abort\(\); \/\/ Detach only/);
   assert.match(chatSource, /if \(action === 'resume'\) await resumeDeveloperStream/);
@@ -27,11 +35,32 @@ test('metadata polling compares saved history revision, not parent-updated props
   assert.doesNotMatch(chatSource, /state\.session\.updated_at !== session\.updated_at/);
 });
 
+test('unresolved durable ownership blocks new work and explains safe recovery', () => {
+  assert.match(chatSource, /working = \$derived\(busy \|\| session.status === 'running' \|\| !!durableRun\)/);
+  assert.match(chatSource, /durableRun = state.run \?\? null/);
+  assert.match(chatSource, /durableRun\?\.interrupted/);
+  assert.match(chatSource, /Stop requests cancellation but does not clear the lock/);
+  assert.match(chatSource, /durableRun\?\.cancel_requested/);
+  assert.doesNotMatch(chatSource, /Stop before starting new work/);
+});
+
 test('developer transcript shares compact tools and palettes with Chats', () => {
   assert.match(chatSource, /<ToolActivity compact/);
   assert.match(chatSource, /<CommandPalette/);
   assert.match(chatSource, /border-l-2 border-accent bg-dark-surface/);
   assert.doesNotMatch(chatSource, /<select/);
+});
+
+test('space suspension retains history and requires explicit control recovery', () => {
+  assert.match(pageSource, /if \(starting \|\| space\?\.active_control_id\) return/);
+  assert.match(pageSource, /space\?\.execution_suspended && !starting/);
+  assert.match(pageSource, /Saved history remains available/);
+  assert.match(pageSource, /Work is never restarted automatically/);
+  for (const name of ['stop', 'reset']) {
+    const action = pageSource.match(new RegExp(`async function ${name}\\(\\) \\{([\\s\\S]*?)\\n  \\}`))[1];
+    assert.match(action, /space = await getDeveloperSpace\(\)/);
+    assert.match(action, /if \(space.execution_suspended\)/);
+  }
 });
 
 test('opening Developer Spaces does not start the container or access its files', () => {

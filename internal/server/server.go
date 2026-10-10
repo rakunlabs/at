@@ -461,6 +461,10 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
+	sandboxes, err := sandboxManager(cfg.Sandbox)
+	if err != nil {
+		return nil, err
+	}
 	// Boot-time catalog enumeration (schedulers, bots, migrations, janitors)
 	// runs under maintenance authority. It only permits discovery: every
 	// discovered subject still resolves its own live workspace binding.
@@ -585,7 +589,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		buildDate:        buildDate,
 		todos:            newTodoStore(),
 		lspManager:       newLSPManager(),
-		containerManager: container.New(),
+		containerManager: sandboxes,
 	}
 	if native != nil {
 		native.OnUserDeleted = s.removeDeveloperHome
@@ -1481,7 +1485,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 				s.containerManager.CleanupIdle(ctx, 30*time.Minute)
 			case <-ctx.Done():
 				slog.Info("server: cleaning up containers")
-				s.containerManager.StopAll(context.Background())
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				if err := s.containerManager.Shutdown(shutdownCtx); err != nil {
+					slog.Warn("server: sandbox controller shutdown failed", "error", err.Error())
+				}
+				cancel()
 				return
 			}
 		}

@@ -1,0 +1,87 @@
+# Example namespaces and names. Bind this service account to AT's Deployment.
+# Do not deploy sandbox user code in the AT application namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: at
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: at-sandboxes
+  labels:
+    # Current developer images may run as root with package-manager caps.
+    # Baseline still refuses privileged pods, host namespaces and hostPath.
+    pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: at-sandbox-controller
+  namespace: at
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: at-sandbox-controller
+  namespace: at-sandboxes
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [at-sandbox-controller]
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, create, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, create, update, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, create, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: at-sandbox-controller
+  namespace: at-sandboxes
+subjects:
+  - kind: ServiceAccount
+    name: at-sandbox-controller
+    namespace: at
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: at-sandbox-controller
+---
+# Baseline policies must exist before AT can create a pod. Per-scope policies
+# only add DNS/public egress when the sandbox's Network flag is enabled.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-default-deny
+  namespace: at-sandboxes
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-capacity
+  namespace: at-sandboxes
+spec:
+  hard:
+    pods: "20"
+    requests.cpu: "40"
+    requests.memory: 80Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    requests.storage: 500Gi
+    persistentvolumeclaims: "40"

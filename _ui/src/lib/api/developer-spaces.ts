@@ -10,12 +10,20 @@ export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: De
 
 export const DEFAULT_DEVELOPER_IMAGE = 'debian:13.7-slim';
 
+export interface DeveloperRuntime {
+  backend: string; preserves_root_on_stop: boolean; persistent_home: boolean;
+  multi_replica: boolean; notice?: string;
+}
+
 export interface DeveloperSpace {
   id: string; workspace_id: string; owner_user_id: string;
   status: 'pending' | 'ready' | 'stopped' | 'error'; image?: string;
   cpu_limit?: string; memory_limit?: string; disk_limit_bytes?: number;
   config: DeveloperSpaceConfig; error?: string; last_active_at?: string;
   created_at: string; updated_at: string;
+  runtime?: DeveloperRuntime;
+  execution_suspended?: boolean;
+  active_control_id?: string;
 }
 
 export type DeveloperMode = 'plan' | 'build' | 'review';
@@ -121,7 +129,13 @@ export async function createDeveloperSession(body: { project_path: string; mode:
 export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
 export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
 export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
-export async function getDeveloperActiveStream(id: string) { return (await api.get<{ stream_id: string; session: DeveloperSession }>(`/developer-sessions/${encodeURIComponent(id)}/active-stream`)).data; }
+export interface DeveloperRun {
+  id: string;
+  heartbeat_at: string;
+  cancel_requested: boolean;
+  interrupted: boolean;
+}
+export async function getDeveloperActiveStream(id: string) { return (await api.get<{ stream_id: string; session: DeveloperSession; run?: DeveloperRun | null }>(`/developer-sessions/${encodeURIComponent(id)}/active-stream`)).data; }
 export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }
 export async function cancelDeveloperSession(id: string) { return (await api.post<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}/cancel`)).data; }
 

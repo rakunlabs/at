@@ -464,6 +464,17 @@ func (s *Server) runDeveloperToolCall(r *http.Request, stream *developerStream, 
 	var toolErr error
 	started := time.Now()
 	if execute {
+		if runs, ok := s.store.(service.DeveloperRunStorer); ok && service.DeveloperRunFromContext(r.Context()) != "" {
+			check, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			toolErr = runs.HeartbeatDeveloperRun(check, session.ID, service.DeveloperRunFromContext(r.Context()))
+			cancel()
+			if toolErr != nil {
+				execute = false
+				output = "tool not executed: " + toolErr.Error()
+			}
+		}
+	}
+	if execute {
 		if isDeveloperContainerTool(call.Name) {
 			output, toolErr = s.executeDeveloperTool(r, h, session.ProjectPath, call, kit.toolTimeout)
 		} else {
@@ -729,12 +740,23 @@ func (s *Server) CancelDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 		developerSpaceError(w, err)
 		return
 	}
+	if runs, ok := s.store.(service.DeveloperRunStorer); ok {
+		if err := runs.CancelDeveloperRun(r.Context(), session.ID); err != nil {
+			developerSpaceError(w, err)
+			return
+		}
+	} else {
+		_ = store.DeleteDeveloperPendingTool(r.Context(), session.ID)
+		if _, err := store.SetDeveloperSessionRuntime(r.Context(), session.ID, service.DeveloperSessionCancelled, "cancelled by user"); err != nil {
+			developerSpaceError(w, err)
+			return
+		}
+	}
 	if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
 		value.(*activeDeveloperSession).cancel()
 	}
 	s.cancelDeveloperStreams(session)
-	_ = store.DeleteDeveloperPendingTool(r.Context(), session.ID)
-	updated, err := store.SetDeveloperSessionRuntime(r.Context(), session.ID, service.DeveloperSessionCancelled, "cancelled by user")
+	updated, err := store.GetDeveloperSession(r.Context(), session.ID)
 	if err != nil {
 		developerSpaceError(w, err)
 		return

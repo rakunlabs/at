@@ -64,6 +64,7 @@ export const routeFeatures: Record<string, string> = {
   '/variables': FEATURE_VARIABLES,
   '/node-configs': FEATURE_WORKFLOW_BUILDER,
   '/workflows': FEATURE_WORKFLOW_BUILDER,
+  '/workflows/runs': FEATURE_WORKFLOW_RUNS,
   '/webhooks': FEATURE_WORKFLOW_BUILDER,
   '/crons': FEATURE_WORKFLOW_BUILDER,
   '/runs': FEATURE_WORKFLOW_RUNS,

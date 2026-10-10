@@ -144,6 +144,32 @@ type Server struct {
 	// persistent data disk (e.g. `/mnt/at-workspace`) so the video pipeline
 	// doesn't fill the root filesystem.
 	Workspace *Workspace `cfg:"workspace"`
+
+	// Sandbox selects the installation-owned execution backend. Omitted means
+	// Docker. Kubernetes is currently restricted to a single AT replica.
+	Sandbox *Sandbox `cfg:"sandbox"`
+}
+
+type Sandbox struct {
+	Backend    string             `cfg:"backend"`
+	Kubernetes *KubernetesSandbox `cfg:"kubernetes"`
+}
+
+type KubernetesSandbox struct {
+	Namespace             string   `cfg:"namespace"`
+	DeploymentID          string   `cfg:"deployment_id"`
+	Kubeconfig            string   `cfg:"kubeconfig" log:"-"`
+	HelperImage           string   `cfg:"helper_image"`
+	StorageClass          string   `cfg:"storage_class"`
+	HomeStorageClass      string   `cfg:"home_storage_class"`
+	HomeAccessMode        string   `cfg:"home_access_mode"`
+	HomeSize              string   `cfg:"home_size"`
+	WorkspaceSize         string   `cfg:"workspace_size"`
+	RuntimeClass          string   `cfg:"runtime_class"`
+	PodPidsLimit          int      `cfg:"pod_pids_limit"`
+	NetworkPolicyEnforced bool     `cfg:"network_policy_enforced"`
+	SingleReplica         bool     `cfg:"single_replica"`
+	BlockedCIDRs          []string `cfg:"blocked_cidrs"`
 }
 
 // NativeAuth retains backwards-compatible import fields. New installations use

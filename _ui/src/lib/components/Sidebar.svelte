@@ -21,7 +21,7 @@
     {path:'/providers',label:'Model Providers',icon:Cpu},
     {path:'/agents',label:'Agents',icon:Bot}, {path:'/tasks',label:'Tasks',icon:ClipboardList},
     {path:'/organizations',label:'Organizations',icon:Building2}, {path:'/workflows',label:'Workflows',icon:Workflow},
-    {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},
+    {path:'/skills',label:'Skills',icon:WandSparkles},
     {path:'/mcps',label:'MCP Sets',icon:Layers},
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
     {path:'/files',label:'Files',icon:FolderOpen}, {path:'/developer-spaces',label:'Developer Spaces',icon:Container}, {path:'/integrations',label:'Integrations',icon:Package},
@@ -38,6 +38,10 @@
   function navActive(path: string) {
     if (path === '/settings') return inSettingsArea(router.location);
     return router.location === path || (path !== '/' && router.location.startsWith(path + '/'));
+  }
+  function navDestination(path: string) {
+    // Runs remains reachable when the workflow builder is switched off.
+    return path === '/workflows' && !routeFeatureEnabled(path) ? '/workflows/runs' : path;
   }
   const navClass = (active: boolean) => [
     'flex min-w-0 items-center gap-2 px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
@@ -104,7 +108,7 @@
         <!-- Keyed by path: the list shrinks once the feature catalog loads (everything
              reads enabled until then), and an unkeyed each reuses each index's DOM —
              which updated the label but left the previous entry's icon behind. -->
-        {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item (item.path)}<a href={`#${item.path}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} class="shrink-0" />{@render navLabel(item.label)}</a>{/each}
+        {#each items.filter(item => routeAllowed(navDestination(item.path)) && routeFeatureEnabled(navDestination(item.path))) as item (item.path)}<a href={`#${navDestination(item.path)}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} class="shrink-0" />{@render navLabel(item.label)}</a>{/each}
       </nav>
       <!-- Settings is never gated (it is the way back to the Features page, and the
            only surface an account with no workspace can use), but Documentation is:

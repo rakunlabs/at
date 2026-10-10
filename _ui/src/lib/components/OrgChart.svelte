@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Crown, Cpu, Briefcase } from 'lucide-svelte';
+  import { Crown, Plus, Minus, Scan } from 'lucide-svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
 
   // ─── Types ───
@@ -34,8 +34,8 @@
   let { agents, selectedAgentId = null, onselect }: Props = $props();
 
   // ─── Layout Constants ───
-  const NODE_W = 200;
-  const NODE_H = 82;
+  const NODE_W = 224;
+  const NODE_H = 100;
   const H_GAP = 36;
   const V_GAP = 60;
   const PADDING = 60;
@@ -170,6 +170,14 @@
     }
   });
 
+  $effect(() => {
+    if (!containerEl) return;
+    // Panels and viewport changes resize the canvas without changing agents.
+    const observer = new ResizeObserver(() => fitView());
+    observer.observe(containerEl);
+    return () => observer.disconnect();
+  });
+
   function fitView() {
     if (!containerEl || layout.nodes.length === 0) return;
     const rect = containerEl.getBoundingClientRect();
@@ -191,10 +199,10 @@
   // ─── Status ───
   function statusColor(status?: string): string {
     switch (status) {
-      case 'active': return '#22c55e';
-      case 'busy': return '#f59e0b';
-      case 'offline': return '#ef4444';
-      default: return '#6b7280';
+      case 'active': return 'var(--color-oc-green)';
+      case 'busy': return 'var(--color-oc-peach)';
+      case 'offline': return 'var(--color-oc-red)';
+      default: return 'var(--color-dark-text-muted)';
     }
   }
 
@@ -272,9 +280,10 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   bind:this={containerEl}
-  class="w-full h-full overflow-hidden relative select-none org-chart-container"
+  class="w-full h-full overflow-hidden relative select-none bg-dark-base grain-background"
   style="cursor: {isPanning ? 'grabbing' : 'grab'}"
   role="application"
+  aria-label="Organization agent hierarchy"
   onwheel={handleWheel}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
@@ -310,12 +319,11 @@
           d={stepPath(conn)}
           fill="none"
           stroke={isLive
-            ? '#22c55e'
+            ? 'var(--color-oc-green)'
             : isHighlighted
-              ? 'var(--color-accent, #00d926)'
-              : 'var(--conn-color)'}
+              ? 'var(--color-oc-peach)'
+              : 'var(--color-dark-border)'}
           stroke-width={isLive ? 2.5 : isHighlighted ? 2 : 1}
-          class={isLive ? 'org-edge-live' : ''}
         />
       {/each}
     </svg>
@@ -324,47 +332,38 @@
     {#each layout.nodes as node (node.agent.agent_id)}
       {@const isSelected = selectedAgentId === node.agent.agent_id}
       {@const isHead = node.agent.is_head}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        class="org-node absolute"
+        class="org-node absolute cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        role="button"
+        tabindex="0"
+        aria-label={`${node.agent.name}${isHead ? ', head agent' : ''}, ${node.agent.active_count ? 'working' : statusLabel(node.agent.status)}`}
+        aria-pressed={isSelected}
         style="left: {node.x}px; top: {node.y}px; width: {NODE_W}px;"
         onclick={(e) => { e.stopPropagation(); handleNodeClick(node.agent.agent_id); }}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleNodeClick(node.agent.agent_id); } }}
       >
         <div
           style="height: {NODE_H}px;"
           class={[
             'border overflow-hidden ',
             isSelected
-              ? 'border-accent bg-dark-surface'
+              ? 'border-oc-peach bg-dark-elevated'
               : isHead
-                ? 'border-dark-text-muted bg-dark-surface'
-                : 'border-dark-border-subtle bg-dark-surface hover:border-dark-border',
+                ? 'border-dark-text-muted bg-dark-base'
+                : 'border-dark-border bg-dark-base hover:border-dark-text-muted',
           ]}
         >
-          <!-- Top bar -->
-          <div
-            class={[
-              'h-0.5',
-              isHead
-                ? 'bg-accent'
-                : isSelected
-                  ? 'bg-accent'
-                  : 'bg-dark-border',
-            ]}
-          ></div>
-
           <!-- Content -->
-          <div class="px-3 py-2">
+          <div class="px-3 py-3">
             <!-- Name row -->
             <div class="flex items-center gap-2 mb-1">
               <div class="relative shrink-0">
                 <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] bg-dark-elevated" />
                 {#if isHead}
-                  <Crown size={8} class="absolute -top-0.5 -right-0.5 text-amber-500 drop-shadow" />
+                  <Crown size={10} class="absolute -top-1 -right-1 text-oc-peach" />
                 {/if}
               </div>
-              <span class="text-xs font-medium text-dark-text truncate">
+              <span class={['text-xs font-medium truncate', isSelected ? 'text-oc-peach' : 'text-dark-text']}>
                 {node.agent.name}
               </span>
               {#if node.agent.active_count && node.agent.active_count > 0}
@@ -372,12 +371,9 @@
                   class="shrink-0 ml-auto flex items-center gap-1"
                   title="{node.agent.active_count} active delegation{node.agent.active_count === 1 ? '' : 's'}"
                 >
-                  <span class="relative flex w-1.5 h-1.5">
-                    <span class="absolute inline-flex w-full h-full bg-green-400 opacity-75 animate-ping"></span>
-                    <span class="relative inline-flex w-1.5 h-1.5 bg-green-500"></span>
-                  </span>
+                  <span class="w-1.5 h-1.5 bg-oc-green"></span>
                   {#if node.agent.active_count > 1}
-                    <span class="text-[9px] font-medium text-green-400">{node.agent.active_count}</span>
+                    <span class="text-xs font-medium text-oc-green">{node.agent.active_count}</span>
                   {/if}
                 </span>
               {:else}
@@ -392,18 +388,18 @@
             <!-- Details -->
             <div class="space-y-0.5 ml-[30px]">
               {#if node.agent.title}
-                <div class="text-[10px] text-dark-text-secondary truncate">
+                <div class="text-xs text-dark-text-secondary truncate" title={node.agent.title}>
                   {node.agent.title}
                 </div>
               {/if}
               {#if node.agent.role}
-                <div class="text-[10px] text-dark-text-muted truncate">{node.agent.role}</div>
+                <div class="text-xs text-dark-text-secondary truncate" title={node.agent.role}>{node.agent.role}</div>
               {/if}
               {#if node.agent.description && !node.agent.title && !node.agent.role}
-                <div class="text-[10px] text-dark-text-muted truncate">{node.agent.description}</div>
+                <div class="text-xs text-dark-text-secondary truncate" title={node.agent.description}>{node.agent.description}</div>
               {/if}
               {#if node.agent.model}
-                <div class="text-[10px] text-dark-text-faint font-mono truncate">
+                <div class="text-[11px] text-dark-text-muted truncate" title={node.agent.model}>
                   {node.agent.model}
                 </div>
               {/if}
@@ -421,42 +417,24 @@
   <div class="org-controls absolute bottom-3 left-3 flex items-center gap-px border border-dark-border bg-dark-surface">
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 1.25); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border"
+      class="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border focus-visible:outline-2 focus-visible:outline-accent"
       title="Zoom in"
-    >+</button>
+      aria-label="Zoom in"
+    ><Plus size={14} /></button>
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 0.8); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border"
+      class="w-11 h-11 sm:w-9 sm:h-9 flex items-center justify-center text-dark-text-secondary hover:bg-dark-elevated border-r border-dark-border focus-visible:outline-2 focus-visible:outline-accent"
       title="Zoom out"
-    >-</button>
+      aria-label="Zoom out"
+    ><Minus size={14} /></button>
     <button
       onclick={(e) => { e.stopPropagation(); fitView(); }}
-      class="h-7 px-2 flex items-center justify-center text-[10px] text-dark-text-muted hover:bg-dark-elevated"
+      class="h-11 sm:h-9 px-3 gap-1.5 flex items-center justify-center text-xs text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
       title="Fit view"
-    >fit</button>
+    ><Scan size={14} /> Fit</button>
   </div>
 
-  <div class="absolute bottom-3 right-3 text-[10px] text-dark-text-faint font-mono">
+  <div class="absolute bottom-3 right-3 px-2 py-1 bg-dark-base text-xs text-dark-text-secondary tabular-nums">
     {Math.round(scale * 100)}%
   </div>
 </div>
-
-<style>
-  @reference "../../style/global.css";
-
-  .org-chart-container {
-    --conn-color: var(--color-dark-border-subtle);
-    background-color: var(--color-dark-base);
-  }
-
-  /* Live edge: an in-flight delegation chain runs through this edge.
-     Use a soft pulse so the user can trace the active path in a busy
-     chart without the animation getting in the way. */
-  :global(.org-edge-live) {
-    animation: org-edge-pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes org-edge-pulse {
-    0%, 100% { stroke-opacity: 1; }
-    50%      { stroke-opacity: 0.55; }
-  }
-</style>

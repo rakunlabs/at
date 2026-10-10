@@ -20,24 +20,26 @@ var _ service.DeveloperSpaceStorer = (*Postgres)(nil)
 var developerSpaceColumns = []any{
 	"id", "workspace_id", "owner_user_id", "name", "status", "image",
 	"cpu_limit", "memory_limit", "disk_limit_bytes", "config", "error",
-	"last_active_at", "created_at", "updated_at",
+	"last_active_at", "created_at", "updated_at", "execution_suspended", "active_control_id",
 }
 
 type developerSpaceRow struct {
-	ID             string       `db:"id"`
-	WorkspaceID    string       `db:"workspace_id"`
-	OwnerUserID    string       `db:"owner_user_id"`
-	Name           string       `db:"name"`
-	Status         string       `db:"status"`
-	Image          string       `db:"image"`
-	CPULimit       string       `db:"cpu_limit"`
-	MemoryLimit    string       `db:"memory_limit"`
-	DiskLimitBytes int64        `db:"disk_limit_bytes"`
-	Config         string       `db:"config"`
-	Error          string       `db:"error"`
-	LastActiveAt   sql.NullTime `db:"last_active_at"`
-	CreatedAt      time.Time    `db:"created_at"`
-	UpdatedAt      time.Time    `db:"updated_at"`
+	ExecutionSuspended bool         `db:"execution_suspended"`
+	ActiveControlID    string       `db:"active_control_id"`
+	ID                 string       `db:"id"`
+	WorkspaceID        string       `db:"workspace_id"`
+	OwnerUserID        string       `db:"owner_user_id"`
+	Name               string       `db:"name"`
+	Status             string       `db:"status"`
+	Image              string       `db:"image"`
+	CPULimit           string       `db:"cpu_limit"`
+	MemoryLimit        string       `db:"memory_limit"`
+	DiskLimitBytes     int64        `db:"disk_limit_bytes"`
+	Config             string       `db:"config"`
+	Error              string       `db:"error"`
+	LastActiveAt       sql.NullTime `db:"last_active_at"`
+	CreatedAt          time.Time    `db:"created_at"`
+	UpdatedAt          time.Time    `db:"updated_at"`
 }
 
 func developerSpaceActor(ctx context.Context) (service.AccessPrincipal, error) {
@@ -50,7 +52,9 @@ func developerSpaceActor(ctx context.Context) (service.AccessPrincipal, error) {
 
 func developerSpaceRecord(row developerSpaceRow) (*service.DeveloperSpace, error) {
 	record := &service.DeveloperSpace{
-		ID: row.ID, WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID,
+		ExecutionSuspended: row.ExecutionSuspended,
+		ActiveControlID:    row.ActiveControlID,
+		ID:                 row.ID, WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID,
 		Name: row.Name, Status: row.Status, Image: row.Image, CPULimit: row.CPULimit,
 		MemoryLimit: row.MemoryLimit, DiskLimitBytes: row.DiskLimitBytes, Error: row.Error,
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
@@ -128,8 +132,19 @@ func (p *Postgres) UpdateDeveloperSpace(ctx context.Context, space service.Devel
 	if err != nil {
 		return nil, fmt.Errorf("encode developer space config: %w", err)
 	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer space update: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperSpace(ctx, tx, actor, space.ID); err != nil {
+		return nil, err
+	}
+	if err := p.checkDeveloperSpaceRuns(ctx, tx, actor, space.ID); err != nil {
+		return nil, err
+	}
 	var row developerSpaceRow
-	found, err := p.goqu.Update(p.tableDeveloperSpaces).Set(goqu.Record{
+	found, err := tx.Update(p.tableDeveloperSpaces).Set(goqu.Record{
 		"image": strings.TrimSpace(space.Image), "cpu_limit": strings.TrimSpace(space.CPULimit),
 		"memory_limit": strings.TrimSpace(space.MemoryLimit), "disk_limit_bytes": space.DiskLimitBytes,
 		"config": string(encoded), "updated_at": goqu.L("clock_timestamp()"),
@@ -141,6 +156,9 @@ func (p *Postgres) UpdateDeveloperSpace(ctx context.Context, space service.Devel
 	if !found {
 		return nil, service.ErrDeveloperSpaceNotFound
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer space update: %w", err)
+	}
 	return developerSpaceRecord(row)
 }
 
@@ -149,13 +167,27 @@ func (p *Postgres) DeleteDeveloperSpace(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	result, err := p.goqu.Delete(p.tableDeveloperSpaces).
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin developer space deletion: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperSpace(ctx, tx, actor, id); err != nil {
+		return err
+	}
+	if err := p.checkDeveloperSpaceRuns(ctx, tx, actor, id); err != nil {
+		return err
+	}
+	result, err := tx.Delete(p.tableDeveloperSpaces).
 		Where(goqu.Ex{"id": id, "workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID}).Executor().ExecContext(ctx)
 	if err != nil {
 		return fmt.Errorf("delete developer space: %w", err)
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return service.ErrDeveloperSpaceNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit developer space deletion: %w", err)
 	}
 	return nil
 }

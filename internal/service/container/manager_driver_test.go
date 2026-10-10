@@ -14,17 +14,20 @@ import (
 
 // fakeDriver records calls and simulates sandboxes in memory.
 type fakeDriver struct {
-	mu       sync.Mutex
-	seq      int
-	running  map[string]bool
-	created  []string
-	removed  []string
-	purged   []string
-	stopped  []string
-	execs    []ExecRequest
-	usage    int64 // bytes reported by `du -sk /workspace`
-	exitCode int
-	failExec error
+	mu         sync.Mutex
+	seq        int
+	running    map[string]bool
+	created    []string
+	removed    []string
+	purged     []string
+	stopped    []string
+	execs      []ExecRequest
+	usage      int64 // bytes reported by `du -sk /workspace`
+	exitCode   int
+	failExec   error
+	failRemove error
+	failStop   error
+	failPurge  error
 }
 
 func newFakeDriver() *fakeDriver { return &fakeDriver{running: map[string]bool{}} }
@@ -74,6 +77,9 @@ func (f *fakeDriver) Attach(context.Context, string, string, uint16, uint16) (Te
 func (f *fakeDriver) Remove(_ context.Context, handle string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failRemove != nil {
+		return f.failRemove
+	}
 	delete(f.running, handle)
 	f.removed = append(f.removed, handle)
 	return nil
@@ -82,6 +88,9 @@ func (f *fakeDriver) Remove(_ context.Context, handle string) error {
 func (f *fakeDriver) Stop(_ context.Context, handle string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failStop != nil {
+		return f.failStop
+	}
 	delete(f.running, handle)
 	f.stopped = append(f.stopped, handle)
 	return nil
@@ -90,6 +99,14 @@ func (f *fakeDriver) Stop(_ context.Context, handle string) error {
 func (f *fakeDriver) Purge(_ context.Context, scope string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failPurge != nil {
+		return f.failPurge
+	}
+	for handle := range f.running {
+		if strings.HasPrefix(handle, scope+"-") {
+			delete(f.running, handle)
+		}
+	}
 	f.purged = append(f.purged, scope)
 	return nil
 }

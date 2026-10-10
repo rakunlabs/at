@@ -175,7 +175,7 @@ func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id string
 	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
 		"mode": settings.Mode, "agent_id": strings.TrimSpace(settings.AgentID),
 		"provider": strings.TrimSpace(settings.Provider), "model": strings.TrimSpace(settings.Model), "updated_at": goqu.L("clock_timestamp()"),
-	}).Where(developerOwned(actor, goqu.Ex{"id": id}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
+	}).Where(developerOwned(actor, goqu.Ex{"id": id, "active_run_id": ""}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
 		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("update developer session: %w", err)
@@ -208,7 +208,28 @@ func (p *Postgres) updateDeveloperSession(ctx context.Context, id string, set go
 }
 
 func (p *Postgres) DeleteDeveloperSession(ctx context.Context, id string) error {
-	return p.deleteDeveloperResource(ctx, p.tableDeveloperSessions, id, "session")
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return err
+	}
+	// Conditional DELETE locks the row, excluding acquisition. Never cascade
+	// away the receipt of a cancelled/interrupted run still owned remotely.
+	result, err := p.goqu.Delete(p.tableDeveloperSessions).Where(developerOwned(actor, goqu.Ex{"id": id, "active_run_id": ""}),
+		goqu.I("status").Neq(service.DeveloperSessionRunning)).Executor().ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("delete developer session: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read developer session deletion: %w", err)
+	}
+	if count == 0 {
+		if _, err := p.GetDeveloperSession(ctx, id); err != nil {
+			return err
+		}
+		return service.ErrDeveloperSessionBusy
+	}
+	return nil
 }
 
 func (p *Postgres) SetDeveloperSessionRuntime(ctx context.Context, id, status, runtimeError string) (*service.DeveloperSession, error) {
@@ -232,6 +253,7 @@ func (p *Postgres) SetDeveloperSessionRuntime(ctx context.Context, id, status, r
 	}
 	var row developerSessionRow
 	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(set).Where(developerOwned(actor, goqu.Ex{"id": id})).
+		Where(developerRunWriteCondition(ctx)).
 		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("set developer session runtime: %w", err)
@@ -252,6 +274,7 @@ func (p *Postgres) BeginDeveloperSessionRun(ctx context.Context, id string) (*se
 		"status": service.DeveloperSessionRunning, "error": "", "started_at": goqu.L("COALESCE(started_at, clock_timestamp())"),
 		"finished_at": nil, "updated_at": goqu.L("clock_timestamp()"),
 	}).Where(developerOwned(actor, goqu.Ex{"id": id}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
+		Where(developerRunWriteCondition(ctx)).
 		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("begin developer session run: %w", err)
@@ -321,6 +344,11 @@ func (p *Postgres) ListDeveloperSessionMessages(ctx context.Context, sessionID s
 }
 
 func (p *Postgres) AppendDeveloperSessionMessage(ctx context.Context, message service.DeveloperSessionMessage) (*service.DeveloperSessionMessage, error) {
+	if runID := service.DeveloperRunFromContext(ctx); runID != "" {
+		if err := p.HeartbeatDeveloperRun(ctx, message.SessionID, runID); err != nil {
+			return nil, err
+		}
+	}
 	actor, err := developerSpaceActor(ctx)
 	if err != nil {
 		return nil, err
@@ -338,13 +366,24 @@ func (p *Postgres) AppendDeveloperSessionMessage(ctx context.Context, message se
 	if message.ID == "" {
 		message.ID = ulid.Make().String()
 	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer message append: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, message.SessionID); err != nil {
+		return nil, err
+	}
 	var row developerSessionMessageRow
-	_, err = p.goqu.Insert(p.tableDeveloperSessionMessages).Rows(goqu.Record{
+	_, err = tx.Insert(p.tableDeveloperSessionMessages).Rows(goqu.Record{
 		"id": message.ID, "session_id": message.SessionID, "workspace_id": actor.WorkspaceID,
 		"owner_user_id": actor.UserID, "role": message.Role, "content": string(content),
 	}).Returning(developerSessionMessageColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("append developer session message: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer message append: %w", err)
 	}
 	return developerSessionMessageRecord(row)
 }
@@ -412,8 +451,16 @@ func (p *Postgres) SaveDeveloperSessionSnapshot(ctx context.Context, snapshot se
 	if snapshot.StorageObjectID != "" {
 		storageObject = snapshot.StorageObjectID
 	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer snapshot write: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, snapshot.SessionID); err != nil {
+		return nil, err
+	}
 	var row developerSessionSnapshotRow
-	_, err = p.goqu.Insert(p.tableDeveloperSessionSnapshots).Rows(goqu.Record{
+	_, err = tx.Insert(p.tableDeveloperSessionSnapshots).Rows(goqu.Record{
 		"id": snapshot.ID, "session_id": snapshot.SessionID, "workspace_id": actor.WorkspaceID,
 		"owner_user_id": actor.UserID, "step": snapshot.Step, "phase": snapshot.Phase,
 		"head_sha": snapshot.HeadSHA, "storage_object_id": storageObject,
@@ -422,6 +469,9 @@ func (p *Postgres) SaveDeveloperSessionSnapshot(ctx context.Context, snapshot se
 	})).Returning(developerSessionSnapshotColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("save developer session snapshot: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer snapshot write: %w", err)
 	}
 	result := developerSessionSnapshotRecord(row)
 	return &result, nil
@@ -454,6 +504,11 @@ func (p *Postgres) GetDeveloperPendingTool(ctx context.Context, sessionID string
 }
 
 func (p *Postgres) SaveDeveloperPendingTool(ctx context.Context, pending service.DeveloperPendingTool) (*service.DeveloperPendingTool, error) {
+	if runID := service.DeveloperRunFromContext(ctx); runID != "" {
+		if err := p.HeartbeatDeveloperRun(ctx, pending.SessionID, runID); err != nil {
+			return nil, err
+		}
+	}
 	actor, err := developerSpaceActor(ctx)
 	if err != nil {
 		return nil, err
@@ -467,10 +522,21 @@ func (p *Postgres) SaveDeveloperPendingTool(ctx context.Context, pending service
 	if err != nil {
 		return nil, fmt.Errorf("encode developer pending tool: %w", err)
 	}
-	if _, err := p.goqu.Insert(p.tableDeveloperPendingTools).Rows(goqu.Record{
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer pending write: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, pending.SessionID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Insert(p.tableDeveloperPendingTools).Rows(goqu.Record{
 		"session_id": pending.SessionID, "workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID, "tool_call": string(raw),
 	}).OnConflict(goqu.DoUpdate("session_id", goqu.Record{"tool_call": string(raw), "created_at": goqu.L("clock_timestamp()"), "workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID})).Executor().ExecContext(ctx); err != nil {
 		return nil, fmt.Errorf("save developer pending tool: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer pending write: %w", err)
 	}
 	return p.GetDeveloperPendingTool(ctx, pending.SessionID)
 }
@@ -487,6 +553,11 @@ func (p *Postgres) DeleteDeveloperPendingTool(ctx context.Context, sessionID str
 }
 
 func (p *Postgres) ClaimDeveloperPendingTool(ctx context.Context, sessionID string) (*service.DeveloperPendingTool, error) {
+	if runID := service.DeveloperRunFromContext(ctx); runID != "" {
+		if err := p.HeartbeatDeveloperRun(ctx, sessionID, runID); err != nil {
+			return nil, err
+		}
+	}
 	actor, err := developerSpaceActor(ctx)
 	if err != nil {
 		return nil, err
@@ -495,7 +566,15 @@ func (p *Postgres) ClaimDeveloperPendingTool(ctx context.Context, sessionID stri
 		ToolCall  string    `db:"tool_call"`
 		CreatedAt time.Time `db:"created_at"`
 	}
-	found, err := p.goqu.Update(p.tableDeveloperPendingTools).Set(goqu.Record{
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer pending claim: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, sessionID); err != nil {
+		return nil, err
+	}
+	found, err := tx.Update(p.tableDeveloperPendingTools).Set(goqu.Record{
 		"tool_call": goqu.L("jsonb_set(tool_call, '{state}', '\"executing\"'::jsonb, true)"),
 	}).Where(developerOwned(actor, goqu.Ex{"session_id": sessionID}), goqu.L("COALESCE(tool_call->>'state', 'pending') = 'pending'")).
 		Returning("tool_call", "created_at").Executor().ScanStructContext(ctx, &row)
@@ -511,10 +590,18 @@ func (p *Postgres) ClaimDeveloperPendingTool(ctx context.Context, sessionID stri
 	}
 	result.SessionID = sessionID
 	result.CreatedAt = row.CreatedAt.UTC().Format(time.RFC3339)
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer pending claim: %w", err)
+	}
 	return result, nil
 }
 
 func (p *Postgres) ResolveDeveloperPendingTool(ctx context.Context, sessionID string, content []service.ContentBlock) (*service.DeveloperSessionMessage, error) {
+	if runID := service.DeveloperRunFromContext(ctx); runID != "" {
+		if err := p.HeartbeatDeveloperRun(ctx, sessionID, runID); err != nil {
+			return nil, err
+		}
+	}
 	actor, err := developerSpaceActor(ctx)
 	if err != nil {
 		return nil, err
@@ -528,6 +615,9 @@ func (p *Postgres) ResolveDeveloperPendingTool(ctx context.Context, sessionID st
 		return nil, fmt.Errorf("begin developer tool resolution: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, sessionID); err != nil {
+		return nil, err
+	}
 	var pendingID string
 	found, err := tx.From(p.tableDeveloperPendingTools).Select("session_id").Where(
 		developerOwned(actor, goqu.Ex{"session_id": sessionID}),

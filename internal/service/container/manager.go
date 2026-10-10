@@ -6,12 +6,14 @@ package container
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"path"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -65,9 +67,8 @@ type Config struct {
 	// stock image whose default command exits (debian, ubuntu, alpine…) stays
 	// up for exec and terminals. Commands are always run through exec.
 	KeepAlive bool `json:"keep_alive,omitempty"`
-	// RetainWhenIdle stops an idle or explicitly stopped sandbox instead of
-	// deleting it, so whatever the user installed in it survives until the
-	// configuration changes or the scope is purged.
+	// RetainWhenIdle asks the backend to Stop rather than Remove. Persistent
+	// volumes survive; root-filesystem retention depends on its capabilities.
 	RetainWhenIdle bool `json:"retain_when_idle,omitempty"`
 	// CapAdd re-adds capabilities after every capability is dropped. Names
 	// are Linux capability names without the CAP_ prefix.
@@ -123,6 +124,9 @@ type containerInfo struct {
 	createdAt   time.Time
 	lastUsed    time.Time
 	active      int
+	stopping    bool
+	drainFailed bool
+	uses        map[*sandboxUse]struct{}
 	// files records helper installs into this sandbox by destination path:
 	// true once installed, false when it cannot be (no build for the
 	// platform, or the driver refused), so neither is retried per call.
@@ -153,25 +157,49 @@ func (m *Manager) EnsureContainer(ctx context.Context, orgID string, cfg Config)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.ensureContainer(ctx, orgID, cfg)
+}
+
+// ensureContainer is called with mu held. Registering activity under the same
+// lock closes the gap between provisioning and idle/explicit removal.
+func (m *Manager) ensureContainer(ctx context.Context, orgID string, cfg Config) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 
 	// Check if container already exists and is running
 	if info, ok := m.containers[orgID]; ok {
+		if info.stopping || info.drainFailed {
+			return "", fmt.Errorf("sandbox for scope %s is stopping", orgID)
+		}
+		if info.active > 0 && !info.config.Equal(cfg) {
+			return "", fmt.Errorf("sandbox for scope %s is busy; finish active work before reconfiguration", orgID)
+		}
 		if info.config.Equal(cfg) && m.driver.Running(ctx, info.containerID) {
 			info.lastUsed = time.Now()
 			return info.containerID, nil
 		}
 		// Reconfigured sandboxes are replaced. A stopped one with the same
-		// configuration is left for Create to resume, keeping what was
-		// installed in it.
+		// configuration is left for Create to reconcile; root retention is
+		// backend-dependent. A failed health probe must not discard activity.
 		if !info.config.Equal(cfg) {
-			m.removeLogged(ctx, info.containerID)
+			if err := m.driver.Remove(ctx, info.containerID); err != nil {
+				return "", fmt.Errorf("replace sandbox for scope %s: %w", orgID, err)
+			}
+			delete(m.containers, orgID)
 		}
-		delete(m.containers, orgID)
+		if info.active > 0 {
+			return "", fmt.Errorf("sandbox for scope %s has active work but failed its health probe", orgID)
+		}
 	}
 
 	containerID, err := m.driver.Create(ctx, orgID, cfg)
 	if err != nil {
 		return "", fmt.Errorf("create container for org %s: %w", orgID, err)
+	}
+	if info := m.containers[orgID]; info != nil && info.containerID == containerID && info.config.Equal(cfg) {
+		info.lastUsed = time.Now()
+		return containerID, nil
 	}
 
 	m.containers[orgID] = &containerInfo{
@@ -212,10 +240,11 @@ func (m *Manager) ExecArgsInput(ctx context.Context, scopeID string, cfg Config,
 }
 
 func (m *Manager) run(ctx context.Context, scopeID string, cfg Config, req ExecRequest) (string, string, int, error) {
-	containerID, err := m.EnsureContainer(ctx, scopeID, cfg)
+	ctx, containerID, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return "", "", -1, err
 	}
+	defer finish()
 	if containerID == "" {
 		return "", "", -1, fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
@@ -228,8 +257,6 @@ func (m *Manager) run(ctx context.Context, scopeID string, cfg Config, req ExecR
 			return "", "", -1, fmt.Errorf("workspace quota exceeded: %d of %d bytes", used, cfg.DiskLimitBytes)
 		}
 	}
-	m.markActive(scopeID, 1)
-	defer m.markActive(scopeID, -1)
 
 	stdout, stderr := newBoundedOutput(containerCommandOutputMaxBytes), newBoundedOutput(containerCommandOutputMaxBytes)
 	req.Stdout, req.Stderr = stdout, stderr
@@ -268,10 +295,11 @@ func (m *Manager) EnsureFile(ctx context.Context, scopeID string, cfg Config, de
 	if !ok {
 		return false, nil
 	}
-	handle, err := m.EnsureContainer(ctx, scopeID, cfg)
+	ctx, handle, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return false, err
 	}
+	defer finish()
 	if handle == "" {
 		return false, fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
@@ -341,43 +369,54 @@ func (m *Manager) ExecPython(ctx context.Context, orgID string, cfg Config, scri
 // StopContainer stops a container for an org. It is deleted unless its
 // configuration asks to retain it.
 func (m *Manager) StopContainer(ctx context.Context, orgID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	info, ok := m.containers[orgID]
-	if !ok {
-		return nil
-	}
-
-	m.release(ctx, info)
-	delete(m.containers, orgID)
-	slog.Info("container: stopped", "org_id", orgID, "container_id", shortHandle(info.containerID), "retained", info.config.RetainWhenIdle)
-	return nil
+	return m.endScope(ctx, orgID, false)
 }
 
 // RemoveScope removes the managed container and its persistent workspace
 // volume. Unlike StopContainer, this is destructive and is used only when the
 // owning developer space is deleted.
 func (m *Manager) RemoveScope(ctx context.Context, scopeID string) error {
-	m.mu.Lock()
-	if info := m.containers[scopeID]; info != nil {
-		m.removeLogged(ctx, info.containerID)
-		delete(m.containers, scopeID)
-	}
-	m.mu.Unlock()
-	return m.driver.Purge(ctx, scopeID)
+	return m.endScope(ctx, scopeID, true)
 }
 
-// StopAll stops all containers (called on shutdown).
-func (m *Manager) StopAll(ctx context.Context) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// Shutdown drains backend-owned work before stopping workloads and releasing
+// control resources. Failed cleanup retains the local tracking for diagnosis.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	if driver, ok := m.driver.(ShutdownDriver); ok {
+		if err := driver.Shutdown(ctx); err != nil {
+			return fmt.Errorf("shut down sandbox backend: %w", err)
+		}
+		m.mu.Lock()
+		clear(m.containers)
+		m.mu.Unlock()
+		return nil
+	}
+	m.StopAll(ctx)
+	m.mu.RLock()
+	remaining := len(m.containers)
+	m.mu.RUnlock()
+	if remaining != 0 {
+		return fmt.Errorf("sandbox shutdown left %d workloads; see backend cleanup errors", remaining)
+	}
+	return m.Close()
+}
 
-	for orgID, info := range m.containers {
-		m.release(ctx, info)
+// StopAll stops locally tracked containers. Backends with exclusive ownership
+// should use Shutdown so remote streams drain before workloads are removed.
+func (m *Manager) StopAll(ctx context.Context) {
+	m.mu.RLock()
+	scopes := make([]string, 0, len(m.containers))
+	for scope := range m.containers {
+		scopes = append(scopes, scope)
+	}
+	m.mu.RUnlock()
+	for _, orgID := range scopes {
+		if err := m.StopContainer(ctx, orgID); err != nil {
+			slog.Warn("container: shutdown cleanup failed", "driver", m.driver.Name(), "org_id", orgID, "error", err.Error())
+			continue
+		}
 		slog.Info("container: stopped", "org_id", orgID)
 	}
-	m.containers = make(map[string]*containerInfo)
 }
 
 // CleanupIdle stops containers that haven't been used for the given duration.
@@ -387,8 +426,11 @@ func (m *Manager) CleanupIdle(ctx context.Context, maxIdle time.Duration) {
 
 	now := time.Now()
 	for orgID, info := range m.containers {
-		if info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
-			m.release(ctx, info)
+		if !info.stopping && !info.drainFailed && info.active == 0 && now.Sub(info.lastUsed) > maxIdle {
+			if err := m.release(ctx, info); err != nil {
+				slog.Warn("container: idle cleanup failed", "driver", m.driver.Name(), "org_id", orgID, "error", err.Error())
+				continue
+			}
 			delete(m.containers, orgID)
 			slog.Info("container: cleaned up idle", "org_id", orgID, "idle", now.Sub(info.lastUsed))
 		}
@@ -415,20 +457,11 @@ func (m *Manager) ListContainers() map[string]map[string]any {
 
 // release ends a sandbox that is no longer needed: stopped when its
 // configuration retains it, deleted otherwise.
-func (m *Manager) release(ctx context.Context, info *containerInfo) {
+func (m *Manager) release(ctx context.Context, info *containerInfo) error {
 	if !info.config.RetainWhenIdle {
-		m.removeLogged(ctx, info.containerID)
-		return
+		return m.driver.Remove(ctx, info.containerID)
 	}
-	if err := m.driver.Stop(ctx, info.containerID); err != nil {
-		slog.Warn("container: stop failed", "driver", m.driver.Name(), "container_id", shortHandle(info.containerID), "error", err.Error())
-	}
-}
-
-func (m *Manager) removeLogged(ctx context.Context, handle string) {
-	if err := m.driver.Remove(ctx, handle); err != nil {
-		slog.Warn("container: remove failed", "driver", m.driver.Name(), "container_id", shortHandle(handle), "error", err.Error())
-	}
+	return m.driver.Stop(ctx, info.containerID)
 }
 
 // workspaceUsage measures /workspace from inside the sandbox, so it works the
@@ -490,20 +523,33 @@ type HomeRemover interface {
 	RemoveHome(ctx context.Context, homeScope string) error
 }
 
-// RemoveHome deletes a persistent home. The listed scopes are forgotten
-// first, because the driver removes the sandboxes that mount the home and
-// they must be created again (with an empty home) on next use.
+// RemoveHome deletes a persistent home. All local scopes mounting that home
+// are forgotten only after success. The optional scopes also cover callers
+// whose local configuration predates the home setting.
 func (m *Manager) RemoveHome(ctx context.Context, homeScope string, scopes ...string) error {
 	remover, ok := m.driver.(HomeRemover)
 	if !ok {
 		return fmt.Errorf("the %s runtime does not support persistent homes", m.driver.Name())
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	for scope, info := range m.containers {
+		if (info.config.HomeScope == homeScope || slices.Contains(scopes, scope)) && (info.active > 0 || info.stopping || info.drainFailed) {
+			return errors.New("persistent home is in use; stop its spaces before resetting it")
+		}
+	}
+	if err := remover.RemoveHome(ctx, homeScope); err != nil {
+		return fmt.Errorf("remove persistent home: %w", err)
+	}
+	for scope, info := range m.containers {
+		if info.config.HomeScope == homeScope {
+			delete(m.containers, scope)
+		}
+	}
 	for _, scope := range scopes {
 		delete(m.containers, scope)
 	}
-	m.mu.Unlock()
-	return remover.RemoveHome(ctx, homeScope)
+	return nil
 }
 
 // CopyFile writes data to an absolute path inside the scope's sandbox without
@@ -514,15 +560,14 @@ func (m *Manager) CopyFile(ctx context.Context, scopeID string, cfg Config, dest
 	if !ok {
 		return fmt.Errorf("the %s runtime cannot copy files", m.driver.Name())
 	}
-	handle, err := m.EnsureContainer(ctx, scopeID, cfg)
+	ctx, handle, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return err
 	}
+	defer finish()
 	if handle == "" {
 		return fmt.Errorf("container not enabled for scope %s", scopeID)
 	}
-	m.markActive(scopeID, 1)
-	defer m.markActive(scopeID, -1)
 	return installer.InstallFile(ctx, handle, dest, data, mode)
 }
 

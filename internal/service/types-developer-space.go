@@ -120,20 +120,22 @@ func DefaultDeveloperSpaceConfig() DeveloperSpaceConfig {
 }
 
 type DeveloperSpace struct {
-	ID             string               `json:"id"`
-	WorkspaceID    string               `json:"workspace_id"`
-	OwnerUserID    string               `json:"owner_user_id"`
-	Name           string               `json:"name"`
-	Status         string               `json:"status"`
-	Image          string               `json:"image,omitempty"`
-	CPULimit       string               `json:"cpu_limit,omitempty"`
-	MemoryLimit    string               `json:"memory_limit,omitempty"`
-	DiskLimitBytes int64                `json:"disk_limit_bytes,omitempty"`
-	Config         DeveloperSpaceConfig `json:"config"`
-	Error          string               `json:"error,omitempty"`
-	LastActiveAt   string               `json:"last_active_at,omitempty"`
-	CreatedAt      string               `json:"created_at"`
-	UpdatedAt      string               `json:"updated_at"`
+	ID                 string               `json:"id"`
+	WorkspaceID        string               `json:"workspace_id"`
+	OwnerUserID        string               `json:"owner_user_id"`
+	Name               string               `json:"name"`
+	Status             string               `json:"status"`
+	ExecutionSuspended bool                 `json:"execution_suspended"`
+	ActiveControlID    string               `json:"active_control_id,omitempty"`
+	Image              string               `json:"image,omitempty"`
+	CPULimit           string               `json:"cpu_limit,omitempty"`
+	MemoryLimit        string               `json:"memory_limit,omitempty"`
+	DiskLimitBytes     int64                `json:"disk_limit_bytes,omitempty"`
+	Config             DeveloperSpaceConfig `json:"config"`
+	Error              string               `json:"error,omitempty"`
+	LastActiveAt       string               `json:"last_active_at,omitempty"`
+	CreatedAt          string               `json:"created_at"`
+	UpdatedAt          string               `json:"updated_at"`
 }
 
 type DeveloperSession struct {

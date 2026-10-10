@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +20,52 @@ type developerReplayStore struct {
 	service.ProviderStorer
 	service.DeveloperSpaceStorer
 	session service.DeveloperSession
+	runMu   sync.Mutex
+	runID   string
+}
+
+func (store *developerReplayStore) AcquireDeveloperRun(ctx context.Context, id, run string) error {
+	if _, err := store.GetDeveloperSession(ctx, id); err != nil {
+		return err
+	}
+	store.runMu.Lock()
+	defer store.runMu.Unlock()
+	if store.runID != "" {
+		return service.ErrDeveloperSessionBusy
+	}
+	store.runID = run
+	return nil
+}
+func (store *developerReplayStore) HeartbeatDeveloperRun(ctx context.Context, id, run string) error {
+	if _, err := store.GetDeveloperSession(ctx, id); err != nil {
+		return err
+	}
+	store.runMu.Lock()
+	defer store.runMu.Unlock()
+	if store.runID != run {
+		return service.ErrDeveloperSessionBusy
+	}
+	return nil
+}
+func (store *developerReplayStore) ReleaseDeveloperRun(_ context.Context, _, run string) error {
+	store.runMu.Lock()
+	defer store.runMu.Unlock()
+	if store.runID == run {
+		store.runID = ""
+	}
+	return nil
+}
+func (store *developerReplayStore) CancelDeveloperRun(context.Context, string) error { return nil }
+func (store *developerReplayStore) GetDeveloperRun(ctx context.Context, id string) (*service.DeveloperRun, error) {
+	if _, err := store.GetDeveloperSession(ctx, id); err != nil {
+		return nil, err
+	}
+	store.runMu.Lock()
+	defer store.runMu.Unlock()
+	if store.runID == "" {
+		return nil, nil
+	}
+	return &service.DeveloperRun{ID: store.runID}, nil
 }
 
 func (store *developerReplayStore) GetDeveloperSession(ctx context.Context, id string) (*service.DeveloperSession, error) {
@@ -28,6 +75,64 @@ func (store *developerReplayStore) GetDeveloperSession(ctx context.Context, id s
 	}
 	copy := store.session
 	return &copy, nil
+}
+
+func TestDeveloperDurableRunExcludesAnotherServer(t *testing.T) {
+	store := &developerReplayStore{session: service.DeveloperSession{ID: "session", OwnerUserID: "owner", WorkspaceID: "workspace"}}
+	first := &Server{ctx: t.Context(), store: store}
+	second := &Server{ctx: t.Context(), store: store}
+	request := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/run", nil)
+		r.SetPathValue("id", "session")
+		r.Header.Set("X-AT-Stream-ID", "same-client-replay-id")
+		return r.WithContext(service.WithAccessPrincipal(r.Context(), service.AccessPrincipal{UserID: "owner", WorkspaceID: "workspace"}))
+	}
+	started, release, finished := make(chan string, 1), make(chan struct{}), make(chan struct{})
+	defer close(release)
+	go func() {
+		defer close(finished)
+		first.startDeveloperStream(httptest.NewRecorder(), request(), func(w http.ResponseWriter, r *http.Request) {
+			stream, _ := newDeveloperStream(w)
+			started <- service.DeveloperRunFromContext(r.Context())
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			stream.send(map[string]any{"type": "done"})
+		})
+	}()
+	select {
+	case id := <-started:
+		if id == "" || id == "same-client-replay-id" {
+			t.Fatal("ownership used client replay identity")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first run did not start")
+	}
+	response := httptest.NewRecorder()
+	second.startDeveloperStream(response, request(), func(http.ResponseWriter, *http.Request) { t.Error("second server executed the same session") })
+	if response.Code != http.StatusConflict {
+		t.Fatalf("second server admitted run: %d %s", response.Code, response.Body.String())
+	}
+	active := httptest.NewRecorder()
+	second.GetDeveloperActiveStreamAPI(active, request())
+	var state struct {
+		StreamID string                `json:"stream_id"`
+		Run      *service.DeveloperRun `json:"run"`
+	}
+	if err := json.Unmarshal(active.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.StreamID != "" || state.Run == nil {
+		t.Fatalf("other server lost durable run or claimed local replay: %+v", state)
+	}
+	t.Cleanup(func() {
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Error("run did not drain")
+		}
+	})
 }
 
 func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {

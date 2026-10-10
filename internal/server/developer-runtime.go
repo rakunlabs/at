@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
@@ -103,6 +106,10 @@ type developerRuntimeHandle struct {
 // and resolves the caller's own space. There is no space ID in the URL: a
 // caller can only ever reach the space owned by its principal.
 func (s *Server) developerRuntime(w http.ResponseWriter, r *http.Request) (*developerRuntimeHandle, bool) {
+	return s.developerRuntimeAdmission(w, r, false)
+}
+
+func (s *Server) developerRuntimeAdmission(w http.ResponseWriter, r *http.Request, control bool) (*developerRuntimeHandle, bool) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return nil, false
@@ -110,6 +117,10 @@ func (s *Server) developerRuntime(w http.ResponseWriter, r *http.Request) (*deve
 	space, err := store.EnsureDeveloperSpace(r.Context())
 	if err != nil {
 		developerSpaceError(w, err)
+		return nil, false
+	}
+	if space.ExecutionSuspended && !control {
+		httpResponse(w, "space stopped; use Start explicitly before accessing its runtime", http.StatusConflict)
 		return nil, false
 	}
 	bound, err := s.bindRuntimePrincipal(r.Context(), "developer_space")
@@ -149,7 +160,7 @@ func (s *Server) GetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
 		developerSpaceError(w, err)
 		return
 	}
-	httpResponseJSON(w, space, http.StatusOK)
+	httpResponseJSON(w, s.developerSpaceResponse(space), http.StatusOK)
 }
 
 // UpdateDeveloperSpaceAPI edits profiles and resource limits. The owner,
@@ -181,7 +192,7 @@ func (s *Server) UpdateDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request)
 		developerSpaceError(w, err)
 		return
 	}
-	httpResponseJSON(w, record, http.StatusOK)
+	httpResponseJSON(w, s.developerSpaceResponse(record), http.StatusOK)
 }
 
 // ResetDeveloperSpaceAPI permanently deletes the space, its sessions and its
@@ -208,11 +219,46 @@ func (s *Server) ResetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 		developerSpaceError(w, err)
 		return
 	}
+	finish, ok := s.developerSpaceControl(w, r, space.ID, "reset")
+	if !ok {
+		return
+	}
+	defer finish(true)
+	// Re-read after closing admission: another session/run may have appeared
+	// between the original metadata read and acquiring control.
+	sessions, err = store.ListDeveloperSessions(r.Context(), space.ID)
+	if err != nil {
+		developerSpaceError(w, err)
+		return
+	}
 	for _, session := range sessions {
 		s.cancelDeveloperStreams(&session)
 		if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
 			value.(*activeDeveloperSession).cancel()
 		}
+	}
+	// Cancellation is a request, not proof of termination. Keep the space and
+	// volume until every owner has released its receipt, including expired ones.
+	if runs, ok := s.store.(service.DeveloperRunStorer); ok {
+		for _, session := range sessions {
+			run, err := runs.GetDeveloperRun(r.Context(), session.ID)
+			if err != nil {
+				developerSpaceError(w, err)
+				return
+			}
+			if run != nil || session.Status == service.DeveloperSessionRunning {
+				httpResponse(w, "space suspended; wait for active runs to finish before retrying Reset. An interrupted owner requires operator verification", http.StatusConflict)
+				return
+			}
+		}
+	}
+	if s.containerManager == nil {
+		httpResponse(w, "container runtime unavailable; space retained", http.StatusServiceUnavailable)
+		return
+	}
+	if err := s.containerManager.RemoveScope(r.Context(), developerContainerScope(space)); err != nil {
+		httpResponse(w, fmt.Sprintf("could not reset the runtime; space retained: %v", err), http.StatusServiceUnavailable)
+		return
 	}
 	if err := store.DeleteDeveloperSpace(r.Context(), space.ID); err != nil {
 		developerSpaceError(w, err)
@@ -222,20 +268,24 @@ func (s *Server) ResetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 		s.deleteDeveloperSnapshotObjects(r.Context(), session)
 	}
 	response := map[string]any{"deleted": space.ID}
-	if s.containerManager != nil {
-		if err := s.containerManager.RemoveScope(r.Context(), developerContainerScope(space)); err != nil {
-			slog.Warn("developer space deleted but runtime cleanup failed", "space_id", space.ID, "error", err.Error())
-			response["cleanup_warning"] = "The space records were deleted, but its container volume could not be removed."
-		}
-	}
 	httpResponseJSON(w, response, http.StatusOK)
 }
 
 func (s *Server) StartDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	h, ok := s.developerRuntime(w, r)
+	h, ok := s.developerRuntimeAdmission(w, r, true)
 	if !ok {
 		return
 	}
+	finish, ok := s.developerSpaceControl(w, r, h.space.ID, "start")
+	if !ok {
+		return
+	}
+	released := false
+	defer func() {
+		if !released {
+			_ = finish(true)
+		}
+	}()
 	if _, err := s.containerManager.EnsureContainer(r.Context(), h.scope, h.cfg); err != nil {
 		_, _ = h.store.SetDeveloperSpaceRuntime(r.Context(), h.space.ID, service.DeveloperSpaceError, err.Error())
 		httpResponse(w, fmt.Sprintf("could not start the space: %v", err), http.StatusServiceUnavailable)
@@ -246,13 +296,36 @@ func (s *Server) StartDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 		developerSpaceError(w, err)
 		return
 	}
-	httpResponseJSON(w, updated, http.StatusOK)
+	if err := finish(false); err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	released = true
+	updated.ExecutionSuspended = false
+	updated.ActiveControlID = ""
+	httpResponseJSON(w, s.developerSpaceResponse(updated), http.StatusOK)
 }
 
 func (s *Server) StopDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
-	h, ok := s.developerRuntime(w, r)
+	h, ok := s.developerRuntimeAdmission(w, r, true)
 	if !ok {
 		return
+	}
+	finish, ok := s.developerSpaceControl(w, r, h.space.ID, "stop")
+	if !ok {
+		return
+	}
+	defer finish(true)
+	sessions, err := h.store.ListDeveloperSessions(r.Context(), h.space.ID)
+	if err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	for _, session := range sessions {
+		s.cancelDeveloperStreams(&session)
+		if value, ok := s.activeDeveloperSessions.Load(session.ID); ok {
+			value.(*activeDeveloperSession).cancel()
+		}
 	}
 	if err := s.containerManager.StopContainer(r.Context(), h.scope); err != nil {
 		httpResponse(w, fmt.Sprintf("could not stop the space: %v", err), http.StatusInternalServerError)
@@ -263,5 +336,33 @@ func (s *Server) StopDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
 		developerSpaceError(w, err)
 		return
 	}
-	httpResponseJSON(w, updated, http.StatusOK)
+	if err := finish(true); err != nil {
+		developerSpaceError(w, err)
+		return
+	}
+	updated.ActiveControlID = ""
+	httpResponseJSON(w, s.developerSpaceResponse(updated), http.StatusOK)
+}
+
+func (s *Server) developerSpaceControl(w http.ResponseWriter, r *http.Request, id, operation string) (func(bool) error, bool) {
+	store, ok := s.store.(service.DeveloperSpaceControlStorer)
+	if !ok {
+		httpResponse(w, "durable space admission store unavailable", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	controlID := ulid.Make().String()
+	if err := store.AcquireDeveloperSpaceControl(r.Context(), id, controlID, operation); err != nil {
+		developerSpaceError(w, err)
+		return nil, false
+	}
+	*r = *r.WithContext(service.ContextWithDeveloperSpaceControl(r.Context(), controlID))
+	return func(suspended bool) error {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer cancel()
+		if err := store.ReleaseDeveloperSpaceControl(ctx, id, controlID, suspended); err != nil {
+			slog.Error("developer space control release failed", "space_id", id, "operation", operation, "error", err.Error())
+			return err
+		}
+		return nil
+	}, true
 }

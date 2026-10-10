@@ -20,9 +20,8 @@ const SharedChat = () => import('@/pages/SharedChat.svelte');
 const ChatSessions = () => import('@/pages/ChatSessions.svelte');
 const Tokens = () => import('@/pages/Tokens.svelte');
 const NodeConfigs = () => import('@/pages/NodeConfigs.svelte');
-const Workflows = () => import('@/pages/Workflows.svelte');
+const Workflows = () => import('@/pages/WorkflowIndex.svelte');
 const WorkflowEditor = () => import('@/pages/WorkflowEditor.svelte');
-const Runs = () => import('@/pages/Runs.svelte');
 const McpServers = () => import('@/pages/McpServers.svelte');
 const Mcps = () => import('@/pages/Mcps.svelte');
 const Bots = () => import('@/pages/Bots.svelte');
@@ -119,8 +118,9 @@ export default {
   '/tokens': redirect('/settings/tokens'),
   '/node-configs': guarded(NodeConfigs, '/node-configs'),
   '/workflows': guarded(Workflows, '/workflows'),
+  '/workflows/runs': guarded(Workflows, '/workflows/runs'),
   '/workflows/:id': guarded(WorkflowEditor, '/workflows'),
-  '/runs': guarded(Runs, '/runs'),
+  '/runs': redirect('/workflows/runs'),
   '/webhooks': guarded(Webhooks, '/webhooks'),
   '/crons': guarded(Crons, '/crons'),
   '/connections': guarded(Connections, '/connections'),

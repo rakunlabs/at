@@ -41,7 +41,12 @@ const developerFSHelperPath = "/usr/local/bin/at-devfs"
 // equivalent devfs.PythonScript runs through the image's python3.
 func (s *Server) runDeveloperFS(ctx context.Context, h *developerRuntimeHandle, stdin io.Reader, op, root string, args ...string) (json.RawMessage, error) {
 	command, argv := "python3", append([]string{"-c", devfs.PythonScript, op, root}, args...)
-	if devfsbin.Available() {
+	capabilities := s.containerManager.Capabilities()
+	if capabilities.FileHelperPath != "" && capabilities.FileHelperPath != developerFSHelperPath {
+		// Kubernetes' versioned init image installs the helper independently of
+		// the host build. This also works when AT carries no embedded binaries.
+		command, argv = capabilities.FileHelperPath, append([]string{op, root}, args...)
+	} else if devfsbin.Available() {
 		installed, err := s.containerManager.EnsureFile(ctx, h.scope, h.cfg, developerFSHelperPath, 0o755, devfsbin.For)
 		if err != nil {
 			return nil, err

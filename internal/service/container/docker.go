@@ -36,6 +36,10 @@ func newDockerDriver() *dockerDriver {
 
 func (d *dockerDriver) Name() string { return "docker" }
 
+func (d *dockerDriver) Capabilities() RuntimeCapabilities {
+	return RuntimeCapabilities{Backend: "docker", PreservesRootOnStop: true, PersistentHome: true, FileHelperPath: "/usr/local/bin/at-devfs"}
+}
+
 func validCapabilityName(name string) bool {
 	if name == "" || strings.EqualFold(name, "ALL") {
 		return false
@@ -313,6 +317,10 @@ func (d *dockerDriver) Remove(ctx context.Context, handle string) error {
 		return fmt.Errorf("remove managed container: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
+}
+
+func (d *dockerDriver) StopScope(ctx context.Context, scope string) error {
+	return d.Stop(ctx, dockerContainerName(scope))
 }
 
 func (d *dockerDriver) Purge(ctx context.Context, scope string) error {

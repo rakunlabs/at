@@ -3132,11 +3132,35 @@ live run and `GET .../{id}/streams/{stream}?offset=` replays it; neither starts
 work. Streams are replica-local and restart-volatile, so multiple replicas
 need sticky routing. Missing replay never triggers an automatic POST retry.
 Pending approvals/questions and completed messages remain in the database.
+Migration 100 adds durable Developer session run receipts (`developer-runs.go`):
+server-generated IDs exclude concurrent handlers across replicas, 15s renewals
+(5s call deadline, 60s database-clock stale threshold) observe cancellation flags,
+and tool dispatch rechecks the receipt. History/pending/snapshot writes hold the
+session row while checking run ownership. Active-stream discovery reports the
+receipt separately from local replay and marks expired running jobs failed, never
+clearing their receipt or replaying tools. The UI blocks new work while unresolved.
+Normal exit releases only its own receipt and keeps waiting approvals. A crashed
+owner's receipt stays held: verify the former process/remote tools stopped before
+using a new session. This is exclusion/cancellation reporting, not remote fencing,
+automatic failover or durable replay. Drain older processes before upgrading.
 The page restores the last owned chat per space, polls session metadata and
 reconnects to live work. The transcript uses Chats' blue-ruled user blocks,
 plain assistant text, shared compact `ToolActivity` and searchable model/agent
 palettes while preserving file/diff actions and the editor shell. Regressions:
 `internal/server/developer-streams_test.go`, `_ui/tests/resumable-stream.test.mjs`.
+
+Migration 101 adds durable Developer space Start/Stop/Reset control receipts and
+execution suspension. Control and run acquisition share the parent row lock;
+Stop/Reset cancel persisted runs and close admission, while explicit Start refuses
+unresolved run receipts. Reset retains records until receipts are released and
+runtime purge succeeds. Session/space deletion and reconfiguration cannot erase
+receipts. Manager command/file/terminal activity registers atomically with local
+provisioning; Stop/Reset cancel and drain before removal, retaining failed drains
+for explicit cleanup retry. Untracked scope Stop checks the backend. These are
+not distributed activity leases or remote fencing: pre-admitted remote requests,
+idle cleanup, account cleanup and home reset still need distributed coordination.
+Kubernetes remains single-replica; no automatic orphan-control recovery exists.
+Regressions: `developer-control_test.go`, `container/activity_test.go`.
 
 **Source control** works on the selected project: NUL-separated
 `git status --porcelain=v2` (paths with spaces are safe), per-file diff (untracked
@@ -3213,9 +3237,40 @@ Sandboxes run through a backend-neutral `container.Manager` over a
 what does not depend on the backend: live scopes, activity and idle expiry
 (stop vs delete), the `/workspace` boundary, quota checks (`du` run inside the
 sandbox) and terminal bookkeeping. The driver owns create/resume, running,
-exec, attach, stop, remove and purge. The only driver today is `docker.go`,
+exec, attach, stop, remove and purge. The default driver is `docker.go`,
 which uses the host's docker CLI: `DOCKER_HOST` or the docker context selects
-a local, rootless or remote daemon. A terminal is a `Terminal` interface rather
+a local, rootless or remote daemon. Experimental `internal/service/sandboxkube`
+is selected through bootstrap `server.sandbox.backend: kubernetes` with
+operator-owned `server.sandbox.kubernetes` settings. It requires a dedicated
+namespace, a built helper image (`ci/Dockerfile.sandbox-helper`), declared CNI/PID
+guarantees and **one AT replica**. Kubernetes Stop deletes the pod, preserving
+PVCs but not installed system packages; runtime capabilities drive the UI
+warning. Static init helpers provide exec supervision, terminals and file
+operations without Python/tar. Distributed ownership/activity fencing and
+durable run/replay coordination remain unimplemented; `single_replica: true`
+remains required. A namespace-wide `at-sandbox-controller` Kubernetes Lease
+rejects a second controller at sandbox admission, checks its UID/holder per
+operation and renews every 5s. Loss cancels active streams and refuses new work;
+clean shutdown drains before clearing the holder. Stale Leases are never stolen
+automatically: stop the former controller and inspect orphan Pods before operator
+deletion/restart. This is single-controller exclusion, not distributed
+fencing/failover. After acquiring the Lease, the first operation stops previous
+managed Pods before admitting new work (bounded recovery, UID checks, no PVC
+deletion). Shutdown drains streams, stops managed Pods, then releases ownership;
+failures keep the Lease held. AT restarts therefore recreate root filesystems
+while keeping workspace/home PVCs. See
+`docs/developer-spaces-kubernetes.md` and `deploy/kubernetes/sandbox-rbac.yaml`.
+Driver/fake API regressions live in `internal/service/sandboxkube/driver_test.go`;
+launcher/PTY tests in `internal/sandboxruntime`. Opt-in real kind tests are in
+`sandboxkube/integration_test.go`, run by `bash ci/test-sandbox-kubernetes.sh`
+(isolated kubeconfig, disposable cluster). They cover exec/PVC/home/TTY and both
+stream transports; kindnet does not enforce policy, so this is transport/storage
+smoke coverage, not an isolation certification. Fixtures use an administrator,
+but sandbox calls impersonate a service account with the shipped Role; negative
+checks refuse Secrets, other namespaces and unrelated Leases. Recovery/shutdown
+tests verify workload replacement, PVC retention and active-command draining.
+Actual cluster CNI/CSI and
+multi-node guarantees still need verification. A terminal is a `Terminal` interface rather
 than a PTY file, because a Kubernetes exec stream has no local PTY. Adding a
 backend means writing a new Driver and choosing it at construction
 (`container.NewWithDriver`). Callers do not change. Scope state is still in

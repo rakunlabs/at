@@ -21,7 +21,8 @@ type Driver interface {
 	Name() string
 	// Create starts the sandbox for scope and returns its handle. When a
 	// sandbox for the scope already exists with the same configuration it is
-	// resumed (keeping whatever was installed in it); otherwise it is replaced.
+	// reused; otherwise it is replaced. Root-filesystem preservation across
+	// Stop depends on RuntimeCapabilities, not the stable scope name.
 	Create(ctx context.Context, scope string, cfg Config) (string, error)
 	// Running reports whether handle is still running.
 	Running(ctx context.Context, handle string) bool
@@ -33,12 +34,55 @@ type Driver interface {
 	Attach(ctx context.Context, handle string, workDir string, cols, rows uint16) (Terminal, error)
 	// Remove stops and deletes the sandbox; persistent storage survives.
 	Remove(ctx context.Context, handle string) error
-	// Stop halts the sandbox but keeps it, including changes made inside it,
-	// so a later Create for the same scope and configuration resumes it.
+	// Stop halts the sandbox while preserving its persistent storage. Whether
+	// the writable root filesystem survives is declared by RuntimeCapabilities.
 	Stop(ctx context.Context, handle string) error
 	// Purge deletes everything the driver keeps for scope, including
 	// persistent storage. Missing resources are not an error.
 	Purge(ctx context.Context, scope string) error
+}
+
+// RuntimeCapabilities describes guarantees rather than inferring them from a
+// backend name. Unknown drivers make no guarantees.
+type RuntimeCapabilities struct {
+	Backend             string `json:"backend"`
+	PreservesRootOnStop bool   `json:"preserves_root_on_stop"`
+	PersistentHome      bool   `json:"persistent_home"`
+	MultiReplica        bool   `json:"multi_replica"`
+	FileHelperPath      string `json:"file_helper_path,omitempty"`
+	Notice              string `json:"notice,omitempty"`
+}
+
+type CapabilityProvider interface {
+	Capabilities() RuntimeCapabilities
+}
+
+// DriverCloser releases backend control resources after sandbox shutdown.
+// It never deletes persistent storage.
+type DriverCloser interface{ Close() error }
+
+// ShutdownDriver drains remote work and stops workloads before relinquishing
+// exclusive backend ownership. Persistent volumes must not be removed.
+type ShutdownDriver interface{ Shutdown(context.Context) error }
+
+// ScopeStopper stops a persistent workload even when this process has never
+// tracked its handle. Empty local memory is not proof that a workload stopped.
+type ScopeStopper interface {
+	StopScope(context.Context, string) error
+}
+
+func (m *Manager) Close() error {
+	if closer, ok := m.driver.(DriverCloser); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
+func (m *Manager) Capabilities() RuntimeCapabilities {
+	if driver, ok := m.driver.(CapabilityProvider); ok {
+		return driver.Capabilities()
+	}
+	return RuntimeCapabilities{Backend: m.driver.Name()}
 }
 
 // FileInstaller is implemented by drivers that can place a file into a

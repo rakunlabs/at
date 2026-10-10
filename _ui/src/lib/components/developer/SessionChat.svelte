@@ -12,7 +12,7 @@
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import {
     getDeveloperGitStatus, getDeveloperSessionPendingTool, getDeveloperActiveStream, resumeDeveloperStream, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
-    type DeveloperMode, type DeveloperPendingTool, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
+    type DeveloperMode, type DeveloperPendingTool, type DeveloperRun, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
   } from '@/lib/api/developer-spaces';
   import {
     buildTranscript, developerAgentSettings, developerAgentValue, toolSummary, MODE_HINTS, STATUS_LABELS,
@@ -46,6 +46,7 @@
   let answer = $state('');
   let busy = $state(false);
   let error = $state('');
+  let durableRun = $state<DeveloperRun | null>(null);
   // Live text of the turn being generated; replaced by the saved message.
   let liveText = $state('');
   let liveThinking = $state('');
@@ -57,7 +58,7 @@
   let stickToBottom = true;
 
   const transcript = $derived(buildTranscript(messages));
-  const working = $derived(busy || session.status === 'running');
+  const working = $derived(busy || session.status === 'running' || !!durableRun);
   const modelValue = $derived(session.provider ? `${session.provider}/${session.model ?? ''}` : '');
   const modelLabel = $derived(session.model || 'Choose a model');
 
@@ -123,6 +124,7 @@
     generation++;
     controller?.abort();
     busy = false;
+    durableRun = null;
     loadedFor = id;
     voiceContext++;
     void load(id);
@@ -137,6 +139,7 @@
         const state = await getDeveloperActiveStream(id);
         if (disposed || epoch !== generation || busy) return false;
         const changed = `${state.session.updated_at}:${state.session.status}` !== loadedRevision;
+        durableRun = state.run ?? null;
         onsession(state.session);
         if (state.stream_id) void stream('resume', {}, state.stream_id);
         else if (changed) await load(id, false);
@@ -167,6 +170,7 @@
       const [records, waiting] = await Promise.all([listDeveloperSessionMessages(id), getDeveloperSessionPendingTool(id)]);
       if (disposed || epoch !== generation || id !== session.id) return;
       messages = records;
+      durableRun = state.run ?? null;
       pending = waiting;
       liveText = '';
       liveThinking = '';
@@ -175,7 +179,7 @@
       stickToBottom = true;
       await scrollToEnd();
       if (attach && state.stream_id && !busy) void stream('resume', {}, state.stream_id);
-      else if (attach && state.session.status === 'running' && !state.stream_id) error = 'This run is not available on this server. It may be running on another replica or have been interrupted by a restart. Refresh to check, or Stop before starting new work.';
+      else if (attach && state.session.status === 'running' && !state.stream_id) error = 'This run is not available on this server. Check saved history or request Stop. Missing replay does not mean the tools have stopped.';
     } catch (e: any) {
       if (disposed || epoch !== generation) return;
       error = e?.response?.data?.message || e?.message || 'Could not load this session';
@@ -233,7 +237,7 @@
   }
 
   async function stream(action: 'run' | 'confirm' | 'answer' | 'resume', body: Record<string, unknown>, streamId = '') {
-    if (busy) return;
+    if (busy || (action !== 'resume' && durableRun)) return;
     const id = session.id;
     const epoch = generation;
     busy = true;
@@ -424,7 +428,7 @@
         </div>
       {/if}
 
-      {#if pending && !busy}
+      {#if pending && !working}
         {#if pending.kind === 'permission'}
           <div class="border border-amber-700 bg-amber-950/40 p-3 text-sm">
             <p class="flex items-center gap-2 font-medium text-amber-200"><ShieldAlert size={16} /> The agent wants to run:</p>
@@ -454,6 +458,11 @@
         <p role="alert" class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><SquareAlert size={15} class="mt-0.5 shrink-0" /> {error}</p>
       {:else if session.status === 'failed' && session.error && !busy}
         <p class="flex items-start gap-2 border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300"><SquareAlert size={15} class="mt-0.5 shrink-0" /> {session.error}</p>
+      {/if}
+      {#if durableRun?.interrupted}
+        <p role="status" class="border border-dark-border px-3 py-2 text-sm text-dark-text-secondary">Run ownership is unresolved. Sending and approval are blocked in this session; Stop requests cancellation but does not clear the lock. Inspect saved history and files, and verify the old process and tools have stopped before using a new session.</p>
+      {:else if durableRun?.cancel_requested}
+        <p role="status" class="border border-dark-border px-3 py-2 text-sm text-dark-text-secondary">Stop requested. Waiting for the owning process to finish; new work stays blocked until it releases this session.</p>
       {/if}
     </div>
   </div>

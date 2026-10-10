@@ -14,7 +14,7 @@ func (m *Manager) AttachShell(ctx context.Context, scopeID string, cfg Config, w
 	if !insideWorkspace(workDir) {
 		return nil, fmt.Errorf("work directory must stay inside /workspace")
 	}
-	containerID, err := m.EnsureContainer(ctx, scopeID, cfg)
+	ctx, containerID, finish, err := m.beginUse(ctx, scopeID, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -23,11 +23,11 @@ func (m *Manager) AttachShell(ctx context.Context, scopeID string, cfg Config, w
 	}
 	inner, err := m.driver.Attach(ctx, containerID, workDir, cols, rows)
 	if err != nil {
+		finish()
 		return nil, err
 	}
-	m.markActive(scopeID, 1)
-	term := &managedTerminal{Terminal: inner, done: make(chan struct{}), release: func() { m.markActive(scopeID, -1) }}
-	if cfg.DiskLimitBytes > 0 {
+	term := &managedTerminal{Terminal: inner, done: make(chan struct{}), release: finish}
+	{
 		go func() {
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
@@ -39,6 +39,9 @@ func (m *Manager) AttachShell(ctx context.Context, scopeID string, cfg Config, w
 					_ = term.Close()
 					return
 				case <-ticker.C:
+					if cfg.DiskLimitBytes <= 0 {
+						continue
+					}
 					if used, usageErr := m.workspaceUsage(ctx, containerID); usageErr == nil && used > cfg.DiskLimitBytes {
 						_ = term.Close()
 						return
@@ -63,8 +66,8 @@ type managedTerminal struct {
 func (t *managedTerminal) Close() error {
 	t.once.Do(func() {
 		close(t.done)
-		t.release()
 		t.err = t.Terminal.Close()
+		t.release()
 	})
 	return t.err
 }

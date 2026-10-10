@@ -1,0 +1,11 @@
+# Transport/storage smoke tests only: kindnet does not enforce NetworkPolicy.
+# This cluster must not be used to host production or untrusted sandboxes.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+kubeadmConfigPatches:
+  - |
+    kind: KubeletConfiguration
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    podPidsLimit: 256

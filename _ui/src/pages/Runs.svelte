@@ -6,8 +6,9 @@
   import { Activity, RefreshCw, Square, Clock } from 'lucide-svelte';
   import { formatTime } from '@/lib/helper/format';
   import DataTable from '@/lib/components/DataTable.svelte';
+  import { routeFeatureEnabled } from '@/lib/helper/feature-routes';
 
-  storeNavbar.title = 'Active Runs';
+  storeNavbar.title = 'Workflows';
 
   // ─── State ───
   let runs = $state<ActiveRun[]>([]);
@@ -92,15 +93,15 @@
 </script>
 
 <svelte:head>
-  <title>AT | Active Runs</title>
+  <title>AT | Workflows · Runs</title>
 </svelte:head>
 
 <div class="p-4 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div class="flex items-center gap-2">
       <Activity size={16} class="text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-dark-text">Active Runs</h2>
+      <h2 class="text-sm font-medium text-dark-text">Active runs</h2>
       <span class="text-xs text-dark-text-muted">({runs.length})</span>
     </div>
     <div class="flex items-center gap-3">
@@ -150,7 +151,11 @@
           <code class="text-xs font-mono text-dark-text-secondary">{run.id}</code>
         </td>
         <td class="px-4 py-2.5">
-          <code class="text-xs font-mono text-dark-text-muted bg-dark-elevated px-1.5 py-0.5">{run.workflow_id}</code>
+          {#if routeFeatureEnabled('/workflows')}
+            <a href={`#/workflows/${run.workflow_id}`} class="text-xs text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">{run.workflow_id}</a>
+          {:else}
+            <code class="text-xs text-dark-text-secondary">{run.workflow_id}</code>
+          {/if}
         </td>
         <td class="px-4 py-2.5">
           <span class="px-2 py-0.5 text-xs font-medium {sourceBadgeClass(run.source)}">

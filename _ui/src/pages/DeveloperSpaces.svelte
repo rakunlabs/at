@@ -169,6 +169,7 @@
   });
 
   async function start() {
+    if (starting || space?.active_control_id) return;
     starting = true;
     try {
       space = await startDeveloperSpace();
@@ -178,13 +179,16 @@
       if (project) await openProject(project, false);
       if (!terminals.length) newTerminal();
     } catch (e: any) {
-      space = space ? { ...space, status: 'error', error: e?.response?.data?.message || 'The space could not start' } : space;
+      const message = e?.response?.data?.message || 'The space could not start';
+      try { space = await getDeveloperSpace(); } catch { /* retain metadata on a failed read */ }
+      space = space ? { ...space, status: 'error', error: message } : space;
     } finally {
       starting = false;
     }
   }
 
   async function stop() {
+	if (space?.runtime?.backend === 'kubernetes' && !confirm('Stop this Kubernetes space? Workspace and home files are kept, but installed system packages will be lost. Use a prepared image to keep your tools available.')) return;
     if (dirty.size && !confirm('You have unsaved files. Stop the space anyway? Unsaved edits stay in the editor.')) return;
     try {
       space = await stopDeveloperSpace();
@@ -192,6 +196,10 @@
       terminals = [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not stop the space', 'alert');
+      try {
+        space = await getDeveloperSpace();
+        if (space.execution_suspended) { runtimeConnected = false; terminals = []; }
+      } catch { /* failure does not prove the runtime stopped */ }
     }
   }
 
@@ -254,6 +262,10 @@
       await boot();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not reset the space', 'alert');
+      try {
+        space = await getDeveloperSpace();
+        if (space.execution_suspended) { runtimeConnected = false; terminals = []; }
+      } catch { /* keep the last known space and edits */ }
     }
   }
 
@@ -763,7 +775,7 @@
       {#if runtimeConnected && space.status === 'ready' && !starting}
         <button type="button" onclick={stop} class="p-1.5 text-dark-text-muted hover:text-dark-text hover:bg-dark-elevated" title="Stop the container (files are kept)" aria-label="Stop the space"><Power size={14} /></button>
       {:else if !starting}
-        <button type="button" onclick={start} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-dark-base hover:bg-dark-highest bg-accent" title="Start the container">Start</button>
+        <button type="button" onclick={start} disabled={starting || !!space.active_control_id} class="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-dark-base hover:bg-dark-highest bg-accent disabled:opacity-50" title="Start the container">Start</button>
       {/if}
       <button type="button" onclick={() => (settingsOpen ? (settingsOpen = false) : openSettings())} class={['p-1.5 hover:text-dark-text hover:bg-dark-elevated', settingsOpen ? 'text-dark-text' : 'text-dark-text-muted']} title="Space settings (image and resource limits)" aria-label="Space settings" aria-expanded={settingsOpen}><Settings size={14} /></button>
       <button type="button" onclick={reset} class="p-1.5 text-dark-text-muted hover:text-red-300 hover:bg-dark-elevated" title="Reset the space (deletes everything)" aria-label="Reset the space"><Trash2 size={14} /></button>
@@ -774,6 +786,16 @@
 
   {#if space?.status === 'error' && !starting}
     <p role="alert" class="flex items-start gap-2 border-b border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300"><SquareAlert size={14} class="mt-0.5 shrink-0" /> {space.error || 'The space could not start.'} Files in your space are safe; try Start again.</p>
+  {/if}
+  {#if space?.execution_suspended && !starting}
+    <p role="status" class="flex items-start gap-2 border-b border-dark-border px-3 py-2 text-xs text-dark-text-secondary">
+      <SquareAlert size={14} class="mt-0.5 shrink-0" />
+      <span>{space.active_control_id ? 'Space control is pending. If its owner stopped, an operator must verify runtime termination before recovery.' : 'Runtime access is suspended. Use Start after cancelled runs release ownership; Reset can be retried once they finish.'} Saved history remains available. Work is never restarted automatically.</span>
+    </p>
+  {/if}
+
+  {#if space?.runtime?.notice}
+    <p class="border-b border-dark-border px-3 py-2 text-xs text-dark-text-secondary">{space.runtime.notice}</p>
   {/if}
 
   {#if settingsOpen && space}
@@ -789,8 +811,12 @@
         <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
       </div>
       <p class="mt-1.5 text-dark-text-muted">
-        Any Docker image works; leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT installs nothing: add whatever you need from the terminal.
-        Installed packages stay while the container is stopped and are lost when the image or limits change; files in <code class="font-mono">/workspace</code> are always kept.
+        Leave empty for <code class="font-mono">{DEFAULT_DEVELOPER_IMAGE}</code>. AT installs no development tools.
+        {#if space.runtime?.backend === 'kubernetes'}
+          Use a prepared Linux image for tools you need after a restart. Installed packages are lost when the pod stops or is replaced; workspace and enabled home volumes are kept.
+        {:else}
+          Add tools from the terminal. Installed packages stay while the container is stopped and are lost when the image or limits change; files in <code class="font-mono">/workspace</code> are kept.
+        {/if}
       </p>
       <HomeSettings running={space.status === 'ready'} onrestart={restartForHome} />
     </form>

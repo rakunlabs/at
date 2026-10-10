@@ -43,6 +43,8 @@
   let allAgents = $state<Agent[]>([]);
   let loading = $state(true);
   let saving = $state(false);
+  const toolbarControl = 'inline-flex min-h-9 items-center justify-center gap-1.5 border border-dark-border px-2.5 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
+  const panelControl = (active: boolean) => `${toolbarControl} ${active ? 'bg-dark-elevated text-oc-peach' : ''}`;
 
   // Editing org info
   let editingOrg = $state(false);
@@ -455,20 +457,20 @@
 {#if loading}
   <div class="p-8 text-center text-sm text-dark-text-muted">Loading organization...</div>
 {:else if organization}
-  <div class="flex flex-col h-full overflow-hidden">
+  <div class="flex flex-col h-full min-h-0 overflow-hidden bg-dark-base">
     <!-- Toolbar -->
-    <div class="flex items-center justify-between px-3 py-1.5 bg-dark-surface border-b border-dark-border shrink-0">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 bg-dark-base border-b border-dark-border shrink-0">
+      <div class="flex min-w-0 flex-wrap items-center gap-3">
         <button
           onclick={() => push('/organizations')}
-          class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text"
+          class="inline-flex min-h-9 items-center gap-1 text-xs text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
         >
           <ArrowLeft size={14} />
           Back
         </button>
         <div class="h-4 border-l border-dark-border"></div>
         {#if editingOrg}
-          <div class="flex items-center gap-2">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <input
               type="text"
               bind:value={editName}
@@ -497,27 +499,28 @@
             </button>
           </div>
         {:else}
-          <div class="flex flex-col">
+          <div class="flex min-w-0 flex-col">
             <button onclick={startEditOrg} class="text-left group">
               <span class="text-sm font-medium text-dark-text group-hover:underline">{organization.name}</span>
             </button>
             {#if organization.description}
-              <span class="text-[10px] text-dark-text-faint">{organization.description}</span>
+              <span class="max-w-xl text-xs text-dark-text-secondary break-words">{organization.description}</span>
             {/if}
           </div>
         {/if}
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-[10px] text-dark-text-faint">{memberships.length} agent{memberships.length !== 1 ? 's' : ''}</span>
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <span class="text-xs text-dark-text-secondary">{memberships.length} agent{memberships.length !== 1 ? 's' : ''}</span>
         {#if !editingOrg && memberships.length > 0}
           <div class="h-4 border-l border-dark-border"></div>
           <div class="flex items-center gap-1.5">
-            <Crown size={12} class="text-amber-500" />
-            <span class="text-[10px] text-dark-text-muted">Head:</span>
+            <Crown size={14} class="text-oc-peach" />
+            <span class="text-xs text-dark-text-secondary">Head:</span>
             <select
               value={organization.head_agent_id || ''}
               onchange={handleHeadAgentChange}
-              class="text-xs border border-dark-border-subtle px-1.5 py-0.5 bg-dark-elevated text-dark-text focus:outline-none focus:ring-1 focus:ring-accent/20"
+              aria-label="Head agent"
+              class="min-h-9 max-w-48 text-xs border border-dark-border px-2 py-1.5 bg-dark-base text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
             >
               <option value="">None</option>
               {#each memberships as m (m.agent_id)}
@@ -530,14 +533,14 @@
         <div class="h-4 border-l border-dark-border"></div>
         <button
           onclick={() => { load(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
+          class={toolbarControl}
         >
           <RefreshCw size={12} />
           Refresh
         </button>
         <button
           onclick={handleExportBundle}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
+          class={toolbarControl}
           title="Export organization bundle as ZIP"
         >
           <Download size={12} />
@@ -545,7 +548,7 @@
         </button>
         <button
           onclick={() => bundleImportFileInput?.click()}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-dark-text-secondary bg-dark-surface border border-dark-border-subtle hover:bg-dark-elevated"
+          class={toolbarControl}
           title="Import organization bundle from ZIP"
         >
           <Upload size={12} />
@@ -560,33 +563,37 @@
         />
         <button
           onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
+          class={panelControl(showAddPanel)}
+          aria-expanded={showAddPanel}
         >
           <UserPlus size={12} />
-          Add Agent
+          Add agent
         </button>
         <button
           onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
           disabled={!organization.head_agent_id}
           title={organization.head_agent_id ? 'Submit a task to this organization' : 'Set a head agent first'}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          class={panelControl(showTaskPanel)}
+          aria-expanded={showTaskPanel}
         >
           <Send size={12} />
-          Submit Task
+          Submit task
         </button>
         <button
           onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
+          class={panelControl(showContainerPanel)}
+          aria-expanded={showContainerPanel}
         >
           <Container size={12} />
           Container
           {#if containerConfig.enabled}
-            <span class="w-1.5 h-1.5 bg-green-400"></span>
+            <span class="w-1.5 h-1.5 bg-oc-green"></span>
           {/if}
         </button>
         <button
           onclick={() => { showBudgetPanel = !showBudgetPanel; showAddPanel = false; showTaskPanel = false; showContainerPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-dark-base bg-accent' : 'text-dark-text-secondary bg-dark-surface border border-dark-border-subtle'} hover:bg-accent-hover hover:text-white "
+          class={panelControl(showBudgetPanel)}
+          aria-expanded={showBudgetPanel}
           title="Configure the organization spending limit"
         >
           <DollarSign size={12} />
@@ -602,7 +609,7 @@
       {@const spentCents = organizationBudget?.spend_cents || 0}
       {@const limitCents = organizationBudget?.limit_cents ?? organization.budget_monthly_cents ?? 0}
       {@const usagePercent = organizationBudget?.usage_percent ?? (limitCents > 0 ? (spentCents / limitCents) * 100 : 0)}
-      <div class="border-b border-dark-border bg-dark-surface px-4 py-3 shrink-0">
+      <div class="border-b border-dark-border bg-dark-base px-4 py-3 shrink-0 max-h-[60%] overflow-y-auto">
         <div class="flex items-center justify-between mb-3">
           <div>
             <span class="text-xs font-medium text-dark-text-secondary">Organization Budget</span>
@@ -613,7 +620,7 @@
           </button>
         </div>
 
-        <div class="grid grid-cols-4 gap-2 mb-3">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-3">
           <div class="border border-dark-border-subtle bg-dark-elevated px-2.5 py-2">
             <span class="text-[11px] font-medium text-dark-text-muted block">Spent</span>
             <span class="text-sm font-mono font-medium text-dark-text">{formatBudget(spentCents)}</span>
@@ -663,7 +670,7 @@
           />
         </div>
 
-        <div class="flex items-end gap-3">
+        <div class="flex flex-wrap items-end gap-3">
           <label class="block w-56">
             <span class="text-[11px] font-medium text-dark-text-muted block mb-0.5">Period limit (USD)</span>
             <div class="relative">
@@ -693,7 +700,7 @@
 
     <!-- Container Config Panel -->
     {#if showContainerPanel}
-      <div class="border-b border-dark-border bg-dark-surface px-4 py-3 shrink-0">
+      <div class="border-b border-dark-border bg-dark-base px-4 py-3 shrink-0 max-h-[60%] overflow-y-auto">
         <div class="flex items-center justify-between mb-3">
           <span class="text-xs font-medium text-dark-text-secondary">Container Isolation</span>
           <button onclick={() => { showContainerPanel = false; }} class="text-dark-text-muted hover:text-dark-text">
@@ -778,9 +785,9 @@
     {/if}
 
     <!-- Main area -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-col lg:flex-row flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
       <!-- Org Chart -->
-      <div class="flex-1 relative bg-dark-base">
+      <div class="flex-1 min-w-0 min-h-72 lg:min-h-0 relative bg-dark-base">
         <OrgChart
           agents={chartAgents()}
           {selectedAgentId}
@@ -799,14 +806,14 @@
 
       <!-- Submit Task Panel -->
       {#if showTaskPanel}
-        <div class="w-64 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
-            <span class="text-xs font-medium text-dark-text-secondary">Submit Task</span>
-            <button onclick={() => { showTaskPanel = false; }} class="text-dark-text-faint hover:text-dark-text-secondary">
+        <div class="w-full lg:w-72 bg-dark-base border-t lg:border-t-0 lg:border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border shrink-0">
+            <span class="text-sm font-medium text-dark-text">Submit task</span>
+            <button onclick={() => { showTaskPanel = false; }} aria-label="Close task panel" class="p-1 text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent">
               <X size={14} />
             </button>
           </div>
-          <div class="p-3 space-y-3 overflow-y-auto flex-1">
+          <div class="p-4 space-y-4 overflow-y-auto flex-1">
             <label class="block">
               <span class="text-[11px] font-medium text-dark-text-muted">Title *</span>
               <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
@@ -859,10 +866,10 @@
 
       <!-- Add Agent Panel -->
       {#if showAddPanel}
-        <div class="w-64 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
-            <span class="text-xs font-medium text-dark-text-secondary">Add Agent</span>
-            <button onclick={() => { showAddPanel = false; }} class="text-dark-text-faint hover:text-dark-text-secondary">
+        <div class="w-full lg:w-72 bg-dark-base border-t lg:border-t-0 lg:border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border shrink-0">
+            <span class="text-sm font-medium text-dark-text">Add agent</span>
+            <button onclick={() => { showAddPanel = false; }} aria-label="Close add agent panel" class="p-1 text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent">
               <X size={14} />
             </button>
           </div>
@@ -903,14 +910,14 @@
       {#if selectedAgentId && selectedMembership()}
         {@const membership = selectedMembership()}
         {@const agent = selectedAgent()}
-        <div class="w-60 bg-dark-surface border-l border-dark-border shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-dark-border shrink-0">
-            <span class="text-xs font-medium text-dark-text-secondary">Agent Details</span>
-            <button onclick={() => { selectedAgentId = null; }} class="text-dark-text-faint hover:text-dark-text-secondary">
+        <div class="w-full lg:w-72 bg-dark-base border-t lg:border-t-0 lg:border-l border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border shrink-0">
+            <span class="text-sm font-medium text-dark-text">Agent details</span>
+            <button onclick={() => { selectedAgentId = null; }} aria-label="Close agent details" class="p-1 text-dark-text-secondary hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent">
               <X size={14} />
             </button>
           </div>
-          <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
+          <div class="p-4 space-y-4 overflow-y-auto min-h-0 flex-1">
             {#if membership && agent}
               <div class="flex items-center gap-2.5">
                 <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 shrink-0 bg-dark-elevated" />

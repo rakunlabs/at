@@ -1,0 +1,17 @@
+# Build with docker buildx build --platform linux/amd64,linux/arm64
+# -f ci/Dockerfile.sandbox-helper -t <registry>/at-sandbox-helper:<version> .
+FROM --platform=$BUILDPLATFORM golang:1.27.1 AS build
+ARG TARGETOS
+ARG TARGETARCH
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY internal/devfs ./internal/devfs
+COPY internal/sandboxruntime ./internal/sandboxruntime
+COPY cmd/at-devfs ./cmd/at-devfs
+COPY cmd/at-sandbox ./cmd/at-sandbox
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/at-devfs ./cmd/at-devfs
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags='-s -w' -o /out/at-sandbox ./cmd/at-sandbox
+FROM scratch
+COPY --from=build /out/at-devfs /at-devfs
+COPY --from=build /out/at-sandbox /at-sandbox
+ENTRYPOINT ["/at-sandbox"]
