@@ -38,9 +38,6 @@ func (s *Server) AgentRuntimeSettingsAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	saved, err := s.agentRuntimeSettingsStore.SaveAgentRuntimeSettings(r.Context(), requested)
-	if err == nil {
-		service.InvalidateTrustedLocalMCP()
-	}
 	if errors.Is(err, service.ErrAgentRuntimeSettingsConflict) {
 		httpResponse(w, err.Error(), http.StatusConflict)
 		return

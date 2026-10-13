@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -356,16 +357,16 @@ func (s *Server) execBotCreate(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("create bot config: %w", err)
 	}
 	// Start polling if enabled (use long-lived server context, not the
-	// short-lived MCP request context).
+	// short-lived MCP request context). A new bot has no Run as account yet,
+	// so this normally waits for the person's approval, which starts it.
 	if record.Enabled && record.Token != "" {
-		s.startBotFromConfig(s.ctx, record)
+		if err := s.startBotFromConfig(s.ctx, record); err != nil {
+			slog.Info("bot_create: bot waits for Run as approval", "bot_id", record.ID)
+		}
 	}
 	redactBotToken(record)
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal bot config: %w", err)
-	}
-	return string(out), nil
+	return withBindingRequired(record, "bot", record.ID,
+		"This bot does not receive messages until a person approves which account it runs as. The user is shown an approval prompt that also starts the bot; tell them to approve it there (or on the Bots page).")
 }
 
 func (s *Server) execBotDelete(ctx context.Context, args map[string]any) (string, error) {
@@ -411,6 +412,10 @@ func (s *Server) execBotStart(ctx context.Context, args map[string]any) (string,
 	}
 
 	if err := s.startBotFromConfig(s.ctx, record); err != nil {
+		if errors.Is(err, service.ErrExecutionDenied) || errors.Is(err, service.ErrAccessDenied) {
+			return withBindingRequired(map[string]any{"status": "waiting_for_approval", "id": id, "name": record.Name}, "bot", id,
+				"The bot has no usable Run as account. The user is shown an approval prompt that also starts the bot; tell them to approve it there (or on the Bots page).")
+		}
 		return "", fmt.Errorf("start bot: %w", err)
 	}
 

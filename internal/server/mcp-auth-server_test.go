@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -333,8 +332,6 @@ func mustQuery(t *testing.T, raw string) url.Values {
 // OAuth upstreams the account still has to connect when chaining is on.
 func TestMCPAuthServerChainsUpstreamAccounts(t *testing.T) {
 	fake := newFakeMCPOAuth(t)
-	service.SetTrustedLocalMCPLoader(func(context.Context) ([]string, error) { return []string{fake.mcpURL()}, nil })
-	t.Cleanup(func() { service.SetTrustedLocalMCPLoader(nil) })
 	f := newMachineFixture(t)
 	f.s.connectionStore = f.store
 	set, err := f.store.CreateMCPSet(f.ctx, service.MCPSet{Name: "gitlab-tools", Config: service.MCPServerConfig{

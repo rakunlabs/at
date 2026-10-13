@@ -23,6 +23,7 @@ export const FEATURE_CHAT_LOCAL_MCP = 'chat_local_mcp';
 export const FEATURE_CHAT_LOCAL_PROVIDERS = 'chat_local_providers';
 export const FEATURE_CHAT_SHARING = 'chat_sharing';
 export const FEATURE_CHAT_EXTENSIONS = 'chat_extensions';
+export const FEATURE_CHAT_BACKGROUND_RUNS = 'chat_background_runs';
 export const FEATURE_CHAT_SESSIONS = 'chat_sessions';
 export const FEATURE_BOTS = 'bots';
 export const FEATURE_AUDIO_TRANSCRIPTION = 'audio_transcription';

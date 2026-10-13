@@ -28,6 +28,8 @@
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
+  import BindingApproval from '@/lib/components/BindingApproval.svelte';
+  import { bindingRequestFromResult } from '@/lib/helper/binding-approval';
   import { CHAT_ATTACHMENT_COUNT, CHAT_ATTACHMENT_TOTAL, attachmentBytes, attachmentSize, attachmentIsImage, attachmentImageURL, readChatAttachment, downloadChatAttachment } from '@/lib/helper/chat-attachments';
 
   storeNavbar.title = 'Sessions';
@@ -69,7 +71,7 @@
   let expandedTools = $state<Record<string, boolean>>({});
   let showToolActivity = $state(false);
   let toolActivityCount = $derived(messages.filter(m => m.role === 'tool' || getToolCalls(m.data).length > 0).length + toolEvents.length);
-  let visibleMessages = $derived(messages.filter(m => showToolActivity || (m.role !== 'tool' && (m.role !== 'assistant' || !!getMessageText(m.data) || !!getMessageReasoning(m.data) || getToolCalls(m.data).length === 0))));
+  let visibleMessages = $derived(messages.filter(m => showToolActivity || (m.role === 'tool' ? !!bindingRequestFromResult(getMessageText(m.data)) : (m.role !== 'assistant' || !!getMessageText(m.data) || !!getMessageReasoning(m.data) || getToolCalls(m.data).length === 0))));
   let collapsedSessionThreads = $state<Record<string, boolean>>({});
   // Per-message toggle: when true, render the raw markdown source instead
   // of the rendered HTML so users can inspect / copy the original content.
@@ -1280,6 +1282,11 @@
               {@const toolText = getMessageText(msg.data)}
               {@const pretty = prettyJSON(toolText)}
               {@const toolId = `tool-${msg.id}`}
+              {@const approval = bindingRequestFromResult(toolText)}
+              {#if approval}
+                <div class="px-4 sm:px-[22px]"><BindingApproval request={approval} /></div>
+              {/if}
+              {#if showToolActivity}
               <!-- Tool result row -->
               <div class="flex gap-3 group px-4 sm:px-[22px]">
                 <div class="shrink-0 w-5 h-7 text-dark-text-muted flex items-center justify-center">
@@ -1303,6 +1310,7 @@
                   {/if}
                 </div>
               </div>
+              {/if}
 
             {:else if msg.role === 'system'}
               <!-- System message (hint banner) -->

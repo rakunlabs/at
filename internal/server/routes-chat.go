@@ -36,6 +36,13 @@ func (s *Server) registerChatWorkbenchRoutes(api *ada.Mux) {
 	api.POST("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	api.DELETE("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 
+	// Server-side runs that keep answering after the page is closed.
+	api.POST("/v1/chats/conversations/{id}/run", s.ChatRunAPI)
+	api.GET("/v1/chats/conversations/{id}/run", s.ChatRunStatusAPI)
+	api.DELETE("/v1/chats/conversations/{id}/run", s.CancelChatRunAPI)
+	api.GET("/v1/chats/conversations/{id}/streams/{stream}", s.ChatRunStreamAPI)
+	api.DELETE("/v1/chats/conversations/{id}/streams/{stream}", s.ChatRunStreamAPI)
+
 	// Explicit chat sharing, with its own feature and ownership checks.
 	api.POST("/v1/chats/conversations/{id}/shares/preview", s.ChatSharePreviewAPI)
 	api.POST("/v1/chats/conversations/{id}/shares", s.PublishChatShareAPI)

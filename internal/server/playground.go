@@ -86,6 +86,8 @@ func playgroundError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrPlaygroundNotFound):
 		nativeError(w, http.StatusNotFound, "conversation not found")
+	case errors.Is(err, service.ErrPlaygroundRunBusy):
+		nativeError(w, http.StatusConflict, "a background run is answering this conversation; wait for it or stop it first")
 	case errors.Is(err, service.ErrPlaygroundConflict):
 		nativeError(w, http.StatusConflict, "conversation conflict")
 	case errors.Is(err, service.ErrPlaygroundTooLarge):

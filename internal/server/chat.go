@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +61,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up provider
-	info, err := s.chatProviderInfo(r, providerKey, actualModel)
+	info, err := s.chatProviderInfo(r.Context(), providerKey, actualModel)
 	if err != nil {
 		status, code := http.StatusBadGateway, "server_error"
 		msg := fmt.Sprintf("provider resolution failed: %v", err)
@@ -163,9 +164,9 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 // the endpoint has always served. A scoped workspace member resolves through
 // the workspace catalog instead, so the Playground cannot reach a provider or
 // credential the member's workspace is not allowed to use.
-func (s *Server) chatProviderInfo(r *http.Request, key, model string) (ProviderInfo, error) {
-	if a, ok := service.AccessPrincipalFromContext(r.Context()); ok && !a.PlatformAdmin {
-		return s.workspaceProviderInfo(r.Context(), key, model)
+func (s *Server) chatProviderInfo(ctx context.Context, key, model string) (ProviderInfo, error) {
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok && !a.PlatformAdmin {
+		return s.workspaceProviderInfo(ctx, key, model)
 	}
 	info, ok := s.getProviderInfo(key)
 	if !ok {
@@ -173,8 +174,8 @@ func (s *Server) chatProviderInfo(r *http.Request, key, model string) (ProviderI
 		// personal reference (provider:<id>) or a provider of the selected
 		// non-default workspace is never in it. Those resolve through the
 		// workspace catalog exactly as they do for a member.
-		if _, scoped := service.AccessPrincipalFromContext(r.Context()); scoped && !s.providerDisabled(key) {
-			if scopedInfo, err := s.workspaceProviderInfo(r.Context(), key, model); err == nil {
+		if _, scoped := service.AccessPrincipalFromContext(ctx); scoped && !s.providerDisabled(key) {
+			if scopedInfo, err := s.workspaceProviderInfo(ctx, key, model); err == nil {
 				return scopedInfo, nil
 			}
 		}

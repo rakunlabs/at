@@ -127,7 +127,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:  service.FeatureChatLocalMCP,
 		Name: "Local MCP servers in Chats",
-		Description: "Let a person register MCP servers running on their own machine and call their tools from Chats. The browser connects to them; the server stores the endpoints and never dials one. " +
+		Description: "Let a person register MCP servers and call their tools from Chats — on their own machine, their network or the internet. The browser connects to them; the server stores the endpoints and never dials one. " +
 			"A sibling of Chats rather than a child because the catalog nests two levels; the surface itself lives inside Chats and disappears with it.",
 		Group:  "workspace",
 		Parent: service.FeatureChatWorkbench,
@@ -145,6 +145,14 @@ var featureDefinitions = []featureDefinition{
 		Name: "Browser extensions in Chats",
 		Description: "Let Chats discover browser extensions the person installed and call the tools they expose — browser automation, page capture, anything an extension can do that a server cannot reach. " +
 			"The page talks to the extension directly; AT never connects to one and stores nothing about them. Each extension is approved per device before the model may call it.",
+		Group:  "workspace",
+		Parent: service.FeatureChatWorkbench,
+	},
+	{
+		Key:  service.FeatureChatBackgroundRuns,
+		Name: "Background runs in Chats",
+		Description: "Let a conversation run its turn on the server, so it keeps working after the page is closed. Local MCP servers, local providers and browser extensions are unavailable to these runs. " +
+			"A sibling of Chats rather than a child because the catalog nests two levels.",
 		Group:  "workspace",
 		Parent: service.FeatureChatWorkbench,
 	},
@@ -467,6 +475,7 @@ var featurePresets = []featurePreset{
 			service.FeatureWorkspaceManagement,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
+			service.FeatureChatBackgroundRuns,
 			service.FeatureChatSharing,
 			service.FeatureChatSessions,
 			service.FeatureMCPServers,
@@ -490,6 +499,7 @@ var featurePresets = []featurePreset{
 			service.FeatureRoutingProfiles,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
+			service.FeatureChatBackgroundRuns,
 			service.FeatureChatSharing,
 			service.FeatureChatSessions,
 			service.FeatureBots,

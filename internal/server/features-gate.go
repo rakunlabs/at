@@ -282,6 +282,9 @@ func featureKeyForRoute(path, method, basePath string) string {
 		if seg(1) == "local-providers" || seg(1) == "generation-observations" {
 			return service.FeatureChatLocalProviders
 		}
+		if seg(1) == "conversations" && (seg(3) == "run" || seg(3) == "streams") {
+			return service.FeatureChatBackgroundRuns
+		}
 		if seg(1) == "shares" || seg(2) == "shares" || seg(2) == "share" {
 			return service.FeatureChatSharing
 		}

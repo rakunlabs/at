@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -114,9 +116,7 @@ func (s *Server) resolveChatReferences(w http.ResponseWriter, r *http.Request, b
 		return false
 	}
 	// Resolve each media object once per request, without a browser round trip.
-	media := make(map[string]string)
-	remaining := int64(64 << 20)
-	expandedBytes := 0
+	resolver := newStoredMessageResolver(s, owner)
 	index := 0
 	for i, ref := range input.Messages {
 		if ref.ID == "" {
@@ -128,63 +128,100 @@ func (s *Server) resolveChatReferences(w http.ResponseWriter, r *http.Request, b
 			nativeError(w, http.StatusConflict, "saved message history changed; reload the conversation")
 			return false
 		}
-		data := make(map[string]any, len(m.Data)+1)
-		for k, v := range m.Data {
-			data[k] = v
-		}
-		data["role"] = m.Role
-		if parts, ok := data["content"].([]any); ok {
-			resolved := make([]any, 0, len(parts))
-			for _, value := range parts {
-				part, ok := value.(map[string]any)
-				if !ok {
-					resolved = append(resolved, value)
-					continue
-				}
-				kind, _ := part["type"].(string)
-				if kind != "image" && kind != "file" {
-					resolved = append(resolved, part)
-					continue
-				}
-				name, _ := part["name"].(string)
-				mime, _ := part["mime_type"].(string)
-				attachment, _ := part["attachment"].(bool)
-				if m.Role == "assistant" || (kind == "file" && !attachment) {
-					resolved = append(resolved, map[string]any{"type": "text", "text": deliveredMediaReference(kind, name, mime, part)})
-					continue
-				}
-				id, _ := part["media_id"].(string)
-				if id == "" {
-					resolved = append(resolved, map[string]any{"type": "text", "text": fmt.Sprintf("[%s %q was not saved to history]", kind, name)})
-					continue
-				}
-				url, cached := media[id]
-				if !cached {
-					url, err = s.chatMediaDataURL(r, owner, id, &remaining)
-					if err != nil {
-						httpResponseJSON(w, map[string]any{"error": map[string]string{"message": "Could not load a saved attachment. Retry when storage is available, or remove the attachment."}}, http.StatusConflict)
-						return false
-					}
-					media[id] = url
-				}
-				resolved = append(resolved, chatStoredMediaPart(kind, name, mime, url))
-			}
-			data["content"] = resolved
-		}
-		encoded, err := json.Marshal(data)
-		expandedBytes += len(encoded)
-		if expandedBytes > 64<<20 {
+		resolved, err := resolver.message(r.Context(), m)
+		switch {
+		case errors.Is(err, errStoredMediaUnavailable):
+			httpResponseJSON(w, map[string]any{"error": map[string]string{"message": "Could not load a saved attachment. Retry when storage is available, or remove the attachment."}}, http.StatusConflict)
+			return false
+		case errors.Is(err, errStoredHistoryTooLarge):
 			httpResponseJSON(w, map[string]any{"error": map[string]string{"message": "Saved history exceeds the 64 MiB completion limit. Start a smaller conversation."}}, http.StatusRequestEntityTooLarge)
 			return false
-		}
-		var resolved wire.OpenAIMessage
-		if err != nil || json.Unmarshal(encoded, &resolved) != nil {
+		case err != nil:
 			nativeError(w, http.StatusConflict, "invalid saved message")
 			return false
 		}
 		req.Messages[i] = resolved
 	}
 	return true
+}
+
+var (
+	errStoredMediaUnavailable = errors.New("saved attachment unavailable")
+	errStoredHistoryTooLarge  = errors.New("saved history exceeds the 64 MiB completion limit")
+)
+
+// storedMessageResolver turns saved Chats rows into the OpenAI-shaped messages
+// a completion sends, inlining owner-scoped media once per request. Browser
+// completions and background runs share it so both send identical context.
+type storedMessageResolver struct {
+	server    *Server
+	owner     string
+	media     map[string]string
+	remaining int64
+	expanded  int
+}
+
+func newStoredMessageResolver(s *Server, owner string) *storedMessageResolver {
+	return &storedMessageResolver{server: s, owner: owner, media: map[string]string{}, remaining: 64 << 20}
+}
+
+func (sr *storedMessageResolver) message(ctx context.Context, m service.PlaygroundMessage) (wire.OpenAIMessage, error) {
+	data := make(map[string]any, len(m.Data)+1)
+	for k, v := range m.Data {
+		data[k] = v
+	}
+	data["role"] = m.Role
+	if parts, ok := data["content"].([]any); ok {
+		resolved := make([]any, 0, len(parts))
+		for _, value := range parts {
+			part, ok := value.(map[string]any)
+			if !ok {
+				resolved = append(resolved, value)
+				continue
+			}
+			kind, _ := part["type"].(string)
+			if kind != "image" && kind != "file" {
+				resolved = append(resolved, part)
+				continue
+			}
+			name, _ := part["name"].(string)
+			mime, _ := part["mime_type"].(string)
+			attachment, _ := part["attachment"].(bool)
+			if m.Role == "assistant" || (kind == "file" && !attachment) {
+				resolved = append(resolved, map[string]any{"type": "text", "text": deliveredMediaReference(kind, name, mime, part)})
+				continue
+			}
+			id, _ := part["media_id"].(string)
+			if id == "" {
+				resolved = append(resolved, map[string]any{"type": "text", "text": fmt.Sprintf("[%s %q was not saved to history]", kind, name)})
+				continue
+			}
+			url, cached := sr.media[id]
+			if !cached {
+				var err error
+				url, err = sr.server.chatMediaDataURL(ctx, sr.owner, id, &sr.remaining)
+				if err != nil {
+					return wire.OpenAIMessage{}, fmt.Errorf("%w: %w", errStoredMediaUnavailable, err)
+				}
+				sr.media[id] = url
+			}
+			resolved = append(resolved, chatStoredMediaPart(kind, name, mime, url))
+		}
+		data["content"] = resolved
+	}
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return wire.OpenAIMessage{}, err
+	}
+	sr.expanded += len(encoded)
+	if sr.expanded > 64<<20 {
+		return wire.OpenAIMessage{}, errStoredHistoryTooLarge
+	}
+	var resolved wire.OpenAIMessage
+	if err := json.Unmarshal(encoded, &resolved); err != nil {
+		return wire.OpenAIMessage{}, err
+	}
+	return resolved, nil
 }
 
 // deliveredMediaReference describes media the assistant delivered (images
@@ -223,20 +260,20 @@ func chatStoredMediaPart(kind, name, mime, url string) map[string]any {
 	}
 }
 
-func (s *Server) chatMediaDataURL(r *http.Request, owner, id string, remaining *int64) (string, error) {
+func (s *Server) chatMediaDataURL(ctx context.Context, owner, id string, remaining *int64) (string, error) {
 	store, ok := s.store.(service.MediaStorer)
-	principal, scoped := service.AccessPrincipalFromContext(r.Context())
+	principal, scoped := service.AccessPrincipalFromContext(ctx)
 	if !ok || !scoped {
 		return "", fmt.Errorf("media scope unavailable")
 	}
-	object, err := store.GetMediaObject(r.Context(), principal.WorkspaceID, owner, id)
+	object, err := store.GetMediaObject(ctx, principal.WorkspaceID, owner, id)
 	if err != nil {
 		return "", err
 	}
 	if object == nil || object.SizeBytes > *remaining {
 		return "", fmt.Errorf("saved attachments exceed the request limit or are unavailable")
 	}
-	settings, err := store.GetMediaSettings(r.Context())
+	settings, err := store.GetMediaSettings(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -247,7 +284,7 @@ func (s *Server) chatMediaDataURL(r *http.Request, owner, id string, remaining *
 	if err != nil {
 		return "", err
 	}
-	reader, _, err := target.Get(r.Context(), object.StorageKey)
+	reader, _, err := target.Get(ctx, object.StorageKey)
 	if err != nil {
 		return "", err
 	}

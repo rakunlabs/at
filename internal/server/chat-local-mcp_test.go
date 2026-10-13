@@ -108,11 +108,10 @@ func TestLocalMCPRegistryOwnerScopeAndSecrets(t *testing.T) {
 		t.Fatalf("orphan sentinel: %d %s", w.Code, w.Body)
 	}
 
-	// A public endpoint belongs in an MCP set, where execution policy and
-	// server-side tracing apply.
+	// The browser dials the URL, so a public endpoint is the user's choice.
 	public := `{"servers":[{"name":"remote","url":"https://mcp.example.com/mcp"}]}`
-	if w = localMCPRequest(s, tokens[0], "PUT", "", public); w.Code != 400 {
-		t.Fatalf("public endpoint accepted: %d %s", w.Code, w.Body)
+	if w = localMCPRequest(s, tokens[0], "PUT", "", public); w.Code != 200 {
+		t.Fatalf("public endpoint refused: %d %s", w.Code, w.Body)
 	}
 
 	// Another account sees its own empty registry and cannot reveal this one.

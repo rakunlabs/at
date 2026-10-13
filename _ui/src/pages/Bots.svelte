@@ -11,6 +11,9 @@
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
+  import RunAsSelf from '@/lib/components/RunAsSelf.svelte';
+  import { bindToSelf } from '@/lib/api/execution-bindings';
+  import { storeAuth } from '@/lib/store/auth.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'Bots';
@@ -23,6 +26,8 @@
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
+  // New bots run as the signed-in account unless unticked.
+  let formRunAsSelf = $state(true);
   let deleteConfirm = $state<string | null>(null);
   let saving = $state(false);
   let searchQuery = $state('');
@@ -166,6 +171,7 @@
     formWhisperModel = 'base';
     formCustomCommands = [];
     editingId = null;
+    formRunAsSelf = true;
     showForm = false;
   }
 
@@ -265,7 +271,24 @@
       } else {
         const created = await createBotConfig(payload);
         editingId = created.id;
-        addToast('Bot saved. Configure its execution identity below to start receiving messages.');
+        if (!formRunAsSelf) {
+          addToast('Bot saved. Choose Run as below to start receiving messages.');
+        } else {
+          const bindFailed = await bindToSelf('bot', created.id, storeAuth.identity?.subject);
+          if (bindFailed) {
+            addToast(`Bot saved, but Run as could not be set: ${bindFailed}`, 'warn');
+          } else if (!formEnabled) {
+            addToast('Bot saved. It runs as your account; start it when ready.');
+          } else {
+            try {
+              await startBot(created.id);
+              addToast('Bot saved and started as your account.');
+            } catch (e: any) {
+              addToast(e?.response?.data?.message || 'Bot saved as your account, but it could not start. Check its token, then Start.', 'warn');
+            }
+          }
+          await loadStatuses();
+        }
         await loadData();
         return;
       }
@@ -1028,6 +1051,9 @@
               </div>
             {/if}
 
+            {#if !editingId}
+              <RunAsSelf bind:checked={formRunAsSelf} hint="Messages run with this account's current permissions, and the bot starts right away. Untick to choose another account after saving." />
+            {/if}
             <!-- Actions -->
             <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
               <button

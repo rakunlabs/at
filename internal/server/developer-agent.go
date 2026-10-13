@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -130,70 +129,6 @@ func developerMessages(records []service.DeveloperSessionMessage, system, projec
 	return messages
 }
 
-// developerStream writes one session's events as server-sent events. Writes
-// are serialized because tool observations may be reported from helpers.
-type developerStream struct {
-	mu      sync.Mutex
-	w       http.ResponseWriter
-	flusher http.Flusher
-}
-
-func newDeveloperStream(w http.ResponseWriter) (*developerStream, bool) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		httpResponse(w, "streaming not supported", http.StatusInternalServerError)
-		return nil, false
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-	return &developerStream{w: w, flusher: flusher}, true
-}
-
-func (s *developerStream) send(event map[string]any) {
-	if s == nil {
-		return
-	}
-	data, _ := json.Marshal(event)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	fmt.Fprintf(s.w, "data: %s\n\n", data)
-	s.flusher.Flush()
-}
-
-// fail reports a terminal error on the open stream. The HTTP status is already
-// committed, so the error travels in-band and the client shows it.
-func (s *developerStream) fail(message string) {
-	s.send(map[string]any{"type": "error", "error": message})
-}
-
-func (s *developerStream) keepAlive(ctx context.Context) func() {
-	done := make(chan struct{})
-	stopped := make(chan struct{})
-	go func() {
-		defer close(stopped)
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.mu.Lock()
-				fmt.Fprint(s.w, ": ping\n\n")
-				s.flusher.Flush()
-				s.mu.Unlock()
-			}
-		}
-	}()
-	return func() { close(done); <-stopped }
-}
-
 func (s *Server) RunDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
 	s.startDeveloperStream(w, r, s.runDeveloperSessionAPI)
 }
@@ -240,7 +175,7 @@ func (s *Server) runDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) 
 		developerSpaceError(w, err)
 		return
 	}
-	stream, ok := newDeveloperStream(w)
+	stream, ok := newRunEventStream(w)
 	if !ok {
 		_, _ = store.SetDeveloperSessionRuntime(r.Context(), session.ID, service.DeveloperSessionFailed, "streaming not supported")
 		return
@@ -252,7 +187,7 @@ func (s *Server) runDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) 
 // runDeveloperSession drives the agent until it answers, pauses for the user,
 // or fails. Every outcome ends the stream with exactly one terminal event:
 // "done" (with the session's new status) or "error".
-func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, traceID string) {
+func (s *Server) runDeveloperSession(r *http.Request, stream *runEventStream, h *developerRuntimeHandle, session *service.DeveloperSession, traceID string) {
 	store := h.store
 	finish := func(status, message string) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
@@ -310,7 +245,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 		s.captureDeveloperSnapshot(r, session, h, step, "before")
 		stream.send(map[string]any{"type": "turn_start"})
 		var partial strings.Builder
-		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, func(delta agentloop.StreamDelta) {
+		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, "", func(delta agentloop.StreamDelta) {
 			event := map[string]any{"type": "delta"}
 			if delta.Content != "" {
 				partial.WriteString(delta.Content)
@@ -459,7 +394,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *developerStream, h
 
 // runDeveloperToolCall executes (or refuses) one call, records it, and tells
 // the page which files changed so open editors can reload.
-func (s *Server) runDeveloperToolCall(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, traceID, parentID string, call service.ToolCall, execute bool, refusal string) service.ContentBlock {
+func (s *Server) runDeveloperToolCall(r *http.Request, stream *runEventStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, traceID, parentID string, call service.ToolCall, execute bool, refusal string) service.ContentBlock {
 	output := refusal
 	var toolErr error
 	started := time.Now()
@@ -623,7 +558,7 @@ func (s *Server) ConfirmDeveloperSessionToolAPI(w http.ResponseWriter, r *http.R
 		httpResponse(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	s.resumeDeveloperSession(w, r, "permission", func(r *http.Request, stream *developerStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
+	s.resumeDeveloperSession(w, r, "permission", func(r *http.Request, stream *runEventStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
 		blocks := make([]service.ContentBlock, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
 			effect := kit.effect(call)
@@ -647,7 +582,7 @@ func (s *Server) AnswerDeveloperSessionQuestionAPI(w http.ResponseWriter, r *htt
 		httpResponse(w, "answer is required", http.StatusBadRequest)
 		return
 	}
-	s.resumeDeveloperSession(w, r, "question", func(r *http.Request, stream *developerStream, _ *developerRuntimeHandle, session *service.DeveloperSession, _ *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
+	s.resumeDeveloperSession(w, r, "question", func(r *http.Request, stream *runEventStream, _ *developerRuntimeHandle, session *service.DeveloperSession, _ *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
 		blocks := make([]service.ContentBlock, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
 			output := "tool deferred while waiting for the user's answer"
@@ -662,13 +597,13 @@ func (s *Server) AnswerDeveloperSessionQuestionAPI(w http.ResponseWriter, r *htt
 	})
 }
 
-func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
+func (s *Server) resumeDeveloperSession(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *runEventStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
 	s.startDeveloperStream(w, r, func(w http.ResponseWriter, r *http.Request) {
 		s.resumeDeveloperSessionRun(w, r, kind, resolve)
 	})
 }
 
-func (s *Server) resumeDeveloperSessionRun(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *developerStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
+func (s *Server) resumeDeveloperSessionRun(w http.ResponseWriter, r *http.Request, kind string, resolve func(*http.Request, *runEventStream, *developerRuntimeHandle, *service.DeveloperSession, *developerToolkit, *service.DeveloperPendingTool) []service.ContentBlock) {
 	store := s.developerSpaceStore(w)
 	if store == nil {
 		return
@@ -695,7 +630,7 @@ func (s *Server) resumeDeveloperSessionRun(w http.ResponseWriter, r *http.Reques
 	}
 	r, done := s.trackDeveloperSessionRequest(r, session.ID)
 	defer done()
-	stream, ok := newDeveloperStream(w)
+	stream, ok := newRunEventStream(w)
 	if !ok {
 		return
 	}

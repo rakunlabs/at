@@ -1,6 +1,9 @@
 <script lang="ts">
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
   import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
+  import RunAsSelf from '@/lib/components/RunAsSelf.svelte';
+  import { bindToSelf } from '@/lib/api/execution-bindings';
+  import { storeAuth } from '@/lib/store/auth.svelte';
   import WebhookServersPanel from '@/lib/components/WebhookServersPanel.svelte';
   import { createPageLoader } from '@/lib/helper/page-load.svelte';
   const pageLoad = createPageLoader();
@@ -60,6 +63,8 @@
   // Form
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
+  // New webhooks run as the signed-in account unless unticked.
+  let formRunAsSelf = $state(true);
   let saving = $state(false);
   let deleteConfirm = $state<string | null>(null);
 
@@ -183,6 +188,7 @@
     formSigStored = false;
     formConfig = {};
     editingId = null;
+    formRunAsSelf = true;
     showForm = false;
     inputNodes = [];
   }
@@ -311,7 +317,10 @@
         resetForm();
       } else {
         const created = await createTrigger(payload);
-        addToast('Webhook created. Bind an execution identity so it can run.');
+        const bindFailed = formRunAsSelf ? await bindToSelf('trigger', created.id, storeAuth.identity?.subject) : '';
+        if (!formRunAsSelf) addToast('Webhook created. Choose Run as below so it can run.');
+        else if (bindFailed) addToast(`Webhook created, but Run as could not be set: ${bindFailed}`, 'warn');
+        else addToast('Webhook created. It runs as your account.');
         resetForm();
         await openEdit(created);
       }
@@ -631,6 +640,9 @@
           </div>
         {/if}
 
+        {#if !editingId}
+          <RunAsSelf bind:checked={formRunAsSelf} />
+        {/if}
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">

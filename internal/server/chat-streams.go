@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,12 @@ import (
 const chatStreamMaxBytes = 8 << 20
 const chatStreamTTL = 10 * time.Minute
 
+var errReplayTruncated = errors.New("live replay limit reached; the run continues and saves its results")
+
+// replayTruncatedEvent is the last event a full durable-run replay carries.
+// The reserve below keeps room for it. Readers stop following and reload.
+var replayTruncatedEvent = []byte("data: {\"type\":\"truncated\"}\n\n")
+
 type chatStreamRegistry struct {
 	mu      sync.Mutex
 	streams map[string]*chatStream
@@ -35,9 +42,20 @@ type chatStream struct {
 	expires                   time.Time
 	expireTimer               *time.Timer
 	owner, workspace, session string
-	developer                 bool
+	kind                      replayKind
+	truncated                 bool
 	cancel                    context.CancelFunc
 }
+
+// replayKind separates the transports sharing this registry. A stream ID is
+// client-chosen, so each replay endpoint admits only its own kind.
+type replayKind int
+
+const (
+	replayChat replayKind = iota
+	replayDeveloper
+	replayChatRun
+)
 
 func (stream *chatStream) Header() http.Header { return stream.header }
 func (stream *chatStream) signal()             { close(stream.notify); stream.notify = make(chan struct{}) }
@@ -55,7 +73,19 @@ func (stream *chatStream) Write(p []byte) (int, error) {
 	if stream.status == 0 {
 		stream.status = http.StatusOK
 	}
-	if len(stream.data)+len(p) > chatStreamMaxBytes {
+	if stream.truncated {
+		return 0, errReplayTruncated
+	}
+	if len(stream.data)+len(p) > chatStreamMaxBytes-len(replayTruncatedEvent) {
+		// A durable run writes its results to storage as it goes, so a full
+		// replay buffer only ends the live view; the run keeps going and the
+		// page reloads saved history. A one-shot stream has no other record.
+		if stream.kind == replayChatRun {
+			stream.truncated = true
+			stream.data = append(stream.data, replayTruncatedEvent...)
+			stream.signal()
+			return 0, errReplayTruncated
+		}
 		stream.cancel()
 		return 0, fmt.Errorf("stream replay exceeded 8 MiB; check saved history")
 	}
@@ -73,10 +103,10 @@ func (stream *chatStream) Flush() {
 }
 
 func (s *Server) startChatStream(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc) {
-	s.startReplayStream(w, r, handler, false)
+	s.startReplayStream(w, r, handler, replayChat)
 }
 
-func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc, developer bool) {
+func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc, kind replayKind) {
 	principal, ok := service.AccessPrincipalFromContext(r.Context())
 	id := r.Header.Get("X-AT-Stream-ID")
 	if !ok || principal.UserID == "" {
@@ -148,7 +178,7 @@ func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handl
 	if session != "" {
 		for _, active := range s.chatStreams.streams {
 			active.mu.Lock()
-			busy := !active.done && active.developer == developer && active.session == session && active.workspace == principal.WorkspaceID
+			busy := !active.done && active.kind == kind && active.session == session && active.workspace == principal.WorkspaceID
 			active.mu.Unlock()
 			if busy {
 				s.chatStreams.mu.Unlock()
@@ -163,7 +193,7 @@ func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handl
 		stopShutdown = context.AfterFunc(s.ctx, cancel)
 	}
 	stream := &chatStream{header: make(http.Header), notify: make(chan struct{}), owner: principal.UserID, workspace: principal.WorkspaceID, session: session, cancel: cancel,
-		developer: developer}
+		kind: kind}
 	s.chatStreams.streams[id] = stream
 	s.chatStreams.mu.Unlock()
 	request := r.Clone(ctx)
@@ -203,7 +233,7 @@ func (s *Server) ChatStreamAPI(w http.ResponseWriter, r *http.Request) {
 	s.chatStreams.mu.Lock()
 	stream := s.chatStreams.streams[r.PathValue("stream")]
 	s.chatStreams.mu.Unlock()
-	if !ok || stream == nil || stream.developer || stream.owner != p.UserID || stream.workspace != p.WorkspaceID || stream.session != r.PathValue("id") {
+	if !ok || stream == nil || stream.kind != replayChat || stream.owner != p.UserID || stream.workspace != p.WorkspaceID || stream.session != r.PathValue("id") {
 		nativeError(w, http.StatusNotFound, "stream replay unavailable on this server; check saved history, do not resend automatically")
 		return
 	}

@@ -112,6 +112,58 @@ type PlaygroundStorer interface {
 	TruncatePlaygroundMessages(ctx context.Context, owner, id string, fromSequence int64) error
 }
 
+// ErrPlaygroundRunBusy is returned when another writer owns the transcript: a
+// live background run refuses browser appends, and a run whose receipt was
+// lost or replaced may no longer write.
+var ErrPlaygroundRunBusy = errors.New("a background run is answering this conversation")
+
+type playgroundRunContextKey struct{}
+
+// ContextWithPlaygroundRun marks writes as coming from the background run that
+// holds the conversation's receipt. Without it a write is a browser write.
+func ContextWithPlaygroundRun(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, playgroundRunContextKey{}, runID)
+}
+
+// PlaygroundRunFromContext returns the background run ID, or "".
+func PlaygroundRunFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(playgroundRunContextKey{}).(string)
+	return id
+}
+
+// PlaygroundRun is the receipt of a server-side run answering a conversation.
+// A receipt whose heartbeat is older than PlaygroundRunStaleAfter is stale: its
+// owner stopped renewing it, and a new run may take it over. Writes are fenced
+// by run ID, so a stale owner that is still alive can no longer append.
+type PlaygroundRun struct {
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspace_id"`
+	HeartbeatAt     string `json:"heartbeat_at"`
+	CancelRequested bool   `json:"cancel_requested"`
+	Stale           bool   `json:"stale"`
+}
+
+// PlaygroundRunStaleAfter is the heartbeat age after which a receipt no longer
+// blocks other writers. Runs renew every 15 seconds.
+const PlaygroundRunStaleAfter = "60 seconds"
+
+// PlaygroundRunStorer serializes background runs per conversation across
+// replicas. Every method is owner scoped like PlaygroundStorer.
+type PlaygroundRunStorer interface {
+	AcquirePlaygroundRun(ctx context.Context, owner, id, runID, workspaceID string) error
+	// HeartbeatPlaygroundRun renews the receipt. It fails with
+	// ErrPlaygroundRunBusy when the receipt was replaced or cancellation was
+	// requested, which tells the owner to stop.
+	HeartbeatPlaygroundRun(ctx context.Context, owner, id, runID string) error
+	ReleasePlaygroundRun(ctx context.Context, owner, id, runID string) error
+	// CancelPlaygroundRun asks the owning replica to stop at its next check.
+	// A non-empty runID cancels only that run, so a late Stop from another
+	// tab cannot cancel the run that followed it.
+	CancelPlaygroundRun(ctx context.Context, owner, id, runID string) error
+	// GetPlaygroundRun returns nil when no run holds the conversation.
+	GetPlaygroundRun(ctx context.Context, owner, id string) (*PlaygroundRun, error)
+}
+
 // PlaygroundMessageReferenceStorer resolves precisely the saved rows the
 // browser displayed, never a guessed/latest history window.
 type PlaygroundMessageReferenceStorer interface {

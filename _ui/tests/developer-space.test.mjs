@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { moduleURL } from './typescript-module.mjs';
 
 async function load(file, replacements = []) {
   let source = await readFile(new URL(file, import.meta.url), 'utf8');
@@ -119,7 +120,7 @@ test('switching saved chat projects while disconnected only changes metadata', a
 const api = await load('../src/lib/api/developer-spaces.ts', [
   ["import axios from 'axios';", 'const axios = { create: () => ({}) };'],
   ["import { authFetch, workspaceTransport } from './transport';", 'const authFetch = null; const workspaceTransport = { selected: "" };'],
-  ["import { resumableStream } from '../helper/resumable-stream';", 'const resumableStream = null;'],
+  ["from '../helper/run-events'", `from '${await moduleURL(new URL('../src/lib/helper/run-events.ts', import.meta.url))}'`],
 ]);
 
 test('path helpers stay inside the given folder', () => {

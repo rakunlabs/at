@@ -220,6 +220,13 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/chats/conversations/{id}/messages", "models.use", "", ""},
 		{"POST", "/chats/conversations/{id}/messages", "models.use", "", ""},
 		{"DELETE", "/chats/conversations/{id}/messages", "models.use", "", ""},
+		// Background runs execute tools server-side; the execution policy
+		// still decides each tool, skill and MCP set like the browser loop.
+		{"POST", "/chats/conversations/{id}/run", "models.use", "", ""},
+		{"GET", "/chats/conversations/{id}/run", "models.use", "", ""},
+		{"DELETE", "/chats/conversations/{id}/run", "models.use", "", ""},
+		{"GET", "/chats/conversations/{id}/streams/{stream}", "models.use", "", ""},
+		{"DELETE", "/chats/conversations/{id}/streams/{stream}", "models.use", "", ""},
 		{"POST", "/chats/conversations/{id}/shares/preview", "models.use", "", ""},
 		{"POST", "/chats/conversations/{id}/shares", "models.use", "", ""},
 		{"GET", "/chats/conversations/{id}/share", "models.use", "", ""},

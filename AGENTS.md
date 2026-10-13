@@ -662,6 +662,18 @@ authority checks, Telegram notifications, run history) in the background. No
 binding answers 409 ("set Run as first"). Scheduled ticks and manual runs share
 `Scheduler.fire`.
 
+Approving the Run as account is one step wherever it comes up. The Crons,
+Webhooks, Bots and MCP Servers create forms bind the signed-in account by
+default (*Run as my account*, `RunAsSelf.svelte` + `bindToSelf`; a new enabled
+bot is then started). Run now turns the 409 into an *Approve and run* dialog.
+`trigger_create`, `bot_create`, `mcp_server_create` and an unbound `bot_start`
+return `binding_required: {kind, subject_id}` (`withBindingRequired`), which
+Chats and Sessions render as an approval card (`BindingApproval.svelte`,
+`helper/binding-approval.ts`; approving a bot also starts it). Every path saves
+through the existing `POST …/execution-binding` with the person's own session,
+so an agent can request approval but never grant it. Regressions:
+`TestTriggerCreateResultRequestsBinding`, `_ui/tests/binding-approval.test.mjs`.
+
 Every firing writes a `cron_runs` row (`source` schedule|manual, `triggered_by`)
 plus `cron_run_logs` entries (`system`/`milestone`/`report`/`error`, ≤200 per
 run, ≤200 runs per trigger; deleted with the trigger/workspace). Writes are bound
@@ -1345,6 +1357,66 @@ an unpriced model, and gateway clients never receive the field
 running cost survives reloads; calls without a price are counted as
 "unpriced" rather than as zero. The total covers the loaded messages.
 Regression: `TestChatsStreamUsageCarriesCost`.
+
+**Background runs.** A conversation can opt in (workbench → Chat tools →
+*Keep running when I leave this page*, stored as `config.background`, off by
+default, never carried by presets or account defaults). The page then saves
+the question and calls `POST /api/v1/chats/conversations/{id}/run`
+(`chat-background-runs.go`), which answers the **saved** transcript on the
+server through the replay transport (`replayChatRun` kind), so closing the tab
+detaches without cancelling. The run reads model, prompt and setup from the
+stored conversation, resolves providers like `/chats/completions`, loads
+history from the latest compaction summary (refuses >2000 rows), and offers
+MCP sets, built-ins, agent-bound skills, a server-side `todo_write`/
+`todo_read` and `question`; local MCP, local providers and extensions do not
+exist there and the workbench names what is lost. Each step is appended as it
+happens (SSE `message` events carry the stored row), with usage, traces
+(source `chats`) and cost events like the browser loop. Interrupted calls
+earlier in the history are answered in the request; trailing ones in storage.
+
+`question` does not block a server goroutine: the run executes the step's
+other calls, leaves the question as the transcript's unanswered call, emits
+`question` and ends with `done` + `waiting: true`, releasing its receipt. The
+page rebuilds the prompt from the transcript (`pendingStoredQuestion`), so it
+survives reloads, other devices and restarts; answering appends the tool
+result (`{"answer": …}`, the browser loop's shape) and starts the next run. A
+new message instead closes it as "did not answer" — server and page alike.
+
+Migration 103 adds a per-conversation receipt
+(`playground_conversations.active_run_*`, `PlaygroundRunStorer`). Acquisition
+is under the conversation row lock and refuses a live receipt; runs renew
+every 15s and a receipt older than 60s is stale and may be taken over. While
+live, browser appends/truncate/delete answer 409 and only the owning run ID
+(`ContextWithPlaygroundRun`) may append, so a superseded run is fenced out.
+`GET .../run` reports the receipt and local replay ID; `DELETE .../run`
+(optionally `?run_id=`, so a late Stop cannot hit the next run) sets
+`cancel_requested`, which the owner sees within 5s on any replica (a local
+stream is cancelled at once). Transient database errors do not stop a run;
+only a lost receipt or a requested cancellation does. The model is re-admitted
+before every call (`chatProviderInfo`), like a browser completion. At most four
+runs per account and workspace may be live on a replica. A run's replay that
+reaches 8 MiB ends with a `truncated` event instead of cancelling the run; the
+page then follows the receipt and reloads saved rows. Replay is replica-local
+like Sessions; a page that lands on another replica polls the receipt and
+reloads when it clears.
+Feature key `chat_background_runs` (sibling of `playground`). Regressions:
+`internal/server/chat-background-runs_test.go`,
+`internal/store/postgres/playground-runs_test.go`,
+`_ui/tests/chat-background.test.mjs`.
+
+**Shared durable-run runtime.** Developer Spaces sessions and Chats background
+runs share `internal/server/agent-runs.go` — `runEventStream` (SSE writer and
+keep-alive), `holdRunReceipt` (renewal, optional cancellation polling,
+idempotent release before the terminal event) and the scoped replay helpers
+(`activeReplayStream`, `cancelReplayStreams`, `replayRunStream`) — and the UI
+client `_ui/src/lib/helper/run-events.ts` (`followRunStream`,
+`consumeRunEvents`). Each surface keeps its own records, admission and stale
+policy: Developer Spaces never takes over a stale receipt and stops on any
+renewal error (a crashed owner may still run commands in the container);
+Chats takes over after 60s because its writes are fenced by run ID. Add a new
+durable surface by supplying a `runReceipt` and a `replayKind`, not by copying
+either loop. Regressions: `internal/server/agent-runs_test.go`,
+`_ui/tests/run-events.test.mjs`.
 
 **Agent-bound skills in Chats.** A selected skill with `context: fork` is not
 pasted into the prompt: Chats exposes the same `load_skill` (`skill_name`,
@@ -2246,6 +2318,15 @@ Execution-policy resource IDs are unchanged: they were always keyed on the
 configured URL, never the normalized one. Regression:
 `TestMCPEndpointURLIsVerbatim`, `TestHTTPMCPClientDialsConfiguredPath`.
 
+Loopback upstreams are not special-cased either. `NewExecutionHTTPMCPClient`
+used to refuse `localhost`/`127.0.0.1` unless the exact URL was listed under
+Settings → Execution (migration 96, `trusted_local_mcp`). Dialling any MCP
+upstream already requires Trusted host execution, which grants arbitrary
+network access through other tools, and the check was trivially bypassed
+(`0.0.0.0`, DNS names resolving to loopback, private addresses), so it only
+forced people to move servers to a listed port. Migration 104 drops the column
+and the setting. Regression: `TestExecutionMCPLoopbackNotRefused`.
+
 ### Local MCP servers in Chats
 
 Every other MCP path in the product dials from the server process, so
@@ -2265,38 +2346,25 @@ at `GET`/`PUT /api/v1/chats/local-mcp-servers` plus
 two levels).
 
 **The server stores these and never dials one.** The record type has no
-conversion into an `MCPUpstream` and no MCP runtime reads the preference key.
-That is the security position, not an implementation detail: the addresses are
-loopback and private by construction, so a server-side dial would be a request
-from AT into AT's own network chosen by any account — the SSRF
-`internal/service/execution-mcp.go` already refuses on the scoped path and the
-legacy Chats path does not check.
+conversion into an `MCPUpstream` and no MCP runtime reads the preference key,
+because a server-side dial to an address any account chose would be a request
+from AT into AT's own network.
 
-`service.ValidateLocalMCPURL` accepts only `http`/`https` to loopback,
-`.localhost`, `.local`, RFC1918, CGNAT (100.64/10) and link-local hosts; a
-public endpoint is refused and the message names MCP sets. This is not defence
-against the person configuring it — they control their own browser — it is
-what stops the feature becoming a workspace-policy bypass: a public MCP routed
-through the page would run with no `CheckExecution`, no `mcp_tool` admission
-and no server-side trace, while being exactly as usable as one in an MCP set.
-The URL is dialled verbatim, like every other MCP URL.
-
-**Another AT as a local MCP server.** The one non-local URL accepted is an
-`https` AT gateway MCP endpoint (`[<base>]/gateway/v1/mcp/<name>[/mcp]`,
-`service.IsGatewayMCPPath`), and only with an `Authorization: Bearer <token>`
-(or `x-api-key`) header, enforced by `NormalizeLocalMCPServers` and mirrored
-in the editor. This bypasses nothing: the remote installation still applies its
-token admission, the MCP server's Run-as identity, workspace policy and its own
-traces. On the remote side `gatewayMCPCORS` (`gateway-cors.go`) opens the
-JSON-RPC POST routes cross-origin **only** for preflights announcing
-`authorization`/`x-api-key` and requests carrying one; everything else
-(including SSE/WebSocket routes and token-less requests) keeps the default
-policy, so a website still cannot drive a public MCP server. Because a junk
-header would otherwise satisfy CORS and then fall back to public admission,
-`authorizeGatewayMCPServer` refuses that fallback for a cross-origin request
-whose credential was rejected. Regression: `TestGatewayCORS`,
+`service.ValidateLocalMCPURL` checks only the shape (`http`/`https`, a host,
+no credentials in the URL). Any host is accepted — loopback, private network,
+a public MCP or another AT's gateway MCP endpoint — because the browser makes
+the request and the address is the user's choice; an earlier host allowlist
+only made people move servers between ports. The control is the
+`chat_local_mcp` feature switch (on by default). Calls from the page are not
+subject to workspace execution policy; they are reported as client-asserted
+observations. The URL is dialled verbatim. A remote AT gateway MCP endpoint
+still applies its own token admission, Run-as identity and policy; on that
+side `gatewayMCPCORS` (`gateway-cors.go`) opens the JSON-RPC POST routes
+cross-origin only for requests carrying `authorization`/`x-api-key`, and
+`authorizeGatewayMCPServer` refuses the public fallback for a cross-origin
+request whose credential was rejected. Regression: `TestGatewayCORS`,
 `TestGatewayMCPHandler_BrowserRejectedTokenNoPublicFallback`,
-`TestNormalizeLocalMCPServers`.
+`TestValidateLocalMCPURL`.
 
 Header values are redacted to `***` on ordinary reads, the sentinel preserves
 the stored value on write, and real values come only from the per-record

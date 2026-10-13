@@ -404,21 +404,38 @@ func CallProviderStream(
 	model, agentID, taskID string,
 	messages []service.Message,
 	tools []service.Tool,
+	reasoningEffort string,
 	onDelta func(StreamDelta),
 ) (resp *service.LLMResponse, callMessages []service.Message, latencyMs int64, err error) {
 	streamer, ok := provider.(service.ExecutionStreamer)
 	if !ok {
-		resp, callMessages, latencyMs, err = CallProvider(ctx, governor, provider, model, agentID, taskID, messages, tools, "")
+		resp, callMessages, latencyMs, err = CallProvider(ctx, governor, provider, model, agentID, taskID, messages, tools, reasoningEffort)
 		if err == nil && onDelta != nil && (resp.Content != "" || resp.ReasoningContent != "") {
 			onDelta(StreamDelta{Content: resp.Content, Reasoning: resp.ReasoningContent})
 		}
 		return resp, callMessages, latencyMs, err
 	}
 	callMessages = messages
+	if err := service.ValidateReasoningEffort(reasoningEffort); err != nil {
+		return nil, callMessages, 0, fmt.Errorf("agent reasoning effort: %w", err)
+	}
+	if validator, ok := provider.(service.ReasoningEffortValidator); ok {
+		if err := validator.ValidateReasoningEffort(reasoningEffort); err != nil {
+			return nil, callMessages, 0, fmt.Errorf("agent provider reasoning effort: %w", err)
+		}
+	}
 	var opts *service.ChatOptions
 	if governor != nil {
 		callMessages, _ = governor.LimitWithTools(ctx, agentID, taskID, messages, tools)
 		opts = governor.ChatOptions()
+	}
+	if reasoningEffort != "" {
+		merged := service.ChatOptions{}
+		if opts != nil {
+			merged = *opts
+		}
+		merged.ReasoningEffort = reasoningEffort
+		opts = &merged
 	}
 	started := time.Now()
 	chunks, err := streamer.StreamChat(ctx, model, callMessages, tools, opts)

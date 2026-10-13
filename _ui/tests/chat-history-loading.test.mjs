@@ -25,6 +25,7 @@ const code = ts.transpileModule(`export function fixture(pages) {
   const tick = async () => {};
   let todos = [];
   const latestTodos = () => null, loadParentTitle = async () => {};
+  const backgroundAvailable = false, attachBackgroundRun = async () => {};
   ${functions.join('\n')}
   return { open: openConversation, older: loadOlderHistory,
     snapshot: () => ({ calls, errors, messages, meta, historyCursor, historyTruncated, loadingOlderHistory, scrollTop: chatContainer.scrollTop }),

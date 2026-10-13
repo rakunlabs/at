@@ -1,5 +1,7 @@
 <script lang="ts">
   import ToolActivity from '@/lib/components/ToolActivity.svelte';
+  import BindingApproval from '@/lib/components/BindingApproval.svelte';
+  import { bindingRequestFromResult } from '@/lib/helper/binding-approval';
   import { toolResultsByMessage } from '@/lib/helper/tool-activity';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -79,7 +81,9 @@
     type ExtensionDescriptor,
     type ExtensionTool,
   } from '@/lib/helper/extension-bridge';
-  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_LOCAL_PROVIDERS, FEATURE_CHAT_SHARING } from '@/lib/api/features';
+  import { FEATURE_CHAT_BACKGROUND_RUNS, FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP, FEATURE_CHAT_LOCAL_PROVIDERS, FEATURE_CHAT_SHARING } from '@/lib/api/features';
+  import { ChatRunError, followChatRun, getChatRun, stopChatRun, type ChatRunEvent } from '@/lib/api/chat-runs';
+  import { backgroundBlocker, backgroundOmissions, isBackgroundConfig, pendingStoredQuestion, questionAnswerResult, QUESTION_TOOL } from '@/lib/helper/chat-background';
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
@@ -332,6 +336,10 @@
     return typeof content === 'string' ? content : getTextContent(content);
   }
 
+  function bindingRequestFor(result: ChatMessage | undefined) {
+    return result ? bindingRequestFromResult(messageText(result.content)) : null;
+  }
+
   function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -572,6 +580,27 @@
 
   let localProviders = $state<LocalChatProvider[]>([]);
   let localProvidersAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_LOCAL_PROVIDERS));
+
+  // ─── Background runs ───
+  //
+  // Per conversation, off by default. When on, a turn runs on the server and
+  // keeps going after this page closes; the page only follows it. Tools only
+  // this browser can reach are unavailable to it.
+  let backgroundAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_BACKGROUND_RUNS));
+  let backgroundMode = $state(false);
+  /** A server run holds this conversation (this page may or may not follow it). */
+  let backgroundRunActive = $state(false);
+  /** Live text of the step the run is streaming, shown until it is saved. */
+  let backgroundDraft = $state('');
+  let backgroundProgress = $state('');
+  let backgroundFollow: AbortController | null = null;
+  /** "Interrupt & send" stopped the run: the queue continues once it ends. */
+  let backgroundInterrupted = false;
+  /** The saved `question` call a background run stopped at, awaiting an answer. */
+  let storedQuestionCallId = $state('');
+  /** ID of the run this page follows, so Stop cannot reach the run after it. */
+  let backgroundRunId = '';
+  let backgroundRunsOn = $derived(backgroundAvailable && backgroundMode);
   /** Enabled on this device (localStorage), by record id. */
   let localProviderEnabledIds = $state<string[]>([]);
   /** Discovered models and last error per record id. */
@@ -1072,6 +1101,8 @@
       mcp_headers: { ...legacyMcpHeaders },
       ...setup,
       ...(reasoning_effort ? { reasoning_effort } : {}),
+      // Per conversation: presets and account defaults never carry it.
+      ...(backgroundMode ? { background: true } : {}),
     };
   }
 
@@ -1079,6 +1110,7 @@
     const c = config ?? {};
     const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
     legacyMcpUrls = names(c.mcp_urls);
+    backgroundMode = isBackgroundConfig(c);
     applySetup(normalizeWorkbenchSetup({ ...c, model: selectedModel, system_prompt: systemPrompt }));
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
@@ -1198,6 +1230,7 @@
 
   function resetBuffer() {
     turnLifecycle.invalidate();
+    detachBackgroundRun();
     voiceContext++;
     if (abortController) { abortController.abort(); abortController = null; }
     streaming = false;
@@ -1209,6 +1242,7 @@
     queuedMessages = [];
     todos = [];
     pendingQuestion = null;
+    storedQuestionCallId = '';
     contextTokens = 0;
     completionTokens = 0;
     totalTokens = 0;
@@ -1290,6 +1324,7 @@
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void discoverTools();
       scrollToBottom(true);
+      if (backgroundAvailable) void attachBackgroundRun(id, generation);
     } catch (e) {
       if (!current()) return;
       addToast(playgroundErrorMessage(e, 'Failed to open conversation'), 'alert');
@@ -1453,6 +1488,7 @@
 
   onDestroy(() => {
     storeNavbar.chatPanels = null;
+    detachBackgroundRun();
     if (scrollIndicatorTimer) clearTimeout(scrollIndicatorTimer);
     turnLifecycle.invalidate();
     abortController?.abort();
@@ -2799,6 +2835,12 @@
       pendingImages = [];
     }
     if (queuedMessages.length === 0) return;
+    if (backgroundRunActive) {
+      backgroundInterrupted = true;
+      if (activeTurn) activeTurn.interrupted = true;
+      void stopBackgroundRun();
+      return;
+    }
     if (!streaming || !activeTurn) { sendQueuedNow(); return; }
     activeTurn.interrupted = true;
     activeTurn.controller.abort();
@@ -2818,8 +2860,10 @@
     const open = unansweredToolCalls(messages);
     if (open.length === 0) return;
     const pair = splitModel(model);
+    const questions = new Set(messages.flatMap(m => m.tool_calls ?? []).filter(c => c.function.name === QUESTION_TOOL).map(c => c.id));
     for (const id of open) {
-      messages = [...messages, { role: 'tool', content: INTERRUPTED_TOOL_RESULT, tool_call_id: id }];
+      const content = questions.has(id) ? 'The user did not answer this question and wrote a new message instead.' : INTERRUPTED_TOOL_RESULT;
+      messages = [...messages, { role: 'tool', content, tool_call_id: id }];
       meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [] }];
     }
   }
@@ -2847,6 +2891,7 @@
   }
 
   async function runUserTurn(items: QueuedChatMessage<PendingAttachment>[]) {
+    if (backgroundRunsOn) { await runBackgroundTurn(items); return; }
     const turn = beginTurn();
     if (!turn) {
       queuedMessages = [...items, ...queuedMessages];
@@ -3259,9 +3304,277 @@
   }
 
   function stopStreaming() {
+    if (backgroundRunActive && conversationId) { void stopBackgroundRun(); return; }
     if (abortController) {
       abortController.abort();
     }
+  }
+
+  // ─── Background runs ───
+
+  let backgroundBlockedBy = $derived(backgroundBlocker({ model: selectedModel, frontend_tools: enabledFrontendTools }, isLocalModelRef));
+  let backgroundLosses = $derived(backgroundOmissions(
+    { model: selectedModel, frontend_tools: enabledFrontendTools },
+    { localServers: activeLocalServers.map(s => s.name), extensions: webConnectionEnabled ? activeExtensions.map(e => e.name) : [] },
+  ));
+
+  function setBackgroundMode(on: boolean) {
+    if (on && backgroundBlockedBy) { addToast(backgroundBlockedBy, 'warn'); return; }
+    backgroundMode = on;
+    scheduleSettingsSave();
+    // A question a run left open belongs to background mode.
+    if (on) offerStoredQuestion(); else clearStoredQuestion();
+  }
+
+  /**
+   * Save the question, then hand the turn to the server. The page follows the
+   * run but does not own it: leaving detaches, only Stop cancels.
+   */
+  async function runBackgroundTurn(items: QueuedChatMessage<PendingAttachment>[]) {
+    if (backgroundBlockedBy) { queuedMessages = [...items, ...queuedMessages]; addToast(backgroundBlockedBy, 'warn'); return; }
+    const turn = beginTurn();
+    if (!turn) { queuedMessages = [...items, ...queuedMessages]; return; }
+    clearStoredQuestion();
+    let started = false;
+    try {
+      repairInterruptedTail(turn.model);
+      appendUserMessages(items, turn.model);
+      confirmClear = false;
+      scrollToBottom(true);
+      const first = items[0];
+      if (!conversationId) await ensureConversation(first?.text || first?.attachments[0]?.name || 'Chat conversation');
+      turnLifecycle.assert(turn);
+      // The run reads its model, prompt and tools from the stored conversation.
+      if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; }
+      await saveSettings();
+      await persistPending();
+      turnLifecycle.assert(turn);
+      if (meta.some(m => m.sequence === null)) throw new Error('Messages could not be saved, so the background run was not started. Retry from the toolbar.');
+      started = true;
+      await followBackgroundRun(conversationId, { traceId: turn.traceId });
+    } catch (e) {
+      const cancelled = e instanceof ChatRunError && e.cancelled;
+      if (turnLifecycle.current(turn) && !(e instanceof DOMException && e.name === 'AbortError') && !(cancelled && turn.interrupted)) {
+        turn.failed = true;
+        if (!cancelled) addToast((e as Error).message || 'Background run failed', 'alert');
+      }
+    } finally {
+      backgroundInterrupted = false;
+      finishTurn(turn);
+      if (started && turnLifecycle.generation() === turn.generation) void refreshAfterRun(conversationId);
+      continueWithQueue(turn);
+    }
+  }
+
+  /**
+   * Follow a run: start it, or reattach by stream ID. Saved rows are merged by
+   * ID, so replayed events and already-loaded history are never doubled.
+   */
+  async function followBackgroundRun(id: string, options: { traceId?: string; streamId?: string } = {}) {
+    detachBackgroundRun();
+    const follow = new AbortController();
+    backgroundFollow = follow;
+    backgroundRunActive = true;
+    backgroundDraft = '';
+    backgroundProgress = '';
+    let truncated = false;
+    try {
+      await followChatRun(id, {
+        streamId: options.streamId ?? crypto.randomUUID(),
+        resume: !!options.streamId,
+        traceId: options.traceId,
+        signal: follow.signal,
+      }, event => {
+        if (follow.signal.aborted || conversationId !== id) return;
+        if (event.type === 'status') backgroundRunId = event.run_id;
+        if (event.type === 'truncated') truncated = true;
+        applyRunEvent(event);
+      });
+    } catch (e) {
+      // A full live replay ends the stream, not the run: follow its receipt.
+      if (!truncated) throw e;
+      await waitForRunToEnd(id, follow.signal);
+    } finally {
+      if (backgroundFollow === follow) {
+        backgroundFollow = null;
+        backgroundRunActive = false;
+        backgroundDraft = '';
+        backgroundProgress = '';
+        backgroundRunId = '';
+      }
+    }
+  }
+
+  /** Poll the receipt until no live run holds the conversation. */
+  async function waitForRunToEnd(id: string, signal: AbortSignal) {
+    backgroundDraft = '';
+    backgroundProgress = 'still running — the live view is full, showing saved steps';
+    while (!signal.aborted && conversationId === id) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (signal.aborted || conversationId !== id) return;
+      let status;
+      try { status = await getChatRun(id); } catch { continue; }
+      if (!status.run || status.run.stale) return;
+      void refreshAfterRun(id, true);
+    }
+  }
+
+  function applyRunEvent(event: ChatRunEvent) {
+    switch (event.type) {
+      case 'delta':
+        if (event.content) { backgroundDraft += event.content; scrollToBottom(); }
+        break;
+      case 'tool_start':
+        backgroundProgress = `running ${event.name}…`;
+        break;
+      case 'tool_progress':
+        backgroundProgress = event.content;
+        break;
+      case 'message': {
+        backgroundDraft = '';
+        backgroundProgress = '';
+        const m = event.message;
+        // Replay re-sends rows already applied or loaded, and older ones the
+        // page never loaded (it renders the latest page); keep one of each, in order.
+        if (meta.some(x => x.id === m.id)) break;
+        const newest = Math.max(0, ...meta.map(x => x.sequence ?? 0));
+        if (m.sequence <= newest) break;
+        messages = [...messages, toChatMessage(m)];
+        meta = [...meta, { id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) }];
+        const usage = storedUsage(m.data);
+        if (usage) { contextTokens = usage.prompt; completionTokens += usage.completion; totalTokens = contextTokens + completionTokens; }
+        const listed = latestTodos(messages);
+        if (listed) { todos = listed; if (enabledFrontendTools.includes('todo_write')) showTodoPanel = true; }
+        scrollToBottom();
+        break;
+      }
+    }
+  }
+
+  /** Stop following without stopping the run. */
+  function detachBackgroundRun() {
+    backgroundFollow?.abort();
+    backgroundFollow = null;
+    backgroundRunActive = false;
+    backgroundDraft = '';
+    backgroundProgress = '';
+  }
+
+  async function stopBackgroundRun() {
+    const id = conversationId;
+    if (!id) return;
+    try {
+      await stopChatRun(id, backgroundRunId);
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to stop the background run'), 'alert');
+    }
+  }
+
+  /**
+   * Opening a conversation: reattach to its live run, or wait for one that
+   * runs on another replica (no replay here) and reload when it finishes.
+   */
+  async function attachBackgroundRun(id: string, generation: number) {
+    const current = () => !disposed && conversationId === id && turnLifecycle.generation() === generation;
+    let status;
+    try { status = await getChatRun(id); } catch { offerStoredQuestion(); return; }
+    if (!current()) return;
+    if (!status.run || status.run.stale) { offerStoredQuestion(); return; }
+    // No local turn owns this run, so mark the page busy for the duration:
+    // the same guards that protect a live turn (retry, clear, compact, the
+    // queue) then apply, and Stop reaches the run.
+    streaming = true;
+    if (status.stream_id) {
+      let continueQueue = true;
+      try {
+        await followBackgroundRun(id, { streamId: status.stream_id });
+      } catch (e) {
+        continueQueue = backgroundInterrupted;
+        if (current() && !(e instanceof ChatRunError && e.cancelled) && (e as Error).name !== 'AbortError') addToast((e as Error).message, 'warn');
+      }
+      backgroundInterrupted = false;
+      if (!current()) return;
+      streaming = false;
+      await refreshAfterRun(id);
+      if (continueQueue) sendQueuedNow();
+      return;
+    }
+    backgroundRunActive = true;
+    backgroundProgress = 'running on another server…';
+    while (current()) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!current()) return;
+      try { status = await getChatRun(id); } catch { continue; }
+      if (!status.run || status.run.stale) break;
+    }
+    if (!current()) return;
+    backgroundRunActive = false;
+    backgroundProgress = '';
+    streaming = false;
+    backgroundInterrupted = false;
+    await refreshAfterRun(id);
+    // The outcome is not visible from here; queued messages were written to
+    // follow the run, so they go now.
+    sendQueuedNow();
+  }
+
+  /** The run's saved rows are authoritative; reload them once it ends. */
+  async function refreshAfterRun(id: string, whileRunning = false) {
+    if (disposed || conversationId !== id || (streaming && !whileRunning)) return;
+    try {
+      const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE });
+      if (disposed || conversationId !== id || (streaming && !whileRunning)) return;
+      const loaded = res.data ?? [];
+      historyCursor = res.meta?.next_before ?? '';
+      historyTruncated = !!historyCursor;
+      messages = loaded.map(toChatMessage);
+      meta = loaded.map(m => ({ id: m.id, sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [], compaction: m.data?.[COMPACTION_FLAG] === true, usage: storedUsage(m.data) }));
+      rawMessages = {};
+      todos = latestTodos(messages) ?? todos;
+      const c = conversations.find(x => x.id === id);
+      if (c) mergeConversation({ ...c, updated_at: new Date().toISOString() });
+      if (!whileRunning) offerStoredQuestion();
+      scrollToBottom();
+    } catch {
+      // The transcript on screen stays; the next open reloads it.
+    }
+  }
+
+  /**
+   * A background run that asked a question ended with the call unanswered.
+   * The question is rebuilt from the transcript, so it is offered again after
+   * a reload or on another device; answering saves the result and starts the
+   * next run, which continues from it.
+   */
+  function offerStoredQuestion() {
+    if (!backgroundRunsOn || streaming || backgroundRunActive) return;
+    const q = pendingStoredQuestion(messages);
+    if (!q) { clearStoredQuestion(); return; }
+    if (storedQuestionCallId === q.toolCallId && pendingQuestion) return;
+    storedQuestionCallId = q.toolCallId;
+    questionSelections = [];
+    pendingQuestion = {
+      question: q.question, header: q.header, options: q.options, multiple: q.multiple, custom: q.custom,
+      resolve: answer => void answerStoredQuestion(q.toolCallId, answer),
+    };
+    scrollToBottom();
+  }
+
+  function clearStoredQuestion() {
+    if (!storedQuestionCallId) return;
+    storedQuestionCallId = '';
+    pendingQuestion = null;
+  }
+
+  async function answerStoredQuestion(toolCallId: string, answer: string) {
+    if (storedQuestionCallId !== toolCallId || streaming) return;
+    if (!backgroundRunsOn) { clearStoredQuestion(); addToast('Background mode was turned off. Write a message to continue the conversation.', 'warn'); return; }
+    storedQuestionCallId = '';
+    pendingQuestion = null;
+    const owner = meta.findLast((_, index) => messages[index]?.tool_calls?.some(c => c.id === toolCallId));
+    messages = [...messages, { role: 'tool', content: questionAnswerResult(answer), tool_call_id: toolCallId }];
+    meta = [...meta, { sequence: null, provider_key: owner?.provider_key ?? splitModel(selectedModel).provider_key, model: owner?.model ?? splitModel(selectedModel).model, created_at: new Date().toISOString(), imageNames: [] }];
+    await runBackgroundTurn([]);
   }
 
   /** Two-step confirm — clearing a saved transcript deletes stored rows. */
@@ -3976,6 +4289,28 @@
             <p class="mt-2 max-w-2xl text-xs text-dark-text-muted">These tools run in this chat interface and help the model manage the conversation while you are here.</p>
           </div>
 
+          {#if backgroundAvailable}
+            <div role="group" aria-label="Background run" class="block max-w-2xl">
+              <label class="flex items-center gap-2 text-xs text-dark-text">
+                <input
+                  type="checkbox"
+                  checked={backgroundMode}
+                  disabled={streaming || (!backgroundMode && !!backgroundBlockedBy)}
+                  onchange={(e) => setBackgroundMode(e.currentTarget.checked)}
+                />
+                Keep running when I leave this page
+              </label>
+              <p class="mt-1 text-xs text-dark-text-muted">
+                For this conversation only. Each answer runs on the server and continues after you close the tab; open the conversation again to see it. Stop still cancels it.
+              </p>
+              {#if !backgroundMode && backgroundBlockedBy}
+                <p class="mt-1 text-xs text-[var(--oc-peach)]">{backgroundBlockedBy}</p>
+              {:else if backgroundMode && backgroundLosses.length > 0}
+                <p class="mt-1 text-xs text-[var(--oc-peach)]">Not available while running in the background: {backgroundLosses.join('; ')}.</p>
+              {/if}
+            </div>
+          {/if}
+
           <!-- Local MCP servers.
                Unlike every other source here these are dialled by this browser:
                the server stores the address and never connects to it, which is
@@ -4312,7 +4647,7 @@
               <div class="my-2.5 min-w-0">
                 {#each msg.tool_calls as tc}
                   {@const source = toolSourceMap[tc.function.name]}
-                  {#if pendingQuestion && activeTool?.messageIndex === i && activeTool?.callID === tc.id && tc.function.name === 'question'}
+                  {#if pendingQuestion && ((activeTool?.messageIndex === i && activeTool?.callID === tc.id) || storedQuestionCallId === tc.id) && tc.function.name === 'question'}
                     {@render questionPrompt()}
                   {:else}
                     <ToolActivity
@@ -4323,6 +4658,7 @@
                       queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
                       source={source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
                     />
+                    {#if bindingRequestFor(toolResults.get(i)?.get(tc.id))}<BindingApproval request={bindingRequestFor(toolResults.get(i)?.get(tc.id))!} />{/if}
                     {#if skillRunProgress[tc.id] && activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                       <p role="status" class="ml-[2ch] truncate text-[var(--oc-peach)]">~ {skillRunProgress[tc.id]}</p>
                     {/if}
@@ -4353,6 +4689,16 @@
       {/each}
       {#if skillRunProgress[`wait-${turnTraceId}`]}
         <p role="status" class="px-4 text-[var(--oc-peach)] sm:px-[22px]">~ background skills: {skillRunProgress[`wait-${turnTraceId}`]}</p>
+      {/if}
+      <!-- A background run streams the step it is on; the text is replaced by
+           the saved message as soon as the server stores it. -->
+      {#if backgroundRunActive}
+        {#if backgroundDraft}
+          <div class="my-5 px-4 text-dark-text sm:px-[22px]">
+            <MessageContent message={{ role: 'assistant', content: backgroundDraft }} workspace={workspaceTransport.selected} formatSize={formatFileSize} />
+          </div>
+        {/if}
+        <p role="status" class="px-4 text-[var(--oc-peach)] sm:px-[22px]">~ running on the server{backgroundProgress ? `: ${backgroundProgress}` : '…'} <span class="text-dark-text-muted">— you can close this page</span></p>
       {/if}
     {/if}
     </div>
@@ -4401,7 +4747,7 @@
       <div class="mb-0.5 border-l-2 border-[var(--oc-peach)] bg-dark-surface" aria-live="polite">
         <div class="flex flex-wrap items-center gap-x-[2ch] gap-y-1 px-4 pt-2 pb-1 sm:px-[22px]">
           <span class="text-[var(--oc-peach)]">{queuedMessages.length} queued</span>
-          <span class="text-dark-text-muted">{streaming ? 'sent to the agent at its next step' : 'waiting — the last turn stopped'}</span>
+          <span class="text-dark-text-muted">{backgroundRunActive ? 'sent when the background run finishes' : streaming ? 'sent to the agent at its next step' : 'waiting — the last turn stopped'}</span>
           <span class="flex-1"></span>
           {#if !streaming}
             <button onclick={sendQueuedNow} disabled={!selectedModel || loadingTools} class="text-dark-text hover:underline underline-offset-4 disabled:opacity-40 focus-visible:outline-1 focus-visible:outline-accent">send now</button>
@@ -4530,6 +4876,13 @@
             title="Reasoning effort — models without reasoning may reject it (ctrl+t cycles)"
             class="shrink-0 text-dark-text-muted hover:text-dark-text hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent"
           >{effectiveReasoningEffort || 'default'}</button>
+        {/if}
+        {#if backgroundRunsOn}
+          <button
+            onclick={() => openWorkbench('chat')}
+            title="This conversation runs on the server and keeps going after you leave. Change it in the workbench."
+            class="shrink-0 text-[var(--oc-violet)] hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent"
+          >background</button>
         {/if}
         <span class="flex-1"></span>
         <button

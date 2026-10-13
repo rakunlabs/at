@@ -92,7 +92,7 @@ func TestDeveloperDurableRunExcludesAnotherServer(t *testing.T) {
 	go func() {
 		defer close(finished)
 		first.startDeveloperStream(httptest.NewRecorder(), request(), func(w http.ResponseWriter, r *http.Request) {
-			stream, _ := newDeveloperStream(w)
+			stream, _ := newRunEventStream(w)
 			started <- service.DeveloperRunFromContext(r.Context())
 			select {
 			case <-release:
@@ -148,7 +148,7 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 		if p.UserID != "owner" || p.WorkspaceID != "workspace" {
 			t.Error("detachment lost the initiating identity")
 		}
-		stream, _ := newDeveloperStream(w)
+		stream, _ := newRunEventStream(w)
 		stream.send(map[string]any{"type": "delta", "content": "working"})
 		close(started)
 		<-r.Context().Done()
@@ -279,7 +279,7 @@ func TestDeveloperStreamShutdownRetainsIdentity(t *testing.T) {
 			if !errors.Is(r.Context().Err(), context.Canceled) {
 				t.Error("shutdown did not cancel")
 			}
-		}, true)
+		}, replayDeveloper)
 		close(finished)
 	}()
 	<-started

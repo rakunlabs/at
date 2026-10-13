@@ -1,6 +1,9 @@
 <script lang="ts">
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
   import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
+  import RunAsSelf from '@/lib/components/RunAsSelf.svelte';
+  import { bindToSelf, saveExecutionBinding } from '@/lib/api/execution-bindings';
+  import { storeAuth } from '@/lib/store/auth.svelte';
   import { createPageLoader } from '@/lib/helper/page-load.svelte';
   const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
@@ -70,6 +73,8 @@
   let formMaxIterations = $state(0);
   let formNotifyBotId = $state('');
   let formNotifyChatId = $state('');
+  // New schedules run as the signed-in account unless unticked.
+  let formRunAsSelf = $state(true);
   const taskConfigKeys = ['task_title', 'task_description', 'max_iterations', 'notify_bot_id', 'notify_chat_id'];
   let telegramBots = $derived(bots.filter((b) => b.platform === 'telegram'));
   let notifyUsers = $derived(telegramBots.find((b) => b.id === formNotifyBotId)?.allowed_users || []);
@@ -152,6 +157,7 @@
     formMaxIterations = 0;
     formNotifyBotId = '';
     formNotifyChatId = '';
+    formRunAsSelf = true;
     editingId = null;
     showForm = false;
     inputNodes = [];
@@ -275,8 +281,14 @@
         await updateTrigger(editingId, payload);
         addToast('Cron job updated');
       } else {
-        await createTrigger(payload);
-        addToast('Cron job created');
+        const created = await createTrigger(payload);
+        if (formRunAsSelf) {
+          const failed = await bindToSelf('trigger', created.id, storeAuth.identity?.subject);
+          if (failed) addToast(`Cron job created, but Run as could not be set: ${failed}`, 'warn');
+          else addToast('Cron job created. It runs as your account.');
+        } else {
+          addToast('Cron job created. Choose Run as before it can run.');
+        }
       }
       resetForm();
       await load();
@@ -316,15 +328,50 @@
     starting = t.id;
     try {
       await runTriggerNow(t.id);
-      addToast('Run started');
-      runsTriggerId = t.id;
-      tab = 'runs';
-      // The run row is written by the background run; give it a moment.
-      setTimeout(() => loadRuns(), 600);
+      startedRun(t.id);
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to start run', 'alert');
+      if (e?.response?.status === 409) {
+        approvalTrigger = t;
+      } else {
+        addToast(e?.response?.data?.message || 'Failed to start run', 'alert');
+      }
     } finally {
       starting = null;
+    }
+  }
+
+  function startedRun(id: string) {
+    addToast('Run started');
+    runsTriggerId = id;
+    tab = 'runs';
+    // The run row is written by the background run; give it a moment.
+    setTimeout(() => loadRuns(), 600);
+  }
+
+  // Run now on a schedule nobody approved yet: approve as self, then run.
+  let approvalTrigger = $state<Trigger | null>(null);
+  let approving = $state(false);
+
+  async function approveAndRun() {
+    const t = approvalTrigger;
+    const self = storeAuth.identity?.subject;
+    if (!t || !self || approving) return;
+    approving = true;
+    try {
+      await saveExecutionBinding('trigger', t.id, self);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Could not set Run as. Open the schedule and choose an account.', 'alert');
+      approving = false;
+      return;
+    }
+    approvalTrigger = null;
+    try {
+      await runTriggerNow(t.id);
+      startedRun(t.id);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Run as was saved, but the run could not start', 'alert');
+    } finally {
+      approving = false;
     }
   }
 
@@ -689,6 +736,9 @@
         </div>
 
         <!-- Actions -->
+        {#if !editingId}
+          <RunAsSelf bind:checked={formRunAsSelf} />
+        {/if}
         <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary">
             Cancel
@@ -812,6 +862,26 @@
   {/if}
   {/if}
 </div>
+
+{#if approvalTrigger}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onclick={(e) => { if (e.target === e.currentTarget && !approving) approvalTrigger = null; }}>
+    <div role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="cron-approve-title" onkeydown={(e) => { if (e.key === 'Escape' && !approving) approvalTrigger = null; }} class="w-full max-w-md border border-dark-border bg-dark-surface">
+      <div class="px-4 py-3 border-b border-dark-border">
+        <h2 id="cron-approve-title" class="text-sm font-medium text-dark-text">Approve this schedule?</h2>
+      </div>
+      <div class="p-4 space-y-2 text-sm text-dark-text-secondary">
+        <p><span class="text-dark-text">{getTargetName(approvalTrigger)}</span> has no Run as account yet, so it cannot run.</p>
+        <p>Approve it to run as <span class="text-dark-text">{storeAuth.identity?.name || 'your account'}</span> — now and on every scheduled tick — with that account's current permissions. To choose another account, edit the schedule.</p>
+      </div>
+      <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border">
+        <button type="button" onclick={() => { approvalTrigger = null; }} disabled={approving} class="px-3 py-1.5 text-sm border border-dark-border-subtle hover:bg-dark-elevated text-dark-text-secondary disabled:opacity-50">Cancel</button>
+        <button type="button" onclick={approveAndRun} disabled={approving || !storeAuth.identity?.subject} class="px-3 py-1.5 text-sm text-dark-base bg-accent hover:bg-accent-hover disabled:opacity-50">{approving ? 'Approving…' : 'Approve and run'}</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#snippet runsView()}
   <div class="flex flex-wrap items-center gap-2 mb-3">

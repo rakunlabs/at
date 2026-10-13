@@ -35,6 +35,11 @@ export function fixture() {
   let extensionUnsubscribe = null, extensionBridge = null;
   const turnLifecycle = { invalidate() {}, generation: () => 0 };
   let abortController = null;
+  let backgroundMode = false;
+  // onDestroy also releases the navbar's panel controls and the scroll indicator.
+  const storeNavbar = { chatPanels: {} };
+  let scrollIndicatorTimer = null;
+  const isBackgroundConfig = config => config?.background === true, backgroundAvailable = false, detachBackgroundRun = () => {}, attachBackgroundRun = async () => {};
   let settingsSaves = 0, discoveries = 0, resets = 0;
   let storedDefaults = { builtin_tools: ['whoami'] }, storedConversation;
   const writes = [], timers = new Map();

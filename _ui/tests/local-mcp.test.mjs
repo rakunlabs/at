@@ -15,73 +15,31 @@ async function load(path) {
 const helper = await load('../src/lib/helper/local-mcp.ts');
 const client = await load('../src/lib/helper/local-mcp-client.ts');
 
-// The host rule is what keeps a browser-dialled MCP from becoming a way around
-// workspace execution policy: a public endpoint routed through the page would
-// run with no execution check and no server-side trace.
-test('only local addresses are accepted', () => {
+// The browser dials the URL, so any http(s) host is the user's choice; only
+// the shape is checked. The endpoint path is used verbatim.
+test('any http(s) endpoint is accepted', () => {
   for (const ok of [
     'http://127.0.0.1:3000/mcp',
-    'http://localhost:8787/mcp',
-    'http://tools.localhost:8787/mcp',
     'http://[::1]:3000/mcp',
     'http://192.168.1.20:3000/mcp',
-    'http://10.1.2.3/mcp',
-    'http://172.16.0.9/mcp',
-    'http://100.101.102.103:3000/mcp',
-    'http://169.254.4.5/mcp',
-    'http://studio.local:3000/mcp',
-    'https://192.168.1.20:8443/mcp',
+    'https://mcp.example.com/mcp',
+    'http://8.8.8.8/mcp',
+    'http://host.docker.internal:3000/mcp',
+    'https://at.example.com/gateway/v1/mcp/tools',
+    'http://127.0.0.1:3000/mcp/api',
+    'http://127.0.0.1:3000/sse',
   ]) {
     assert.equal(helper.localMCPUrlProblem(ok), '', ok);
   }
 
   for (const bad of [
-    'https://mcp.example.com/mcp',
-    'http://8.8.8.8/mcp',
-    'http://172.32.0.1/mcp',
-    'http://host.docker.internal:3000/mcp',
     'ws://127.0.0.1:3000/mcp',
     'http://user:pass@127.0.0.1:3000/mcp',
+    'not a url',
     '',
   ]) {
     assert.notEqual(helper.localMCPUrlProblem(bad), '', bad);
   }
-});
-
-// The endpoint path is the user's; nothing appends /mcp to it.
-test('a nested endpoint path is accepted unchanged', () => {
-  assert.equal(helper.localMCPUrlProblem('http://127.0.0.1:3000/mcp/api'), '');
-  assert.equal(helper.localMCPUrlProblem('http://127.0.0.1:3000/sse'), '');
-});
-
-// Mirrors service.IsGatewayMCPPath / NormalizeLocalMCPServers.
-test('another AT gateway MCP endpoint is accepted over https with a token', () => {
-  for (const ok of [
-    'https://at.example.com/gateway/v1/mcp/tools',
-    'https://at.example.com/gateway/v1/mcp/tools/mcp',
-    'https://example.com/at/gateway/v1/mcp/tools',
-  ]) {
-    assert.equal(helper.localMCPUrlProblem(ok), '', ok);
-    assert.equal(helper.isRemoteGatewayMCP(ok), true, ok);
-  }
-  for (const bad of [
-    'http://at.example.com/gateway/v1/mcp/tools',
-    'https://at.example.com/gateway/v1/mcp/',
-    'https://at.example.com/gateway/v1/mcp/tools/ws',
-    'https://at.example.com/gateway/v1/chat/completions',
-  ]) {
-    assert.notEqual(helper.localMCPUrlProblem(bad), '', bad);
-  }
-  assert.equal(helper.isRemoteGatewayMCP('http://192.168.1.2/gateway/v1/mcp/tools'), false);
-
-  const remote = 'https://at.example.com/gateway/v1/mcp/tools';
-  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, {}), '');
-  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, { Authorization: 'Bearer ' }), '');
-  assert.notEqual(helper.remoteGatewayCredentialProblem(remote, { 'X-Other': 'at_1' }), '');
-  assert.equal(helper.remoteGatewayCredentialProblem(remote, { Authorization: 'Bearer at_1' }), '');
-  assert.equal(helper.remoteGatewayCredentialProblem(remote, { authorization: helper.REDACTED }), '');
-  assert.equal(helper.remoteGatewayCredentialProblem(remote, { 'x-api-key': 'at_1' }), '');
-  assert.equal(helper.remoteGatewayCredentialProblem('http://127.0.0.1:3000/mcp', {}), '');
 });
 
 test('a local tool never displaces an existing tool name', () => {

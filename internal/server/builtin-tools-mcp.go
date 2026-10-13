@@ -123,11 +123,8 @@ func (s *Server) execMCPServerCreate(ctx context.Context, args map[string]any) (
 	if err != nil {
 		return "", fmt.Errorf("create mcp server: %w", err)
 	}
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal mcp server: %w", err)
-	}
-	return string(out), nil
+	return withBindingRequired(record, "mcp", record.ID,
+		"This MCP server rejects tool calls until a person approves which account it runs as. The user is shown an approval prompt; tell them to approve it there (or on the MCP Servers page).")
 }
 
 func (s *Server) execMCPServerUpdate(ctx context.Context, args map[string]any) (string, error) {

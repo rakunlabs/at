@@ -323,8 +323,12 @@ func (p *Postgres) PatchPlaygroundConversation(ctx context.Context, owner, id st
 }
 
 func (p *Postgres) DeletePlaygroundConversation(ctx context.Context, owner, id string) error {
-	// Messages disappear with the parent through ON DELETE CASCADE.
+	// Messages disappear with the parent through ON DELETE CASCADE. A live run
+	// keeps the conversation: deleting under it would orphan its next append.
 	return p.playgroundLocked(ctx, owner, id, func(tx *goqu.TxDatabase, _ *playgroundConversationRow) error {
+		if err := p.checkPlaygroundRunWrite(ctx, tx, id); err != nil {
+			return err
+		}
 		if _, err := tx.Delete(p.tablePlaygroundChats).Where(goqu.Ex{"id": id, "owner_user_id": owner}).Executor().ExecContext(ctx); err != nil {
 			return fmt.Errorf("delete playground conversation: %w", err)
 		}
@@ -519,6 +523,9 @@ func (p *Postgres) AppendPlaygroundMessages(ctx context.Context, owner, id strin
 		if len(items) == 0 {
 			return nil
 		}
+		if err := p.checkPlaygroundRunWrite(ctx, tx, id); err != nil {
+			return err
+		}
 		// The parent row lock taken by playgroundLocked serialises this
 		// MAX+1 allocation across connections and replicas.
 		var admission struct {
@@ -622,6 +629,9 @@ func (p *Postgres) TruncatePlaygroundMessages(ctx context.Context, owner, id str
 		return fmt.Errorf("from_sequence must be positive: %w", service.ErrPlaygroundConflict)
 	}
 	return p.playgroundLocked(ctx, owner, id, func(tx *goqu.TxDatabase, _ *playgroundConversationRow) error {
+		if err := p.checkPlaygroundRunWrite(ctx, tx, id); err != nil {
+			return err
+		}
 		if _, err := tx.Delete(p.tablePlaygroundMessages).Where(goqu.Ex{"conversation_id": id}, goqu.I("sequence").Gte(fromSequence)).Executor().ExecContext(ctx); err != nil {
 			return fmt.Errorf("truncate playground messages: %w", err)
 		}

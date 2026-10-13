@@ -165,3 +165,34 @@ func TestChatStreamExplicitCancellationAndMissingReplay(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+
+func TestDurableRunReplayOverflowKeepsTheRunGoing(t *testing.T) {
+	cancelled := false
+	stream := &chatStream{header: make(http.Header), notify: make(chan struct{}), kind: replayChatRun, cancel: func() { cancelled = true }}
+	chunk := []byte(strings.Repeat("x", 1<<20))
+	var err error
+	for i := 0; i < 9 && err == nil; i++ {
+		_, err = stream.Write(chunk)
+	}
+	if err == nil || cancelled {
+		t.Fatalf("overflow cancelled a durable run (err=%v cancelled=%v)", err, cancelled)
+	}
+	if !strings.HasSuffix(string(stream.data), string(replayTruncatedEvent)) || len(stream.data) > chatStreamMaxBytes {
+		t.Fatalf("replay not closed with the truncation event within the cap: %d bytes", len(stream.data))
+	}
+	before := len(stream.data)
+	if _, err := stream.Write([]byte("more")); err == nil || len(stream.data) != before {
+		t.Fatal("writes after truncation reached the replay")
+	}
+
+	// A one-shot completion has no saved record, so it still stops.
+	oneShot := &chatStream{header: make(http.Header), notify: make(chan struct{}), kind: replayChat, cancel: func() { cancelled = true }}
+	for i := 0; i < 9; i++ {
+		if _, err := oneShot.Write(chunk); err != nil {
+			break
+		}
+	}
+	if !cancelled {
+		t.Fatal("one-shot overflow did not cancel")
+	}
+}

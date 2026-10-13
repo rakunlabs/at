@@ -23,3 +23,15 @@ export const saveExecutionBinding = async (kind: BindingKind, id: string, user: 
   (await api.post<ExecutionBinding>(path(kind, id), { run_as_user_id: user })).data;
 export const revokeExecutionBinding = async (kind: BindingKind, id: string) =>
   (await api.delete<ExecutionBinding>(path(kind, id))).data;
+
+// Bind a freshly created subject to the signed-in account. Returns an error
+// message instead of throwing: the subject itself was created either way.
+export async function bindToSelf(kind: BindingKind, id: string, self: string | undefined): Promise<string> {
+  if (!self) return 'you are not signed in';
+  try {
+    await saveExecutionBinding(kind, id, self);
+    return '';
+  } catch (e: any) {
+    return e?.response?.data?.message || 'open it and choose an account';
+  }
+}

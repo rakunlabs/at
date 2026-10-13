@@ -634,7 +634,29 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 		}
 	}
 
-	data, _ := json.MarshalIndent(record, "", "  ")
+	return withBindingRequired(record, "trigger", record.ID,
+		"This trigger does not run until a person approves which account it runs as. The user is shown an approval prompt; tell them to approve it there (or on the Cron schedules / Webhooks page).")
+}
+
+// withBindingRequired reports a new unattended subject (trigger, bot, gateway
+// MCP server) together with the fact that it cannot run until a person
+// approves its execution identity. Chat surfaces render binding_required as an
+// approval card; the approval itself is the person's own authenticated
+// request, never something a tool can do.
+func withBindingRequired(record any, kind, subjectID, note string) (string, error) {
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return "", fmt.Errorf("marshal %s: %w", kind, err)
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("marshal %s: %w", kind, err)
+	}
+	out["binding_required"] = map[string]any{"kind": kind, "subject_id": subjectID, "note": note}
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal %s: %w", kind, err)
+	}
 	return string(data), nil
 }
 

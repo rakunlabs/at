@@ -2,6 +2,9 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
+  import RunAsSelf from '@/lib/components/RunAsSelf.svelte';
+  import { bindToSelf } from '@/lib/api/execution-bindings';
+  import { storeAuth } from '@/lib/store/auth.svelte';
   import McpServerOAuthSettings from '@/lib/components/McpServerOAuthSettings.svelte';
   import {
     listMCPServers,
@@ -47,6 +50,8 @@
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
+  // New servers run as the signed-in account unless unticked.
+  let formRunAsSelf = $state(true);
   let deleteConfirm = $state<string | null>(null);
   let saving = $state(false);
   let copiedName = $state<string | null>(null);
@@ -162,6 +167,7 @@
     showWorkflowsSection = false;
     showAdvanced = false;
     editingId = null;
+    formRunAsSelf = true;
     showForm = false;
   }
 
@@ -283,7 +289,10 @@
       } else {
         const created = await createMCPServer(payload);
         editingId = created.id;
-        addToast('MCP server saved. Configure its execution identity below before connecting.');
+        const bindFailed = formRunAsSelf ? await bindToSelf('mcp', created.id, storeAuth.identity?.subject) : '';
+        if (!formRunAsSelf) addToast('MCP server saved. Choose Run as below before connecting.');
+        else if (bindFailed) addToast(`MCP server saved, but Run as could not be set: ${bindFailed}`, 'warn');
+        else addToast('MCP server saved. Tool calls run as your account.');
         await loadServers();
         return;
       }
@@ -775,6 +784,9 @@
           {/if}
         </div>
 
+        {#if !editingId}
+          <RunAsSelf bind:checked={formRunAsSelf} hint="Tool calls run with this account's current permissions. Untick to choose another account after saving." />
+        {/if}
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-3 border-t border-dark-border">
           <button

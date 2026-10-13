@@ -74,37 +74,39 @@ func (s *Server) ChatSkillRunAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
 		return
 	}
+	httpResponseJSON(w, s.runChatSkill(ctx, req), http.StatusOK)
+}
+
+// runChatSkill runs an agent-bound skill for Chats under an already bound
+// execution identity. The browser loop and server-side Chats runs share it, so
+// a skill delivers its files the same way in both.
+func (s *Server) runChatSkill(ctx context.Context, req chatSkillRunRequest) builtinCallResponse {
 	skill, err := s.chatForkSkill(ctx, req.Skill)
 	if err != nil {
-		httpResponseJSON(w, builtinCallResponse{Error: err.Error()}, http.StatusOK)
-		return
+		return builtinCallResponse{Error: err.Error()}
 	}
 	child, err := s.resolveSubagent(ctx, skill.Agent)
 	if err != nil {
-		httpResponseJSON(w, builtinCallResponse{Error: err.Error()}, http.StatusOK)
-		return
+		return builtinCallResponse{Error: err.Error()}
 	}
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: child.ID}); err != nil {
-		httpResponseJSON(w, builtinCallResponse{Error: err.Error()}, http.StatusOK)
-		return
+		return builtinCallResponse{Error: err.Error()}
 	}
 	if len(child.Config.ConfirmationRequiredTools) > 0 {
-		httpResponseJSON(w, builtinCallResponse{Error: fmt.Sprintf("agent %q requires interactive tool confirmation, which Chats cannot relay", child.Name)}, http.StatusOK)
-		return
+		return builtinCallResponse{Error: fmt.Sprintf("agent %q requires interactive tool confirmation, which Chats cannot relay", child.Name)}
 	}
 	task := strings.TrimSpace(req.Task)
 	if extra := strings.TrimSpace(req.Context); extra != "" {
 		task += "\n\nContext and constraints:\n" + extra
 	}
-	// Only the Chats page starts these runs, and it renders `media:` refs.
+	// Only Chats starts these runs, and it renders `media:` refs.
 	ctx = contextWithChatMediaRefs(contextWithSubagentSkill(ctx, skill.ID))
 	if req.TraceID != "" {
 		ctx = contextWithChatTraceID(ctx, req.TraceID)
 	}
 	workDir, workRel, err := chatRunWorkDir(ctx)
 	if err != nil {
-		httpResponseJSON(w, builtinCallResponse{Error: fmt.Sprintf("prepare run directory: %v", err)}, http.StatusOK)
-		return
+		return builtinCallResponse{Error: fmt.Sprintf("prepare run directory: %v", err)}
 	}
 	ctx, task = withChatRunWorkDir(ctx, task, workDir, workRel)
 	collect := func(ctx context.Context) chatArtifactCollection { return s.collectChatArtifacts(ctx, workDir) }
@@ -122,7 +124,7 @@ func (s *Server) ChatSkillRunAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		resp.Error = err.Error()
 	}
-	httpResponseJSON(w, resp, http.StatusOK)
+	return resp
 }
 
 // withArtifacts adds the collected files to a JSON object result. A result

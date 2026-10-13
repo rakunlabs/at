@@ -170,8 +170,6 @@ func testMCPOAuthEndToEnd(t *testing.T, useProxy, useTLS bool) {
 			}
 		}()
 	}
-	service.SetTrustedLocalMCPLoader(func(context.Context) ([]string, error) { return []string{fake.mcpURL()}, nil })
-	t.Cleanup(func() { service.SetTrustedLocalMCPLoader(nil) })
 
 	var err error
 	f := newMachineFixture(t)

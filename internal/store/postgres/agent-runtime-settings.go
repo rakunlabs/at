@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -14,12 +13,11 @@ import (
 
 func (p *Postgres) GetAgentRuntimeSettings(ctx context.Context) (*service.AgentRuntimeSettings, error) {
 	var row struct {
-		Version  int64  `db:"version"`
-		Max      int    `db:"max_background_subagents_per_owner"`
-		LocalMCP []byte `db:"trusted_local_mcp"`
+		Version int64 `db:"version"`
+		Max     int   `db:"max_background_subagents_per_owner"`
 	}
 	found, err := p.goqu.From(p.tableAgentRuntimeSettings).
-		Select("version", "max_background_subagents_per_owner", "trusted_local_mcp").
+		Select("version", "max_background_subagents_per_owner").
 		Where(goqu.Ex{"singleton": true}).
 		ScanStructContext(ctx, &row)
 	if err != nil {
@@ -28,26 +26,13 @@ func (p *Postgres) GetAgentRuntimeSettings(ctx context.Context) (*service.AgentR
 	settings := service.DefaultAgentRuntimeSettings()
 	if found {
 		settings.Version, settings.MaxBackgroundSubagentsPerOwner = row.Version, row.Max
-		if len(row.LocalMCP) > 0 {
-			if err := json.Unmarshal(row.LocalMCP, &settings.TrustedLocalMCP); err != nil {
-				return nil, fmt.Errorf("decode trusted local MCP: %w", err)
-			}
-		}
-		if settings.TrustedLocalMCP == nil {
-			settings.TrustedLocalMCP = []string{}
-		}
 	}
 	return &settings, nil
 }
 
 func (p *Postgres) SaveAgentRuntimeSettings(ctx context.Context, settings service.AgentRuntimeSettings) (*service.AgentRuntimeSettings, error) {
-	settings.Normalize()
 	if err := settings.Validate(); err != nil {
 		return nil, err
-	}
-	localMCP, err := json.Marshal(settings.TrustedLocalMCP)
-	if err != nil {
-		return nil, fmt.Errorf("encode trusted local MCP: %w", err)
 	}
 	expected := settings.Version
 	tx, err := p.goqu.BeginTx(ctx, &sql.TxOptions{})
@@ -70,7 +55,6 @@ func (p *Postgres) SaveAgentRuntimeSettings(ctx context.Context, settings servic
 		"singleton":                          true,
 		"version":                            settings.Version,
 		"max_background_subagents_per_owner": settings.MaxBackgroundSubagentsPerOwner,
-		"trusted_local_mcp":                  goqu.L("?::jsonb", string(localMCP)),
 	}
 	if !found {
 		_, err = tx.Insert(p.tableAgentRuntimeSettings).Rows(record).Executor().ExecContext(ctx)

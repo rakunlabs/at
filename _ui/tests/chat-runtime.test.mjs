@@ -66,6 +66,10 @@ export function fixture() {
   const executeFrontendTool = async (name, args) => { tools.push([name, args]); return toolImpl ? await toolImpl(name, args) : 'Tool result'; };
   const executeSkillTool = async () => '', callMCPSetTool = async () => ({}), callBuiltinTool = async () => ({ result: '' });
   const executeLocalTool = async () => '', executeExtensionTool = async () => '', collectSkillRuns = async () => '';
+  // Background runs are off by default; these tests cover the browser loop.
+  const backgroundRunsOn = false, backgroundRunActive = false, detachBackgroundRun = () => {}, runBackgroundTurn = async () => {}, stopBackgroundRun = async () => {};
+  let backgroundInterrupted = false, storedQuestionCallId = '';
+  const QUESTION_TOOL = 'question';
   const isLocalModelRef = ref => ref.startsWith('local:');
   const localProviderFor = ref => ({ provider: { id: 'lp', name: ref.slice(6).split('/')[0], base_url: 'http://127.0.0.1:11434/v1' }, model: ref.slice(6).split('/').slice(1).join('/') });
   const runLocalProviderCompletion = async (turn, target, reqMessages, callbacks) => {

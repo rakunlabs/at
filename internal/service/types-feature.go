@@ -42,7 +42,10 @@ const (
 	// FeatureChatExtensions gates the browser-extension bridge in Chats: the
 	// page discovers extensions the person installed and calls their tools
 	// through the browser. Nothing is dialled by the server.
-	FeatureChatExtensions     = "chat_extensions"
+	FeatureChatExtensions = "chat_extensions"
+	// FeatureChatBackgroundRuns gates server-side Chats runs, which keep a
+	// conversation's turn going after the page is closed.
+	FeatureChatBackgroundRuns = "chat_background_runs"
 	FeatureChatSharing        = "chat_sharing"
 	FeatureChatSessions       = "chat_sessions"
 	FeatureBots               = "bots"

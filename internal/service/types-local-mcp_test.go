@@ -2,9 +2,8 @@ package service
 
 import "testing"
 
-// The host rule is what keeps a browser-dialled MCP from becoming a way around
-// workspace execution policy: a public endpoint routed through the page runs
-// with no CheckExecution, no mcp_tool admission and no server-side trace.
+// The browser dials the URL, so any http(s) host is the user's choice; only
+// the shape is checked.
 func TestValidateLocalMCPURL(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -25,14 +24,11 @@ func TestValidateLocalMCPURL(t *testing.T) {
 		{"remote AT gateway", "https://at.example.com/gateway/v1/mcp/tools", false},
 		{"remote AT gateway mcp suffix", "https://at.example.com/gateway/v1/mcp/tools/mcp", false},
 		{"remote AT gateway under base path", "https://example.com/at/gateway/v1/mcp/tools", false},
+		{"public host", "https://mcp.example.com/mcp", false},
+		{"public http", "http://mcp.example.com/sse", false},
+		{"public v4", "http://8.8.8.8/mcp", false},
+		{"docker host alias", "http://host.docker.internal:3000/mcp", false},
 
-		{"public host", "https://mcp.example.com/mcp", true},
-		{"remote AT gateway over http", "http://at.example.com/gateway/v1/mcp/tools", true},
-		{"remote AT gateway without name", "https://at.example.com/gateway/v1/mcp/", true},
-		{"remote AT gateway other route", "https://at.example.com/gateway/v1/mcp/tools/ws", true},
-		{"remote AT gateway chat", "https://at.example.com/gateway/v1/chat/completions", true},
-		{"public v4", "http://8.8.8.8/mcp", true},
-		{"docker host alias is not local to the browser", "http://host.docker.internal:3000/mcp", true},
 		{"scheme", "ws://127.0.0.1:3000/mcp", true},
 		{"stdio has no URL", "", true},
 		{"no host", "http:///mcp", true},
@@ -89,33 +85,6 @@ func TestNormalizeLocalMCPServers(t *testing.T) {
 		}
 		if _, err := NormalizeLocalMCPServers(many); err == nil {
 			t.Fatal("unbounded registry accepted")
-		}
-	})
-
-	t.Run("remote AT gateway needs a token", func(t *testing.T) {
-		const remote = "https://at.example.com/gateway/v1/mcp/tools"
-		for _, headers := range []map[string]string{
-			nil,
-			{"Authorization": ""},
-			{"Authorization": "Bearer "},
-			{"Authorization": "Basic abc"},
-			{"X-Other": "at_123"},
-		} {
-			if _, err := NormalizeLocalMCPServers([]LocalMCPServer{{Name: "remote", URL: remote, Headers: headers}}); err == nil {
-				t.Errorf("headers %v accepted without a gateway token", headers)
-			}
-		}
-		for _, headers := range []map[string]string{
-			{"Authorization": "Bearer at_123"},
-			{"x-api-key": "at_123"},
-		} {
-			if _, err := NormalizeLocalMCPServers([]LocalMCPServer{{Name: "remote", URL: remote, Headers: headers}}); err != nil {
-				t.Errorf("headers %v rejected: %v", headers, err)
-			}
-		}
-		// Local records keep working without any header.
-		if _, err := NormalizeLocalMCPServers([]LocalMCPServer{{Name: "local", URL: "http://127.0.0.1:3000/mcp"}}); err != nil {
-			t.Errorf("local record rejected: %v", err)
 		}
 	})
 }

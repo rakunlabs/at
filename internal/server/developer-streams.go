@@ -2,10 +2,7 @@ package server
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -38,39 +35,14 @@ func (s *Server) startDeveloperStream(w http.ResponseWriter, r *http.Request, ha
 			developerSpaceError(w, err)
 			return
 		}
-		ctx, cancel := context.WithCancel(service.ContextWithDeveloperRun(r.Context(), runID))
-		done, stopped := make(chan struct{}), make(chan struct{})
-		go func() {
-			defer close(stopped)
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-done:
-					return
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					check, stop := context.WithTimeout(ctx, 5*time.Second)
-					err := runs.HeartbeatDeveloperRun(check, r.PathValue("id"), runID)
-					stop()
-					if err != nil {
-						cancel()
-						return
-					}
-				}
-			}
-		}()
-		defer func() {
-			close(done)
-			cancel()
-			<-stopped
-			finish, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			defer stop()
-			if err := runs.ReleaseDeveloperRun(finish, r.PathValue("id"), runID); err != nil {
-				slog.Error("developer run release failed", "session", r.PathValue("id"), "error", err.Error())
-			}
-		}()
+		// A stale receipt is never taken over here: a crashed owner may still
+		// be running commands in the container. Any renewal failure stops it.
+		ctx, release := holdRunReceipt(service.ContextWithDeveloperRun(r.Context(), runID), runReceipt{
+			Label:   "developer:" + r.PathValue("id"),
+			Renew:   func(ctx context.Context) error { return runs.HeartbeatDeveloperRun(ctx, r.PathValue("id"), runID) },
+			Release: func(ctx context.Context) error { return runs.ReleaseDeveloperRun(ctx, r.PathValue("id"), runID) },
+		})
+		defer release()
 		if s.containerManager != nil {
 			runtimeCtx, finish, err := s.containerManager.BeginRuntimeRun(ctx)
 			if err != nil {
@@ -81,11 +53,11 @@ func (s *Server) startDeveloperStream(w http.ResponseWriter, r *http.Request, ha
 			ctx = runtimeCtx
 		}
 		handler(w, r.WithContext(ctx))
-	}, true)
+	}, replayDeveloper)
 }
 
-func developerStreamMatches(stream *chatStream, session *service.DeveloperSession) bool {
-	return stream.developer && stream.session == session.ID && stream.owner == session.OwnerUserID && stream.workspace == session.WorkspaceID
+func developerStreams(session *service.DeveloperSession) replayStreamMatch {
+	return replayStreamMatch{kind: replayDeveloper, session: session.ID, owner: session.OwnerUserID, workspace: session.WorkspaceID}
 }
 
 // Discovery reports expired ownership as interrupted but never clears its
@@ -113,18 +85,7 @@ func (s *Server) GetDeveloperActiveStreamAPI(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	id := ""
-	s.chatStreams.mu.Lock()
-	for key, stream := range s.chatStreams.streams {
-		stream.mu.Lock()
-		active := developerStreamMatches(stream, session) && !stream.done
-		stream.mu.Unlock()
-		if active {
-			id = key
-			break
-		}
-	}
-	s.chatStreams.mu.Unlock()
+	id := s.activeReplayStream(developerStreams(session))
 	httpResponseJSON(w, map[string]any{"stream_id": id, "session": session, "run": durable}, http.StatusOK)
 }
 
@@ -138,34 +99,9 @@ func (s *Server) DeveloperStreamAPI(w http.ResponseWriter, r *http.Request) {
 		developerSpaceError(w, err)
 		return
 	}
-	s.chatStreams.mu.Lock()
-	stream := s.chatStreams.streams[r.PathValue("stream")]
-	s.chatStreams.mu.Unlock()
-	if stream == nil || !developerStreamMatches(stream, session) {
-		httpResponse(w, "live run unavailable on this server; check saved history, do not resend automatically", http.StatusNotFound)
-		return
-	}
-	stream.mu.Lock()
-	expired := stream.done && time.Now().After(stream.expires)
-	stream.mu.Unlock()
-	if expired {
-		httpResponse(w, "live run replay expired; check saved history", http.StatusGone)
-		return
-	}
-	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
-	if err != nil || offset < 0 {
-		httpResponse(w, "invalid stream offset", http.StatusBadRequest)
-		return
-	}
-	s.replayChatStream(w, r, stream, offset)
+	s.replayRunStream(w, r, developerStreams(session))
 }
 
 func (s *Server) cancelDeveloperStreams(session *service.DeveloperSession) {
-	s.chatStreams.mu.Lock()
-	defer s.chatStreams.mu.Unlock()
-	for _, stream := range s.chatStreams.streams {
-		if developerStreamMatches(stream, session) {
-			stream.cancel()
-		}
-	}
+	s.cancelReplayStreams(developerStreams(session))
 }

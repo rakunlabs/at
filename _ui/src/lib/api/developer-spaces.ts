@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { authFetch, workspaceTransport } from './transport';
-import { resumableStream } from '../helper/resumable-stream';
+import { consumeRunEvents, followRunStream } from '../helper/run-events';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -162,63 +162,25 @@ export async function streamDeveloperSession(
   signal?: AbortSignal,
 ): Promise<void> {
   const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
-  const response = await resumableStream(authFetch, `${base}/${action}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
-  }, `${base}/streams`, { cancelOnAbort: false });
-  if (!response.ok) {
-    let message = `request failed (${response.status})`;
-    try { const data = await response.json(); message = data.message || data.error || message; } catch { /* keep status */ }
-    throw new Error(message);
-  }
-  await consumeDeveloperEvents(response, onEvent);
+  await followRunStream({
+    fetcher: authFetch, start: `${base}/${action}`, replay: `${base}/streams`, body, signal, endedEarly: DEVELOPER_ENDED_EARLY,
+    failed: (status, message) => message || `request failed (${status})`,
+  }, onEvent);
 }
 
 /** Reattach with GET only. Leaving a page detaches; Stop uses the cancel API. */
 export async function resumeDeveloperStream(id: string, streamId: string, onEvent: (event: DeveloperStreamEvent) => void, signal?: AbortSignal) {
   const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
-  const response = await resumableStream(authFetch, '', { signal }, `${base}/streams`, { id: streamId, resume: true, cancelOnAbort: false });
-  if (!response.ok) throw new Error(`Live run unavailable (${response.status}). Check saved history; do not resend automatically.`);
-  await consumeDeveloperEvents(response, onEvent);
+  await followRunStream({
+    fetcher: authFetch, start: '', replay: `${base}/streams`, streamId, resume: true, signal, endedEarly: DEVELOPER_ENDED_EARLY,
+    failed: status => `Live run unavailable (${status}). Check saved history; do not resend automatically.`,
+  }, onEvent);
 }
 
-export async function consumeDeveloperEvents(response: Response, onEvent: (event: DeveloperStreamEvent) => void): Promise<void> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error('No response body');
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let data: string[] = [];
-  const dispatch = () => {
-    if (!data.length) return false;
-    const event = JSON.parse(data.join('\n')) as DeveloperStreamEvent;
-    data = [];
-    if (event.type === 'error') throw new Error(event.error || 'The agent could not complete this turn');
-    onEvent(event);
-    return event.type === 'done';
-  };
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
-      let end: number;
-      while ((end = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, end).replace(/\r$/, '');
-        buffer = buffer.slice(end + 1);
-        if (line === '') { if (dispatch()) return; continue; }
-        if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
-      }
-      if (done) {
-        if (buffer.startsWith('data:')) data.push(buffer.slice(5).replace(/^ /, ''));
-        if (dispatch()) return;
-        throw new Error('Connection ended before the agent finished. Reload the session to see what was saved.');
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
+const DEVELOPER_ENDED_EARLY = 'Connection ended before the agent finished. Reload the session to see what was saved.';
+
+export function consumeDeveloperEvents(response: Response, onEvent: (event: DeveloperStreamEvent) => void): Promise<void> {
+  return consumeRunEvents(response, onEvent, DEVELOPER_ENDED_EARLY);
 }
 
 /** WebSockets cannot send X-AT-Workspace-ID, so the selection rides the query. */

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Eye, EyeOff, X } from 'lucide-svelte';
   import { saveLocalMCPServers, type LocalMCPServer } from '@/lib/api/local-mcp';
-  import { REDACTED, localMCPUrlProblem, remoteGatewayCredentialProblem } from '@/lib/helper/local-mcp';
+  import { REDACTED, localMCPUrlProblem } from '@/lib/helper/local-mcp';
 
   interface Props {
     /** Record being edited; absent for a new server. */
@@ -55,14 +55,8 @@
       return;
     }
     // A header typed but not yet added still counts, so a person who filled
-    // in the token and pressed Save is not told it is missing.
+    // in the token and pressed Save does not lose it.
     const pending = headerKey.trim() ? { ...headers, [headerKey.trim()]: headerValue } : headers;
-    const credentialProblem = remoteGatewayCredentialProblem(url, pending);
-    if (credentialProblem) {
-      error = credentialProblem;
-
-      return;
-    }
     if (pending !== headers) {
       headers = pending;
       headerKey = '';
@@ -101,7 +95,7 @@
       <input bind:value={url} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-dark-border-subtle px-2 py-1 text-xs font-mono bg-dark-elevated text-dark-text" />
     </label>
     <div class="col-start-2 col-span-3 text-[10px] text-dark-text-muted">
-      Full endpoint URL, used exactly as entered. Loopback and private addresses, or another AT's gateway MCP endpoint (<span class="font-mono">https://&lt;host&gt;/gateway/v1/mcp/&lt;name&gt;</span>) with an <span class="font-mono">Authorization: Bearer</span> API token of that installation. Any other reachable server belongs in an MCP set, where execution policy and tracing apply.
+      Full endpoint URL, used exactly as entered. Your browser connects to it directly, so any address it can reach works — a server on this machine, your network, or the internet. The server must allow this site's origin (CORS).
     </div>
   </div>
 
