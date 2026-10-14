@@ -196,3 +196,65 @@ test('agent picker values round-trip between built-in profiles and agents', () =
   assert.equal(choices.find(c => c.value === 'agent:a').group, 'Coding');
   assert.equal(choices.find(c => c.value === 'agent:a').hint, 'Go expert');
 });
+
+test('undo hides the reverted prompt and everything after it until redo', () => {
+  const messages = [
+    { id: '1', role: 'user', content: 'first', snapshot: 'tree-1', created_at: 't1' },
+    { id: '2', role: 'assistant', content: [{ type: 'text', text: 'ok' }], created_at: 't2' },
+    { id: '3', role: 'user', content: 'second', snapshot: 'tree-2', created_at: 't3' },
+    { id: '4', role: 'assistant', content: [{ type: 'text', text: 'done' }], created_at: 't4' },
+  ];
+  assert.deepEqual(helper.visibleMessages(messages, '3').map(m => m.id), ['1', '2']);
+  assert.equal(helper.visibleMessages(messages, '').length, 4);
+  assert.equal(helper.visibleMessages(messages, 'gone').length, 4, 'an unknown undo point hides nothing');
+  const entries = helper.buildTranscript(messages);
+  assert.equal(entries[0].undoable, true);
+  assert.equal(entries[1].undoable, undefined);
+});
+
+test('compaction summaries stand alone and user blocks show mentions and attachments', () => {
+  const entries = helper.buildTranscript([
+    { id: '1', role: 'assistant', content: [{ type: 'text', text: 'before' }], created_at: 't1' },
+    { id: '2', role: 'assistant', kind: 'compaction', content: [{ type: 'text', text: 'summary' }], created_at: 't2' },
+    { id: '3', role: 'assistant', content: [{ type: 'text', text: 'after' }], created_at: 't3' },
+    { id: '4', role: 'user', created_at: 't4', content: [
+      { type: 'text', text: 'look at this' },
+      { type: 'text', text: 'Contents of @src/a.go (numbered like read_file):\n     1\tpackage a\n' },
+      { type: 'text', text: 'Attached file: shot.png' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      { type: 'text', text: 'Attached file: notes.txt' },
+      { type: 'text', text: 'raw notes' },
+    ] },
+  ]);
+  assert.deepEqual(entries.map(e => [e.text, !!e.compaction]), [['before', false], ['summary', true], ['after', false], ['look at this', false]]);
+  assert.deepEqual(entries[3].mentions, ['src/a.go']);
+  assert.deepEqual(entries[3].attachments.map(a => [a.name, a.mediaType]), [['shot.png', 'image/png'], ['notes.txt', 'text/plain']]);
+});
+
+test('@ mentions are found at the caret and ranked like a fuzzy file picker', () => {
+  assert.deepEqual(helper.mentionQuery('read @src/ma', 12), { start: 5, query: 'src/ma' });
+  assert.equal(helper.mentionQuery('mail me@example.com', 19), null, 'an address is not a mention');
+  assert.equal(helper.mentionQuery('@done and more', 14), null);
+  const files = ['internal/server/main.go', 'cmd/at/main.go', 'README.md', 'internal/service/types.go'];
+  assert.equal(helper.rankFiles(files, 'main')[0], 'cmd/at/main.go', 'a base-name match on a shorter path wins');
+  assert.deepEqual(helper.rankFiles(files, 'isty'), ['internal/service/types.go']);
+  assert.deepEqual(helper.rankFiles(files, 'zzz'), []);
+  assert.deepEqual(helper.promptMentions('see @README.md, @nope.go and @cmd/at/main.go', new Set(files)), ['README.md', 'cmd/at/main.go']);
+});
+
+test('new tools have readable summaries', () => {
+  assert.equal(helper.toolSummary({ name: 'bash', input: { command: 'go test ./... | tail' } }), 'go test ./... | tail');
+  assert.equal(helper.toolSummary({ name: 'glob', input: { pattern: '**/*.go', path: 'internal' } }), '**/*.go in internal');
+  assert.equal(helper.toolSummary({ name: 'search', input: { pattern: 'TODO', include: '*.ts' } }), 'TODO (*.ts)');
+  assert.equal(helper.toolSummary({ name: 'todo_write', input: { todos: [{}, {}] } }), '2 tasks');
+  assert.ok(helper.DEVELOPER_COMMANDS.some(c => c.name === 'compact') && helper.DEVELOPER_COMMANDS.some(c => c.name === 'undo'));
+});
+
+test('the session composer wires attachments, mentions, commands, effort and undo', () => {
+  assert.match(chatSource, /onpaste=\{pasteFiles\}/);
+  assert.match(chatSource, /promptMentions\(text, fileSet\)/);
+  assert.match(chatSource, /stream\('run', \{ compact: true, prompt: args \}\)/);
+  assert.match(chatSource, /palette = 'effort'/);
+  assert.match(chatSource, /revertDeveloperSession\(session\.id, messageId\)/);
+  assert.match(chatSource, /unrevertDeveloperSession\(session\.id\)/);
+});

@@ -178,6 +178,8 @@ func TestPythonParity(t *testing.T) {
 		{"", []string{"search", "proj", "needle", ""}},
 		{"", []string{"search", "proj", "^Beta$", "src"}},
 		{"", []string{"search", "proj", "needle", "src/a.txt"}},
+		{"", []string{"search", "proj", "needle", "", "*.md"}},
+		{"", []string{"search", "proj", "needle", "", "*.txt\n*.go"}},
 		{"", []string{"search", "proj", "(unclosed", ""}},
 		{"new\n", []string{"write", "proj", "src/new.txt", ""}},
 		{"x", []string{"write", "proj", "src", ""}},

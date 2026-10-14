@@ -154,22 +154,85 @@ type DeveloperSession struct {
 	Status     string         `json:"status"`
 	Provider   string         `json:"provider,omitempty"`
 	Model      string         `json:"model,omitempty"`
-	Config     map[string]any `json:"config,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	StartedAt  string         `json:"started_at,omitempty"`
-	FinishedAt string         `json:"finished_at,omitempty"`
-	CreatedAt  string         `json:"created_at"`
-	UpdatedAt  string         `json:"updated_at"`
+	// ReasoningEffort is sent with every model call of the session. Empty
+	// uses the agent's own effort (agent sessions) or the provider default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// RevertMessageID is the user message an undo rewound to. That message
+	// and everything after it are hidden but kept until the next prompt is
+	// sent, so redo can restore them. RevertSnapshot is the file state redo
+	// returns to.
+	RevertMessageID string                 `json:"revert_message_id,omitempty"`
+	RevertSnapshot  string                 `json:"-"`
+	Todos           []DeveloperSessionTodo `json:"todos"`
+	Config          map[string]any         `json:"config,omitempty"`
+	Error           string                 `json:"error,omitempty"`
+	StartedAt       string                 `json:"started_at,omitempty"`
+	FinishedAt      string                 `json:"finished_at,omitempty"`
+	CreatedAt       string                 `json:"created_at"`
+	UpdatedAt       string                 `json:"updated_at"`
+}
+
+// DeveloperSessionTodo is one entry of the list the agent keeps with the
+// todo_write tool, shown next to the transcript.
+type DeveloperSessionTodo struct {
+	ID       string `json:"id"`
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority,omitempty"`
+}
+
+const (
+	developerTodoLimit       = 100
+	developerTodoContentSize = 1000
+)
+
+// NormalizeDeveloperTodos validates a todo_write list and assigns missing IDs.
+func NormalizeDeveloperTodos(todos []DeveloperSessionTodo) ([]DeveloperSessionTodo, error) {
+	if len(todos) > developerTodoLimit {
+		return nil, fmt.Errorf("at most %d todos", developerTodoLimit)
+	}
+	out := make([]DeveloperSessionTodo, 0, len(todos))
+	for i, todo := range todos {
+		todo.Content = strings.TrimSpace(todo.Content)
+		if todo.Content == "" {
+			return nil, fmt.Errorf("todo %d: content is required", i+1)
+		}
+		if len(todo.Content) > developerTodoContentSize {
+			return nil, fmt.Errorf("todo %d: content exceeds %d bytes", i+1, developerTodoContentSize)
+		}
+		switch todo.Status {
+		case "":
+			todo.Status = "pending"
+		case "pending", "in_progress", "completed", "cancelled":
+		default:
+			return nil, fmt.Errorf("todo %d: status must be pending, in_progress, completed or cancelled", i+1)
+		}
+		switch todo.Priority {
+		case "", "high", "medium", "low":
+		default:
+			return nil, fmt.Errorf("todo %d: priority must be high, medium or low", i+1)
+		}
+		if todo.ID = strings.TrimSpace(todo.ID); todo.ID == "" || len(todo.ID) > 64 {
+			todo.ID = strconv.Itoa(i + 1)
+		}
+		out = append(out, todo)
+	}
+	return out, nil
 }
 
 // DeveloperSessionSettings are the per-session choices that may change
 // between runs.
 type DeveloperSessionSettings struct {
-	Mode     string
-	AgentID  string
-	Provider string
-	Model    string
+	Mode            string
+	AgentID         string
+	Provider        string
+	Model           string
+	ReasoningEffort string
 }
+
+// DeveloperMessageKindCompaction marks the summary written by /compact. Model
+// calls start at the latest one; earlier messages stay visible.
+const DeveloperMessageKindCompaction = "compaction"
 
 type DeveloperSessionMessage struct {
 	ID          string `json:"id"`
@@ -178,7 +241,11 @@ type DeveloperSessionMessage struct {
 	OwnerUserID string `json:"owner_user_id"`
 	Role        string `json:"role"`
 	Content     any    `json:"content"`
-	CreatedAt   string `json:"created_at"`
+	// Snapshot is the project's file state before this user prompt ran,
+	// which undo returns to. Empty when Git is unavailable in the space.
+	Snapshot  string `json:"snapshot,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 type DeveloperPendingTool struct {
@@ -280,6 +347,14 @@ type DeveloperSpaceStorer interface {
 	DeleteDeveloperSession(ctx context.Context, id string) error
 	ListDeveloperSessionMessages(ctx context.Context, sessionID string) ([]DeveloperSessionMessage, error)
 	AppendDeveloperSessionMessage(ctx context.Context, message DeveloperSessionMessage) (*DeveloperSessionMessage, error)
+	// SetDeveloperSessionTodos replaces the agent's todo list.
+	SetDeveloperSessionTodos(ctx context.Context, id string, todos []DeveloperSessionTodo) (*DeveloperSession, error)
+	// SetDeveloperSessionRevert records (or, with an empty messageID, clears)
+	// an undo point. It requires the caller's run receipt.
+	SetDeveloperSessionRevert(ctx context.Context, id, messageID, snapshot string) (*DeveloperSession, error)
+	// CommitDeveloperSessionRevert permanently deletes the reverted messages
+	// (the revert message and everything after it) and clears the undo point.
+	CommitDeveloperSessionRevert(ctx context.Context, id string) (*DeveloperSession, error)
 	ListDeveloperSessionSnapshots(ctx context.Context, sessionID string) ([]DeveloperSessionSnapshot, error)
 	SaveDeveloperSessionSnapshot(ctx context.Context, snapshot DeveloperSessionSnapshot) (*DeveloperSessionSnapshot, error)
 	GetDeveloperPendingTool(ctx context.Context, sessionID string) (*DeveloperPendingTool, error)

@@ -118,6 +118,22 @@ func (s *Server) ListDeveloperFilesAPI(w http.ResponseWriter, r *http.Request) {
 	developerFSResponse(w, raw, err)
 }
 
+// GlobDeveloperFilesAPI lists a project's files (walk order, skipping .git
+// and node_modules) for the composer's @ file picker. The browser filters.
+func (s *Server) GlobDeveloperFilesAPI(w http.ResponseWriter, r *http.Request) {
+	project, err := developerQueryPath(r, "project")
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h, ok := s.developerRuntime(w, r)
+	if !ok {
+		return
+	}
+	raw, err := s.runDeveloperFS(r.Context(), h, nil, "walk", project, "")
+	developerFSResponse(w, raw, err)
+}
+
 // ReadDeveloperFileAPI returns UTF-8 content plus a version token used to
 // refuse a save over changes made elsewhere (the agent, the terminal).
 func (s *Server) ReadDeveloperFileAPI(w http.ResponseWriter, r *http.Request) {

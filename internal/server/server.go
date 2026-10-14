@@ -1177,6 +1177,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/developer-sessions/{id}/confirm", s.ConfirmDeveloperSessionToolAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/answer", s.AnswerDeveloperSessionQuestionAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/cancel", s.CancelDeveloperSessionAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/revert", s.RevertDeveloperSessionAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/unrevert", s.UnrevertDeveloperSessionAPI)
+	apiGroup.GET("/v1/developer-space/glob", s.GlobDeveloperFilesAPI)
 
 	// Issue comments
 	apiGroup.GET("/v1/tasks/{id}/comments", s.ListCommentsByTaskAPI)

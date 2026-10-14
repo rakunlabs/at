@@ -153,6 +153,74 @@ func TestDeveloperSessionLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeveloperSessionWorkbench(t *testing.T) {
+	p, ctx, _, _ := workspaceFixture(t)
+	space, err := p.EnsureDeveloperSpace(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := p.CreateDeveloperSession(ctx, service.DeveloperSession{SpaceID: space.ID, Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "high"})
+	if err != nil || session.ReasoningEffort != "high" || session.Todos == nil || len(session.Todos) != 0 {
+		t.Fatalf("session: %+v %v", session, err)
+	}
+	if _, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "extreme"}); err == nil {
+		t.Fatal("an unknown effort was stored")
+	}
+	if changed, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "low"}); err != nil || changed.ReasoningEffort != "low" {
+		t.Fatalf("effort: %+v %v", changed, err)
+	}
+
+	todos, err := p.SetDeveloperSessionTodos(ctx, session.ID, []service.DeveloperSessionTodo{{Content: "write tests", Status: "in_progress"}})
+	if err != nil || len(todos.Todos) != 1 || todos.Todos[0].Status != "in_progress" || todos.Todos[0].ID == "" {
+		t.Fatalf("todos: %+v %v", todos, err)
+	}
+
+	first, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: "first", Snapshot: "tree-1"})
+	if err != nil || first.Snapshot != "tree-1" {
+		t.Fatalf("first: %+v %v", first, err)
+	}
+	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Content: []service.ContentBlock{{Type: "text", Text: "done"}}}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: []service.ContentBlock{{Type: "text", Text: "second"}}, Snapshot: "tree-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Kind: "bogus", Content: "x"}); err == nil {
+		t.Fatal("an unknown message kind was stored")
+	}
+	summary, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Kind: service.DeveloperMessageKindCompaction, Content: []service.ContentBlock{{Type: "text", Text: "summary"}}})
+	if err != nil || summary.Kind != service.DeveloperMessageKindCompaction {
+		t.Fatalf("summary: %+v %v", summary, err)
+	}
+	messages, _ := p.ListDeveloperSessionMessages(ctx, session.ID)
+	if blocks, ok := messages[2].Content.([]service.ContentBlock); !ok || blocks[0].Text != "second" {
+		t.Fatalf("user blocks were not restored canonically: %#v", messages[2].Content)
+	}
+
+	if _, err := p.SetDeveloperSessionRevert(ctx, session.ID, "missing", "x"); !errors.Is(err, service.ErrDeveloperSpaceNotFound) {
+		t.Fatalf("revert to an unknown message: %v", err)
+	}
+	reverted, err := p.SetDeveloperSessionRevert(ctx, session.ID, second.ID, "tree-now")
+	if err != nil || reverted.RevertMessageID != second.ID || reverted.RevertSnapshot != "tree-now" {
+		t.Fatalf("revert: %+v %v", reverted, err)
+	}
+	if all, _ := p.ListDeveloperSessionMessages(ctx, session.ID); len(all) != 4 {
+		t.Fatalf("revert must keep hidden messages until committed: %d", len(all))
+	}
+	committed, err := p.CommitDeveloperSessionRevert(ctx, session.ID)
+	if err != nil || committed.RevertMessageID != "" || committed.RevertSnapshot != "" {
+		t.Fatalf("commit: %+v %v", committed, err)
+	}
+	remaining, _ := p.ListDeveloperSessionMessages(ctx, session.ID)
+	if len(remaining) != 2 || remaining[0].ID != first.ID {
+		t.Fatalf("commit should delete the reverted message and everything after it: %+v", remaining)
+	}
+	if cleared, err := p.SetDeveloperSessionRevert(ctx, session.ID, "", "ignored"); err != nil || cleared.RevertSnapshot != "" {
+		t.Fatalf("clearing a revert keeps no snapshot: %+v %v", cleared, err)
+	}
+}
+
 func TestDeveloperPathAndRemoteValidation(t *testing.T) {
 	for _, candidate := range []string{"/etc", "../x", "a/../b", "a//b", "a\\b", "./a"} {
 		if _, err := service.CleanDeveloperPath(candidate); err == nil {

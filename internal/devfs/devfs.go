@@ -149,7 +149,7 @@ func run(workspace string, argv []string, stdin io.Reader) (any, error) {
 		if err := need(1); err != nil {
 			return nil, err
 		}
-		return o.search(args[0], arg(1))
+		return o.search(args[0], arg(1), arg(2))
 	default:
 		return nil, refuse("unknown operation")
 	}
@@ -474,7 +474,13 @@ func (o *fsOp) remove(rel string) (any, error) {
 	return map[string]any{"deleted": rel}, nil
 }
 
-func skippedDir(name string) bool { return name == ".git" || name == "node_modules" }
+// SnapshotDir is the top-level folder holding the per-project undo
+// repositories. It is AT's bookkeeping, so walks and searches skip it.
+const SnapshotDir = ".at-snapshots"
+
+func skippedDir(name string) bool {
+	return name == ".git" || name == "node_modules" || name == SnapshotDir
+}
 
 // walkTree visits directories depth-first in sorted order, reporting each
 // directory's files before descending (os.walk, top-down). Symlinked
@@ -537,10 +543,33 @@ type hit struct {
 	Text string `json:"text"`
 }
 
-func (o *fsOp) search(pattern, startRel string) (any, error) {
+// search matches pattern line by line. include is an optional newline-separated
+// list of file-name patterns (path.Match syntax, matched against the base
+// name); a file matching none of them is skipped.
+func (o *fsOp) search(pattern, startRel, include string) (any, error) {
 	rx, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, refuse("invalid pattern: " + err.Error())
+	}
+	var includes []string
+	for _, item := range strings.Split(include, "\n") {
+		if item = strings.TrimSpace(item); item != "" {
+			if _, err := filepath.Match(item, ""); err != nil {
+				return nil, refuse("invalid include pattern: " + item)
+			}
+			includes = append(includes, item)
+		}
+	}
+	included := func(name string) bool {
+		if len(includes) == 0 {
+			return true
+		}
+		for _, item := range includes {
+			if ok, _ := filepath.Match(item, name); ok {
+				return true
+			}
+		}
+		return false
 	}
 	target, err := o.resolve(startRel, true, true)
 	if err != nil {
@@ -548,7 +577,7 @@ func (o *fsOp) search(pattern, startRel string) (any, error) {
 	}
 	hits := make([]hit, 0)
 	scan := func(p string) bool {
-		if isSymlink(p) || !isFile(p) {
+		if isSymlink(p) || !isFile(p) || !included(filepath.Base(p)) {
 			return true
 		}
 		info, err := os.Stat(p)

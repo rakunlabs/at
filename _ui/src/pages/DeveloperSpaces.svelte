@@ -24,13 +24,14 @@
   import Markdown from '@/lib/components/Markdown.svelte';
   import {
     baseName, isImagePath, isMarkdownFile, isWithin, joinPath, parentPath, renamedPath, validEntryName,
-    STATUS_LABELS, BUILTIN_AGENT_PREFIX, developerAgentChoices, developerAgentSettings, developerAgentValue,
+    STATUS_LABELS, BUILTIN_AGENT_PREFIX, SNAPSHOT_DIR, developerAgentChoices, developerAgentSettings, developerAgentValue,
     type DeveloperAgentChoice, type DeveloperTerminalTab,
   } from '@/lib/helper/developer-space';
   import { listAgents } from '@/lib/api/agents';
   import { FEATURE_AGENTS } from '@/lib/api/features';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
+  import { modelReasoningEfforts } from '@/lib/helper/reasoning';
 
   storeNavbar.title = 'Developer Space';
 
@@ -53,9 +54,11 @@
   let tabs = $state<Tab[]>([]);
   let activeKey = $state('');
   let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
+  let modelEfforts = $state<Record<string, string[]>>({});
   let defaultModel = $state('');
   let agentChoices = $state<DeveloperAgentChoice[]>(developerAgentChoices([]));
   const AGENT_KEY = 'at.developer-space.agent';
+  const EFFORT_KEY = 'at.developer-space.effort';
   let gitChanged = $state<Set<string>>(new Set());
   let gitRevision = $state(0);
   let sidebarView = $state<'files' | 'search'>('files');
@@ -274,12 +277,17 @@
     try {
       const info = await getInfo();
       const groups: Array<{ label: string; models: string[] }> = [];
+      const efforts: Record<string, string[]> = {};
       for (const p of info.providers ?? []) {
         const reference = p.reference || p.key;
         const models = (p.models?.length ? p.models : p.default_model ? [p.default_model] : []).map(m => `${reference}/${m}`);
+        for (const m of p.models?.length ? p.models : p.default_model ? [p.default_model] : []) {
+          efforts[`${reference}/${m}`] = modelReasoningEfforts(p.type, m, p.reasoning_efforts).efforts;
+        }
         if (models.length) groups.push({ label: p.key, models });
       }
       modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
+      modelEfforts = efforts;
       defaultModel = localStorage.getItem('at.developer-space.model') || modelGroups[0]?.models[0] || '';
     } catch { modelGroups = []; }
   }
@@ -305,8 +313,10 @@
     folderLoading = { ...folderLoading, [folder]: true };
     try {
       const result = await listDeveloperFiles(folder);
-      listings = { ...listings, [folder]: result.entries };
-      if (folder === '') projects = result.entries.filter(e => e.type === 'dir');
+      // .at-snapshots holds the undo history; it is not a project.
+      const entries = folder === '' ? result.entries.filter(e => e.name !== SNAPSHOT_DIR) : result.entries;
+      listings = { ...listings, [folder]: entries };
+      if (folder === '') projects = entries.filter(e => e.type === 'dir');
     } catch (e: any) {
       if (e?.response?.status === 404) {
         const { [folder]: _, ...rest } = listings; listings = rest;
@@ -602,6 +612,7 @@
       // An agent session starts on the agent's own model; the server fills it in.
       const session = await createDeveloperSession({
         project_path: project, mode: choice.mode ?? 'build', agent_id: choice.agent_id,
+        reasoning_effort: localStorage.getItem(EFFORT_KEY) || '',
         ...(choice.agent_id ? {} : { provider: slash > 0 ? model.slice(0, slash) : '', model: slash > 0 ? model.slice(slash + 1) : '' }),
       });
       sessions = [session, ...sessions];
@@ -626,6 +637,7 @@
     sessions = sessions.map(s => (s.id === updated.id ? updated : s)).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     if (updated.provider && !updated.agent_id) localStorage.setItem('at.developer-space.model', `${updated.provider}/${updated.model ?? ''}`);
     localStorage.setItem(AGENT_KEY, developerAgentValue(updated));
+    localStorage.setItem(EFFORT_KEY, updated.reasoning_effort ?? '');
   }
 
   // ─── Diff tabs ───
@@ -991,7 +1003,7 @@
             {#if tab.kind === 'chat'}
               {@const s = sessions.find(x => x.id === tab.sessionId)}
               {#if s}
-                <SessionChat session={s} {modelGroups} {agentChoices} revision={gitRevision} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} />
+                <SessionChat session={s} {modelGroups} {modelEfforts} {agentChoices} revision={gitRevision} {runtimeAvailable} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} onnewsession={newSession} />
               {:else}
                 <p class="p-4 text-sm text-dark-text-muted">This session no longer exists.</p>
               {/if}

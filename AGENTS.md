@@ -3170,10 +3170,10 @@ exactly one terminal `done` or `error`. Streaming reaches the provider through
 expose `Proxy` — and `agentloop.CollectStream` assembles the same response the
 non-streaming path produced (truncated `length`/`content_filter` responses drop
 their partial tool calls). Providers without streaming fall back to one Chat
-call delivered as a single delta. Profiles are unchanged: Plan and Review are
-read-only, Build edits (including the new `edit_file` exact-replacement tool)
-and asks before `run_command`, and push is never an agent tool. Mode and model
-are per session and cannot change while a turn is running or waiting.
+call delivered as a single delta. Plan and Review are read-only, Build edits
+and asks before shell commands, and push is never an agent tool. Mode, model
+and reasoning effort are per session and cannot change while a turn is
+running or waiting.
 
 A session can instead **run as one of the workspace's agents** (migration 84,
 `developer_sessions.agent_id`; the composer's agent picker lists the built-in
@@ -3242,6 +3242,55 @@ the input, from `git/status?numstat=true`. Counts cover staged, unstaged and
 untracked changes against HEAD, computed on a throwaway `GIT_INDEX_FILE`
 (untracked files added intent-to-add) so the real index is never touched.
 Each entry opens a `git/diff?head=true` tab (or the untracked diff).
+
+**OpenCode-style workbench** (migration 105). Container tools are `read_file`
+(`cat -n` numbering, `offset`/`limit`, 2000 lines per read), `glob`
+(doublestar; a slash-less pattern matches the base name at any depth,
+`developerGlobRegexp`), `search` (RE2 + `include` base-name patterns, passed
+to `at-devfs search` as a third argument; the python fallback matches with
+`fnmatch`), `edit_file` (`replace_all`), `write_file`, `bash`, `todo_write` /
+`todo_read`, `git_status`/`git_diff` and `ask_user`. `bash` runs
+`bash -c` (or `sh` when the image has no bash) with stderr merged, its own
+timeout argument (default 2 min, max 10 min, `timeout -s KILL` in the
+container) instead of the profile's tool timeout, and head+tail clipping at
+30 KB. The command travels in an env var, never as shell-interpolated argv.
+Profiles map `bash` to the existing `shell` action, so Build still asks first;
+the legacy argv `run_command` still executes stored calls but is no longer
+advertised. File tools may now address `.git` (bash could change it anyway).
+Todo tools are always allowed and stored in `developer_sessions.todos`; the
+list renders above the composer and `tool_result` events carry updates.
+
+Project instruction files (`AGENTS.md`, else `CLAUDE.md`, plus `CONTEXT.md`,
+32 KiB each) are read from the project root each run and appended to the
+system prompt (`developerInstructions`). A per-session `reasoning_effort`
+(empty = the agent's effort or provider default) is validated and sent with
+every call; the composer offers the model's efforts from `/api/v1/info`.
+Prompts may carry attachments (Sessions' limits and `chatMessageContent`
+mapping) and `@path` mentions, whose numbered contents are added as text
+blocks. Slash commands in the composer: `/compact [focus]`, `/undo`, `/redo`,
+`/new`, `/model`, `/agent`, `/effort [level]`, `/todos`.
+
+`/compact` is `run` with `compact: true`: the model (tools off, tool blocks
+flattened to text) summarizes, and the result is stored as an assistant
+message with `kind = 'compaction'`. `developerMessages` starts at the latest
+one and replays it as a user message; nothing is deleted.
+
+**Undo/redo** uses a shadow Git repository per project at
+`/workspace/.at-snapshots/<project>.git` (`GIT_DIR` + `GIT_WORK_TREE`), so the
+project's own repository, index and history are never touched and untracked
+files are covered; `.gitignore` still applies, so ignored output is neither
+recorded nor deleted. Each prompt stores the tree hash taken before it ran
+(`developer_session_messages.snapshot`; empty when the image has no git).
+`POST .../revert` restores that tree (`read-tree --reset -u`, which also
+removes files created since) and records `revert_message_id` plus the redo
+tree; the transcript hides that message onward. `POST .../unrevert` restores
+the redo tree. Both acquire the session's run receipt, so they cannot race a
+turn on any replica. The next prompt makes the undo permanent
+(`CommitDeveloperSessionRevert` deletes the hidden rows). The walk, search
+and the UI tree skip `.at-snapshots`. Regressions:
+`developer-tools_test.go`, `TestDeveloperBashAndUndoInDocker` (real Docker,
+alpine without bash), `TestDeveloperSessionWorkbench` (postgres), and the
+workbench cases in `_ui/tests/developer-space.test.mjs`.
 
 Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and

@@ -70,6 +70,8 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 		AgentID     string `json:"agent_id"`
 		Provider    string `json:"provider"`
 		Model       string `json:"model"`
+		// ReasoningEffort is validated like every other effort field.
+		ReasoningEffort string `json:"reasoning_effort"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -95,8 +97,12 @@ func (s *Server) CreateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 			req.Provider, req.Model = agent.Config.Provider, agent.Config.Model
 		}
 	}
-	session := service.DeveloperSession{SpaceID: space.ID, Title: req.Title, ProjectPath: req.ProjectPath, Mode: req.Mode, AgentID: req.AgentID, Provider: req.Provider, Model: req.Model}
+	session := service.DeveloperSession{SpaceID: space.ID, Title: req.Title, ProjectPath: req.ProjectPath, Mode: req.Mode, AgentID: req.AgentID, Provider: req.Provider, Model: req.Model, ReasoningEffort: req.ReasoningEffort}
 	if err := session.Validate(); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := service.ValidateReasoningEffort(session.ReasoningEffort); err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -149,11 +155,12 @@ func (s *Server) UpdateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var req struct {
-		Title    *string `json:"title"`
-		Mode     *string `json:"mode"`
-		AgentID  *string `json:"agent_id"`
-		Provider *string `json:"provider"`
-		Model    *string `json:"model"`
+		Title           *string `json:"title"`
+		Mode            *string `json:"mode"`
+		AgentID         *string `json:"agent_id"`
+		Provider        *string `json:"provider"`
+		Model           *string `json:"model"`
+		ReasoningEffort *string `json:"reasoning_effort"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -172,8 +179,15 @@ func (s *Server) UpdateDeveloperSessionAPI(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if req.Mode != nil || req.AgentID != nil || req.Provider != nil || req.Model != nil {
-		settings := service.DeveloperSessionSettings{Mode: record.Mode, AgentID: record.AgentID, Provider: record.Provider, Model: record.Model}
+	if req.Mode != nil || req.AgentID != nil || req.Provider != nil || req.Model != nil || req.ReasoningEffort != nil {
+		settings := service.DeveloperSessionSettings{Mode: record.Mode, AgentID: record.AgentID, Provider: record.Provider, Model: record.Model, ReasoningEffort: record.ReasoningEffort}
+		if req.ReasoningEffort != nil {
+			settings.ReasoningEffort = strings.TrimSpace(*req.ReasoningEffort)
+			if err := service.ValidateReasoningEffort(settings.ReasoningEffort); err != nil {
+				httpResponse(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		if req.Mode != nil {
 			settings.Mode = *req.Mode
 		}

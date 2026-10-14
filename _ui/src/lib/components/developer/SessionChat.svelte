@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import {
-    ArrowUp, Bot, Brain, Check, ChevronDown, Cpu, Eye, FileDiff, FolderGit2, Hammer, ListChecks, LoaderCircle,
-    Maximize2, MessageCircleQuestion, Minimize2, ShieldAlert, Square, X,
+    ArrowUp, Bot, Brain, Check, ChevronDown, Cpu, Eye, FileDiff, FileText, FolderGit2, Gauge, Hammer, ListChecks, LoaderCircle,
+    Maximize2, MessageCircleQuestion, Minimize2, Paperclip, Redo2, ShieldAlert, Square, Undo2, X,
   } from 'lucide-svelte';
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -12,12 +12,19 @@
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import {
     getDeveloperGitStatus, getDeveloperSessionPendingTool, getDeveloperActiveStream, resumeDeveloperStream, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
+    listDeveloperProjectFiles, revertDeveloperSession, unrevertDeveloperSession,
     type DeveloperMode, type DeveloperPendingTool, type DeveloperRun, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
   } from '@/lib/api/developer-spaces';
+  import type { ChatAttachment } from '@/lib/api/chat-sessions';
   import {
-    buildTranscript, developerAgentSettings, developerAgentValue, toolSummary, MODE_HINTS, STATUS_LABELS,
+    buildTranscript, developerAgentSettings, developerAgentValue, mentionQuery, promptMentions, rankFiles, toolSummary, visibleMessages,
+    DEVELOPER_COMMANDS, MODE_HINTS, STATUS_LABELS,
     type DeveloperAgentChoice, type TranscriptEntry,
   } from '@/lib/helper/developer-space';
+  import { parseSlashInput, slashQuery } from '@/lib/helper/chat-commands';
+  import {
+    CHAT_ATTACHMENT_COUNT, CHAT_ATTACHMENT_TOTAL, attachmentBytes, attachmentImageURL, attachmentIsImage, attachmentSize, readChatAttachment,
+  } from '@/lib/helper/chat-attachments';
   import { formatMessageTime } from '@/lib/helper/format';
   import { addToast } from '@/lib/store/toast.svelte';
 
@@ -25,17 +32,22 @@
   interface Props {
     session: DeveloperSession;
     modelGroups: ModelGroup[];
+    /** Reasoning efforts per `provider/model`; missing or empty = none offered. */
+    modelEfforts?: Record<string, string[]>;
     /** Built-in profiles plus the workspace's agents. */
     agentChoices: DeveloperAgentChoice[];
     /** Bumped by the page whenever files may have changed (saves, git actions). */
     revision?: number;
+    /** The container is running, so files can be listed for @ mentions. */
+    runtimeAvailable?: boolean;
     onsession: (session: DeveloperSession) => void;
     /** Files the agent wrote, so open editors can reload them. */
     onfileschanged: (paths: string[], tree: boolean) => void;
     onopenfile: (path: string) => void;
     ondiff: (file: string, opts: { untracked?: boolean; head?: boolean }) => void;
+    onnewsession?: () => void;
   }
-  let { session, modelGroups, agentChoices, revision = 0, onsession, onfileschanged, onopenfile, ondiff }: Props = $props();
+  let { session, modelGroups, modelEfforts = {}, agentChoices, revision = 0, runtimeAvailable = false, onsession, onfileschanged, onopenfile, ondiff, onnewsession }: Props = $props();
 
   interface ChangedFile { path: string; additions: number; deletions: number; binary: boolean; untracked: boolean }
 
@@ -57,21 +69,115 @@
   let scroller: HTMLDivElement;
   let stickToBottom = true;
 
-  const transcript = $derived(buildTranscript(messages));
+  const shown = $derived(visibleMessages(messages, session.revert_message_id));
+  const transcript = $derived(buildTranscript(shown));
+  const hiddenCount = $derived(messages.length - shown.length);
   const working = $derived(busy || session.status === 'running' || !!durableRun);
   const modelValue = $derived(session.provider ? `${session.provider}/${session.model ?? ''}` : '');
   const modelLabel = $derived(session.model || 'Choose a model');
+  const efforts = $derived(modelEfforts[modelValue] ?? []);
+  const todos = $derived(session.todos ?? []);
+  const openTodos = $derived(todos.filter(t => t.status === 'pending' || t.status === 'in_progress').length);
+  const canUndo = $derived(!working && transcript.some(entry => entry.undoable));
 
   // ─── Changed files strip ───
   let changes = $state<ChangedFile[]>([]);
   let changesOpen = $state(false);
+  let todosOpen = $state(true);
   let expandedComposer = $state(false);
   let changesSeq = 0;
   let recording = $state(false);
   let transcribing = $state(false);
-  let palette = $state<'model' | 'agent' | ''>('');
+  let palette = $state<'model' | 'agent' | 'effort' | ''>('');
   let textarea = $state<HTMLTextAreaElement>();
+  let fileInput = $state<HTMLInputElement>();
   const totals = $derived(changes.reduce((sum, c) => ({ add: sum.add + c.additions, del: sum.del + c.deletions }), { add: 0, del: 0 }));
+
+  // ─── Attachments ───
+  let attachments = $state<ChatAttachment[]>([]);
+  let attachmentError = $state('');
+  let reading = $state(false);
+  let dragging = $state(false);
+
+  async function addAttachments(files: File[]) {
+    attachmentError = '';
+    if (!files.length) return;
+    if (attachments.length + files.length > CHAT_ATTACHMENT_COUNT) { attachmentError = `Attach up to ${CHAT_ATTACHMENT_COUNT} files per message.`; return; }
+    if (attachments.reduce((t, f) => t + attachmentBytes(f), 0) + files.reduce((t, f) => t + f.size, 0) > CHAT_ATTACHMENT_TOTAL) {
+      attachmentError = 'Attachments must be at most 8 MB in total.'; return;
+    }
+    reading = true;
+    try { attachments = [...attachments, ...(await Promise.all(files.map(readChatAttachment)))]; }
+    catch (e) { attachmentError = e instanceof Error ? e.message : 'Could not read the files.'; }
+    finally { reading = false; }
+  }
+
+  function pasteFiles(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (!files.length) return;
+    event.preventDefault();
+    void addAttachments(files);
+  }
+
+  // ─── @ file mentions ───
+  let projectFiles = $state<string[]>([]);
+  let filesFor = '';
+  let mention = $state<{ start: number; query: string } | null>(null);
+  let mentionIndex = $state(0);
+  const fileSet = $derived(new Set(projectFiles));
+  const mentionMatches = $derived(mention ? rankFiles(projectFiles, mention.query, 12) : []);
+
+  async function ensureProjectFiles() {
+    const key = `${session.project_path}:${revision}`;
+    if (!runtimeAvailable || filesFor === key) return;
+    filesFor = key;
+    try { projectFiles = (await listDeveloperProjectFiles(session.project_path)).files; }
+    catch { filesFor = ''; }
+  }
+
+  function updateMention() {
+    if (!textarea) return;
+    mention = mentionQuery(prompt, textarea.selectionStart ?? prompt.length);
+    mentionIndex = 0;
+    if (mention) void ensureProjectFiles();
+  }
+
+  function pickMention(path: string) {
+    if (!mention || !textarea) return;
+    const caret = textarea.selectionStart ?? prompt.length;
+    prompt = `${prompt.slice(0, mention.start)}@${path} ${prompt.slice(caret)}`;
+    const position = mention.start + path.length + 2;
+    mention = null;
+    void tick().then(() => { textarea?.focus(); textarea?.setSelectionRange(position, position); });
+  }
+
+  // ─── Slash commands ───
+  const slash = $derived(attachments.length ? null : slashQuery(prompt));
+  const slashMatches = $derived(slash === null ? [] : DEVELOPER_COMMANDS.filter(c => c.name.startsWith(slash)));
+  let slashIndex = $state(0);
+  $effect(() => { void slash; slashIndex = 0; });
+
+  /** Runs `/name args`. Returns false for an unknown name, which is then sent as text. */
+  async function runCommand(name: string, args: string): Promise<boolean> {
+    switch (name) {
+      case 'compact':
+        prompt = '';
+        await stream('run', { compact: true, prompt: args });
+        return true;
+      case 'undo': prompt = ''; await undo(); return true;
+      case 'redo': prompt = ''; await redo(); return true;
+      case 'new': prompt = ''; onnewsession?.(); return true;
+      case 'model': prompt = ''; if (!working) palette = 'model'; return true;
+      case 'agent': prompt = ''; if (!working) palette = 'agent'; return true;
+      case 'effort':
+        prompt = '';
+        if (args) await chooseEffort(args === 'default' ? '' : args.toLowerCase());
+        else if (!working) palette = 'effort';
+        return true;
+      case 'todos': prompt = ''; todosOpen = true; if (!todos.length) addToast('The task list is empty.', 'info'); return true;
+    }
+    return false;
+  }
 
   async function loadChanges() {
     const seq = ++changesSeq;
@@ -106,9 +212,12 @@
     }
     return groups;
   });
+  const effortLabel = $derived(session.reasoning_effort || 'default');
   const paletteGroups = $derived<PaletteGroup[]>(palette === 'model'
     ? modelGroups.map(group => ({ label: group.label, items: group.models.map(model => ({ label: model, current: model === modelValue, disabled: working, run: () => chooseModel(model) })) }))
-    : agentGroups.map(group => ({ label: group.label, items: group.choices.map(choice => ({ label: choice.label, current: choice.value === agentValue, disabled: working, run: () => chooseAgent(choice.value) })) })));
+    : palette === 'effort'
+      ? [{ label: 'Reasoning effort', items: ['', ...efforts].map(level => ({ label: level || 'default', current: level === (session.reasoning_effort ?? ''), disabled: working, run: () => { void chooseEffort(level); } })) }]
+      : agentGroups.map(group => ({ label: group.label, items: group.choices.map(choice => ({ label: choice.label, current: choice.value === agentValue, disabled: working, run: () => chooseAgent(choice.value) })) })));
 
   function chooseAgent(value: string) {
     if (working || value === agentValue) return;
@@ -227,6 +336,7 @@
         const { [event.tool_id]: _, ...rest } = runningTools;
         runningTools = rest;
         if (event.changed?.length || event.changed_tree) onfileschanged(event.changed ?? [], !!event.changed_tree);
+        if (event.todos) onsession({ ...session, todos: event.todos });
         break;
       }
       case 'pending':
@@ -263,14 +373,63 @@
 
   async function send() {
     const text = prompt.trim();
-    if (!text || working || recording || transcribing) return;
+    if ((!text && !attachments.length) || working || recording || transcribing || reading) return;
     if (!session.provider) { error = 'Choose a model first.'; return; }
+    const command = attachments.length ? null : parseSlashInput(text);
+    if (command && await runCommand(command.name, command.args)) return;
+    if (session.revert_message_id && hiddenCount && !confirm(`Sending discards the ${hiddenCount} undone message${hiddenCount === 1 ? '' : 's'} for good. Continue?`)) return;
+    await ensureProjectFiles();
+    const files = promptMentions(text, fileSet);
+    const sent = attachments;
     prompt = '';
+    attachments = [];
+    attachmentError = '';
+    mention = null;
     stickToBottom = true;
     // Optimistic bubble; replaced when the stored message arrives.
-    messages = [...messages, { id: `local-${Date.now()}`, session_id: session.id, role: 'user', content: text, created_at: new Date().toISOString() }];
+    messages = [...visibleMessages(messages, session.revert_message_id), { id: `local-${Date.now()}`, session_id: session.id, role: 'user', content: text, created_at: new Date().toISOString() }];
+    if (session.revert_message_id) onsession({ ...session, revert_message_id: '' });
     await scrollToEnd();
-    await stream('run', { prompt: text });
+    await stream('run', { prompt: text, files, attachments: sent });
+  }
+
+  async function undo() {
+    if (!canUndo) { addToast('There is nothing to undo.', 'info'); return; }
+    await revertAction(() => revertDeveloperSession(session.id));
+  }
+
+  async function undoTo(messageId: string) {
+    if (working) return;
+    if (!confirm('Undo this message and everything after it? Files are restored to how they were before it ran. Redo brings it back until you send a new message.')) return;
+    await revertAction(() => revertDeveloperSession(session.id, messageId));
+  }
+
+  async function redo() {
+    if (!session.revert_message_id || working) { addToast('There is nothing to redo.', 'info'); return; }
+    await revertAction(() => unrevertDeveloperSession(session.id));
+  }
+
+  async function revertAction(call: () => Promise<{ session: DeveloperSession; changed?: string[] }>) {
+    try {
+      const result = await call();
+      onsession(result.session);
+      onfileschanged(result.changed ?? [], true);
+      void loadChanges();
+      // Put the undone prompt back in the composer, as OpenCode does.
+      if (result.session.revert_message_id && !prompt.trim()) {
+        const message = messages.find(m => m.id === result.session.revert_message_id);
+        const entry = message && buildTranscript([message])[0];
+        if (entry?.text) prompt = entry.text;
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Could not undo', 'alert');
+    }
+  }
+
+  async function chooseEffort(level: string) {
+    if (working || level === (session.reasoning_effort ?? '')) return;
+    if (level && efforts.length && !efforts.includes(level)) { addToast(`${session.model || 'This model'} supports: ${efforts.join(', ')}`, 'alert'); return; }
+    await changeSettings({ reasoning_effort: level });
   }
 
   async function decide(approved: boolean) {
@@ -299,7 +458,7 @@
     pending = null;
   }
 
-  async function changeSettings(body: { mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) {
+  async function changeSettings(body: { mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string; reasoning_effort?: string }) {
     try {
       onsession(await updateDeveloperSession(session.id, body));
     } catch (e: any) {
@@ -314,9 +473,34 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    const list = mention && mentionMatches.length ? mentionMatches : slashMatches.length ? slashMatches.map(c => c.name) : null;
+    if (list) {
+      const isMention = !!(mention && mentionMatches.length);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        if (isMention) mentionIndex = (mentionIndex + delta + list.length) % list.length;
+        else slashIndex = (slashIndex + delta + list.length) % list.length;
+        return;
+      }
+      if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !event.isComposing)) {
+        event.preventDefault();
+        if (isMention) { pickMention(list[mentionIndex]); return; }
+        const command = DEVELOPER_COMMANDS.find(c => c.name === list[slashIndex])!;
+        if (event.key === 'Tab' || command.args) prompt = `/${command.name} `;
+        else void runCommand(command.name, '');
+        return;
+      }
+      if (event.key === 'Escape') { event.preventDefault(); mention = null; prompt = isMention ? prompt : ''; return; }
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'm') {
       event.preventDefault();
       if (!working) palette = 'model';
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !prompt) {
+      event.preventDefault();
+      void (event.shiftKey ? redo() : undo());
       return;
     }
     if (event.key === 'Escape' && working) {
@@ -347,6 +531,8 @@
     return ['read_file', 'write_file', 'edit_file'].includes(tool.name) && typeof tool.input.path === 'string' ? tool.input.path : '';
   }
 
+  const TODO_MARK: Record<string, string> = { pending: '○', in_progress: '◐', completed: '●', cancelled: '×' };
+
   function projectFile(rel: string) {
     return session.project_path ? `${session.project_path}/${rel}` : rel;
   }
@@ -374,6 +560,8 @@
       {STATUS_LABELS[session.status] ?? session.status}
     </span>
     <span class="ml-auto text-dark-text-faint" title="Closing this page does not stop the agent. Use Stop to cancel.">Runs on server</span>
+    <button type="button" onclick={undo} disabled={!canUndo} class="p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text disabled:opacity-40" title="Undo the last prompt and its file changes (/undo, Ctrl+Z)" aria-label="Undo"><Undo2 size={14} /></button>
+    <button type="button" onclick={redo} disabled={working || !session.revert_message_id} class="p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text disabled:opacity-40" title="Redo (/redo, Ctrl+Shift+Z)" aria-label="Redo"><Redo2 size={14} /></button>
   </div>
 
   <!-- Transcript -->
@@ -389,10 +577,34 @@
         </div>
       {/if}
       {#each transcript as entry (entry.key)}
-        {#if entry.role === 'user'}
-          <div class="border-l-2 border-accent bg-dark-surface px-4 py-3 sm:px-[22px]">
+        {#if entry.compaction}
+          <div class="border border-dark-border px-4 py-3 text-sm sm:px-[22px]">
+            <p class="mb-2 text-xs text-dark-text-muted">Conversation compacted. The model continues from this summary; earlier messages stay here for reference.</p>
+            <details class="text-dark-text-secondary"><summary class="cursor-pointer text-xs">Summary</summary><div class="mt-2"><Markdown source={entry.text} /></div></details>
+          </div>
+        {:else if entry.role === 'user'}
+          <div class="group border-l-2 border-accent bg-dark-surface px-4 py-3 sm:px-[22px]">
             <div class="whitespace-pre-wrap break-words text-sm leading-relaxed text-dark-text">{entry.text}</div>
-            {#if entry.created_at && !entry.key.startsWith('local-')}<div class="mt-2 text-[11px] text-dark-text-faint">{formatMessageTime(entry.created_at)}</div>{/if}
+            {#if entry.mentions?.length || entry.attachments?.length}
+              <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
+                {#each entry.mentions ?? [] as path}
+                  <button type="button" onclick={() => onopenfile(session.project_path ? `${session.project_path}/${path}` : path)} class="inline-flex items-center gap-1 border border-dark-border px-1.5 py-0.5 font-mono text-dark-text-secondary hover:bg-dark-elevated"><FileText size={11} /> @{path}</button>
+                {/each}
+                {#each entry.attachments ?? [] as file}
+                  {#if file.data && file.mediaType.startsWith('image/')}
+                    <img src={`data:${file.mediaType};base64,${file.data}`} alt={file.name} class="max-h-40 max-w-full border border-dark-border object-contain" loading="lazy" />
+                  {:else}
+                    <span class="inline-flex items-center gap-1 border border-dark-border px-1.5 py-0.5 text-dark-text-secondary"><Paperclip size={11} /> {file.name}</span>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
+            <div class="mt-2 flex items-center gap-2 text-[11px] text-dark-text-faint">
+              {#if entry.created_at && !entry.key.startsWith('local-')}<span>{formatMessageTime(entry.created_at)}</span>{/if}
+              {#if entry.undoable && !working}
+                <button type="button" onclick={() => undoTo(entry.key)} class="ml-auto inline-flex items-center gap-1 opacity-0 hover:text-dark-text group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100" title="Undo this message and everything after it, including file changes"><Undo2 size={11} /> Undo from here</button>
+              {/if}
+            </div>
           </div>
         {:else}
           <div class="min-w-0">
@@ -414,6 +626,14 @@
           </div>
         {/if}
       {/each}
+
+      {#if hiddenCount > 0 && !working}
+        <div role="status" class="flex flex-wrap items-center gap-2 border border-dark-border px-3 py-2 text-xs text-dark-text-secondary">
+          <Undo2 size={13} class="shrink-0" />
+          <span class="flex-1">{hiddenCount} message{hiddenCount === 1 ? '' : 's'} undone and the files restored. Sending a new message discards them.</span>
+          <button type="button" onclick={redo} class="inline-flex items-center gap-1 border border-dark-border-subtle px-2 py-0.5 hover:bg-dark-elevated"><Redo2 size={12} /> Redo</button>
+        </div>
+      {/if}
 
       {#if busy && (liveText || liveThinking || Object.keys(runningTools).length === 0)}
         <div class="px-4 py-2.5 text-sm leading-relaxed text-dark-text sm:px-[22px]" role="status">
@@ -470,6 +690,26 @@
   <!-- Composer -->
   <div class="bg-dark-base px-3 pb-3 pt-1">
     <div class="mx-auto max-w-4xl">
+      {#if todos.length}
+        <div class="mb-1.5 text-xs">
+          <button type="button" onclick={() => (todosOpen = !todosOpen)} aria-expanded={todosOpen} class="inline-flex items-center gap-1.5 px-1 py-0.5 text-dark-text-secondary hover:text-dark-text">
+            <ListChecks size={13} class="shrink-0 text-oc-violet" />
+            <span>Tasks · {openTodos} of {todos.length} open</span>
+            <ChevronDown size={13} class={todosOpen ? 'shrink-0 rotate-180' : 'shrink-0'} />
+          </button>
+          {#if todosOpen}
+            <ul class="mt-1 max-h-48 overflow-y-auto border border-dark-border py-1">
+              {#each todos as todo (todo.id)}
+                <li class={['flex items-start gap-2 px-2.5 py-0.5', todo.status === 'completed' || todo.status === 'cancelled' ? 'text-dark-text-muted line-through' : todo.status === 'in_progress' ? 'text-oc-peach' : 'text-dark-text']}>
+                  <span class="w-3 shrink-0 text-center" aria-label={todo.status}>{TODO_MARK[todo.status] ?? '○'}</span>
+                  <span class="min-w-0 flex-1 break-words">{todo.content}</span>
+                  {#if todo.priority === 'high'}<span class="shrink-0 text-[11px] text-oc-red no-underline">high</span>{/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
       {#if changes.length}
         <div class="mb-1.5 text-xs">
           <button
@@ -510,18 +750,66 @@
         </div>
       {/if}
 
-      <div class={['border-l-2 bg-dark-elevated px-1 pt-1', working ? 'border-oc-peach' : 'border-accent']}>
+      <div
+        role="group"
+        aria-label="Message composer"
+        class={['relative border-l-2 bg-dark-elevated px-1 pt-1', working ? 'border-oc-peach' : 'border-accent', dragging ? 'ring-2 ring-inset ring-accent' : '']}
+        ondragover={event => { if (event.dataTransfer?.types.includes('Files')) { event.preventDefault(); dragging = true; } }}
+        ondragleave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) dragging = false; }}
+        ondrop={event => { if (!event.dataTransfer?.files.length) return; event.preventDefault(); dragging = false; void addAttachments(Array.from(event.dataTransfer.files)); }}
+      >
+        {#if (mention && mentionMatches.length) || slashMatches.length}
+          <ul role="listbox" aria-label={mention ? 'Files' : 'Commands'} class="absolute inset-x-0 bottom-full z-20 mb-1 max-h-72 overflow-y-auto border border-dark-border bg-dark-surface py-1 text-xs shadow-lg">
+            {#if mention && mentionMatches.length}
+              {#each mentionMatches as path, i (path)}
+                <li role="option" aria-selected={i === mentionIndex}>
+                  <button type="button" onmousedown={event => { event.preventDefault(); pickMention(path); }} class={['flex w-full items-center gap-2 px-3 py-1 text-left font-mono', i === mentionIndex ? 'bg-dark-elevated text-dark-text' : 'text-dark-text-secondary hover:bg-dark-elevated']}>
+                    <FileText size={12} class="shrink-0 text-dark-text-muted" /> <span class="truncate">{path}</span>
+                  </button>
+                </li>
+              {/each}
+            {:else}
+              {#each slashMatches as command, i (command.name)}
+                <li role="option" aria-selected={i === slashIndex}>
+                  <button type="button" onmousedown={event => { event.preventDefault(); if (command.args) { prompt = `/${command.name} `; textarea?.focus(); } else void runCommand(command.name, ''); }} class={['flex w-full items-baseline gap-3 px-3 py-1 text-left', i === slashIndex ? 'bg-dark-elevated' : 'hover:bg-dark-elevated']}>
+                    <span class="shrink-0 font-mono text-dark-text">/{command.name}{#if command.args}<span class="text-dark-text-muted"> {command.args}</span>{/if}</span>
+                    <span class="truncate text-dark-text-muted">{command.description}</span>
+                  </button>
+                </li>
+              {/each}
+            {/if}
+          </ul>
+        {/if}
+        {#if attachments.length || attachmentError || reading}
+          <div class="flex flex-wrap items-center gap-2 px-2 pt-1.5 text-xs">
+            {#each attachments as file, i}
+              <span class="inline-flex max-w-56 items-center gap-1.5 border border-dark-border bg-dark-base py-0.5 pl-1 pr-0.5">
+                {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-6 object-cover" />{:else}<FileText size={13} class="shrink-0 text-dark-text-muted" />{/if}
+                <span class="truncate" title={file.name}>{file.name}</span>
+                <span class="shrink-0 text-dark-text-muted">{attachmentSize(attachmentBytes(file))}</span>
+                <button type="button" onclick={() => { attachments = attachments.filter((_, index) => index !== i); attachmentError = ''; }} class="p-0.5 text-dark-text-muted hover:text-dark-text" aria-label={`Remove ${file.name}`}><X size={12} /></button>
+              </span>
+            {/each}
+            {#if reading}<span class="text-dark-text-muted">Reading…</span>{/if}
+            {#if attachmentError}<span role="alert" class="text-red-300">{attachmentError}</span>{/if}
+          </div>
+        {/if}
         <textarea
           bind:this={textarea}
           bind:value={prompt}
           use:grow={[prompt, expandedComposer]}
           onkeydown={keydown}
+          oninput={updateMention}
+          onclick={updateMention}
+          onpaste={pasteFiles}
+          onblur={() => { mention = null; }}
           rows={expandedComposer ? 8 : 2}
           aria-label="Message the agent"
-          placeholder={pending ? 'Answer the prompt above first' : 'Ask the agent to change, explain or review code…  (Enter to send, Shift+Enter for a new line)'}
+          placeholder={pending ? 'Answer the prompt above first' : 'Ask the agent to change, explain or review code…  (@ for files, / for commands, Enter to send)'}
           disabled={!!pending && !busy}
           class="block w-full resize-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-[22px] focus:outline-none focus:ring-0 disabled:opacity-60 text-dark-text placeholder:text-dark-text-muted"
         ></textarea>
+        <input bind:this={fileInput} type="file" multiple class="hidden" onchange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; void addAttachments(files); }} />
         <div class="flex flex-wrap items-center gap-1 px-1.5 pb-1.5">
           <button
             type="button"
@@ -533,6 +821,7 @@
           >
             {#if expandedComposer}<Minimize2 size={15} />{:else}<Maximize2 size={15} />{/if}
           </button>
+          <button type="button" onclick={() => fileInput?.click()} disabled={working || reading || attachments.length >= CHAT_ATTACHMENT_COUNT} class="inline-flex size-7 items-center justify-center text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text disabled:opacity-40" title="Attach images or files (or paste / drop them)" aria-label="Attach files"><Paperclip size={15} /></button>
           <span class="flex-1"></span>
 
           <button
@@ -547,6 +836,20 @@
             <span class={['truncate font-medium', modelValue ? '' : 'text-amber-400']}>{modelLabel}</span>
             <ChevronDown size={12} class="shrink-0 text-dark-text-muted" />
           </button>
+
+          {#if efforts.length || session.reasoning_effort}
+            <button
+              type="button"
+              disabled={working}
+              onclick={() => (palette = 'effort')}
+              aria-label="Choose reasoning effort"
+              class={['inline-flex h-7 items-center gap-1.5 px-2 text-xs', session.reasoning_effort ? 'text-dark-text' : 'text-dark-text-muted', working ? 'opacity-50' : 'cursor-pointer hover:bg-dark-elevated']}
+              title="Reasoning effort (/effort)"
+            >
+              <Gauge size={13} class="shrink-0" />
+              <span>{effortLabel}</span>
+            </button>
+          {/if}
 
           <button
             type="button"
@@ -575,7 +878,7 @@
           {#if working}
             <button type="button" onclick={stop} class="ml-1 inline-flex size-8 items-center justify-center bg-red-600 text-white hover:bg-red-700" title="Stop" aria-label="Stop the agent"><Square size={14} /></button>
           {:else}
-            <button type="button" onclick={send} disabled={!prompt.trim() || !!pending || !session.provider || recording || transcribing} class="ml-1 inline-flex size-8 items-center justify-center text-dark-base bg-accent hover:bg-accent-hover disabled:bg-dark-elevated disabled:text-dark-text-muted" title="Send (Enter)" aria-label="Send"><ArrowUp size={16} /></button>
+            <button type="button" onclick={send} disabled={(!prompt.trim() && !attachments.length) || !!pending || !session.provider || recording || transcribing || reading} class="ml-1 inline-flex size-8 items-center justify-center text-dark-base bg-accent hover:bg-accent-hover disabled:bg-dark-elevated disabled:text-dark-text-muted" title="Send (Enter)" aria-label="Send"><ArrowUp size={16} /></button>
           {/if}
         </div>
       </div>
@@ -584,5 +887,5 @@
 </div>
 
 {#if palette}
-  <CommandPalette title={palette === 'model' ? 'Choose model' : 'Choose agent'} groups={paletteGroups} onclose={() => { palette = ''; textarea?.focus(); }} />
+  <CommandPalette title={palette === 'model' ? 'Choose model' : palette === 'effort' ? 'Reasoning effort' : 'Choose agent'} groups={paletteGroups} onclose={() => { palette = ''; textarea?.focus(); }} />
 {/if}

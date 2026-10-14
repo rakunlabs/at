@@ -8,7 +8,7 @@ package devfs
 // script prints one JSON document on success and exits 3 with {"error": ...}
 // for a refusal the caller should surface verbatim.
 const PythonScript = `
-import base64, hashlib, json, os, pathlib, re, shutil, stat, sys
+import base64, fnmatch, hashlib, json, os, pathlib, re, shutil, stat, sys
 
 MAX_READ = 2 * 1024 * 1024
 MAX_LIST = 5000
@@ -145,7 +145,7 @@ elif op == "walk":
     limit = 10000
     out = []
     for base, dirs, files in os.walk(target, followlinks=False):
-        dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules") and not (pathlib.Path(base) / d).is_symlink())
+        dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules", ".at-snapshots") and not (pathlib.Path(base) / d).is_symlink())
         for name in sorted(files):
             p = pathlib.Path(base) / name
             if p.is_symlink():
@@ -159,6 +159,7 @@ elif op == "walk":
 
 elif op == "search":
     pattern, start_rel = args[0], (args[1] if len(args) > 1 else "")
+    includes = [i.strip() for i in (args[2] if len(args) > 2 else "").split("\n") if i.strip()]
     try:
         rx = re.compile(pattern)
     except re.error as e:
@@ -169,13 +170,15 @@ elif op == "search":
             yield target
             return
         for base, dirs, files in os.walk(target, followlinks=False):
-            dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules"))
+            dirs[:] = sorted(d for d in dirs if d not in (".git", "node_modules", ".at-snapshots"))
             for name in sorted(files):
                 yield pathlib.Path(base) / name
     paths = candidates()
     hits = []
     for p in paths:
         if p.is_symlink() or not p.is_file():
+            continue
+        if includes and not any(fnmatch.fnmatchcase(p.name, i) for i in includes):
             continue
         try:
             if p.stat().st_size > 4 * 1024 * 1024:

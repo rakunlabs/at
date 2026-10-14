@@ -29,19 +29,33 @@ export interface DeveloperSpace {
 export type DeveloperMode = 'plan' | 'build' | 'review';
 export type DeveloperSessionStatus = 'idle' | 'running' | 'waiting_permission' | 'waiting_question' | 'completed' | 'failed' | 'cancelled';
 
+export interface DeveloperTodo { id: string; content: string; status: 'pending' | 'in_progress' | 'completed' | 'cancelled'; priority?: 'high' | 'medium' | 'low' }
+
 export interface DeveloperSession {
   id: string; space_id: string; project_path: string; title?: string;
   mode: DeveloperMode; status: DeveloperSessionStatus; provider?: string; model?: string;
   /** Runs as this workspace agent; empty uses the built-in profile named by `mode`. */
   agent_id?: string;
+  /** Empty uses the agent's effort or the provider default. */
+  reasoning_effort?: string;
+  /** Set after an undo: this user message and everything after it are hidden until redo or the next prompt. */
+  revert_message_id?: string;
+  todos?: DeveloperTodo[];
   error?: string; started_at?: string; finished_at?: string; created_at: string; updated_at: string;
 }
 
 export interface DeveloperContentBlock {
   type: string; text?: string; thinking?: string; id?: string; name?: string;
   input?: Record<string, unknown>; tool_use_id?: string; content?: unknown;
+  source?: { type: string; media_type?: string; data?: string };
 }
-export interface DeveloperSessionMessage { id: string; session_id: string; role: 'user' | 'assistant' | 'tool' | 'system'; content: string | DeveloperContentBlock[]; created_at: string }
+export interface DeveloperSessionMessage {
+  id: string; session_id: string; role: 'user' | 'assistant' | 'tool' | 'system'; content: string | DeveloperContentBlock[];
+  /** File state before this prompt ran; undo is available when present. */
+  snapshot?: string;
+  kind?: '' | 'compaction';
+  created_at: string;
+}
 export interface DeveloperToolCall { ID: string; Name: string; Arguments: Record<string, unknown> }
 export interface DeveloperPendingTool { session_id: string; kind: 'permission' | 'question'; state: 'pending' | 'executing'; tool_calls: DeveloperToolCall[]; trace_id?: string; step: number; created_at: string }
 
@@ -98,6 +112,8 @@ export async function uploadDeveloperFile(folder: string, file: File) {
   return (await api.post<{ path: string }>('/developer-space/files/upload', form)).data;
 }
 export async function searchDeveloperFiles(project: string, pattern: string) { return (await api.get<{ matches: DeveloperSearchMatch[]; truncated: boolean }>('/developer-space/search', { params: { path: project, pattern } })).data; }
+/** Every file of a project (walk order, .git/node_modules skipped), for the @ picker. */
+export async function listDeveloperProjectFiles(project: string) { return (await api.get<{ files: string[]; truncated: boolean }>('/developer-space/glob', { params: { project } })).data; }
 export async function cloneDeveloperProject(remote: string, name = '', branch = '') { return (await api.post<{ path: string }>('/developer-space/clone', { remote, name, branch })).data; }
 
 /** Raw bytes for images/downloads. Fetched (not linked) so the workspace header is sent. */
@@ -125,8 +141,12 @@ export async function pushDeveloperGit(project: string, branch: string) { return
 // ─── Sessions ───
 
 export async function listDeveloperSessions() { return (await api.get<DeveloperSession[]>('/developer-sessions')).data; }
-export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; agent_id?: string; provider?: string; model?: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
-export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
+export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; agent_id?: string; provider?: string; model?: string; reasoning_effort?: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
+export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string; reasoning_effort?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
+/** Undo: rewinds to before the latest (or the given) prompt and restores the files it changed. */
+export async function revertDeveloperSession(id: string, messageId = '') { return (await api.post<{ session: DeveloperSession; changed?: string[] }>(`/developer-sessions/${encodeURIComponent(id)}/revert`, messageId ? { message_id: messageId } : {})).data; }
+/** Redo: brings back what the last undo hid, files included. */
+export async function unrevertDeveloperSession(id: string) { return (await api.post<{ session: DeveloperSession; changed?: string[] }>(`/developer-sessions/${encodeURIComponent(id)}/unrevert`)).data; }
 export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
 export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
 export interface DeveloperRun {
@@ -145,7 +165,7 @@ export type DeveloperStreamEvent =
   | { type: 'delta'; content?: string; reasoning?: string }
   | { type: 'message'; message: DeveloperSessionMessage }
   | { type: 'tool_start'; tool_id: string; tool_name: string }
-  | { type: 'tool_result'; tool_id: string; tool_name: string; error: boolean; changed?: string[]; changed_tree?: boolean }
+  | { type: 'tool_result'; tool_id: string; tool_name: string; error: boolean; changed?: string[]; changed_tree?: boolean; todos?: DeveloperTodo[] }
   | { type: 'pending'; pending_tool: DeveloperPendingTool }
   | { type: 'error'; error: string };
 

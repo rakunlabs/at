@@ -22,10 +22,11 @@ type developerToolkit struct {
 	agent   *service.Agent
 	profile service.DeveloperAgentProfile
 
-	systemPrompt  string
-	tools         []service.Tool
-	maxIterations int
-	toolTimeout   int
+	systemPrompt    string
+	tools           []service.Tool
+	maxIterations   int
+	toolTimeout     int
+	reasoningEffort string
 
 	skills   *workflow.SkillRuntime
 	builtins map[string]bool
@@ -41,6 +42,9 @@ func (k *developerToolkit) Close() {
 }
 
 func isDeveloperContainerTool(name string) bool {
+	if name == "run_command" {
+		return true // legacy calls stored before the bash tool
+	}
 	for _, tool := range developerAgentTools {
 		if tool.Name == name {
 			return true
@@ -55,6 +59,9 @@ func isDeveloperContainerTool(name string) bool {
 func (k *developerToolkit) effect(call service.ToolCall) string {
 	if call.Name == "ask_user" {
 		return "ask"
+	}
+	if developerAlwaysAllowed(call.Name) {
+		return "allow"
 	}
 	if k.agent == nil {
 		return developerToolEffect(k.profile, call)
@@ -107,7 +114,8 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 
 	kit := &developerToolkit{
 		agent: agent, maxIterations: agent.Config.MaxIterations, toolTimeout: agent.Config.ToolTimeout,
-		builtins: map[string]bool{}, confirm: map[string]bool{},
+		reasoningEffort: agent.Config.ReasoningEffort,
+		builtins:        map[string]bool{}, confirm: map[string]bool{},
 	}
 	for _, name := range agent.Config.ConfirmationRequiredTools {
 		kit.confirm[name] = true
@@ -171,7 +179,7 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 			names = append(names, name)
 		}
 		slices.Sort(names)
-		prompt = append(prompt, "These platform tools run on the AT server, not inside the project container, and cannot see the project files: "+strings.Join(names, ", ")+". Use the project tools (read_file, edit_file, run_command, ...) for anything in the project.")
+		prompt = append(prompt, "These platform tools run on the AT server, not inside the project container, and cannot see the project files: "+strings.Join(names, ", ")+". Use the project tools (read_file, edit_file, bash, ...) for anything in the project.")
 	}
 	kit.systemPrompt = strings.Join(prompt, "\n\n")
 	return kit, nil

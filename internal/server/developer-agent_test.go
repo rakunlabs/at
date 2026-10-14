@@ -16,11 +16,13 @@ func TestDeveloperDefaultProfileToolPolicy(t *testing.T) {
 	}{
 		{"plan reads", config.Plan, service.ToolCall{Name: "read_file", Arguments: map[string]any{"path": "main.go"}}, "allow"},
 		{"plan lists", config.Plan, service.ToolCall{Name: "list_files", Arguments: map[string]any{}}, "allow"},
+		{"plan globs", config.Plan, service.ToolCall{Name: "glob", Arguments: map[string]any{"pattern": "**/*.go"}}, "allow"},
 		{"plan searches", config.Plan, service.ToolCall{Name: "search", Arguments: map[string]any{"pattern": "TODO"}}, "allow"},
 		{"plan edits denied", config.Plan, service.ToolCall{Name: "write_file", Arguments: map[string]any{"path": "main.go"}}, "deny"},
-		{"plan shell denied", config.Plan, service.ToolCall{Name: "run_command", Arguments: map[string]any{"command": "go"}}, "deny"},
+		{"plan shell denied", config.Plan, service.ToolCall{Name: "bash", Arguments: map[string]any{"command": "go test ./..."}}, "deny"},
+		{"plan legacy shell denied", config.Plan, service.ToolCall{Name: "run_command", Arguments: map[string]any{"command": "go"}}, "deny"},
 		{"build edits", config.Build, service.ToolCall{Name: "write_file", Arguments: map[string]any{"path": "main.go"}}, "allow"},
-		{"build shell asks", config.Build, service.ToolCall{Name: "run_command", Arguments: map[string]any{"command": "go"}}, "ask"},
+		{"build shell asks", config.Build, service.ToolCall{Name: "bash", Arguments: map[string]any{"command": "go test ./..."}}, "ask"},
 		{"review edits denied", config.Review, service.ToolCall{Name: "write_file", Arguments: map[string]any{"path": "main.go"}}, "deny"},
 	}
 	for _, tt := range tests {
@@ -33,7 +35,7 @@ func TestDeveloperDefaultProfileToolPolicy(t *testing.T) {
 }
 
 func TestDeveloperProjectFilePath(t *testing.T) {
-	for _, candidate := range []string{".git/config", ".git", "../outside", "/absolute", ""} {
+	for _, candidate := range []string{"../outside", "/absolute", ""} {
 		if _, err := developerProjectFilePath(candidate); err == nil {
 			t.Fatalf("developerProjectFilePath(%q) unexpectedly succeeded", candidate)
 		}
@@ -42,8 +44,10 @@ func TestDeveloperProjectFilePath(t *testing.T) {
 	if err != nil || got != "internal/server/main.go" {
 		t.Fatalf("developerProjectFilePath() = %q, %v", got, err)
 	}
-	if got, err := developerProjectFilePath(".github/workflows/test.yml"); err != nil || got == "" {
-		t.Fatalf(".github must remain available: %q, %v", got, err)
+	// Git metadata is reachable like in a local coding agent; bash could
+	// change it anyway, so refusing it in file tools protected nothing.
+	if got, err := developerProjectFilePath(".git/config"); err != nil || got != ".git/config" {
+		t.Fatalf(".git must be available: %q, %v", got, err)
 	}
 }
 

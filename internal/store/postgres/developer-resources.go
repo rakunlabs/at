@@ -30,35 +30,41 @@ func developerParentExists(ctx context.Context, db *goqu.Database, table exp.Ide
 
 var developerSessionColumns = []any{
 	"id", "space_id", "project_path", "workspace_id", "owner_user_id",
-	"title", "mode", "agent_id", "status", "provider", "model", "config", "error",
+	"title", "mode", "agent_id", "status", "provider", "model", "reasoning_effort",
+	"revert_message_id", "revert_snapshot", "todos", "config", "error",
 	"started_at", "finished_at", "created_at", "updated_at",
 }
 
 type developerSessionRow struct {
-	ID          string       `db:"id"`
-	SpaceID     string       `db:"space_id"`
-	ProjectPath string       `db:"project_path"`
-	WorkspaceID string       `db:"workspace_id"`
-	OwnerUserID string       `db:"owner_user_id"`
-	Title       string       `db:"title"`
-	Mode        string       `db:"mode"`
-	AgentID     string       `db:"agent_id"`
-	Status      string       `db:"status"`
-	Provider    string       `db:"provider"`
-	Model       string       `db:"model"`
-	Config      string       `db:"config"`
-	Error       string       `db:"error"`
-	StartedAt   sql.NullTime `db:"started_at"`
-	FinishedAt  sql.NullTime `db:"finished_at"`
-	CreatedAt   time.Time    `db:"created_at"`
-	UpdatedAt   time.Time    `db:"updated_at"`
+	ID              string       `db:"id"`
+	SpaceID         string       `db:"space_id"`
+	ProjectPath     string       `db:"project_path"`
+	WorkspaceID     string       `db:"workspace_id"`
+	OwnerUserID     string       `db:"owner_user_id"`
+	Title           string       `db:"title"`
+	Mode            string       `db:"mode"`
+	AgentID         string       `db:"agent_id"`
+	Status          string       `db:"status"`
+	Provider        string       `db:"provider"`
+	Model           string       `db:"model"`
+	ReasoningEffort string       `db:"reasoning_effort"`
+	RevertMessageID string       `db:"revert_message_id"`
+	RevertSnapshot  string       `db:"revert_snapshot"`
+	Todos           string       `db:"todos"`
+	Config          string       `db:"config"`
+	Error           string       `db:"error"`
+	StartedAt       sql.NullTime `db:"started_at"`
+	FinishedAt      sql.NullTime `db:"finished_at"`
+	CreatedAt       time.Time    `db:"created_at"`
+	UpdatedAt       time.Time    `db:"updated_at"`
 }
 
 func developerSessionRecord(row developerSessionRow) (*service.DeveloperSession, error) {
 	record := &service.DeveloperSession{
 		ID: row.ID, SpaceID: row.SpaceID, ProjectPath: row.ProjectPath,
 		WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID, Title: row.Title, Mode: row.Mode, AgentID: row.AgentID,
-		Status: row.Status, Provider: row.Provider, Model: row.Model, Error: row.Error,
+		Status: row.Status, Provider: row.Provider, Model: row.Model, ReasoningEffort: row.ReasoningEffort,
+		RevertMessageID: row.RevertMessageID, RevertSnapshot: row.RevertSnapshot, Error: row.Error,
 		CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if row.StartedAt.Valid {
@@ -69,6 +75,12 @@ func developerSessionRecord(row developerSessionRow) (*service.DeveloperSession,
 	}
 	if err := json.Unmarshal([]byte(row.Config), &record.Config); err != nil {
 		return nil, fmt.Errorf("decode developer session config: %w", err)
+	}
+	record.Todos = []service.DeveloperSessionTodo{}
+	if row.Todos != "" {
+		if err := json.Unmarshal([]byte(row.Todos), &record.Todos); err != nil {
+			return nil, fmt.Errorf("decode developer session todos: %w", err)
+		}
 	}
 	return record, nil
 }
@@ -145,7 +157,7 @@ func (p *Postgres) CreateDeveloperSession(ctx context.Context, session service.D
 		"id": session.ID, "space_id": session.SpaceID, "project_path": projectPath,
 		"workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID, "title": strings.TrimSpace(session.Title),
 		"mode": session.Mode, "agent_id": strings.TrimSpace(session.AgentID), "status": service.DeveloperSessionIdle, "provider": strings.TrimSpace(session.Provider),
-		"model": strings.TrimSpace(session.Model), "config": string(encoded),
+		"model": strings.TrimSpace(session.Model), "reasoning_effort": strings.TrimSpace(session.ReasoningEffort), "config": string(encoded),
 	}).Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("create developer session: %w", err)
@@ -167,6 +179,9 @@ func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id string
 	if strings.TrimSpace(settings.Provider) == "" {
 		return nil, fmt.Errorf("provider is required")
 	}
+	if err := service.ValidateReasoningEffort(settings.ReasoningEffort); err != nil {
+		return nil, err
+	}
 	actor, err := developerSpaceActor(ctx)
 	if err != nil {
 		return nil, err
@@ -174,7 +189,8 @@ func (p *Postgres) UpdateDeveloperSessionSettings(ctx context.Context, id string
 	var row developerSessionRow
 	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
 		"mode": settings.Mode, "agent_id": strings.TrimSpace(settings.AgentID),
-		"provider": strings.TrimSpace(settings.Provider), "model": strings.TrimSpace(settings.Model), "updated_at": goqu.L("clock_timestamp()"),
+		"provider": strings.TrimSpace(settings.Provider), "model": strings.TrimSpace(settings.Model),
+		"reasoning_effort": settings.ReasoningEffort, "updated_at": goqu.L("clock_timestamp()"),
 	}).Where(developerOwned(actor, goqu.Ex{"id": id, "active_run_id": ""}), goqu.I("status").NotIn(service.DeveloperSessionRunning, service.DeveloperSessionWaitingPermission, service.DeveloperSessionWaitingQuestion)).
 		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
@@ -288,7 +304,7 @@ func (p *Postgres) BeginDeveloperSessionRun(ctx context.Context, id string) (*se
 	return developerSessionRecord(row)
 }
 
-var developerSessionMessageColumns = []any{"id", "session_id", "workspace_id", "owner_user_id", "role", "content", "created_at"}
+var developerSessionMessageColumns = []any{"id", "session_id", "workspace_id", "owner_user_id", "role", "content", "snapshot", "kind", "created_at"}
 
 type developerSessionMessageRow struct {
 	ID          string    `db:"id"`
@@ -297,15 +313,17 @@ type developerSessionMessageRow struct {
 	OwnerUserID string    `db:"owner_user_id"`
 	Role        string    `db:"role"`
 	Content     string    `db:"content"`
+	Snapshot    string    `db:"snapshot"`
+	Kind        string    `db:"kind"`
 	CreatedAt   time.Time `db:"created_at"`
 }
 
 func developerSessionMessageRecord(row developerSessionMessageRow) (*service.DeveloperSessionMessage, error) {
 	record := &service.DeveloperSessionMessage{
 		ID: row.ID, SessionID: row.SessionID, WorkspaceID: row.WorkspaceID, OwnerUserID: row.OwnerUserID,
-		Role: row.Role, CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
+		Role: row.Role, Snapshot: row.Snapshot, Kind: row.Kind, CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339),
 	}
-	if row.Role == "assistant" || row.Role == "tool" {
+	if row.Role == "assistant" || row.Role == "tool" || row.Role == "user" {
 		var blocks []service.ContentBlock
 		if err := json.Unmarshal([]byte(row.Content), &blocks); err == nil {
 			record.Content = blocks
@@ -356,6 +374,9 @@ func (p *Postgres) AppendDeveloperSessionMessage(ctx context.Context, message se
 	if message.Role != "user" && message.Role != "assistant" && message.Role != "tool" && message.Role != "system" {
 		return nil, fmt.Errorf("invalid developer session message role")
 	}
+	if message.Kind != "" && message.Kind != service.DeveloperMessageKindCompaction {
+		return nil, fmt.Errorf("invalid developer session message kind")
+	}
 	if _, err := p.GetDeveloperSession(ctx, message.SessionID); err != nil {
 		return nil, err
 	}
@@ -378,6 +399,7 @@ func (p *Postgres) AppendDeveloperSessionMessage(ctx context.Context, message se
 	_, err = tx.Insert(p.tableDeveloperSessionMessages).Rows(goqu.Record{
 		"id": message.ID, "session_id": message.SessionID, "workspace_id": actor.WorkspaceID,
 		"owner_user_id": actor.UserID, "role": message.Role, "content": string(content),
+		"snapshot": message.Snapshot, "kind": message.Kind,
 	}).Returning(developerSessionMessageColumns...).Executor().ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("append developer session message: %w", err)
@@ -386,6 +408,116 @@ func (p *Postgres) AppendDeveloperSessionMessage(ctx context.Context, message se
 		return nil, fmt.Errorf("commit developer message append: %w", err)
 	}
 	return developerSessionMessageRecord(row)
+}
+
+func (p *Postgres) SetDeveloperSessionTodos(ctx context.Context, id string, todos []service.DeveloperSessionTodo) (*service.DeveloperSession, error) {
+	todos, err := service.NormalizeDeveloperTodos(todos)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(todos)
+	if err != nil {
+		return nil, fmt.Errorf("encode developer session todos: %w", err)
+	}
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var row developerSessionRow
+	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
+		"todos": string(encoded), "updated_at": goqu.L("clock_timestamp()"),
+	}).Where(developerOwned(actor, goqu.Ex{"id": id}), developerRunWriteCondition(ctx)).
+		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("set developer session todos: %w", err)
+	}
+	if !found {
+		return nil, service.ErrDeveloperSessionBusy
+	}
+	return developerSessionRecord(row)
+}
+
+// SetDeveloperSessionRevert records an undo point. Like every history write
+// it is fenced by the run receipt, so it cannot race a running turn.
+func (p *Postgres) SetDeveloperSessionRevert(ctx context.Context, id, messageID, snapshot string) (*service.DeveloperSession, error) {
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if messageID != "" {
+		count, err := p.goqu.From(p.tableDeveloperSessionMessages).Where(developerOwned(actor, goqu.Ex{"id": messageID, "session_id": id, "role": "user"})).CountContext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("check developer revert message: %w", err)
+		}
+		if count == 0 {
+			return nil, service.ErrDeveloperSpaceNotFound
+		}
+	} else {
+		snapshot = ""
+	}
+	var row developerSessionRow
+	found, err := p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{
+		"revert_message_id": messageID, "revert_snapshot": snapshot, "updated_at": goqu.L("clock_timestamp()"),
+	}).Where(developerOwned(actor, goqu.Ex{"id": id}), developerRunWriteCondition(ctx)).
+		Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("set developer session revert: %w", err)
+	}
+	if !found {
+		return nil, service.ErrDeveloperSessionBusy
+	}
+	return developerSessionRecord(row)
+}
+
+func (p *Postgres) CommitDeveloperSessionRevert(ctx context.Context, id string) (*service.DeveloperSession, error) {
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer revert commit: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, id); err != nil {
+		return nil, err
+	}
+	var revertID string
+	if _, err := tx.From(p.tableDeveloperSessions).Select("revert_message_id").Where(developerOwned(actor, goqu.Ex{"id": id})).ScanValContext(ctx, &revertID); err != nil {
+		return nil, fmt.Errorf("read developer revert point: %w", err)
+	}
+	if revertID != "" {
+		var anchor struct {
+			CreatedAt time.Time `db:"created_at"`
+		}
+		found, err := tx.From(p.tableDeveloperSessionMessages).Select("created_at").
+			Where(developerOwned(actor, goqu.Ex{"id": revertID, "session_id": id})).ScanStructContext(ctx, &anchor)
+		if err != nil {
+			return nil, fmt.Errorf("read developer revert message: %w", err)
+		}
+		if found {
+			// Same ordering as ListDeveloperSessionMessages: (created_at, id).
+			if _, err := tx.Delete(p.tableDeveloperSessionMessages).Where(
+				developerOwned(actor, goqu.Ex{"session_id": id}),
+				goqu.Or(
+					goqu.I("created_at").Gt(anchor.CreatedAt),
+					goqu.And(goqu.I("created_at").Eq(anchor.CreatedAt), goqu.I("id").Gte(revertID)),
+				),
+			).Executor().ExecContext(ctx); err != nil {
+				return nil, fmt.Errorf("delete reverted developer messages: %w", err)
+			}
+		}
+	}
+	var row developerSessionRow
+	if _, err := tx.Update(p.tableDeveloperSessions).Set(goqu.Record{
+		"revert_message_id": "", "revert_snapshot": "", "updated_at": goqu.L("clock_timestamp()"),
+	}).Where(developerOwned(actor, goqu.Ex{"id": id})).Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row); err != nil {
+		return nil, fmt.Errorf("clear developer revert point: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer revert: %w", err)
+	}
+	return developerSessionRecord(row)
 }
 
 var developerSessionSnapshotColumns = []any{
