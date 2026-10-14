@@ -200,6 +200,9 @@ func AnthropicThinkingMode(model string) string {
 		}
 		return "extended"
 	case "haiku":
+		if version >= 505 {
+			return "adaptive"
+		}
 		if version >= 405 {
 			return "extended"
 		}
@@ -255,6 +258,7 @@ var geminiLevels = []struct {
 	efforts []string
 }{
 	// Most specific prefixes first.
+	{"gemini-4-argon", []string{"low", "medium", "high"}},
 	{"gemini-3.1-flash-lite-image", []string{"minimal", "high"}},
 	{"gemini-3.1-pro", []string{"low", "medium", "high"}},
 	{"gemini-3-pro", []string{"low", "high"}},

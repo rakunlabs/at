@@ -3103,6 +3103,54 @@ Bounded at `multiGetLimit` (25, the ceiling `batch_execute` already uses) and
 cancellation-checked between entries. Regression:
 `internal/server/builtin-tools-multiget_test.go`.
 
+## Remote marketplaces (install skills and MCP servers)
+
+Migration 106. Marketplaces → *Install from remote* (the default tab; *Published*
+is the Claude Code export described above). A `marketplace_sources` row is a
+remote **Claude Code plugin marketplace**: `type: url` (an https
+`marketplace.json`) or `type: git` (a repository; `owner/repo[@ref]` expands to
+GitHub, optional `ref`, `path` and SSH deploy key `credential_id`). A git
+repository with no `.claude-plugin/marketplace.json` is shown as one plugin of
+its `SKILL.md` folders, so plain skill repositories work. Legacy `generic`
+search sources stay as rows but are not browsable; the old
+`/marketplace/{search,top,preview,import}` endpoints and the Skills
+*Community* tab were removed (Skills links to the Marketplaces page).
+
+Logic is in `internal/server/remote-marketplace.go` (fetch/parse/materialize)
+and `remote-marketplace-api.go` (handlers):
+`GET /marketplace/sources/{id}/catalog`, `GET …/plugins/{plugin}` (skills,
+MCP servers, installed/update markers), `POST …/install`, and
+`GET|POST /marketplace/mcp-updates?set_id=`. Plugin sources supported:
+relative (git marketplaces only), `github`, `url`, `git-subdir`, `archive`
+(sha256 verified); `npm`/`command` are listed as not installable. Skills come
+from `skills/**/SKILL.md` (`selectSkillPackages`, shared with git skill
+import); MCP servers from `plugin.json` `mcpServers` (inline or file path),
+`.mcp.json`, or the marketplace entry when there is no `plugin.json`.
+
+Provenance: skills get `source_type: marketplace`, `source_url` = source ID,
+`source_ref` = plugin, `source_path` = package dir, and the existing
+update-check/apply routes refetch through the marketplace
+(`fetchSkillSourcePackage`). MCP servers become upstreams of a new or chosen
+**MCP set**, carrying `MCPUpstream.origin` (source, plugin, server, published
+checksum, variable mapping); the UI keeps `origin` on save. `${VAR}`
+placeholders are mapped at install to `{{var:key}}` (resolved per call, the
+secret is never copied) or literals; unmapped ones fall back to their
+`${VAR:-default}`. Updates replace the published config but keep local
+auth/proxy/TLS and the mapping.
+
+Safety: remote content is untrusted. Fetches go through the public-address
+dialer (`publicImageClient`: https only, no private/loopback/link-local, also
+on redirects), with size bounds; git URLs must be https/ssh/scp-like (no local
+paths, `file://` or `-` options); relative sources and archive entries cannot
+leave their root and symlinks are skipped. stdio servers need
+`allow_stdio: true` (an explicit UI confirmation), and servers that run files
+shipped inside the plugin (`${CLAUDE_PLUGIN_ROOT}`) are refused because AT does
+not install plugin files. A marketplace deploy key is reused only for plugin
+repositories on the same host. The routes remain installation administration
+(no business policy). Regressions: `internal/server/remote-marketplace_test.go`,
+`internal/store/postgres/marketplace-sources_test.go`,
+`_ui/tests/remote-marketplace.test.mjs`.
+
 ## Memory
 
 AT does not ship a native long-term agent memory store. Agents that need memory should use an external memory MCP (for example a custom Postgres/vector/Engram/Mem0/Letta MCP) attached through MCP Sets or MCP server URLs. Keep memory read/write policy, retention, and embedding/search strategy inside that MCP; AT only discovers and calls the tools.

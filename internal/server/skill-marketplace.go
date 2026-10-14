@@ -1,37 +1,15 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
 
-// MarketplaceSkill is the normalized skill entry returned by marketplace search.
-type MarketplaceSkill struct {
-	Source      string   `json:"source"`
-	Slug        string   `json:"slug"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Author      string   `json:"author"`
-	Downloads   int      `json:"downloads"`
-	License     string   `json:"license"`
-	Tags        []string `json:"tags"`
-	URL         string   `json:"url"`
-}
-
-type marketplaceSearchResponse struct {
-	Skills []MarketplaceSkill `json:"skills"`
-}
-
-// ─── Source CRUD ───
+// ─── Remote marketplace source CRUD ───
 
 func (s *Server) ListMarketplaceSourcesAPI(w http.ResponseWriter, r *http.Request) {
 	if s.marketplaceSourceStore == nil {
@@ -64,9 +42,12 @@ func (s *Server) CreateMarketplaceSourceAPI(w http.ResponseWriter, r *http.Reque
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
-
-	if req.Name == "" {
-		httpResponse(w, "name is required", http.StatusBadRequest)
+	if req.Type == service.MarketplaceSourceGeneric {
+		httpResponse(w, "generic search sources are no longer supported; add a marketplace.json URL or repository", http.StatusBadRequest)
+		return
+	}
+	if err := normalizeMarketplaceSource(&req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -95,6 +76,10 @@ func (s *Server) UpdateMarketplaceSourceAPI(w http.ResponseWriter, r *http.Reque
 	var req service.MarketplaceSource
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	if err := normalizeMarketplaceSource(&req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -132,252 +117,4 @@ func (s *Server) DeleteMarketplaceSourceAPI(w http.ResponseWriter, r *http.Reque
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
-}
-
-// ─── Search / Top / Preview / Import ───
-
-func (s *Server) MarketplaceSearchAPI(w http.ResponseWriter, r *http.Request) {
-	if s.marketplaceSourceStore == nil {
-		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	query := r.URL.Query().Get("q")
-	sourceFilter := r.URL.Query().Get("source") // comma-separated IDs
-
-	sources, err := s.marketplaceSourceStore.ListMarketplaceSources(r.Context())
-	if err != nil {
-		httpResponse(w, fmt.Sprintf("failed to list sources: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// Filter to enabled + requested sources.
-	filterSet := map[string]bool{}
-	if sourceFilter != "" {
-		for _, id := range strings.Split(sourceFilter, ",") {
-			filterSet[strings.TrimSpace(id)] = true
-		}
-	}
-
-	var activeSources []service.MarketplaceSource
-	for _, src := range sources {
-		if !src.Enabled {
-			continue
-		}
-		if len(filterSet) > 0 && !filterSet[src.ID] {
-			continue
-		}
-		activeSources = append(activeSources, src)
-	}
-
-	// Fan out search to all active sources.
-	var mu sync.Mutex
-	var allSkills []MarketplaceSkill
-	var wg sync.WaitGroup
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	for _, src := range activeSources {
-		wg.Add(1)
-		go func(src service.MarketplaceSource) {
-			defer wg.Done()
-			skills := s.searchMarketplace(ctx, src, query)
-			mu.Lock()
-			allSkills = append(allSkills, skills...)
-			mu.Unlock()
-		}(src)
-	}
-
-	wg.Wait()
-
-	if allSkills == nil {
-		allSkills = []MarketplaceSkill{}
-	}
-
-	httpResponseJSON(w, marketplaceSearchResponse{Skills: allSkills}, http.StatusOK)
-}
-
-func (s *Server) MarketplaceTopAPI(w http.ResponseWriter, r *http.Request) {
-	if s.marketplaceSourceStore == nil {
-		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	sourceID := r.URL.Query().Get("source")
-
-	sources, err := s.marketplaceSourceStore.ListMarketplaceSources(r.Context())
-	if err != nil {
-		httpResponse(w, fmt.Sprintf("failed to list sources: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	var mu sync.Mutex
-	var allSkills []MarketplaceSkill
-	var wg sync.WaitGroup
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	for _, src := range sources {
-		if !src.Enabled {
-			continue
-		}
-		if sourceID != "" && src.ID != sourceID {
-			continue
-		}
-		if src.TopURL == "" && src.SearchURL == "" {
-			continue
-		}
-		wg.Add(1)
-		go func(src service.MarketplaceSource) {
-			defer wg.Done()
-			skills := s.topMarketplace(ctx, src)
-			mu.Lock()
-			allSkills = append(allSkills, skills...)
-			mu.Unlock()
-		}(src)
-	}
-
-	wg.Wait()
-
-	if allSkills == nil {
-		allSkills = []MarketplaceSkill{}
-	}
-
-	httpResponseJSON(w, marketplaceSearchResponse{Skills: allSkills}, http.StatusOK)
-}
-
-func (s *Server) MarketplacePreviewAPI(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	if body.URL == "" {
-		httpResponse(w, "url is required", http.StatusBadRequest)
-		return
-	}
-
-	export, _, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
-	if err != nil {
-		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	httpResponseJSON(w, export, http.StatusOK)
-}
-
-func (s *Server) MarketplaceImportAPI(w http.ResponseWriter, r *http.Request) {
-	if s.skillStore == nil {
-		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	var body struct {
-		URL string `json:"url"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-	if body.URL == "" {
-		httpResponse(w, "url is required", http.StatusBadRequest)
-		return
-	}
-
-	export, checksum, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
-	if err != nil {
-		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if export.Name == "" {
-		httpResponse(w, "parsed skill has no name", http.StatusBadRequest)
-		return
-	}
-
-	skill := skillFromExportData(export, s.getUserEmail(r))
-	skill.SourceURL = body.URL
-	skill.SourceChecksum = checksum
-
-	record, err := s.skillStore.CreateSkill(r.Context(), skill)
-	if err != nil {
-		slog.Error("marketplace import failed", "url", body.URL, "error", err)
-		httpResponse(w, fmt.Sprintf("failed to import skill: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	httpResponseJSON(w, record, http.StatusCreated)
-}
-
-// ─── Internal helpers ───
-
-// searchMarketplace dispatches search to the appropriate adapter.
-func (s *Server) searchMarketplace(ctx context.Context, src service.MarketplaceSource, query string) []MarketplaceSkill {
-	if src.SearchURL == "" {
-		return nil
-	}
-
-	return s.searchGeneric(ctx, src, query)
-}
-
-// topMarketplace fetches top/trending skills from a source.
-func (s *Server) topMarketplace(ctx context.Context, src service.MarketplaceSource) []MarketplaceSkill {
-	topURL := src.TopURL
-	if topURL == "" {
-		topURL = src.SearchURL
-	}
-	if topURL == "" {
-		return nil
-	}
-
-	return s.searchGeneric(ctx, src, "")
-}
-
-// ─── Generic adapter ───
-
-func (s *Server) searchGeneric(ctx context.Context, src service.MarketplaceSource, query string) []MarketplaceSkill {
-	u := src.SearchURL
-	if query != "" {
-		encoded := url.QueryEscape(query)
-		if strings.Contains(u, "?") {
-			u += "&q=" + encoded
-		} else {
-			u += "?q=" + encoded
-		}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil
-	}
-
-	resp, err := s.marketplaceClient.Do(req)
-	if err != nil {
-		slog.Warn("generic marketplace fetch failed", "url", u, "error", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-
-	// Try to parse as array of MarketplaceSkill.
-	var skills []MarketplaceSkill
-	if err := json.NewDecoder(resp.Body).Decode(&skills); err != nil {
-		return nil
-	}
-
-	// Tag with source name.
-	for i := range skills {
-		if skills[i].Source == "" {
-			skills[i].Source = src.Name
-		}
-	}
-
-	return skills
 }

@@ -730,12 +730,12 @@ func (s *Server) CheckSkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	packages, err := s.fetchSkillPackages(r.Context(), skillImportSource{URL: record.SourceURL, Repository: record.SourceType == "git", Ref: record.SourceRef, Path: record.SourcePath, CredentialID: record.SourceCredentialID})
+	pkg, err := s.fetchSkillSourcePackage(r.Context(), record)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch source: %v", err), http.StatusBadGateway)
 		return
 	}
-	remote, checksum := packages[0].Export, packages[0].Checksum
+	remote, checksum := pkg.Export, pkg.Checksum
 
 	httpResponseJSON(w, skillUpdateCheckResponse{
 		SourceURL:       record.SourceURL,
@@ -745,6 +745,18 @@ func (s *Server) CheckSkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 		RemoteChecksum:  checksum,
 		UpdateAvailable: checksum != record.SourceChecksum,
 	}, http.StatusOK)
+}
+
+// fetchSkillSourcePackage refetches the package an imported skill came from.
+func (s *Server) fetchSkillSourcePackage(ctx context.Context, record *service.Skill) (*fetchedSkillPackage, error) {
+	if record.SourceType == SkillSourceMarketplace {
+		return s.marketplaceSkillUpdate(ctx, record)
+	}
+	packages, err := s.fetchSkillPackages(ctx, skillImportSource{URL: record.SourceURL, Repository: record.SourceType == "git", Ref: record.SourceRef, Path: record.SourcePath, CredentialID: record.SourceCredentialID})
+	if err != nil {
+		return nil, err
+	}
+	return &packages[0], nil
 }
 
 // ApplySkillUpdateAPI handles POST /api/v1/skills/{id}/update.
@@ -777,12 +789,12 @@ func (s *Server) ApplySkillUpdateAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	packages, err := s.fetchSkillPackages(r.Context(), skillImportSource{URL: record.SourceURL, Repository: record.SourceType == "git", Ref: record.SourceRef, Path: record.SourcePath, CredentialID: record.SourceCredentialID})
+	pkg, err := s.fetchSkillSourcePackage(r.Context(), record)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch source: %v", err), http.StatusBadGateway)
 		return
 	}
-	remote, checksum := packages[0].Export, packages[0].Checksum
+	remote, checksum := pkg.Export, pkg.Checksum
 	if remote.Name == "" {
 		httpResponse(w, "remote skill has no name", http.StatusBadRequest)
 		return

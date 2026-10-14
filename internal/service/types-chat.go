@@ -226,16 +226,33 @@ type PublicUserPreferenceStorer interface {
 
 // ─── Marketplace Sources ───
 
-// MarketplaceSource represents a configurable skill marketplace source.
+// Marketplace source types.
+const (
+	// MarketplaceSourceURL fetches one marketplace.json over HTTP(S). Its
+	// plugins need non-relative sources, since no repository is available.
+	MarketplaceSourceURL = "url"
+	// MarketplaceSourceGit clones a repository holding
+	// .claude-plugin/marketplace.json (or plain skills/ folders).
+	MarketplaceSourceGit = "git"
+	// MarketplaceSourceGeneric is the legacy AT search API; no longer browsable.
+	MarketplaceSourceGeneric = "generic"
+)
+
+// MarketplaceSource is a remote Claude Code plugin marketplace whose skills
+// and MCP servers can be installed into AT.
 type MarketplaceSource struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Type      string `json:"type"`
-	SearchURL string `json:"search_url"`
-	TopURL    string `json:"top_url"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	URL          string `json:"url"`
+	Ref          string `json:"ref,omitempty"`
+	Path         string `json:"path,omitempty"` // marketplace.json location inside a git repository
+	CredentialID string `json:"credential_id,omitempty"`
+	SearchURL    string `json:"search_url,omitempty"` // legacy generic sources only
+	TopURL       string `json:"top_url,omitempty"`    // legacy generic sources only
+	Enabled      bool   `json:"enabled"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // MarketplaceSourceStorer defines CRUD operations for marketplace source configurations.

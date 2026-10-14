@@ -21,7 +21,7 @@
   const providerRef = (p: InfoProvider) => p.reference || p.key;
   const selected = $derived(providers.find((p) => providerRef(p) === value.provider));
   const modelOptions = $derived(
-    selected?.type === 'minimax' ? ['image-01'] : ['gpt-image-2', 'gpt-image-1.5', 'gpt-image-1', 'dall-e-3'],
+    selected?.type === 'minimax' ? ['image-01'] : ['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-1.5', 'gpt-image-1', 'dall-e-3'],
   );
   const autoProvider = $derived(providers.length === 1 ? providerRef(providers[0]) : '');
 

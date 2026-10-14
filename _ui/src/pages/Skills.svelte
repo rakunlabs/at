@@ -25,18 +25,6 @@
     updateVariable,
     type Variable,
   } from '@/lib/api/secrets';
-  import {
-    listMarketplaceSources,
-    searchMarketplace,
-    getTopSkills as getTopMarketplaceSkills,
-    previewMarketplaceSkill,
-    importMarketplaceSkill,
-    updateMarketplaceSource,
-    createMarketplaceSource,
-    deleteMarketplaceSource,
-    type MarketplaceSource,
-    type MarketplaceSkill,
-  } from '@/lib/api/marketplace';
   import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText, FolderOpen, Share2, Users, BookOpen, Bot } from 'lucide-svelte';
   import SkillFilesDialog from '@/lib/components/SkillFilesDialog.svelte';
   import FormBuilderPanel from '@/lib/components/FormBuilderPanel.svelte';
@@ -53,7 +41,7 @@
 
   // ─── Tab State ───
 
-  const tabRoute = routeChoice('tab', ['my-skills', 'workspace-skills', 'store', 'community'] as const, 'my-skills');
+  const tabRoute = routeChoice('tab', ['my-skills', 'workspace-skills', 'store'] as const, 'my-skills');
   let activeTab = $derived(tabRoute.value);
   let mayPublish = $derived(isNativeAdmin() || can('skills.write'));
 
@@ -628,134 +616,6 @@
     }
   }
 
-  // ─── Community Marketplace ───
-
-  let communitySources = $state<MarketplaceSource[]>([]);
-  let communitySkills = $state<MarketplaceSkill[]>([]);
-  let communityLoading = $state(false);
-  let communitySearchQuery = $state('');
-  let communitySourceFilter = $state('');
-  let showManageSources = $state(false);
-  let searchTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // Preview modal
-  let previewSkill = $state<any>(null);
-  let previewLoading = $state(false);
-  let previewData = $state<any>(null);
-
-  // Add source form
-  let showAddSource = $state(false);
-  let newSourceName = $state('');
-  let newSourceType = $state('generic');
-  let newSourceSearchURL = $state('');
-  let newSourceTopURL = $state('');
-
-  async function loadCommunitySources() {
-    try {
-      communitySources = await listMarketplaceSources();
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to load marketplace sources', 'alert');
-    }
-  }
-
-  async function loadCommunitySkills() {
-    communityLoading = true;
-    try {
-      if (communitySearchQuery.trim()) {
-        const res = await searchMarketplace(communitySearchQuery, communitySourceFilter || undefined);
-        communitySkills = res.skills || [];
-      } else {
-        const res = await getTopMarketplaceSkills(communitySourceFilter || undefined);
-        communitySkills = res.skills || [];
-      }
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to search marketplace', 'alert');
-    } finally {
-      communityLoading = false;
-    }
-  }
-
-  function handleCommunitySearch(value: string) {
-    communitySearchQuery = value;
-    if (searchTimeout) clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => loadCommunitySkills(), 300);
-  }
-
-  function handleSourceFilter(sourceId: string) {
-    communitySourceFilter = communitySourceFilter === sourceId ? '' : sourceId;
-    loadCommunitySkills();
-  }
-
-  async function handlePreview(skill: MarketplaceSkill) {
-    previewSkill = skill;
-    previewLoading = true;
-    previewData = null;
-    try {
-      previewData = await previewMarketplaceSkill(skill.url);
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to preview skill', 'alert');
-    } finally {
-      previewLoading = false;
-    }
-  }
-
-  async function handleCommunityImport(url: string) {
-    try {
-      await importMarketplaceSkill(url);
-      addToast('Skill imported from marketplace');
-      previewSkill = null;
-      previewData = null;
-      await load();
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to import skill', 'alert');
-    }
-  }
-
-  async function toggleSourceEnabled(src: MarketplaceSource) {
-    try {
-      await updateMarketplaceSource(src.id, { ...src, enabled: !src.enabled });
-      await loadCommunitySources();
-      addToast(`${src.name} ${!src.enabled ? 'enabled' : 'disabled'}`);
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to update source', 'alert');
-    }
-  }
-
-  async function handleAddSource() {
-    if (!newSourceName.trim() || !newSourceSearchURL.trim()) {
-      addToast('Name and Search URL are required', 'warn');
-      return;
-    }
-    try {
-      await createMarketplaceSource({
-        name: newSourceName.trim(),
-        type: newSourceType,
-        search_url: newSourceSearchURL.trim(),
-        top_url: newSourceTopURL.trim(),
-        enabled: true,
-      });
-      addToast('Source added');
-      newSourceName = '';
-      newSourceType = 'generic';
-      newSourceSearchURL = '';
-      newSourceTopURL = '';
-      showAddSource = false;
-      await loadCommunitySources();
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to add source', 'alert');
-    }
-  }
-
-  async function handleDeleteSource(id: string) {
-    try {
-      await deleteMarketplaceSource(id);
-      addToast('Source deleted');
-      await loadCommunitySources();
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to delete source', 'alert');
-    }
-  }
-
   // Reactive: load templates when switching to store tab
   $effect(() => {
     if (activeTab === 'store') {
@@ -763,12 +623,6 @@
     }
   });
 
-  $effect(() => {
-    if (activeTab === 'community') {
-      loadCommunitySources();
-      loadCommunitySkills();
-    }
-  });
 </script>
 
 <svelte:head>
@@ -804,13 +658,14 @@
           <Store size={14} />
           Skill Store
         </button>
-        <button
-          onclick={() => (tabRoute.value = 'community')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'community' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
+        <a
+          href="#/marketplaces?tab=remote"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 border-transparent text-dark-text-muted hover:text-dark-text-secondary"
+          title="Install skills and MCP servers from remote marketplaces"
         >
           <Globe size={14} />
-          Community
-        </button>
+          Marketplaces
+        </a>
       </div>
 
       {#if activeTab === 'my-skills' || activeTab === 'workspace-skills'}
@@ -1493,247 +1348,6 @@
         {/if}
       {/if}
 
-      <!-- Community Tab -->
-      {#if activeTab === 'community'}
-        <!-- Source Filter Chips + Manage Button -->
-        <div class="flex items-center gap-2 mb-4 flex-wrap">
-          <span class="text-xs text-dark-text-muted">Sources:</span>
-          <button
-            onclick={() => handleSourceFilter('')}
-            class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === '' ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}"
-          >
-            All
-          </button>
-          {#each communitySources.filter((s) => s.enabled) as src}
-            <button
-              onclick={() => handleSourceFilter(src.id)}
-              class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === src.id ? 'bg-accent text-dark-base' : 'bg-dark-elevated text-dark-text-secondary hover:bg-dark-border'}"
-            >
-              {src.name}
-            </button>
-          {/each}
-          <button
-            onclick={() => { showManageSources = !showManageSources; }}
-            class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary ml-auto"
-            title="Manage sources"
-          >
-            <Settings size={14} />
-          </button>
-        </div>
-
-        <!-- Search Bar -->
-        <div class="flex items-center gap-2 mb-4">
-          <div class="relative flex-1">
-            <Search size={14} class="absolute left-3 top-1/2 -translate-y-1/2 text-dark-text-muted" />
-            <input
-              type="text"
-              value={communitySearchQuery}
-              oninput={(e) => handleCommunitySearch((e.target as HTMLInputElement).value)}
-              placeholder="Search community skills..."
-              class="w-full pl-9 pr-3 py-2 border border-dark-border-subtle bg-dark-elevated text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 text-dark-text placeholder:text-dark-text-muted"
-            />
-          </div>
-          <button
-            onclick={loadCommunitySkills}
-            class="p-2 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary"
-            title="Refresh"
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-
-        <!-- Manage Sources Panel -->
-        {#if showManageSources}
-          <div class="mb-4 border border-dark-border p-4">
-            <div class="flex items-center justify-between mb-3">
-              <h3 class="text-sm font-medium text-dark-text">Marketplace Sources</h3>
-              <button
-                onclick={() => { showAddSource = !showAddSource; }}
-                class="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
-              >
-                <Plus size={12} />
-                Add Source
-              </button>
-            </div>
-
-            {#if showAddSource}
-              <div class="mb-3 p-3 bg-dark-base/50 border border-dark-border space-y-2">
-                <input type="text" bind:value={newSourceName} placeholder="Source name" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
-                <select bind:value={newSourceType} class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text">
-                  <option value="generic">Generic</option>
-                </select>
-                <input type="text" bind:value={newSourceSearchURL} placeholder="Search API URL" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
-                <input type="text" bind:value={newSourceTopURL} placeholder="Top/Trending API URL (optional)" class="w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 text-sm text-dark-text placeholder:text-dark-text-muted" />
-                <div class="flex justify-end gap-2">
-                  <button onclick={() => { showAddSource = false; }} class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
-                  <button onclick={handleAddSource} class="px-3 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover">Add</button>
-                </div>
-              </div>
-            {/if}
-
-            <div class="space-y-2">
-              {#each communitySources as src}
-                <div class="flex items-center justify-between py-2 px-3 bg-dark-base/30 border border-dark-border">
-                  <div class="flex items-center gap-3">
-                    <button
-                      onclick={() => toggleSourceEnabled(src)}
-                      aria-label="Toggle {src.name}"
-                      class="w-8 h-5 {src.enabled ? 'bg-green-500' : 'bg-dark-border'} relative"
-                    >
-                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 bg-dark-surface shadow "></span>
-                    </button>
-                    <div>
-                      <span class="text-sm font-medium text-dark-text">{src.name}</span>
-                      <span class="ml-2 px-1.5 py-0.5 text-[10px] bg-dark-elevated text-dark-text-muted">{src.type}</span>
-                    </div>
-                  </div>
-                  {#if !src.id.startsWith('default-')}
-                    <button
-                      onclick={() => handleDeleteSource(src.id)}
-                      class="p-1 hover:bg-red-900/20 text-red-400 hover:text-red-300"
-                      title="Delete source"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Results -->
-        {#if communityLoading}
-          <div class="flex items-center justify-center py-12 text-dark-text-muted">
-            <RefreshCw size={16} class="animate-spin mr-2" />
-            Searching marketplaces...
-          </div>
-        {:else if communitySkills.length === 0}
-          <div class="flex flex-col items-center justify-center py-12 text-dark-text-muted">
-            <Globe size={24} class="mb-2" />
-            <p class="text-sm">{communitySearchQuery ? 'No skills found' : 'Browse community skills'}</p>
-            <p class="text-xs mt-1">Search or browse trending skills from configured marketplaces</p>
-          </div>
-        {:else}
-          <div class="text-xs text-dark-text-muted mb-3">
-            {communitySkills.length} skill{communitySkills.length !== 1 ? 's' : ''} found
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {#each communitySkills as skill}
-              <div class="border border-dark-border p-4 flex flex-col">
-                <div class="flex items-start justify-between mb-2">
-                  <div class="flex-1 min-w-0">
-                    <h3 class="text-sm font-medium text-dark-text truncate">{skill.name}</h3>
-                    {#if skill.author}
-                      <span class="text-[10px] text-dark-text-muted">by {skill.author}</span>
-                    {/if}
-                  </div>
-                  <span class="ml-2 shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-dark-elevated text-dark-text-muted">
-                    {skill.source}
-                  </span>
-                </div>
-                <p class="text-xs text-dark-text-muted mb-3 flex-1 line-clamp-3">{skill.description || 'No description'}</p>
-
-                {#if skill.tags && skill.tags.length > 0}
-                  <div class="flex flex-wrap gap-1 mb-3">
-                    {#each skill.tags.slice(0, 5) as tag}
-                      <span class="px-1.5 py-0.5 text-[10px] bg-dark-base text-dark-text-muted">{tag}</span>
-                    {/each}
-                  </div>
-                {/if}
-
-                <div class="flex items-center justify-between text-[10px] text-dark-text-muted mb-3">
-                  {#if skill.downloads > 0}
-                    <span>{skill.downloads.toLocaleString()} downloads</span>
-                  {:else}
-                    <span></span>
-                  {/if}
-                  {#if skill.license}
-                    <span>{skill.license}</span>
-                  {/if}
-                </div>
-
-                <button
-                  onclick={() => handlePreview(skill)}
-                  class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
-                >
-                  <Eye size={12} />
-                  Preview
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        <!-- Preview Modal -->
-        {#if previewSkill}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick={() => { previewSkill = null; previewData = null; }}>
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div class="bg-dark-surface border border-dark-border w-full max-w-2xl max-h-[80vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
-              <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
-                <div>
-                  <h3 class="text-sm font-medium text-dark-text">{previewSkill.name}</h3>
-                  <span class="text-[10px] text-dark-text-muted">from {previewSkill.source}</span>
-                </div>
-                <button onclick={() => { previewSkill = null; previewData = null; }} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary">
-                  <X size={14} />
-                </button>
-              </div>
-
-              <div class="flex-1 overflow-y-auto p-4">
-                {#if previewLoading}
-                  <div class="flex items-center justify-center py-8 text-dark-text-muted">
-                    <RefreshCw size={16} class="animate-spin mr-2" />
-                    Loading preview...
-                  </div>
-                {:else if previewData}
-                  <div class="space-y-4">
-                    <div>
-                      <span class="block text-xs font-medium text-dark-text-muted">Name</span>
-                      <p class="text-sm text-dark-text font-mono">{previewData.name || '-'}</p>
-                    </div>
-                    {#if previewData.description}
-                      <div>
-                        <span class="block text-xs font-medium text-dark-text-muted">Description</span>
-                        <p class="text-sm text-dark-text-secondary">{previewData.description}</p>
-                      </div>
-                    {/if}
-                    {#if previewData.system_prompt}
-                      <div>
-                        <span class="block text-xs font-medium text-dark-text-muted">Markdown instructions</span>
-                        <pre class="mt-1 p-3 bg-dark-base/50 border border-dark-border text-xs text-dark-text-secondary whitespace-pre-wrap max-h-64 overflow-y-auto">{previewData.system_prompt}</pre>
-                      </div>
-                    {/if}
-                  </div>
-                {:else}
-                  <p class="text-sm text-dark-text-muted">Failed to load preview</p>
-                {/if}
-              </div>
-
-              <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border">
-                <button
-                  onclick={() => { previewSkill = null; previewData = null; }}
-                  class="px-3 py-1.5 text-xs border border-dark-border-subtle text-dark-text-secondary hover:bg-dark-elevated"
-                >
-                  Cancel
-                </button>
-                {#if previewData}
-                  <button
-                    onclick={() => handleCommunityImport(previewSkill.url)}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover"
-                  >
-                    <Download size={12} />
-                    Import Skill
-                  </button>
-                {/if}
-              </div>
-            </div>
-          </div>
-        {/if}
-      {/if}
     </div>
   </div>
   {#if showAIBuilder}

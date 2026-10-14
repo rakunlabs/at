@@ -15,30 +15,38 @@ import (
 // ─── Marketplace Source CRUD ───
 
 type marketplaceSourceRow struct {
-	ID        string    `db:"id"`
-	Name      string    `db:"name"`
-	Type      string    `db:"type"`
-	SearchURL string    `db:"search_url"`
-	TopURL    string    `db:"top_url"`
-	Enabled   bool      `db:"enabled"`
-	CreatedAt time.Time `db:"created_at"`
-	UpdatedAt time.Time `db:"updated_at"`
+	ID           string    `db:"id"`
+	Name         string    `db:"name"`
+	Type         string    `db:"type"`
+	URL          string    `db:"url"`
+	Ref          string    `db:"ref"`
+	Path         string    `db:"path"`
+	CredentialID string    `db:"credential_id"`
+	SearchURL    string    `db:"search_url"`
+	TopURL       string    `db:"top_url"`
+	Enabled      bool      `db:"enabled"`
+	CreatedAt    time.Time `db:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at"`
 }
 
 func marketplaceSourceRowToRecord(row marketplaceSourceRow) *service.MarketplaceSource {
 	return &service.MarketplaceSource{
-		ID:        row.ID,
-		Name:      row.Name,
-		Type:      row.Type,
-		SearchURL: row.SearchURL,
-		TopURL:    row.TopURL,
-		Enabled:   row.Enabled,
-		CreatedAt: row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
+		ID:           row.ID,
+		Name:         row.Name,
+		Type:         row.Type,
+		URL:          row.URL,
+		Ref:          row.Ref,
+		Path:         row.Path,
+		CredentialID: row.CredentialID,
+		SearchURL:    row.SearchURL,
+		TopURL:       row.TopURL,
+		Enabled:      row.Enabled,
+		CreatedAt:    row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    row.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
-var marketplaceSourceCols = []any{"id", "name", "type", "search_url", "top_url", "enabled", "created_at", "updated_at"}
+var marketplaceSourceCols = []any{"id", "name", "type", "url", "ref", "path", "credential_id", "search_url", "top_url", "enabled", "created_at", "updated_at"}
 
 func (p *Postgres) ListMarketplaceSources(ctx context.Context) ([]service.MarketplaceSource, error) {
 	query, _, err := p.goqu.From(p.tableMarketplaceSources).
@@ -58,7 +66,7 @@ func (p *Postgres) ListMarketplaceSources(ctx context.Context) ([]service.Market
 	var items []service.MarketplaceSource
 	for rows.Next() {
 		var row marketplaceSourceRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.SearchURL, &row.TopURL, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.URL, &row.Ref, &row.Path, &row.CredentialID, &row.SearchURL, &row.TopURL, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan marketplace source row: %w", err)
 		}
 		items = append(items, *marketplaceSourceRowToRecord(row))
@@ -77,7 +85,7 @@ func (p *Postgres) GetMarketplaceSource(ctx context.Context, id string) (*servic
 	}
 
 	var row marketplaceSourceRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.SearchURL, &row.TopURL, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.URL, &row.Ref, &row.Path, &row.CredentialID, &row.SearchURL, &row.TopURL, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -94,14 +102,18 @@ func (p *Postgres) CreateMarketplaceSource(ctx context.Context, src service.Mark
 
 	query, _, err := p.goqu.Insert(p.tableMarketplaceSources).Rows(
 		goqu.Record{
-			"id":         id,
-			"name":       src.Name,
-			"type":       src.Type,
-			"search_url": src.SearchURL,
-			"top_url":    src.TopURL,
-			"enabled":    src.Enabled,
-			"created_at": now,
-			"updated_at": now,
+			"id":            id,
+			"name":          src.Name,
+			"type":          src.Type,
+			"url":           src.URL,
+			"ref":           src.Ref,
+			"path":          src.Path,
+			"credential_id": src.CredentialID,
+			"search_url":    src.SearchURL,
+			"top_url":       src.TopURL,
+			"enabled":       src.Enabled,
+			"created_at":    now,
+			"updated_at":    now,
 		},
 	).ToSQL()
 	if err != nil {
@@ -112,28 +124,26 @@ func (p *Postgres) CreateMarketplaceSource(ctx context.Context, src service.Mark
 		return nil, fmt.Errorf("create marketplace source: %w", err)
 	}
 
-	return &service.MarketplaceSource{
-		ID:        id,
-		Name:      src.Name,
-		Type:      src.Type,
-		SearchURL: src.SearchURL,
-		TopURL:    src.TopURL,
-		Enabled:   src.Enabled,
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-	}, nil
+	src.ID = id
+	src.CreatedAt = now.Format(time.RFC3339)
+	src.UpdatedAt = src.CreatedAt
+	return &src, nil
 }
 
 func (p *Postgres) UpdateMarketplaceSource(ctx context.Context, id string, src service.MarketplaceSource) (*service.MarketplaceSource, error) {
 	now := time.Now().UTC()
 
 	record := goqu.Record{
-		"name":       src.Name,
-		"type":       src.Type,
-		"search_url": src.SearchURL,
-		"top_url":    src.TopURL,
-		"enabled":    src.Enabled,
-		"updated_at": now,
+		"name":          src.Name,
+		"type":          src.Type,
+		"url":           src.URL,
+		"ref":           src.Ref,
+		"path":          src.Path,
+		"credential_id": src.CredentialID,
+		"search_url":    src.SearchURL,
+		"top_url":       src.TopURL,
+		"enabled":       src.Enabled,
+		"updated_at":    now,
 	}
 
 	query, _, err := p.goqu.Update(p.tableMarketplaceSources).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()

@@ -121,6 +121,16 @@ export interface MCPUpstream {
   args?: string[];
   env?: Record<string, string>;
   auth?: MCPUpstreamAuth;
+  /** Set when installed from a remote marketplace; keeps the update link. */
+  origin?: MCPUpstreamOrigin;
+}
+
+export interface MCPUpstreamOrigin {
+  source_id: string;
+  plugin: string;
+  server: string;
+  checksum: string;
+  variables?: Record<string, string>;
 }
 
 export interface MCPServer {

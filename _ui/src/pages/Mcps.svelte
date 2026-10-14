@@ -18,6 +18,7 @@
   import { imageGenerationConfig, imageGenerationForm, type ImageGenerationForm } from '@/lib/helper/image-generation';
   import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy, Share2, Users, Image as ImageIcon } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
+  import { checkMarketplaceMCPUpdates, applyMarketplaceMCPUpdates, type MarketplaceMCPUpdate } from '@/lib/api/marketplace';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -361,6 +362,43 @@
       addToast(e?.response?.data?.message || 'Failed to save MCP', 'alert');
     } finally {
       saving = false;
+    }
+  }
+
+  // Upstreams installed from a remote marketplace keep an origin link.
+  let marketplaceUpdates = $state<Record<string, MarketplaceMCPUpdate[]>>({});
+  let marketplaceBusy = $state<Record<string, boolean>>({});
+
+  function hasMarketplaceUpstreams(set: MCPSet): boolean {
+    return (set.config?.mcp_upstreams ?? []).some((u) => !!u.origin);
+  }
+
+  async function handleMarketplaceUpdates(set: MCPSet) {
+    marketplaceBusy[set.id] = true;
+    try {
+      const updates = await checkMarketplaceMCPUpdates(set.id);
+      marketplaceUpdates[set.id] = updates;
+      const changed = updates.filter((u) => u.update_available);
+      const failed = updates.filter((u) => u.error);
+      if (failed.length) addToast(`${failed.map((u) => `${u.server}: ${u.error}`).join('; ')}`, 'warn');
+      if (!changed.length) {
+        if (!failed.length) addToast(`"${set.name}" is up to date with its marketplace`);
+        return;
+      }
+      const names = changed.map((u) => `${u.plugin}/${u.server}`).join(', ');
+      const stdio = changed.some((u) => (set.config?.mcp_upstreams ?? [])[u.index]?.command);
+      const prompt = stdio
+        ? `Update ${names}? Some of them run a command on this host; review the published commands before confirming.`
+        : `Update ${names} to the configuration published by the marketplace?`;
+      if (!confirm(prompt)) return;
+      await applyMarketplaceMCPUpdates(set.id, stdio);
+      marketplaceUpdates[set.id] = [];
+      addToast(`Updated ${changed.length} MCP server${changed.length === 1 ? '' : 's'} in "${set.name}"`);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to check marketplace updates', 'alert');
+    } finally {
+      marketplaceBusy[set.id] = false;
     }
   }
 
@@ -1520,6 +1558,9 @@
                   {/if}
                   {#if (set.config?.mcp_upstreams ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-purple-900/20 text-purple-400 border border-purple-800 font-mono">{(set.config.mcp_upstreams ?? []).length} external</span>
+                    {#if hasMarketplaceUpstreams(set)}
+                      <span class="px-1.5 py-0.5 border border-dark-border text-dark-text-muted font-mono" title={(set.config.mcp_upstreams ?? []).filter((u) => u.origin).map((u) => `${u.origin!.plugin}/${u.origin!.server}`).join(', ')}>marketplace</span>
+                    {/if}
                     {@const checked = inspectionSummary(set.id)}
                     {#if checked}
                       <span
@@ -1559,6 +1600,17 @@
                   {#if set.owner_user_id === storeAuth.identity?.subject && mayWrite}
                     <button onclick={() => handlePublish(set)} class="p-1.5 hover:bg-accent-muted hover:text-blue-300 text-accent-text" title="Copy to Workspace MCPs">
                       <Share2 size={14} />
+                    </button>
+                  {/if}
+                  {#if mayWrite && hasMarketplaceUpstreams(set)}
+                    <button
+                      onclick={() => handleMarketplaceUpdates(set)}
+                      disabled={marketplaceBusy[set.id]}
+                      class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text disabled:opacity-50"
+                      title="Check the marketplace for updated MCP servers"
+                      aria-label={`Check ${set.name} for marketplace updates`}
+                    >
+                      <Store size={14} class={marketplaceBusy[set.id] ? 'animate-pulse' : ''} />
                     </button>
                   {/if}
                   {#if mayUse && (set.config?.mcp_upstreams ?? []).length > 0}

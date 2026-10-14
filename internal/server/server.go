@@ -1301,10 +1301,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/marketplace/sources", s.CreateMarketplaceSourceAPI)
 	apiGroup.PUT("/v1/marketplace/sources/{id}", s.UpdateMarketplaceSourceAPI)
 	apiGroup.DELETE("/v1/marketplace/sources/{id}", s.DeleteMarketplaceSourceAPI)
-	apiGroup.GET("/v1/marketplace/search", s.MarketplaceSearchAPI)
-	apiGroup.GET("/v1/marketplace/top", s.MarketplaceTopAPI)
-	apiGroup.POST("/v1/marketplace/preview", s.MarketplacePreviewAPI)
-	apiGroup.POST("/v1/marketplace/import", s.MarketplaceImportAPI)
+	apiGroup.GET("/v1/marketplace/sources/{id}/catalog", s.MarketplaceSourceCatalogAPI)
+	apiGroup.GET("/v1/marketplace/sources/{id}/plugins/{plugin}", s.MarketplacePluginAPI)
+	apiGroup.POST("/v1/marketplace/sources/{id}/install", s.MarketplaceInstallAPI)
+	apiGroup.GET("/v1/marketplace/mcp-updates", s.MarketplaceMCPUpdatesAPI)
+	apiGroup.POST("/v1/marketplace/mcp-updates", s.MarketplaceMCPApplyUpdatesAPI)
 
 	// User preferences management
 	// Kanban board layout (per workspace, governed by the task capabilities)

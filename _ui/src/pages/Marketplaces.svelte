@@ -16,6 +16,8 @@
   import { listMCPServers, type MCPServer, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { deploymentUrl } from '@/lib/helper/deployment-url';
+  import { routeChoice } from '@/lib/helper/route-choice.svelte';
+  import RemoteMarketplaces from '@/lib/components/marketplace/RemoteMarketplaces.svelte';
   import {
     Package,
     Plus,
@@ -38,6 +40,9 @@
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Marketplaces';
+
+  const tabRoute = routeChoice('tab', ['remote', 'published'] as const, 'remote');
+  let activeTab = $derived(tabRoute.value);
 
   let marketplaces = $state<Marketplace[]>([]);
   let skills = $state<Skill[]>([]);
@@ -492,16 +497,40 @@
   <div class="flex-1 overflow-y-auto">
     <div class="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <LoadIssues issues={pageLoad.issues} retry={loadAll} {loading} />
-      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div class="flex items-center gap-2">
-            <Package size={18} class="text-dark-text-muted" />
-            <h1 class="text-lg font-semibold text-dark-text">Marketplaces</h1>
-          </div>
-          <p class="text-xs text-dark-text-muted mt-1 max-w-2xl">
-            Create named Claude Code marketplace feeds from Skills, AT-hosted public MCP Servers, and direct/upstream MCP configs. JSON feeds point clients at downloadable plugin ZIPs.
-          </p>
+      <div>
+        <div class="flex items-center gap-2">
+          <Package size={18} class="text-dark-text-muted" />
+          <h1 class="text-lg font-semibold text-dark-text">Marketplaces</h1>
         </div>
+        <p class="text-xs text-dark-text-muted mt-1 max-w-2xl">
+          Install skills and MCP servers from remote Claude Code plugin marketplaces, or publish your own Skills and MCP servers as a marketplace for Claude Code.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-4 border-b border-dark-border">
+        <button
+          onclick={() => (tabRoute.value = 'remote')}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'remote' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
+        >
+          <Download size={14} />
+          Install from remote
+        </button>
+        <button
+          onclick={() => (tabRoute.value = 'published')}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'published' ? 'border-accent text-dark-text' : 'border-transparent text-dark-text-muted hover:text-dark-text-secondary'}"
+        >
+          <Package size={14} />
+          Published
+        </button>
+      </div>
+
+      {#if activeTab === 'remote'}
+        <RemoteMarketplaces />
+      {:else}
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <p class="text-xs text-dark-text-muted max-w-2xl">
+          Create named Claude Code marketplace feeds from Skills, AT-hosted public MCP Servers, and direct/upstream MCP configs. JSON feeds point clients at downloadable plugin ZIPs.
+        </p>
         <div class="flex items-center gap-2">
           <button onclick={loadAll} class="p-1.5 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" title="Refresh">
             <RefreshCw size={14} />
@@ -900,6 +929,7 @@
             </div>
           {/each}
         </div>
+      {/if}
       {/if}
     </div>
   </div>

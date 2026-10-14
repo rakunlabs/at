@@ -56,42 +56,20 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 		return nil, fmt.Errorf("repository URL is required")
 	}
 
-	tempDir, err := os.MkdirTemp("", "at-skill-repo-")
+	repoDir, cleanup, err := s.cloneRepository(ctx, source.URL, source.Ref, source.CredentialID)
 	if err != nil {
-		return nil, fmt.Errorf("create temporary repository directory: %w", err)
+		return nil, err
 	}
-	defer os.RemoveAll(tempDir)
-	// Canonicalize the trusted temporary parent, not repository-controlled paths.
-	// On macOS the system temporary directory commonly passes through /var,
-	// which is a symlink to /private/var.
-	tempDir, err = filepath.EvalSymlinks(tempDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve temporary repository directory: %w", err)
-	}
+	defer cleanup()
 
-	repoDir := filepath.Join(tempDir, "repo")
-	args := []string{"clone", "--depth", "1", "--single-branch"}
-	if source.Ref != "" {
-		args = append(args, "--branch", source.Ref)
-	}
-	args = append(args, "--", source.URL, repoDir)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	cleanupCredential := func() {}
-	if source.CredentialID != "" {
-		credentialEnv, cleanup, err := s.gitCredentialEnvironment(ctx, source.URL, source.CredentialID)
-		if err != nil {
-			return nil, err
-		}
-		cleanupCredential = cleanup
-		cmd.Env = append(cmd.Env, credentialEnv...)
-	}
-	defer cleanupCredential()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("clone repository: %s: %w", strings.TrimSpace(string(out)), err)
-	}
+	return selectSkillPackages(repoDir, source.Path, source.ImportAll)
+}
 
-	root, err := repositorySkillRoot(repoDir, source.Path)
+// selectSkillPackages reads the skill package(s) under path inside an already
+// materialized tree (a clone or an extracted plugin archive). Without
+// importAll exactly one package is returned: the one rooted at path.
+func selectSkillPackages(repoDir, path string, importAll bool) ([]fetchedSkillPackage, error) {
+	root, err := repositorySkillRoot(repoDir, path)
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +78,9 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 		return nil, err
 	}
 	if len(mainFiles) == 0 {
-		return nil, fmt.Errorf("no SKILL.md found under %q", source.Path)
+		return nil, fmt.Errorf("no SKILL.md found under %q", path)
 	}
-	if !source.ImportAll {
+	if !importAll {
 		for _, mainFile := range mainFiles {
 			if filepath.Dir(mainFile) == root {
 				mainFiles = []string{mainFile}
@@ -110,7 +88,7 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 			}
 		}
 	}
-	if !source.ImportAll && len(mainFiles) > 1 {
+	if !importAll && len(mainFiles) > 1 {
 		paths := make([]string, 0, len(mainFiles))
 		for _, file := range mainFiles {
 			rel, _ := filepath.Rel(repoDir, file)
@@ -118,7 +96,7 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 		}
 		return nil, fmt.Errorf("multiple skills found; set import_all or select a path: %s", strings.Join(paths, ", "))
 	}
-	if !source.ImportAll {
+	if !importAll {
 		mainFiles = mainFiles[:1]
 	}
 
@@ -136,6 +114,49 @@ func (s *Server) fetchGitSkillPackages(ctx context.Context, source skillImportSo
 		packages = append(packages, pkg)
 	}
 	return packages, nil
+}
+
+// cloneRepository makes a shallow clone into a private temporary directory.
+// The returned path is canonical; cleanup removes the clone.
+func (s *Server) cloneRepository(ctx context.Context, repoURL, ref, credentialID string) (string, func(), error) {
+	tempDir, err := os.MkdirTemp("", "at-skill-repo-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temporary repository directory: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(tempDir) }
+	// Canonicalize the trusted temporary parent, not repository-controlled paths.
+	// On macOS the system temporary directory commonly passes through /var,
+	// which is a symlink to /private/var.
+	resolved, err := filepath.EvalSymlinks(tempDir)
+	if err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("resolve temporary repository directory: %w", err)
+	}
+
+	repoDir := filepath.Join(resolved, "repo")
+	args := []string{"clone", "--depth", "1", "--single-branch"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, "--", repoURL, repoDir)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cleanupCredential := func() {}
+	if credentialID != "" {
+		credentialEnv, credentialCleanup, err := s.gitCredentialEnvironment(ctx, repoURL, credentialID)
+		if err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		cleanupCredential = credentialCleanup
+		cmd.Env = append(cmd.Env, credentialEnv...)
+	}
+	defer cleanupCredential()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("clone repository: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return repoDir, cleanup, nil
 }
 
 func repositorySkillRoot(repoDir, requested string) (string, error) {

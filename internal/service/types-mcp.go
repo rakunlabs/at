@@ -110,6 +110,22 @@ type MCPUpstream struct {
 	// Auth makes an HTTP upstream authenticate with OAuth 2.1 (the MCP
 	// authorization spec). Nil keeps the static Headers behaviour.
 	Auth *MCPUpstreamAuth `json:"auth,omitempty"`
+
+	// Origin records the remote marketplace plugin this upstream was installed
+	// from, so it can be checked for and updated from upstream changes.
+	Origin *MCPUpstreamOrigin `json:"origin,omitempty"`
+}
+
+// MCPUpstreamOrigin is the provenance of a marketplace-installed upstream.
+type MCPUpstreamOrigin struct {
+	SourceID string `json:"source_id"`
+	Plugin   string `json:"plugin"`
+	Server   string `json:"server"`
+	// Checksum is the SHA-256 of the server's configuration as published.
+	Checksum string `json:"checksum"`
+	// Variables maps ${VAR} placeholders to "var:<key>" or literal values,
+	// reapplied when the upstream is updated.
+	Variables map[string]string `json:"variables,omitempty"`
 }
 
 // MCP upstream account sources, tried in the order the upstream lists them.

@@ -85,7 +85,7 @@ export function mcpUpstreamsForSave(upstreams: MCPUpstream[]): MCPUpstream[] {
     .filter(u => !!(u.url?.trim() || u.command?.trim()))
     .map(u => {
       if (u.command != null) {
-        return { command: u.command.trim(), args: u.args, env: u.env };
+        return { command: u.command.trim(), args: u.args, env: u.env, ...(u.origin ? { origin: u.origin } : {}) };
       }
       // Keep HTTP fields together rather than rebuilding a partial allowlist
       // for each authentication mode. OAuth only changes the static headers.
