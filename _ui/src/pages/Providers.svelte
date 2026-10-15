@@ -568,6 +568,41 @@
       ],
     },
     {
+      id: 'baseten',
+      name: 'Baseten',
+      description: 'Hosted Model APIs for open-weight models (GLM, Kimi, DeepSeek, GPT-OSS)',
+      key: 'baseten',
+      config: {
+        type: 'openai',
+        base_url: 'https://inference.baseten.co/v1/chat/completions',
+        model: 'zai-org/GLM-5.3',
+        models: [
+          'zai-org/GLM-5.3',
+          'moonshotai/Kimi-K3',
+          'deepseek-ai/DeepSeek-V4.1-Flash',
+          'deepseek-ai/DeepSeek-V4-Pro-0813',
+          'openai/gpt-oss-120b',
+        ],
+      },
+      setupSteps: [
+        'Sign in to app.baseten.co (or create an account)',
+        'Open Settings → API Keys and create a key',
+        'Paste the key in the API Key field below',
+        'Use Fetch models to load the current Model APIs catalog',
+      ],
+      setupLinks: [
+        { label: 'API Keys', url: 'https://app.baseten.co/settings/api_keys' },
+        { label: 'Models', url: 'https://docs.baseten.co/development/model-apis/overview' },
+        { label: 'Pricing', url: 'https://docs.baseten.co/inference/model-apis/pricing-and-limits' },
+      ],
+      notes: [
+        'Uses the standard openai provider type; no separate adapter is required',
+        'Model names are Hugging Face-style slugs (e.g. zai-org/GLM-5.3)',
+        'Fast variants (e.g. zai-org/GLM-5.3-Fast) use separate pricing and rate limits',
+        'For a dedicated deployment, set the Base URL to that deployment\'s OpenAI-compatible endpoint',
+      ],
+    },
+    {
       id: 'ollama',
       name: 'Ollama',
       description: 'Run models locally on your machine - completely free',

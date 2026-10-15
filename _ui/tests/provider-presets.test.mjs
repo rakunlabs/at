@@ -23,6 +23,13 @@ test('Cerebras reuses the OpenAI adapter and its published endpoint', () => {
   assert.match(cerebras, /model: 'gpt-oss-120b'/);
 });
 
+test('Baseten reuses the OpenAI adapter and its Model APIs endpoint', () => {
+  const baseten = preset('baseten');
+  assert.match(baseten, /type: 'openai'/);
+  assert.match(baseten, /https:\/\/inference\.baseten\.co\/v1\/chat\/completions/);
+  assert.match(baseten, /model: 'zai-org\/GLM-5\.3'/);
+});
+
 test('DeepSeek and Cohere include current thinking models', () => {
   assert.match(preset('deepseek'), /model: 'deepseek-flash'/);
   assert.match(preset('deepseek'), /deepseek-v4-pro/);
