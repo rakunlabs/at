@@ -450,16 +450,10 @@ func TestSeriesProductionTemplates(t *testing.T) {
 			"series_create", "series_get", "series_list", "series_update",
 			"episode_create", "episode_get", "episode_update", "shots_set", "shot_update",
 		}},
-		{"fal-cinema.json", "fal_cinema", []string{
-			"scene_video", "scene_video_veo", "scene_video_long", "scene_video_budget",
-			"continuity_video", "continuity_video_budget", "transition_video",
-			"extract_last_frame", "sora_create_character", "sora_scene_video",
+		{"studio-library.json", "studio_library", []string{
+			"studio_toolkit", "character_list", "character_get", "character_save", "character_add_reference",
+			"character_update", "voice_list", "voice_save", "media_fetch", "extract_last_frame",
 		}},
-		{"ltx-video.json", "ltx_video", []string{"scene_video_ltx25"}},
-		{"fal-avatar.json", "fal_avatar", []string{
-			"create_avatar", "character_sheet", "update_character", "save_avatar", "list_avatars",
-		}},
-		{"fal-image.json", "fal_image", []string{"edit_image_nano_banana"}},
 		{"video-composer.json", "video_composer", []string{"generate_subtitles", "burn_subtitles"}},
 	}
 

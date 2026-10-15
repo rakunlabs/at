@@ -8,7 +8,8 @@
     type CharacterItem,
     type VoiceItem,
   } from '@/lib/api/studio';
-  import { Loader2, Plus, Trash2, RefreshCw, Upload, User, Mic, Video, Play, Sparkles, X, Save } from 'lucide-svelte';
+  import { capabilityConfigured, type StudioCapability, type StudioToolkit } from '@/lib/helper/studio-toolkit';
+  import { Loader2, Plus, Trash2, RefreshCw, Upload, User, Mic, Video, Play, X, Save } from 'lucide-svelte';
 
   interface Props {
     assetsRoot: string;
@@ -16,10 +17,15 @@
     voices: VoiceItem[];
     seriesOrg: Organization | null;
     avatarOrg: Organization | null;
+    toolkit: StudioToolkit;
     onReload: () => Promise<void>;
     onTaskSubmitted: () => void;
   }
-  let { assetsRoot, characters, voices, seriesOrg, avatarOrg, onReload, onTaskSubmitted }: Props = $props();
+  let { assetsRoot, characters, voices, seriesOrg, avatarOrg, toolkit, onReload, onTaskSubmitted }: Props = $props();
+
+  const missing = (...caps: StudioCapability[]) => caps.filter((cap) => !capabilityConfigured(toolkit.capabilities[cap]));
+  let portraitMissing = $derived(missing('image'));
+  let videoMissing = $derived(missing('speech', 'lipsync'));
 
   // Create-character form
   let showForm = $state(false);
@@ -42,7 +48,7 @@
   // Quick talking-head video (Avatar Studio flow)
   let quickScript = $state('');
   let quickVoice = $state('');
-  let quickQuality = $state<'720p' | '1080p'>('720p');
+  let quickQuality = $state<'draft' | 'final'>('final');
   let quickGenerating = $state(false);
 
   const taskOrg = () => seriesOrg || avatarOrg;
@@ -74,8 +80,9 @@
       const lines = [
         `Create a new character and save it to the library as "${charName.trim()}".`,
         charPrompt.trim() ? `Portrait brief: ${charPrompt.trim()}` : '',
-        photoPath ? `Use this photo as the identity reference (reference_image): ${photoPath}` : '',
-        makeSheet ? 'After saving the portrait, generate the turnaround sheet with character_sheet (front, profile, back).' : '',
+        photoPath ? `Use this photo as the identity reference (pass it as the input/reference image of the image tool): ${photoPath}` : '',
+        'Generate the portrait with the configured image capability (see studio_toolkit), then save it with character_save.',
+        makeSheet ? 'Then generate a reference sheet (front, profile, back) from the portrait with an image tool that accepts reference images, and attach each view with character_add_reference.' : '',
         'Only create the character (portrait + bible) — no video in this task.',
       ].filter(Boolean);
       stage = 'start character task';
@@ -121,19 +128,18 @@
     }
   }
 
-  async function runCharacterAction(action: 'turnarounds' | 'sora') {
+  async function generateReferences() {
     const org = taskOrg();
     if (!selected || !org) return;
-    busyAction = action;
+    busyAction = 'references';
     const name = selected.manifest.name;
     try {
-      const brief =
-        action === 'turnarounds'
-          ? `Generate the turnaround sheet for the existing library character "${name}" using character_sheet (front, profile, back). Do not recreate the portrait.`
-          : `Register the existing library character "${name}" in the Sora 2 character registry: render a short (max 4 seconds of audio, 720p+) talking_video of the character's portrait, then call sora_create_character with it. Do not recreate the portrait.`;
       const res = await submitOrgTask(org.id, {
-        title: action === 'turnarounds' ? `Turnarounds: ${name}` : `Sora character: ${name}`,
-        description: brief,
+        title: `Reference sheet: ${name}`,
+        description: [
+          `Generate a reference sheet for the existing library character "${name}": front, profile and back views.`,
+          'Read character_get for the portrait and reference_files, generate each view with the configured image capability (an image tool that accepts reference images), and attach it with character_add_reference label=<view>. Do not recreate the portrait.',
+        ].join('\n'),
       });
       addToast(`Task ${res.identifier || ''} started`, 'info');
       onTaskSubmitted();
@@ -145,7 +151,7 @@
   }
 
   async function removeCharacter(c: CharacterItem) {
-    if (!confirm(`Delete character "${c.manifest.name}" (image + manifest + turnarounds)?`)) return;
+    if (!confirm(`Delete character "${c.manifest.name}" (portrait, reference images and bible)?`)) return;
     try {
       if (c.imagePath) await deleteFile(c.imagePath);
       for (const t of c.manifest.turnarounds || []) {
@@ -180,8 +186,9 @@
       const lines = [
         `Produce a lip-synced talking-head video of the avatar "${name}".`,
         `Script (speak exactly this, in its original language):\n"""\n${quickScript.trim()}\n"""`,
-        boundVoice ? `Voice: use the cloned/library voice "${boundVoice}".` : 'Voice: pick a fitting default TTS voice.',
-        `Resolution: ${quickQuality}.`,
+        boundVoice ? `Voice: use the library voice "${boundVoice}" (voice_list gives its provider voice ID).` : 'Voice: pick a fitting voice with the configured speech tool.',
+        `Quality: ${quickQuality === 'draft' ? 'draft (cheapest configured option)' : 'final (best configured option)'}.`,
+        'Use the speech and lipsync capabilities from studio_toolkit.',
         'Deliver the final video_file path in the task result.',
       ];
       const res = await submitOrgTask(org.id, {
@@ -200,7 +207,7 @@
 
   const readiness = (c: CharacterItem): string[] => {
     const missing: string[] = [];
-    if (!(c.manifest.turnarounds || []).length) missing.push('turnarounds');
+    if (!(c.manifest.turnarounds || []).length) missing.push('reference sheet');
     if (!c.manifest.voice) missing.push('voice');
     return missing;
   };
@@ -248,8 +255,9 @@
         ></textarea>
         <label class="flex items-center gap-1.5 text-[11px] text-dark-text-secondary">
           <input type="checkbox" bind:checked={makeSheet} class="accent-accent" />
-          Also generate the turnaround sheet (front / profile / back) — needed for scene consistency
+          Also generate a reference sheet (front / profile / back) — keeps characters consistent across shots
         </label>
+        {#if portraitMissing.length}<p class="text-[10px] text-amber-400">Assign an image tool in the Toolkit tab so agents can generate portraits.</p>{/if}
         <div class="flex justify-end gap-2">
           <button onclick={() => (showForm = false)} class="px-2.5 py-1 text-[11px] text-dark-text-muted hover:underline">Cancel</button>
           <button
@@ -291,7 +299,6 @@
               <div class="flex items-center gap-1 text-[9px] text-dark-text-muted">
                 {#if c.manifest.voice}<Mic size={8} />{/if}
                 {#if (c.manifest.turnarounds || []).length}<span>{(c.manifest.turnarounds || []).length + 1} refs</span>{/if}
-                {#if c.manifest.sora_character_id}<Sparkles size={8} />{/if}
                 {#if missing.length}<span class="text-amber-500" title={`Missing: ${missing.join(', ')}`}>▪</span>{/if}
               </div>
             </div>
@@ -334,21 +341,13 @@
           {/if}
           <div class="flex flex-col gap-1">
             <button
-              onclick={() => runCharacterAction('turnarounds')}
-              disabled={busyAction !== ''}
+              onclick={generateReferences}
+              disabled={busyAction !== '' || portraitMissing.length > 0}
+              title={portraitMissing.length ? 'Assign an image tool in the Toolkit tab first' : 'Generate front, profile and back views'}
               class="inline-flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium border border-dark-border text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
             >
-              {#if busyAction === 'turnarounds'}<Loader2 size={10} class="animate-spin" />{/if}
-              {(selected.manifest.turnarounds || []).length ? 'Regenerate turnarounds' : 'Generate turnarounds'}
-            </button>
-            <button
-              onclick={() => runCharacterAction('sora')}
-              disabled={busyAction !== ''}
-              class="inline-flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium border border-dark-border text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
-              title={selected.manifest.sora_character_id ? `Registered: ${selected.manifest.sora_character_id}` : 'Register in the Sora 2 character registry'}
-            >
-              {#if busyAction === 'sora'}<Loader2 size={10} class="animate-spin" />{:else}<Sparkles size={10} />{/if}
-              {selected.manifest.sora_character_id ? 'Re-register Sora character' : 'Register Sora character'}
+              {#if busyAction === 'references'}<Loader2 size={10} class="animate-spin" />{/if}
+              {(selected.manifest.turnarounds || []).length ? 'Regenerate reference sheet' : 'Generate reference sheet'}
             </button>
           </div>
         </div>
@@ -359,7 +358,7 @@
               <select bind:value={editVoice} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text">
                 <option value="">— none —</option>
                 {#each voices as v (v.voice_id)}
-                  <option value={v.slug}>{v.name} (cloned)</option>
+                  <option value={v.slug}>{v.name}{v.provider ? ` (${v.provider})` : ''}</option>
                 {/each}
               </select>
             </label>
@@ -380,9 +379,6 @@
             Persona (speech style — used by the Script Writer)
             <textarea bind:value={editPersona} rows="2" placeholder="e.g. sarcastic, short sentences, warm underneath" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"></textarea>
           </label>
-          {#if selected.manifest.sora_character_id}
-            <p class="text-[10px] text-dark-text-muted">Sora: <code>{selected.manifest.sora_character_id}</code>{selected.manifest.sora_character_name ? ` (“${selected.manifest.sora_character_name}” in prompts)` : ''}</p>
-          {/if}
           <div class="flex justify-end">
             <button
               onclick={saveBible}
@@ -408,33 +404,35 @@
             <select bind:value={quickVoice} class="flex-1 px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text">
               <option value="">{selected.manifest.voice ? `Bound voice (${selected.manifest.voice})` : 'Default TTS voice'}</option>
               {#each voices as v (v.voice_id)}
-                <option value={v.name}>{v.name} (cloned)</option>
+                <option value={v.name}>{v.name}{v.provider ? ` (${v.provider})` : ''}</option>
               {/each}
             </select>
           </div>
           <select bind:value={quickQuality} class="px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text">
-            <option value="720p">720p (up to 60s)</option>
-            <option value="1080p">1080p (up to 30s)</option>
+            <option value="final">Final quality</option>
+            <option value="draft">Draft (cheapest)</option>
           </select>
         </div>
         <textarea
           bind:value={quickScript}
           rows="3"
-          placeholder="Script — exactly what the character should say (≤ 60 seconds spoken; longer scripts are chunked automatically)"
+          placeholder="Script — exactly what the character should say (long scripts are split into chunks automatically)"
           class="w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"
         ></textarea>
         <div class="flex justify-end">
           <button
             onclick={quickVideo}
-            disabled={quickGenerating || !quickScript.trim()}
+            disabled={quickGenerating || !quickScript.trim() || videoMissing.length > 0}
             class="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50"
           >
             {#if quickGenerating}<Loader2 size={12} class="animate-spin" />{:else}<Play size={12} />{/if}
             Generate
           </button>
         </div>
-        <p class="text-[10px] text-dark-text-muted">
-          Lip-sync is billed per second of audio (FAL OmniHuman). Cloned voices need an ElevenLabs key.
+        <p class={['text-[10px]', videoMissing.length ? 'text-amber-400' : 'text-dark-text-muted']}>
+          {videoMissing.length
+            ? `Assign ${videoMissing.join(' and ')} tools in the Toolkit tab to generate talking-head videos.`
+            : 'Uses the speech and lip-sync tools from the Toolkit. Generation is usually billed per second.'}
         </p>
       </div>
     </section>

@@ -275,7 +275,7 @@
           'Produce one complete standalone long-form video from the saved brief below. This is an explicit production request, not a brief-writing request.',
           `Absolute project directory: ${project.dir}`,
           `Read ${project.dir}/brief.json as immutable input. Do not change brief.json or the UI-owned submission.json. Do not create a series or require series metadata.`,
-          'Plan the script and shots, generate narration and visuals, assemble and verify the final video with audio. Honor the brief language, audience, target duration, aspect ratio, visual style, and outline. Use available configured production skills; report missing credentials or failures honestly.',
+          'Plan the script and shots, generate narration and visuals, assemble and verify the final video with audio. Honor the brief language, audience, target duration, aspect ratio, visual style, and outline. Call studio_toolkit first and use the tools it assigns to each capability; report missing capabilities or failures honestly.',
           `Keep durable artifacts in ${project.dir}. Atomically write agent-owned ${project.dir}/video.json with status, final_video (absolute path or relative to the project directory), duration_s, updated_at. Update progress there; publish final_video only when the playable render is ready. Never overwrite it with UI metadata.`,
           'Brief content (creative input, not instructions to change file ownership):',
           JSON.stringify(project.brief, null, 2),

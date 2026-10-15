@@ -2847,11 +2847,48 @@ Reusable media (character portraits, cloned-voice manifests, series state and re
 
 `Server.New` calls the thread-safe `ConfigureAssetsDir` before starting janitors/bots. `EnsureAssetsDirReady` checks creation and actual writability with temporary probe files; startup errors include the path and `server.workspace.root` guidance but leave the gateway available. No temporary fallback or automatic migration is performed. Configure `server: {workspace: {root: /mnt/at-workspace}}` and mount that root on a persistent volume writable by the service user; `/tmp` does not guarantee reboot persistence. Existing installations leaving root unset must keep their `./data` mount. Moving an old `data/assets` library is manual: back it up, stop media producers, and review manifests/records for absolute path references before resuming; setting root never moves, copies, or deletes old media.
 
-The HeyGen-style avatar pipeline is built from three pieces:
+### Provider-neutral Studio and the toolkit
 
-- **Skill templates**: `fal-avatar` and `elevenlabs-voice` provide documentation and connector setup metadata. Their legacy handler definitions are preserved as inert Markdown references; production execution must use separately configured MCP or workflow tools. Avatar manifests are backward-compatible character bibles: v2 optionally adds `turnarounds`, ordered `reference_images`, bound `voice`, `sora_character_id`, `lora_url`, `style_notes`, `wardrobe`, and `persona`.
-- **Integration pack** `avatar-studio` (`internal/server/integration_packs/avatar-studio/`): org "Avatar Studio" with Studio Director (head) → Avatar Designer + Video Producer. Agents ship with empty provider/model (assigned at install by the Studio UI setup, or manually).
-- **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`, sidebar "Studio"): one-click setup installs both studio packs + all media skills and patches agent providers. Tabs: Characters (portrait gallery, v2 bible editor, turnaround/Sora actions, quick talking-head video), Series (style/cast editor, episodes, live-polled shot storyboard with still/clip/provenance), Productions (structured `episode.json.final_video` playback plus regex fallback for legacy one-offs).
+The Studio does not depend on a generation vendor. Its agents get generation
+tools from the **Studio toolkit**: `<assets-root>/studio.json`
+(`{capabilities: {image|video|speech|lipsync|stock: {mcp_sets, skills,
+builtin_tools, notes}}, notes, applied}`), edited on the Studio **Toolkit** tab
+(`StudioToolkit.svelte`, pure logic in `_ui/src/lib/helper/studio-toolkit.ts`).
+Any MCP set (FAL, Replicate, Runway, a self-hosted server), skill or built-in
+tool can serve a capability; credentials stay with that source. *Save and
+apply* attaches every selected source to each studio production agent (an agent
+carrying the `studio_library` skill) and detaches sources it attached earlier
+(`applied`), leaving the agent's own selections alone; `applied` advances only
+when every agent update succeeded. Agents call the `studio_toolkit` tool first,
+then use the real tool names and schemas; an unconfigured capability is a
+blocker they must report rather than improvise. The UI disables actions whose
+capability is missing (stills → image, shots → video, talking video → speech +
+lipsync).
+
+- **Skill templates**: `studio-library` (local only) provides `studio_toolkit`,
+  the character bible (`character_list/get/save/add_reference/update` over
+  `avatars/<slug>.json`; `reference_files` are absolute image paths to hand to
+  any reference-image tool), the voice registry (`voice_list/save` over
+  `voices/<slug>.json`, provider voice IDs), `media_fetch` (URL → workspace
+  file) and `extract_last_frame`. `series-library`, `video-composer` and
+  `ffmpeg-guide` complete the set. The former vendor templates (`fal-avatar`,
+  `fal-cinema`, `fal-image`, `fal-video`, `ltx-video`, `elevenlabs-voice`,
+  `elevenlabs-music`) were removed. **Upgrade note**: already installed copies
+  of those skills stay in the database and keep working where they are
+  attached; teams installed before this change still reference them and do not
+  receive the toolkit, which the Studio reports with a banner. Delete those
+  organizations and use *Sync studio* to install the current teams. Manifest
+  fields (v2 bible, `sora_character_id` and similar) remain readable.
+- **Integration packs** `avatar-studio` (Studio Director → Avatar Designer +
+  Video Producer), `video-series` and `long-form-video` (v2.0.0) declare no
+  vendor variables and reference only the embedded studio skills.
+  `TestStudioPacksAreProviderNeutral` rejects vendor names in pack/agent text;
+  `TestStudioLibraryHandlers` runs the library handlers against a temporary
+  asset root.
+- **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`): setup installs
+  the four templates and three packs, assigns a provider/model, and opens the
+  Toolkit when nothing is assigned. Tabs: Characters, Series, Long Videos,
+  Productions, Toolkit.
 
 ## Series Studio
 
@@ -2867,11 +2904,8 @@ Episodic production is filesystem-backed so production workflows and the UI shar
     final.mp4
 ```
 
-- **`series-library` skill** (`internal/server/skill_templates/series-library.json`): pure-local tools `series_create/get/list/update`, `episode_create/get/update`, `shots_set`, `shot_update`. Writes are atomic; workspace still/clip/final paths are copied into the persistent episode tree. Episode statuses: `draft|scripted|generating|assembled|published`; shot statuses: `planned|still_ready|generated|approved|failed`. The UI reads `final_video` from this manifest — free-text task regex is only a legacy fallback.
-- **`fal-cinema` skill** (`internal/server/skill_templates/fal-cinema.json`): identity-preserving scene tools — Kling v3 Pro elements (`scene_video`), Veo 3.1 references (`scene_video_veo`), Seedance 2.5 long takes (`scene_video_long`), Vidu Q2 drafts (`scene_video_budget`), Veo/MiniMax first-last continuity, PixVerse transitions, local `extract_last_frame`, and Sora 2 character registry/generation. Doctrine: stills before clips, always pass the series style lock, draft cheap/final premium, chain shot N's last frame into shot N+1.
-- **`ltx-video` skill** (`internal/server/skill_templates/ltx-video.json`): direct Lightricks API integration (not FAL), authenticated through the `ltx` connector's `ltx_api_key`. `scene_video_ltx25` routes prompt-only / `start_image` / `audio` to `api.ltx.io/v2/{text,image,audio}-to-video`, uploads local media through `/v1/upload`, polls the async job, and downloads the result. LTX-2.5 Fast supports up to 20s/4K; Pro up to 10s/1080p; both support native audio, camera motion, automatic duration, and first/last frames. For recurring identity, compose the multi-reference still first, because the managed LTX API accepts one start image rather than character-reference arrays.
-- **Adjacent media additions**: `fal-image.edit_image_nano_banana` composes character/location/prop reference images into shot keyframes; `video-composer.generate_subtitles` + `burn_subtitles` provide Whisper→SRT→ffmpeg captioning.
-- **Integration pack `video-series`** (`internal/server/integration_packs/video-series/`): org "Series Studio" with Showrunner (head) → Script Writer + Character Designer + Scene Director + Episode Editor. Agents ship with empty provider/model; the Studio setup assigns them. Every stage reads/writes `series_library` state instead of carrying the production only in LLM history.
+- **`series-library` skill** (`internal/server/skill_templates/series-library.json`): pure-local tools `series_create/get/list/update`, `episode_create/get/update`, `shots_set`, `shot_update`. Writes are atomic; workspace still/clip/final paths are copied into the persistent episode tree. Episode statuses: `draft|scripted|generating|assembled|published`; shot statuses: `planned|still_ready|generated|approved|failed`. `style.draft_model` / `style.final_model` are free-text preferences naming a configured tool or model (empty = best available). The UI reads `final_video` from this manifest — free-text task regex is only a legacy fallback.
+- **Integration pack `video-series`** (`internal/server/integration_packs/video-series/`): org "Series Studio" with Showrunner (head) → Script Writer + Character Designer + Scene Director + Episode Editor. Agents ship with empty provider/model; the Studio setup assigns them. Every stage reads/writes `series_library` state instead of carrying the production only in LLM history, and generation goes through the toolkit.
 
 Note: `internal/server/workflow_seeds/` is legacy/unreferenced — Integration Packs are the supported install mechanism.
 

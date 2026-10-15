@@ -33,10 +33,10 @@ func TestVideoSeriesPackLoads(t *testing.T) {
 
 	wantAgentSkills := map[string][]string{
 		"Showrunner":         {},
-		"Script Writer":      {"series_library"},
-		"Character Designer": {"fal_avatar", "elevenlabs_voice", "series_library"},
-		"Scene Director":     {"fal_cinema", "ltx_video", "fal_image", "series_library"},
-		"Episode Editor":     {"video_composer", "elevenlabs_voice", "series_library"},
+		"Script Writer":      {"series_library", "studio_library"},
+		"Character Designer": {"studio_library", "series_library"},
+		"Scene Director":     {"studio_library", "series_library"},
+		"Episode Editor":     {"studio_library", "video_composer", "series_library"},
 	}
 	for name, wantSkills := range wantAgentSkills {
 		agent, ok := byName[name]

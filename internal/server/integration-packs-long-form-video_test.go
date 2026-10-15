@@ -30,7 +30,7 @@ func TestLongFormVideoPackLoads(t *testing.T) {
 	if agent.Name != "Long Video Producer" || agent.Config.Provider != "" || agent.Config.Model != "" {
 		t.Errorf("unexpected agent identity/provider/model: %+v", agent)
 	}
-	wantSkills := []string{"pexels_images", "fal_image", "fal_cinema", "elevenlabs_voice", "openai_tts", "video_composer", "ffmpeg_guide"}
+	wantSkills := []string{"studio_library", "video_composer", "ffmpeg_guide"}
 	if len(agent.Config.Skills) != len(wantSkills) {
 		t.Errorf("skill count: got %d, want %d", len(agent.Config.Skills), len(wantSkills))
 	}
@@ -65,7 +65,7 @@ func TestLongFormVideoPackLoads(t *testing.T) {
 		"submission.json containing {task_id}",
 		"MUST NOT edit brief.json or submission.json",
 		"video.json", "os.replace", "final_video", "duration_s", "updated_at",
-		"actual installed tool descriptions and input schemas", "status=blocked", "status=failed",
+		"actual installed tool descriptions and input schemas", "studio_toolkit", "status=blocked", "status=failed",
 		"Do NOT request one provider long clip", "ffprobe", "status=completed",
 	} {
 		if !strings.Contains(agent.Config.SystemPrompt, contract) {

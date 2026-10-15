@@ -40,7 +40,7 @@ func TestAvatarStudioPackLoads(t *testing.T) {
 			return names
 		}())
 	}
-	wantSkills := map[string]bool{"fal_avatar": false, "elevenlabs_voice": false}
+	wantSkills := map[string]bool{"studio_library": false, "video_composer": false}
 	for _, s := range producer.Config.Skills {
 		if _, ok := wantSkills[s.ID]; ok {
 			wantSkills[s.ID] = true

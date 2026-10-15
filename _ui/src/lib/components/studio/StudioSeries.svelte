@@ -21,15 +21,26 @@
   } from '@/lib/api/studio';
   import StudioStoryboard from './StudioStoryboard.svelte';
   import StudioEpisodeEditor from './StudioEpisodeEditor.svelte';
+  import { capabilityConfigured, type StudioToolkit } from '@/lib/helper/studio-toolkit';
   import { BookOpen, ChevronLeft, Film, ImagePlus, Loader2, Plus, RefreshCw, Save, Sparkles, Video, WandSparkles, X } from 'lucide-svelte';
 
   interface Props {
     assetsRoot: string;
     characters: CharacterItem[];
     seriesOrg: Organization | null;
+    toolkit: StudioToolkit;
     onTaskSubmitted: () => void;
   }
-  let { assetsRoot, characters, seriesOrg, onTaskSubmitted }: Props = $props();
+  let { assetsRoot, characters, seriesOrg, toolkit, onTaskSubmitted }: Props = $props();
+
+  let imageReady = $derived(capabilityConfigured(toolkit.capabilities.image));
+  let videoReady = $derived(capabilityConfigured(toolkit.capabilities.video));
+  let speechReady = $derived(capabilityConfigured(toolkit.capabilities.speech));
+  let stageBlocker = $derived({
+    stills: imageReady ? '' : 'Assign an image tool in the Toolkit tab',
+    shots: videoReady ? '' : 'Assign a video tool in the Toolkit tab',
+    assemble: speechReady ? '' : 'Assign a speech tool in the Toolkit tab for dialogue',
+  });
 
   let loading = $state(true);
   let seriesList = $state<SeriesManifest[]>([]);
@@ -45,8 +56,8 @@
   let newNegative = $state('low quality, distorted face, inconsistent wardrobe, watermark, text');
   let newSeed = $state('');
   let newAspect = $state('16:9');
-  let newDraftModel = $state('scene_video_budget');
-  let newFinalModel = $state('scene_video');
+  let newDraftModel = $state('');
+  let newFinalModel = $state('');
   let newCast = $state<string[]>([]);
 
   let editing = $state(false);
@@ -56,8 +67,8 @@
   let editNegative = $state('');
   let editSeed = $state('');
   let editAspect = $state('16:9');
-  let editDraftModel = $state('scene_video_budget');
-  let editFinalModel = $state('scene_video');
+  let editDraftModel = $state('');
+  let editFinalModel = $state('');
   let editCast = $state<string[]>([]);
 
   let showEpisodeForm = $state(false);
@@ -106,8 +117,8 @@
     editNegative = s.style?.negative || '';
     editSeed = s.style?.seed == null ? '' : String(s.style.seed);
     editAspect = s.style?.aspect_ratio || '16:9';
-    editDraftModel = s.style?.draft_model || 'scene_video_budget';
-    editFinalModel = s.style?.final_model || 'scene_video';
+    editDraftModel = s.style?.draft_model || '';
+    editFinalModel = s.style?.final_model || '';
     editCast = (s.cast || []).map((c) => c.character);
   }
 
@@ -133,10 +144,6 @@
       addToast('A series with this name already exists', 'alert');
       return;
     }
-    if ((newDraftModel.startsWith('ltx-') || newFinalModel.startsWith('ltx-')) && !['16:9', '9:16'].includes(newAspect)) {
-      addToast('LTX-2.5 supports 16:9 or 9:16 series only', 'alert');
-      return;
-    }
     creating = true;
     try {
       const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
@@ -150,8 +157,8 @@
           negative: newNegative.trim(),
           seed: newSeed ? Number(newSeed) : null,
           aspect_ratio: newAspect,
-          draft_model: newDraftModel,
-          final_model: newFinalModel,
+          draft_model: newDraftModel.trim(),
+          final_model: newFinalModel.trim(),
         },
         created_at: now,
         updated_at: now,
@@ -173,10 +180,6 @@
 
   async function saveSeries() {
     if (!selectedSeries) return;
-    if ((editDraftModel.startsWith('ltx-') || editFinalModel.startsWith('ltx-')) && !['16:9', '9:16'].includes(editAspect)) {
-      addToast('LTX-2.5 supports 16:9 or 9:16 series only', 'alert');
-      return;
-    }
     saving = true;
     try {
       const updated: SeriesManifest = {
@@ -188,8 +191,8 @@
           negative: editNegative.trim(),
           seed: editSeed ? Number(editSeed) : null,
           aspect_ratio: editAspect,
-          draft_model: editDraftModel,
-          final_model: editFinalModel,
+          draft_model: editDraftModel.trim(),
+          final_model: editFinalModel.trim(),
         },
       };
       await saveSeriesManifest(assetsRoot, updated);
@@ -257,15 +260,15 @@
     const briefs = {
       stills: [
         `Generate ONLY the keyframe stills for episode ${num} of series "${selectedSeries.slug}".`,
-        'Read series_get and episode_get. Treat episode-level visual reference notes as binding and pass relevant image paths into composition. For each planned shot without a still, compose it with edit_image_nano_banana using cast references and the series style lock, then shot_update still=<path> references=[...] status=still_ready. Do not generate clips yet.',
+        'Read studio_toolkit, series_get, episode_get and character_get for the cast. Treat episode-level visual reference notes as binding and pass relevant image paths into composition. For each planned shot without a still, compose it with the configured image capability using cast reference_files and the series style lock, then shot_update still=<path> references=[...] status=still_ready. Do not generate clips yet.',
       ],
       shots: [
         `Generate the video clips for episode ${num} of series "${selectedSeries.slug}".`,
-        'Read series_get and episode_get. Use existing stills as start images, full character reference sets, style/negative/seed, and chain continuity via extract_last_frame. Record every clip and provenance with shot_update. Skip shots already generated unless failed.',
+        'Read studio_toolkit, series_get and episode_get. Generate clips with the configured video capability, following the series model policy (draft/final preference). Use existing stills as start images, character reference sets where the tool accepts them, style/negative/seed, and chain continuity via extract_last_frame. Record every clip and provenance (tool, model, prompt, seed) with shot_update. Skip shots already generated unless failed.',
       ],
       assemble: [
         `Assemble episode ${num} of series "${selectedSeries.slug}" into the final video.`,
-        'Read episode_get. Use each character\'s bound voice for dialogue, assemble generated clips, generate + burn subtitles, verify with ffprobe, then episode_update status=assembled final_video=<path> duration_s=<seconds>.',
+        'Read studio_toolkit and episode_get. Voice dialogue with each character\'s bound voice using the configured speech capability, assemble generated clips, generate + burn subtitles, verify with ffprobe, then episode_update status=assembled final_video=<path> duration_s=<seconds>.',
       ],
     };
     const titles = { stills: 'Generate stills', shots: 'Generate shots', assemble: 'Assemble episode' };
@@ -355,10 +358,11 @@
           <label class="text-[10px] text-dark-text-muted">Style lock<textarea bind:value={newStyle} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"></textarea></label>
           <label class="text-[10px] text-dark-text-muted">Negative prompt<textarea bind:value={newNegative} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text resize-y"></textarea></label>
         </div>
+        <p class="text-[10px] text-dark-text-muted">Video preferences are free text read by the Scene Director, e.g. a tool name from the Toolkit or a model ID such as <code>kling-v3</code>, <code>veo-3.1</code>, <code>runway gen-4</code>. Leave empty to use the best configured tool.</p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <label class="text-[10px] text-dark-text-muted">Seed (optional)<input bind:value={newSeed} type="number" placeholder="424242" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text" /></label>
-          <label class="text-[10px] text-dark-text-muted">Draft model<select bind:value={newDraftModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"><option value="scene_video_budget">Vidu Q2 (FAL)</option><option value="ltx-2-5-fast">LTX-2.5 Fast (direct)</option><option value="continuity_video_budget">MiniMax H3 continuity (FAL)</option></select></label>
-          <label class="text-[10px] text-dark-text-muted">Final model<select bind:value={newFinalModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"><option value="scene_video">Kling v3 Elements (FAL)</option><option value="scene_video_veo">Veo 3.1 (FAL)</option><option value="ltx-2-5-pro">LTX-2.5 Pro (direct)</option><option value="scene_video_long">Seedance 2.5 (FAL)</option></select></label>
+          <label class="text-[10px] text-dark-text-muted">Draft video preference<input bind:value={newDraftModel} placeholder="Any configured video tool" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text" /></label>
+          <label class="text-[10px] text-dark-text-muted">Final video preference<input bind:value={newFinalModel} placeholder="Best configured video tool" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text" /></label>
         </div>
         <div>
           <div class="text-[10px] text-dark-text-muted mb-1">Cast</div>
@@ -403,7 +407,7 @@
           <div><h2 class="text-base font-semibold text-dark-text">{selectedSeries.name}</h2><p class="text-[11px] text-dark-text-muted">{selectedSeries.description}</p></div>
           <div class="flex items-center gap-2"><button onclick={() => (editing = !editing)} class="px-2 py-1 text-[10px] border border-dark-border text-dark-text-secondary">{editing ? 'Close settings' : 'Style & cast'}</button><button onclick={reloadEpisodes} class="p-1 text-dark-text-muted hover:text-dark-text-secondary" title="Refresh"><RefreshCw size={13} /></button></div>
         </div>
-        <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-dark-text-muted"><span>Style: <strong class="font-medium text-dark-text-secondary">{selectedSeries.style?.block || 'unset'}</strong></span><span>{selectedSeries.style?.aspect_ratio || '16:9'}</span><span>Seed {selectedSeries.style?.seed ?? 'auto'}</span></div>
+        <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-dark-text-muted"><span>Style: <strong class="font-medium text-dark-text-secondary">{selectedSeries.style?.block || 'unset'}</strong></span><span>{selectedSeries.style?.aspect_ratio || '16:9'}</span><span>Seed {selectedSeries.style?.seed ?? 'auto'}</span>{#if selectedSeries.style?.draft_model || selectedSeries.style?.final_model}<span>Video: {selectedSeries.style?.draft_model || 'auto'} → {selectedSeries.style?.final_model || 'auto'}</span>{/if}</div>
       </div>
     </div>
 
@@ -411,7 +415,7 @@
       <section class="border border-dark-border p-3 space-y-2">
         <label class="block text-[10px] text-dark-text-muted">Premise<textarea bind:value={editDescription} rows="2" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2"><label class="text-[10px] text-dark-text-muted">Style lock<textarea bind:value={editStyle} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label><label class="text-[10px] text-dark-text-muted">Negative<textarea bind:value={editNegative} rows="3" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base text-dark-text"></textarea></label></div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2"><label class="text-[10px] text-dark-text-muted">Seed<input bind:value={editSeed} type="number" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base" /></label><label class="text-[10px] text-dark-text-muted">Aspect<select bind:value={editAspect} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option>16:9</option><option>9:16</option><option>1:1</option><option>21:9</option></select></label><label class="text-[10px] text-dark-text-muted">Draft model<select bind:value={editDraftModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option value="scene_video_budget">Vidu Q2</option><option value="ltx-2-5-fast">LTX-2.5 Fast</option><option value="continuity_video_budget">MiniMax H3</option></select></label><label class="text-[10px] text-dark-text-muted">Final model<select bind:value={editFinalModel} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option value="scene_video">Kling v3 Elements</option><option value="scene_video_veo">Veo 3.1</option><option value="ltx-2-5-pro">LTX-2.5 Pro</option><option value="scene_video_long">Seedance 2.5</option></select></label></div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2"><label class="text-[10px] text-dark-text-muted">Seed<input bind:value={editSeed} type="number" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base" /></label><label class="text-[10px] text-dark-text-muted">Aspect<select bind:value={editAspect} class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base"><option>16:9</option><option>9:16</option><option>1:1</option><option>21:9</option></select></label><label class="text-[10px] text-dark-text-muted">Draft video<input bind:value={editDraftModel} placeholder="Any configured tool" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base" /></label><label class="text-[10px] text-dark-text-muted">Final video<input bind:value={editFinalModel} placeholder="Best configured tool" class="mt-0.5 w-full px-2 py-1.5 text-xs border border-dark-border bg-dark-base" /></label></div>
         <div class="flex flex-wrap gap-1.5">{#each characters as c (c.manifest.slug)}<button onclick={() => (editCast = toggleIn(editCast, c.manifest.slug))} class={['px-2 py-1 text-[10px] border', editCast.includes(c.manifest.slug) ? 'bg-accent text-dark-base border-accent' : 'border-dark-border text-dark-text-secondary']}>{c.manifest.name}</button>{/each}</div>
         <div class="flex justify-end"><button onclick={saveSeries} disabled={saving} class="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-accent text-dark-base disabled:opacity-50">{#if saving}<Loader2 size={11} class="animate-spin" />{:else}<Save size={11} />{/if} Save</button></div>
       </section>
@@ -441,7 +445,7 @@
 
       <div class="min-w-0">
         {#if selectedEpisode}
-          <div class="flex flex-col sm:flex-row sm:items-start gap-3 mb-3"><div class="min-w-0 flex-1"><h3 class="text-sm font-semibold text-dark-text">E{String(selectedEpisode.manifest.number).padStart(2, '0')} — {selectedEpisode.manifest.title || 'Untitled'}</h3><p class="text-[11px] text-dark-text-muted">{selectedEpisode.manifest.synopsis || 'No synopsis yet'}</p></div><div class="flex flex-wrap gap-1"><button onclick={() => runStage('stills')} disabled={taskBusy || !selectedEpisode.manifest.shots.length} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-dark-border disabled:opacity-40"><WandSparkles size={10} /> Stills</button><button onclick={() => runStage('shots')} disabled={taskBusy || !selectedEpisode.manifest.shots.length} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-dark-border disabled:opacity-40"><Sparkles size={10} /> Shots</button><button onclick={() => runStage('assemble')} disabled={taskBusy || !selectedEpisode.manifest.shots.some((s) => s.clip)} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-accent text-dark-base disabled:opacity-40"><Video size={10} /> Assemble</button></div></div>
+          <div class="flex flex-col sm:flex-row sm:items-start gap-3 mb-3"><div class="min-w-0 flex-1"><h3 class="text-sm font-semibold text-dark-text">E{String(selectedEpisode.manifest.number).padStart(2, '0')} — {selectedEpisode.manifest.title || 'Untitled'}</h3><p class="text-[11px] text-dark-text-muted">{selectedEpisode.manifest.synopsis || 'No synopsis yet'}</p></div><div class="flex flex-wrap gap-1"><button onclick={() => runStage('stills')} disabled={taskBusy || !selectedEpisode.manifest.shots.length || !!stageBlocker.stills} title={stageBlocker.stills || 'Generate keyframe stills'} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-dark-border disabled:opacity-40"><WandSparkles size={10} /> Stills</button><button onclick={() => runStage('shots')} disabled={taskBusy || !selectedEpisode.manifest.shots.length || !!stageBlocker.shots} title={stageBlocker.shots || 'Generate video clips'} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-dark-border disabled:opacity-40"><Sparkles size={10} /> Shots</button><button onclick={() => runStage('assemble')} disabled={taskBusy || !selectedEpisode.manifest.shots.some((s) => s.clip) || !!stageBlocker.assemble} title={stageBlocker.assemble || 'Assemble the final episode'} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-accent text-dark-base disabled:opacity-40"><Video size={10} /> Assemble</button></div></div>
           {#if taskBusy}<div class="mb-3 flex items-center gap-2 px-2 py-1.5 bg-amber-950 text-[10px] text-amber-300"><Loader2 size={11} class="animate-spin" /> {activeAction || 'Production task'} is running; storyboard updates every 5 seconds.</div>{/if}
           <div class="mb-3">{#key `${selectedSeries.slug}-${selectedEpisode.manifest.number}`}<StudioEpisodeEditor episode={selectedEpisode} series={selectedSeries} {seriesOrg} busy={taskBusy} onSaved={reloadEpisodes} onRevisionSubmitted={revisionSubmitted} />{/key}</div>
           <StudioStoryboard episode={selectedEpisode} busy={taskBusy} />

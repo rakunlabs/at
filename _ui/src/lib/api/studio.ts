@@ -4,6 +4,7 @@
 // reads the same files and writes metadata-only changes directly.
 
 import { browseFiles, fetchFileText, uploadFile, type FileEntry } from './files';
+import { createStudioToolkit, normalizeStudioToolkit, type StudioToolkit } from '../helper/studio-toolkit';
 
 // ─── Types (mirror the manifest schemas) ───
 
@@ -20,9 +21,9 @@ export interface CharacterManifest {
   turnarounds?: string[];
   reference_images?: string[];
   voice?: string;
-  sora_character_id?: string;
-  sora_character_name?: string;
   lora_url?: string;
+  /** Tool/model that produced the portrait. */
+  source?: string;
   style_notes?: string;
   wardrobe?: string;
   persona?: string;
@@ -39,6 +40,7 @@ export interface VoiceItem {
   name: string;
   slug: string;
   voice_id: string;
+  provider?: string;
 }
 
 export interface SeriesStyle {
@@ -204,6 +206,7 @@ export async function loadVoices(assetsRoot: string): Promise<VoiceItem[]> {
             name: m.name || e.name.replace(/\.json$/, ''),
             slug: m.slug || e.name.replace(/\.json$/, ''),
             voice_id: m.voice_id,
+            provider: typeof m.provider === 'string' ? m.provider : undefined,
           });
         }
       } catch {
@@ -359,6 +362,25 @@ export function episodeAssetPath(dir: string, rel?: string): string {
   if (!rel) return '';
   if (rel.startsWith('/')) return rel;
   return `${dir}/${rel}`;
+}
+
+// ─── Toolkit ───
+
+export async function loadStudioToolkit(assetsRoot: string): Promise<StudioToolkit> {
+  if (!assetsRoot) return createStudioToolkit();
+  try {
+    return normalizeStudioToolkit(JSON.parse(await fetchFileText(`${assetsRoot}/studio.json`)));
+  } catch (e: any) {
+    if (e?.response?.status === 404 || e?.response?.status === 400) return createStudioToolkit();
+    throw e;
+  }
+}
+
+export async function saveStudioToolkit(assetsRoot: string, toolkit: StudioToolkit): Promise<StudioToolkit> {
+  const updated: StudioToolkit = { ...toolkit, updated_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z') };
+  const blob = new File([JSON.stringify(updated, null, 1)], 'studio.json', { type: 'application/json' });
+  await uploadFile(blob, assetsRoot, 'studio.json');
+  return updated;
 }
 
 // ─── Misc ───
