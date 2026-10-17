@@ -82,6 +82,11 @@ export interface ListTriggersParams {
 
 // ─── API Functions ───
 
+export async function previewCron(schedule: string, timezone: string, signal?: AbortSignal): Promise<string[]> {
+  const res = await api.get<{ runs: string[] }>('/triggers/cron-preview', { params: { schedule, timezone }, signal });
+  return res.data.runs;
+}
+
 export async function listAllTriggers(params?: ListTriggersParams): Promise<Trigger[]> {
   const res = await api.get<TriggersResponse>('/triggers', { params });
   return res.data.triggers ?? [];

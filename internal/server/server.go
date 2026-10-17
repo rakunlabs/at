@@ -964,6 +964,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/workflows/{id}/triggers", s.ListTriggersAPI)   // backward compat
 	apiGroup.POST("/v1/workflows/{id}/triggers", s.CreateTriggerAPI) // backward compat
 	apiGroup.GET("/v1/triggers", s.ListAllTriggersAPI)
+	apiGroup.GET("/v1/triggers/cron-preview", s.PreviewCronAPI)
 	apiGroup.POST("/v1/triggers", s.CreateTriggerGenericAPI) // generic create for any target
 	apiGroup.GET("/v1/triggers/{id}", s.GetTriggerAPI)
 	apiGroup.PUT("/v1/triggers/{id}", s.UpdateTriggerAPI)

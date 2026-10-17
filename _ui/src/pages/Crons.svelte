@@ -16,6 +16,7 @@
     runTriggerNow,
     listCronRuns,
     getCronRun,
+    previewCron,
     type Trigger,
     type CronRun,
   } from '@/lib/api/triggers';
@@ -40,6 +41,7 @@
   } from 'lucide-svelte';
   import { formatDate, formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { onDestroy } from 'svelte';
+  import { cronRunTime, cronRemaining } from '@/lib/helper/cron-time';
 
   storeNavbar.title = 'Cron schedules';
 
@@ -67,6 +69,34 @@
   let formSchedule = $state('');
   let formTimezone = $state('');
   let formEnabled = $state(true);
+  let now = $state(Date.now());
+  let previewRuns = $state<string[]>([]);
+  let previewLoading = $state(false);
+  let previewError = $state('');
+  let scheduleRefreshError = $state(false);
+
+  $effect(() => {
+    const schedule = formSchedule.trim();
+    const timezone = formTimezone.trim();
+    // Recalculate after time passes as well as after edits.
+    void now;
+    previewRuns = [];
+    previewError = '';
+    previewLoading = showForm && !!schedule;
+    if (!showForm || !schedule) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const runs = await previewCron(schedule, timezone, controller.signal);
+        if (!controller.signal.aborted) previewRuns = runs;
+      } catch (e: any) {
+        if (!controller.signal.aborted) previewError = e?.response?.data?.message || 'Could not load upcoming times. Edit the schedule or timezone to retry.';
+      } finally {
+        if (!controller.signal.aborted) previewLoading = false;
+      }
+    }, 350);
+    return () => { clearTimeout(timer); controller.abort(); };
+  });
   let formPayload = $state('{}');
   // Organization target: one task per tick for the head agent.
   let formTaskTitle = $state('');
@@ -103,7 +133,7 @@
     pageLoad.reset();
     try {
       await Promise.all([
-        pageLoad.load('Schedules', () => listAllTriggers({ type: 'cron' }), result => { triggers = result || []; }, 'workflow_builder'),
+        pageLoad.load('Schedules', () => listAllTriggers({ type: 'cron' }), result => { triggers = result || []; scheduleRefreshError = false; }, 'workflow_builder'),
         pageLoad.load('Workflows', () => listWorkflows({ _limit: 1000 }), result => { workflows = result.data || []; }, 'workflow_builder'),
         pageLoad.load('Organizations', () => listOrganizations({ _limit: 1000 }), result => { organizations = result.data || []; }, 'organizations'),
         pageLoad.load('Bots', () => listBotConfigs({ _limit: 1000 }), result => { bots = result.data || []; }, 'bots'),
@@ -442,6 +472,22 @@
     if (tab === 'runs' && !document.hidden && !runsLoading && runs.some((r) => r.status === 'running')) loadRuns();
   }, 10000);
   onDestroy(() => clearInterval(poll));
+  let clockDisposed = false;
+  let refreshingSchedules = false;
+  const clock = setInterval(() => {
+    if (document.hidden) return;
+    now = Date.now();
+    if (tab === 'schedules' && !loading && !refreshingSchedules) {
+      // Refresh live admission and the next occurrence without clearing the table.
+      refreshingSchedules = true;
+      listAllTriggers({ type: 'cron' }).then(result => {
+        if (!clockDisposed) { triggers = result; scheduleRefreshError = false; }
+      }).catch(() => {
+        if (!clockDisposed) scheduleRefreshError = true;
+      }).finally(() => { refreshingSchedules = false; });
+    }
+  }, 60000);
+  onDestroy(() => { clockDisposed = true; clearInterval(clock); });
 
   function duration(r: CronRun): string {
     const start = new Date(r.started_at).getTime();
@@ -700,11 +746,35 @@
               id="form-timezone"
               type="text"
               bind:value={formTimezone}
-              placeholder="UTC (default), America/New_York, Europe/London..."
+              placeholder="Server timezone (default), Europe/Istanbul..."
               class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
             />
           </div>
         </div>
+
+        <section class="border border-dark-border p-3 space-y-2" aria-label="Next five scheduled times" aria-busy={previewLoading}>
+          <h3 class="text-xs font-medium text-dark-text">Next 5 scheduled times</h3>
+          <p class="text-xs text-dark-text-muted">Schedule preview only, shown with timezone offsets. Runs require an enabled schedule, an active scheduler and a usable Run as account.</p>
+          {#if previewLoading}
+            <p class="text-xs text-dark-text-muted" role="status">Calculating…</p>
+          {:else if previewError}
+            <p class="text-xs text-oc-red" role="status">{previewError}</p>
+          {:else if !formSchedule.trim()}
+            <p class="text-xs text-dark-text-muted">Enter a cron expression to preview upcoming times.</p>
+          {:else if !previewRuns.length}
+            <p class="text-xs text-dark-text-muted">No upcoming occurrence found for this expression.</p>
+          {:else}
+            <ol class="divide-y divide-dark-border-subtle text-xs tabular-nums">
+              {#each previewRuns as run}
+                <li class="flex flex-wrap justify-between gap-x-4 gap-y-1 py-2">
+                  <time datetime={run} class="text-dark-text">{cronRunTime(run)}</time>
+                  <span class="text-dark-text-muted">{cronRemaining(run, now)}</span>
+                </li>
+              {/each}
+            </ol>
+          {/if}
+          {#if !formEnabled}<p class="text-xs text-oc-peach">This schedule is disabled. These times are a preview, not queued runs.</p>{/if}
+        </section>
 
         <!-- Payload -->
         {#if formTargetType === 'workflow'}
@@ -760,6 +830,9 @@
   {/if}
 
   <!-- List -->
+  {#if scheduleRefreshError}
+    <p class="mb-3 text-xs text-oc-peach" role="status">Schedule refresh failed. Times may be out of date. Use Refresh to retry.</p>
+  {/if}
   {#if pageLoad.loading('Schedules')}
     <div class="text-center py-12 text-dark-text-muted text-sm">Loading cron jobs...</div>
   {:else if pageLoad.error('Schedules') && !triggers.length}
@@ -771,11 +844,12 @@
       <p class="text-xs text-dark-text-muted mt-1">Create a cron job to run workflows on a schedule</p>
     </div>
   {:else}
-    <div class="border border-dark-border overflow-hidden">
+    <div class="border border-dark-border overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-dark-border">
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Schedule</th>
+            <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Next run</th>
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Target</th>
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Timezone</th>
             <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Status</th>
@@ -789,6 +863,20 @@
                 <div class="font-mono text-xs text-dark-text">{t.config?.schedule || '—'}</div>
                 <div class="text-[10px] text-dark-text-muted">{describeSchedule(t.config?.schedule as string || '')}</div>
               </td>
+              <td class="px-4 py-2.5 text-xs whitespace-nowrap tabular-nums">
+                {#if !t.enabled}
+                  <span class="text-dark-text-muted">Disabled</span>
+                {:else if t.schedule?.state === 'scheduled' && t.schedule.next_run}
+                  <time datetime={t.schedule.next_run} class="text-dark-text" title={formatUTCDateTime(t.schedule.next_run)}>{cronRunTime(t.schedule.next_run, t.config?.timezone)}</time>
+                  <div class="mt-1 text-dark-text-muted">{cronRemaining(t.schedule.next_run, now)}</div>
+                {:else if t.schedule?.state === 'not_scheduled'}
+                  <span class="text-oc-red" title="Open this schedule and check its expression and Run as account.">Not scheduled</span>
+                {:else if t.schedule?.state === 'scheduler_inactive'}
+                  <span class="text-dark-text-muted">Scheduler not running here</span>
+                {:else}
+                  <span class="text-dark-text-muted">Unavailable</span>
+                {/if}
+              </td>
               <td class="px-4 py-2.5">
                 <span class="text-xs px-1.5 py-0.5 bg-dark-elevated text-dark-text-secondary">
                   {t.target_type === 'organization' ? 'Organization' : 'Workflow'}
@@ -796,7 +884,7 @@
                 <span class="ml-1.5 text-xs text-dark-text-secondary">{getTargetName(t)}</span>
               </td>
               <td class="px-4 py-2.5 text-xs text-dark-text-muted font-mono">
-                {t.config?.timezone || 'UTC'}
+                {t.config?.timezone || 'Server default'}
               </td>
               <td class="px-4 py-2.5">
                 <button
@@ -814,11 +902,7 @@
                     Disabled
                   {/if}
                 </button>
-                {#if t.enabled && t.schedule?.state === 'scheduled' && t.schedule.next_run}
-                  <div class="text-[10px] text-dark-text-muted" title={formatUTCDateTime(t.schedule.next_run)}>
-                    Next run {formatDateTime(t.schedule.next_run)}
-                  </div>
-                {:else if t.enabled && t.schedule?.state === 'not_scheduled'}
+                {#if t.enabled && t.schedule?.state === 'not_scheduled'}
                   <div
                     class="flex items-center gap-1 text-[10px] text-oc-red"
                     title="The scheduler is not running this schedule. Usually it has no usable Run as account: open it and set Run as. It will not fire until then."
