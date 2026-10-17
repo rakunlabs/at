@@ -166,11 +166,11 @@
     if (match) return match.label;
     // Try simple patterns
     const parts = schedule.trim().split(/\s+/);
-    if (parts.length !== 5) return schedule;
+    if (parts.length !== 5) return '';
     if (parts[0].startsWith('*/')) return `Every ${parts[0].slice(2)} min`;
     if (parts[0] === '0' && parts[1] === '*') return 'Hourly';
     if (parts[0] === '0' && parts[1] === '0') return 'Daily at midnight';
-    return schedule;
+    return '';
   }
 
   // ─── Form ───
@@ -830,6 +830,7 @@
   {/if}
 
   <!-- List -->
+  {#if !editingId}
   {#if scheduleRefreshError}
     <p class="mb-3 text-xs text-oc-peach" role="status">Schedule refresh failed. Times may be out of date. Use Refresh to retry.</p>
   {/if}
@@ -858,10 +859,13 @@
         </thead>
         <tbody>
           {#each triggers as t}
+            {@const description = describeSchedule(t.config?.schedule as string || '')}
             <tr class="border-b border-dark-border last:border-b-0 hover:bg-dark-elevated/50">
               <td class="px-4 py-2.5">
                 <div class="font-mono text-xs text-dark-text">{t.config?.schedule || '—'}</div>
-                <div class="text-[10px] text-dark-text-muted">{describeSchedule(t.config?.schedule as string || '')}</div>
+                {#if description}
+                  <div class="text-[10px] text-dark-text-muted">{description}</div>
+                {/if}
               </td>
               <td class="px-4 py-2.5 text-xs whitespace-nowrap tabular-nums">
                 {#if !t.enabled}
@@ -961,6 +965,7 @@
         </tbody>
       </table>
     </div>
+  {/if}
   {/if}
   {/if}
 </div>

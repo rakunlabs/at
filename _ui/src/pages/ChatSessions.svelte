@@ -24,7 +24,7 @@
     type ChatMessage,
     type ChatAttachment,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Pencil, PanelLeft } from 'lucide-svelte';
+  import { Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, X, FileText, Download, Pencil, PanelLeft } from 'lucide-svelte';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -82,7 +82,6 @@
   let draggingFiles = $state(false);
   let fileInput = $state<HTMLInputElement>();
   const composerControl = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-0 shrink-0 items-center justify-center gap-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
-  const secondaryControl = `${composerControl} text-dark-text-secondary hover:bg-dark-highest`;
 
   async function addAttachments(files: File[]) {
     if (sending || loadingMessages || readingAttachments || !files.length) return;
@@ -694,6 +693,26 @@
       showSlashMenu = false;
       showAgentPicker = false;
     }
+  }
+
+  function growComposer(node: HTMLTextAreaElement, _value: string) {
+    let active = true;
+    let width = 0;
+    const resize = () => {
+      if (!active) return;
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`;
+    };
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (nextWidth !== width) { width = nextWidth; resize(); }
+    });
+    observer.observe(node);
+    queueMicrotask(resize);
+    return {
+      update(_value: string) { queueMicrotask(resize); },
+      destroy() { active = false; observer.disconnect(); },
+    };
   }
 
   function stopGeneration() {
@@ -1530,7 +1549,7 @@
         </div>
       {/if}
 
-      <div class="flex flex-wrap items-center gap-2 w-full px-4 pt-3 pb-2 sm:px-[22px]">
+      <div class="flex flex-wrap items-center gap-x-[2ch] gap-y-1 w-full px-4 pt-3 pb-2.5 text-xs sm:px-[22px] sm:pt-3.5">
         <input bind:this={fileInput} type="file" multiple class="hidden" aria-label="Attach photos or files" onchange={(e) => { void addAttachments(Array.from(e.currentTarget.files || [])); e.currentTarget.value = ''; }} />
         {#if attachments.length || readingAttachments || attachmentError || draggingFiles}
           <div class="order-first basis-full space-y-2">
@@ -1554,57 +1573,61 @@
           <textarea
             bind:this={inputEl}
             bind:value={inputText}
+            use:growComposer={inputText}
             oninput={handleInput}
             onkeydown={handleKeydown}
             onpaste={pasteAttachments}
             aria-label="Message to agent"
             aria-describedby="session-composer-help"
             placeholder={attachments.length ? 'Add a message about these files…' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
-            rows={2}
+            rows={1}
             disabled={sending || loadingMessages}
-            class="block w-full min-w-0 resize-y max-h-48 bg-transparent py-1 text-base sm:text-sm leading-6 text-dark-text placeholder:text-dark-text-secondary caret-accent focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-50"
+            class="block min-h-[1.65em] max-h-[min(16rem,35dvh)] w-full min-w-0 resize-none overflow-y-auto bg-transparent text-base leading-relaxed text-dark-text placeholder:text-dark-text-muted caret-accent focus:outline-none disabled:opacity-50 sm:text-sm"
           ></textarea>
         </div>
         <!-- Agent pill -->
-        <div class="min-w-0 max-w-44">
+        <div class="mt-2.5 flex min-w-0 basis-full flex-wrap items-center gap-x-[2ch] gap-y-1">
         {#if selectedSession}
           <button
             onclick={() => { showAgentPicker = !showAgentPicker; showSlashMenu = false; }}
             disabled={sending || loadingMessages || !!selectedSession.config?.organization_chat}
             aria-expanded={showAgentPicker}
-            class={`${secondaryControl} max-w-full px-3`}
+            class="inline-flex min-w-0 max-w-44 items-center gap-1 text-accent hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent disabled:opacity-40"
             title="Switch agent (/agents)"
           >
-            <Bot size={16} class="shrink-0" />
             <span class="min-w-0 truncate">{currentAgent?.name || 'Agent'}</span>
-            <ChevronDown size={14} class="shrink-0" />
+            <ChevronDown size={12} class="shrink-0" />
           </button>
         {:else if pendingAgent}
-          <span class={`${secondaryControl} max-w-full px-3`}>
-            <Bot size={16} class="shrink-0" />
+          <span class="min-w-0 max-w-44 truncate text-accent">
             <span class="min-w-0 truncate">{pendingAgent.name}</span>
           </span>
         {/if}
-        </div>
-        <button onclick={() => fileInput?.click()} disabled={sending || loadingMessages || readingAttachments || attachments.length >= CHAT_ATTACHMENT_COUNT} class={`${secondaryControl} w-10`} title="Attach files" aria-label="Attach photos or files"><Paperclip size={18} /></button>
-        <VoiceInput contextKey={voiceContext} disabled={sending || loadingMessages} bind:recording bind:transcribing ontext={text => { inputText = (inputText ? inputText + ' ' : '') + text; inputEl?.focus(); }} />
+        <span class="flex-1"></span>
+        <button onclick={() => fileInput?.click()} disabled={sending || loadingMessages || readingAttachments || attachments.length >= CHAT_ATTACHMENT_COUNT} class="shrink-0 text-dark-text-muted hover:text-dark-text hover:underline underline-offset-4 disabled:opacity-40 focus-visible:outline-1 focus-visible:outline-accent" title="Attach files" aria-label="Attach photos or files">+ attach</button>
+        <VoiceInput compact contextKey={voiceContext} disabled={sending || loadingMessages} bind:recording bind:transcribing ontext={text => { inputText = (inputText ? inputText + ' ' : '') + text; inputEl?.focus(); }} />
 
         {#if sending}
-          <button onclick={stopGeneration} class={`${composerControl} ml-auto min-w-20 px-3 bg-red-600 text-white hover:bg-red-700`} title="Stop generation">
-            <Square size={16} /> Stop
+          <button onclick={stopGeneration} class="shrink-0 text-oc-red hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent" title="Stop generation" aria-label="Stop response">
+            ■ stop
           </button>
         {:else}
           <button
             onclick={handleSend}
             disabled={(!inputText.trim() && !attachments.length) || loadingMessages || readingAttachments || recording || transcribing || (!selectedSessionId && !agents.length)}
-            class={`${composerControl} ml-auto min-w-20 px-3 bg-accent text-gray-950 hover:bg-accent-hover`}
-            title="Send"
+            class="shrink-0 text-accent hover:underline underline-offset-4 disabled:text-dark-text-faint disabled:no-underline focus-visible:outline-1 focus-visible:outline-accent"
+            title="Send (Enter) — Shift+Enter for a new line"
+            aria-label="Send message"
           >
-            <Send size={16} /> Send
+            send ↵
           </button>
         {/if}
-        <p id="session-composer-help" class="basis-full text-xs leading-5 text-dark-text-secondary"><span class="hidden sm:inline">Enter to send · Shift + Enter for a new line. </span>Up to 4 files · 5 MB each · 8 MB total.<span class="hidden sm:inline"> Supported file formats depend on the agent’s model.</span></p>
+        </div>
       </div>
     </section>
+    <div id="session-composer-help" class="shrink-0 mx-4 mb-3 -mt-1 flex flex-wrap justify-between gap-x-6 gap-y-1 text-xs text-dark-text-muted sm:mx-6 sm:mb-4">
+      <span class="hidden sm:inline"><kbd class="text-dark-text">enter</kbd> send · <kbd class="text-dark-text">shift+enter</kbd> newline · <kbd class="text-dark-text">/</kbd> commands</span>
+      <span title="Supported file formats depend on the agent’s model.">Up to 4 files · 5 MB each · 8 MB total</span>
+    </div>
   </div>
 </div>

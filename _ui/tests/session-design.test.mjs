@@ -21,6 +21,18 @@ test('Sessions retains responsive navigation and the sessions command opens both
   assert.match(source, /group-focus-within:opacity-100/);
 });
 
+test('Sessions composer grows with drafts and uses compact Chats controls', () => {
+  assert.match(source, /use:growComposer=\{inputText\}/);
+  assert.match(source, /rows=\{1\}/);
+  assert.match(source, /max-h-\[min\(16rem,35dvh\)\]/);
+  assert.match(source, /update\(_value: string\) \{ queueMicrotask\(resize\); \}/);
+  assert.match(source, /destroy\(\) \{ active = false; observer\.disconnect\(\); \}/);
+  assert.match(source, /<VoiceInput compact/);
+  assert.match(source, />\+ attach<\/button>/);
+  assert.match(source, /send ↵/);
+  assert.match(source, /aria-describedby="session-composer-help"/);
+});
+
 test('Organization dashboard uses responsive panels and keyboard-accessible agent cards', () => {
   assert.match(organization, /flex-col lg:flex-row/);
   assert.match(organization, /w-full lg:w-72 bg-dark-base/);
