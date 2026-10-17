@@ -36,6 +36,7 @@
     History,
     ChevronRight,
     ChevronDown,
+    AlertTriangle,
   } from 'lucide-svelte';
   import { formatDate, formatDateTime, formatUTCDateTime } from '@/lib/helper/format';
   import { onDestroy } from 'svelte';
@@ -813,6 +814,23 @@
                     Disabled
                   {/if}
                 </button>
+                {#if t.enabled && t.schedule?.state === 'scheduled' && t.schedule.next_run}
+                  <div class="text-[10px] text-dark-text-muted" title={formatUTCDateTime(t.schedule.next_run)}>
+                    Next run {formatDateTime(t.schedule.next_run)}
+                  </div>
+                {:else if t.enabled && t.schedule?.state === 'not_scheduled'}
+                  <div
+                    class="flex items-center gap-1 text-[10px] text-oc-red"
+                    title="The scheduler is not running this schedule. Usually it has no usable Run as account: open it and set Run as. It will not fire until then."
+                  >
+                    <AlertTriangle size={10} class="shrink-0" />
+                    Not scheduled
+                  </div>
+                {:else if t.enabled && t.schedule?.state === 'scheduler_inactive'}
+                  <div class="text-[10px] text-dark-text-muted" title="This server is not dispatching cron schedules (feature off, or another replica is the scheduler).">
+                    Scheduler not running here
+                  </div>
+                {/if}
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">

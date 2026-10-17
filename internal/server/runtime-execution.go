@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -276,6 +277,11 @@ func (s *Server) RuntimeTriggerBindingAPI(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == http.MethodDelete {
 		s.revokeRuntimeBinding(w, r, "trigger")
+		if s.scheduler != nil {
+			if err := s.scheduler.Reload(); err != nil {
+				slog.Error("scheduler reload failed after trigger binding revoke", "trigger_id", r.PathValue("id"), "error", err)
+			}
+		}
 		return
 	}
 	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: "triggers.use", ResourceID: r.PathValue("id")}); err != nil {
@@ -317,7 +323,21 @@ func (s *Server) RuntimeTriggerBindingAPI(w http.ResponseWriter, r *http.Request
 		httpResponse(w, "trigger execution binding denied", http.StatusForbidden)
 		return
 	}
+	s.reloadSchedulerForTrigger(trigger)
 	httpResponseJSON(w, binding, http.StatusOK)
+}
+
+// reloadSchedulerForTrigger rebuilds the cron runner after a trigger's
+// execution binding changes. The scheduler only enumerates bound triggers, so
+// a schedule created before its Run as binding was saved stayed unscheduled
+// until the next restart.
+func (s *Server) reloadSchedulerForTrigger(trigger *service.Trigger) {
+	if s.scheduler == nil || trigger == nil || trigger.Type != "cron" {
+		return
+	}
+	if err := s.scheduler.Reload(); err != nil {
+		slog.Error("scheduler reload failed after trigger binding change", "trigger_id", trigger.ID, "error", err)
+	}
 }
 
 // Pass this resolver to Scheduler.SetExecutionContext before Start.

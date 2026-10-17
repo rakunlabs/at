@@ -27,6 +27,16 @@ export interface Trigger {
   hide_from_main?: boolean;
   /** HMAC verification. Omit on update to keep it; secret '***' keeps the stored secret. */
   signature?: WebhookSignature | null;
+  /**
+   * Live scheduler state for enabled cron triggers (list responses only).
+   * `enabled` only says the record is on; this says whether it actually runs.
+   */
+  schedule?: TriggerSchedule;
+}
+
+export interface TriggerSchedule {
+  state: 'scheduled' | 'not_scheduled' | 'scheduler_inactive';
+  next_run?: string;
 }
 
 export interface WebhookRoute {

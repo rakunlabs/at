@@ -129,6 +129,36 @@ type Scheduler struct {
 	cron   cronRunner
 	cancel context.CancelFunc
 	ctx    context.Context // parent context from Start()
+	// loaded holds the parsed schedules of the triggers the running cron
+	// runner actually fires, so the UI reports what is scheduled rather
+	// than what is merely enabled in the database.
+	loaded map[string][]hardloop.Schedule
+	// running is true while this process is the one dispatching cron
+	// triggers (started, feature enabled, cluster leader), even when it
+	// currently has nothing to schedule.
+	running bool
+}
+
+// TriggerSchedule reports whether the running cron runner holds a trigger.
+type TriggerSchedule struct {
+	// Active is false when this process dispatches no cron triggers at all
+	// (feature disabled, not the cluster leader, or not started).
+	Active    bool
+	Scheduled bool
+	NextRun   time.Time
+}
+
+// ScheduleOf reports the live scheduling state of a trigger.
+func (s *Scheduler) ScheduleOf(triggerID string) TriggerSchedule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state := TriggerSchedule{Active: s.running}
+	if schedules, ok := s.loaded[triggerID]; ok && s.cron != nil {
+		state.Scheduled = true
+		state.NextRun = hardloop.FindNext(schedules, time.Now())
+	}
+	return state
 }
 
 func (s *Scheduler) SetMCPSetTools(lister MCPSetToolListerFunc, caller MCPSetToolCallerFunc) {
@@ -349,6 +379,8 @@ func (s *Scheduler) stopLocked() {
 		s.cron.Stop()
 		s.cron = nil
 	}
+	s.loaded = nil
+	s.running = false
 }
 
 // reload rebuilds the cron runner from the database. Must be called with s.mu held.
@@ -363,6 +395,7 @@ func (s *Scheduler) reload() error {
 		logi.Ctx(s.ctx).Info("scheduler: disabled by feature flag")
 		return nil
 	}
+	s.running = true
 
 	var triggers []service.Trigger
 	if services, ok := s.triggerStore.(service.ExecutionServiceLister); ok && s.executionContext != nil {
@@ -400,6 +433,7 @@ func (s *Scheduler) reload() error {
 
 	// Build hardloop Cron jobs from triggers.
 	crons := make([]hardloop.Cron, 0, len(triggers))
+	loaded := make(map[string][]hardloop.Schedule, len(triggers))
 	for _, t := range triggers {
 		schedule, _ := t.Config["schedule"].(string)
 		if schedule == "" {
@@ -416,6 +450,15 @@ func (s *Scheduler) reload() error {
 		if timezone != "" {
 			cronSpec = "CRON_TZ=" + timezone + " " + cronSpec
 		}
+
+		parsed, err := hardloop.ParseStandard(cronSpec)
+		if err != nil {
+			// One bad spec would otherwise fail NewCron and stop every schedule.
+			logi.Ctx(s.ctx).Warn("scheduler: invalid cron spec, skipping",
+				"trigger_id", t.ID, "spec", cronSpec, "error", err)
+			continue
+		}
+		loaded[trigger.ID] = []hardloop.Schedule{parsed}
 
 		crons = append(crons, hardloop.Cron{
 			Name:  fmt.Sprintf("trigger-%s", trigger.ID),
@@ -440,8 +483,11 @@ func (s *Scheduler) reload() error {
 
 	if err := cronJob.Start(ctx); err != nil {
 		cancel()
+		s.cancel = nil
+		s.cron = nil
 		return fmt.Errorf("scheduler: start cron runner: %w", err)
 	}
+	s.loaded = loaded
 
 	logi.Ctx(s.ctx).Info("scheduler: started cron triggers", "count", len(crons))
 

@@ -79,7 +79,46 @@ func (s *Server) ListAllTriggersAPI(w http.ResponseWriter, r *http.Request) {
 		records = []service.Trigger{}
 	}
 
-	httpResponseJSON(w, triggersResponse{Triggers: records}, http.StatusOK)
+	views := make([]triggerView, len(records))
+	for i, t := range records {
+		views[i] = triggerView{Trigger: t, Schedule: s.triggerScheduleView(t)}
+	}
+
+	httpResponseJSON(w, map[string]any{"triggers": views}, http.StatusOK)
+}
+
+// triggerView adds live scheduler state to a trigger in list responses.
+type triggerView struct {
+	service.Trigger
+	Schedule *triggerScheduleView `json:"schedule,omitempty"`
+}
+
+// triggerScheduleView reports whether this process actually fires a cron
+// trigger. Enabled only says the database row is on; a trigger without a
+// usable Run as identity, or with an invalid spec, is enabled but never runs.
+type triggerScheduleView struct {
+	// State is "scheduled", "not_scheduled" or "scheduler_inactive".
+	State   string `json:"state"`
+	NextRun string `json:"next_run,omitempty"`
+}
+
+func (s *Server) triggerScheduleView(t service.Trigger) *triggerScheduleView {
+	if t.Type != "cron" || !t.Enabled || s.scheduler == nil {
+		return nil
+	}
+	live := s.scheduler.ScheduleOf(t.ID)
+	switch {
+	case live.Scheduled:
+		view := &triggerScheduleView{State: "scheduled"}
+		if !live.NextRun.IsZero() {
+			view.NextRun = live.NextRun.UTC().Format(time.RFC3339)
+		}
+		return view
+	case !live.Active:
+		return &triggerScheduleView{State: "scheduler_inactive"}
+	default:
+		return &triggerScheduleView{State: "not_scheduled"}
+	}
 }
 
 // ListTriggersAPI handles GET /api/v1/workflows/:wf_id/triggers.
