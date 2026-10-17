@@ -220,3 +220,25 @@ func TestRoutingProfileAppearsInModelList(t *testing.T) {
 		t.Fatalf("profiles must follow concrete models: %+v", got.Data)
 	}
 }
+
+func TestRoutingProfileStrategyAndDecisionHeader(t *testing.T) {
+	s, p, ctx := routingProfileServer(t)
+	if _, err := p.CreateRoutingProfile(service.WithLegacyWorkspaceAccess(ctx), service.RoutingProfile{
+		Name:     "spread",
+		Targets:  types.Slice[string]{"alpha/only", "zeta/beta"},
+		Strategy: service.RoutingStrategyRoundRobin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	auth := workspaceToken(routingTestWorkspace, service.APIToken{})
+
+	first, _ := s.chatCallChain(ctx, auth, "spread", nil)
+	second, _ := s.chatCallChain(ctx, auth, "spread", nil)
+	if a, b := strings.Join(chainModels(first), ","), strings.Join(chainModels(second), ","); a != "alpha/only,zeta/beta" || b != "zeta/beta,alpha/only" {
+		t.Fatalf("round robin chains %q then %q", a, b)
+	}
+	if first[0].strategy != service.RoutingStrategyRoundRobin {
+		t.Fatalf("chain targets must carry the strategy, got %q", first[0].strategy)
+	}
+
+}

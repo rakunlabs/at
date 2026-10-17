@@ -7,7 +7,10 @@
     updateRoutingProfile,
     deleteRoutingProfile,
     ROUTING_PROFILE_MAX_TARGETS,
+    ROUTING_PROFILE_MAX_WEIGHT,
+    ROUTING_STRATEGIES,
     type RoutingProfile,
+    type RoutingStrategy,
   } from '@/lib/api/routing-profiles';
   import { listProviders } from '@/lib/api/providers';
   import { formatDate } from '@/lib/helper/format';
@@ -37,6 +40,9 @@
   let formName = $state('');
   let formDescription = $state('');
   let formTargets = $state<string[]>(['']);
+  let formStrategy = $state<RoutingStrategy>('priority');
+  // Parallel to formTargets so reordering moves a weight with its target.
+  let formWeights = $state<number[]>([1]);
   let saving = $state(false);
 
   // Every provider/model pair the caller can configure, used as a datalist so a
@@ -101,6 +107,8 @@
     formName = '';
     formDescription = '';
     formTargets = [''];
+    formStrategy = 'priority';
+    formWeights = [1];
     editingId = null;
     showForm = false;
   }
@@ -116,6 +124,8 @@
     formName = profile.name;
     formDescription = profile.description;
     formTargets = profile.targets.length ? [...profile.targets] : [''];
+    formStrategy = profile.strategy || 'priority';
+    formWeights = formTargets.map((t) => profile.weights?.[t] ?? 1);
     showForm = true;
   }
 
@@ -125,11 +135,16 @@
       return;
     }
     formTargets = [...formTargets, ''];
+    formWeights = [...formWeights, 1];
   }
 
   function removeTarget(index: number) {
     formTargets = formTargets.filter((_, i) => i !== index);
-    if (formTargets.length === 0) formTargets = [''];
+    formWeights = formWeights.filter((_, i) => i !== index);
+    if (formTargets.length === 0) {
+      formTargets = [''];
+      formWeights = [1];
+    }
   }
 
   function moveTarget(index: number, delta: number) {
@@ -138,6 +153,9 @@
     const copy = [...formTargets];
     [copy[index], copy[next]] = [copy[next], copy[index]];
     formTargets = copy;
+    const weights = [...formWeights];
+    [weights[index], weights[next]] = [weights[next], weights[index]];
+    formWeights = weights;
   }
 
   async function handleSubmit() {
@@ -151,7 +169,10 @@
       return;
     }
 
-    const targets = formTargets.map((t) => t.trim()).filter(Boolean);
+    const entries = formTargets
+      .map((t, i) => ({ target: t.trim(), weight: formWeights[i] ?? 1 }))
+      .filter((e) => e.target);
+    const targets = entries.map((e) => e.target);
     if (targets.length === 0) {
       addToast('At least one target is required', 'warn');
       return;
@@ -166,9 +187,23 @@
       return;
     }
 
+    let weights: Record<string, number> | undefined;
+    if (formStrategy === 'weighted') {
+      const bad = entries.find((e) => !Number.isInteger(e.weight) || e.weight < 0 || e.weight > ROUTING_PROFILE_MAX_WEIGHT);
+      if (bad) {
+        addToast(`Weight for "${bad.target}" must be a whole number from 0 to ${ROUTING_PROFILE_MAX_WEIGHT}`, 'warn');
+        return;
+      }
+      if (entries.every((e) => e.weight === 0)) {
+        addToast('At least one target needs a weight above 0', 'warn');
+        return;
+      }
+      weights = Object.fromEntries(entries.map((e) => [e.target, e.weight]));
+    }
+
     saving = true;
     try {
-      const body = { name, description: formDescription.trim(), targets };
+      const body = { name, description: formDescription.trim(), targets, strategy: formStrategy, weights };
       if (editingId) {
         await updateRoutingProfile(editingId, body);
         addToast('Routing profile updated', 'info');
@@ -270,6 +305,25 @@
           />
         </div>
 
+        <!-- Strategy -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <label for="form-strategy" class="text-sm font-medium text-dark-text-secondary pt-1.5">Strategy</label>
+          <div class="col-span-3 space-y-1">
+            <select
+              id="form-strategy"
+              bind:value={formStrategy}
+              class="w-full border border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text"
+            >
+              {#each ROUTING_STRATEGIES as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+            <div class="text-xs text-dark-text-muted">
+              {ROUTING_STRATEGIES.find((o) => o.value === formStrategy)?.description}
+            </div>
+          </div>
+        </div>
+
         <!-- Targets -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <label for="form-target-0" class="text-sm font-medium text-dark-text-secondary pt-1.5">Targets</label>
@@ -285,6 +339,18 @@
                   placeholder="provider/model"
                   class="flex-1 border border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text placeholder:text-dark-text-muted"
                 />
+                {#if formStrategy === 'weighted'}
+                  <input
+                    type="number"
+                    min="0"
+                    max={ROUTING_PROFILE_MAX_WEIGHT}
+                    step="1"
+                    bind:value={formWeights[i]}
+                    aria-label={`Weight for target ${i + 1}`}
+                    title="Weight (0 = fallback only)"
+                    class="w-20 border border-dark-border-subtle px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-dark-border-subtle bg-dark-elevated text-dark-text"
+                  />
+                {/if}
                 <button
                   type="button"
                   onclick={() => moveTarget(i, -1)}
@@ -329,7 +395,7 @@
           <div></div>
           <div class="col-span-3 text-xs text-dark-text-muted bg-dark-base border border-dark-border px-3 py-2 space-y-1">
             <div>
-              Send <code class="font-mono">"model": "{formName || 'name'}"</code> to the gateway and the request is tried against each target in order, falling back on rate limits and upstream errors.
+              Send <code class="font-mono">"model": "{formName || 'name'}"</code> to the gateway. The strategy picks the order, and the request falls back through the remaining targets on rate limits and upstream errors.
             </div>
             <div>A profile only routes: every target still has to be permitted by the calling token.</div>
           </div>
@@ -378,6 +444,7 @@
     >
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+        <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Strategy</th>
         <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Chain</th>
         <th class="text-left px-4 py-2.5 font-medium text-dark-text-muted text-xs">Description</th>
         <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
@@ -387,13 +454,18 @@
       {#snippet row(profile)}
         <tr class="hover:bg-dark-surface">
           <td class="px-4 py-2.5 font-mono font-medium text-dark-text">{profile.name}</td>
+          <td class="px-4 py-2.5 text-xs text-dark-text-secondary whitespace-nowrap">
+            {ROUTING_STRATEGIES.find((o) => o.value === profile.strategy)?.label || 'Priority'}
+          </td>
           <td class="px-4 py-2.5 text-xs font-mono text-dark-text-muted">
             <div class="flex flex-wrap items-center gap-1">
               {#each profile.targets as target, i}
                 {#if i > 0}
-                  <span class="text-dark-text-muted">→</span>
+                  <span class="text-dark-text-muted">{(profile.strategy || 'priority') === 'priority' ? '→' : '·'}</span>
                 {/if}
-                <span class="border border-dark-border px-1.5 py-0.5 text-dark-text-secondary">{target}</span>
+                <span class="border border-dark-border px-1.5 py-0.5 text-dark-text-secondary">
+                  {target}{#if profile.strategy === 'weighted'}<span class="text-dark-text-muted"> ×{profile.weights?.[target] ?? 1}</span>{/if}
+                </span>
               {/each}
             </div>
           </td>

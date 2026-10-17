@@ -374,13 +374,13 @@ func (s *Server) resolveModel(ctx context.Context, auth *authResult, fullModel s
 //
 // The workspace comes from the presented token, not from a session principal;
 // see service.GatewayRoutingProfileStorer.
-func (s *Server) resolveRoutingProfile(ctx context.Context, auth *authResult, model string, fallbacks []string) (name string, targets []string) {
+func (s *Server) resolveRoutingProfile(ctx context.Context, auth *authResult, model string, fallbacks []string) *service.RoutingProfile {
 	if len(fallbacks) > 0 || model == "" || strings.Contains(model, "/") {
-		return "", nil
+		return nil
 	}
 	store, ok := s.routingProfileStore.(service.GatewayRoutingProfileStorer)
 	if !ok || auth == nil || auth.token == nil || auth.token.WorkspaceID == "" {
-		return "", nil
+		return nil
 	}
 
 	profile, err := store.GetGatewayRoutingProfile(ctx, model, auth.token.WorkspaceID)
@@ -389,43 +389,63 @@ func (s *Server) resolveRoutingProfile(ctx context.Context, auth *authResult, mo
 		// caller still rejects an unqualified model, which is the pre-change
 		// behaviour, and the error is visible in logs.
 		slog.Error("routing profile lookup failed", "model", model, "error", err)
-		return "", nil
+		return nil
 	}
 	if profile == nil || len(profile.Targets) == 0 {
-		return "", nil
+		return nil
 	}
 
-	return profile.Name, profile.Targets
+	return profile
+}
+
+// routingProfileChain resolves a profile's targets for this token and orders
+// them by the profile's strategy. Targets the token cannot use are dropped:
+// a profile grants routing, never authorization.
+func (s *Server) routingProfileChain(ctx context.Context, auth *authResult, profile *service.RoutingProfile) []chatCallTarget {
+	out := make([]chatCallTarget, 0, len(profile.Targets))
+	for _, m := range profile.Targets {
+		pKey, actual, info, err := s.resolveModel(ctx, auth, m)
+		if err != nil {
+			slog.Warn("routing profile: skipping unusable target",
+				"profile", profile.Name, "model", m, "error", err.Error())
+			continue
+		}
+		out = append(out, chatCallTarget{
+			fullModel:   m,
+			providerKey: pKey,
+			actualModel: actual,
+			info:        info,
+			strategy:    profile.Strategy,
+		})
+	}
+
+	return s.orderRoutingTargets(ctx, auth, profile, out)
 }
 
 // expandRoutingProfileTargets returns an effective (primary, fallbacks) pair for
 // handlers whose validation is structured around a single primary model rather
-// than a chain — the Responses and Anthropic endpoints.
+// than a chain — the Responses endpoint.
 //
 // Targets this token cannot use are dropped rather than left in front, so a
 // denied first entry does not fail a request the chat endpoint would serve.
 // ok is false when the name matched a profile whose every target is unusable;
 // the caller reports that against the profile, not the individual models.
-func (s *Server) expandRoutingProfileTargets(ctx context.Context, auth *authResult, model string, fallbacks []string) (name, primary string, rest []string, ok bool) {
-	profileName, targets := s.resolveRoutingProfile(ctx, auth, model, fallbacks)
-	if profileName == "" {
-		return "", model, fallbacks, true
+func (s *Server) expandRoutingProfileTargets(ctx context.Context, auth *authResult, model string, fallbacks []string) (name, strategy, primary string, rest []string, ok bool) {
+	profile := s.resolveRoutingProfile(ctx, auth, model, fallbacks)
+	if profile == nil {
+		return "", "", model, fallbacks, true
 	}
 
-	usable := make([]string, 0, len(targets))
-	for _, m := range targets {
-		if _, _, _, err := s.resolveModel(ctx, auth, m); err != nil {
-			slog.Warn("routing profile: skipping unusable target",
-				"profile", profileName, "model", m, "error", err.Error())
-			continue
-		}
-		usable = append(usable, m)
+	chain := s.routingProfileChain(ctx, auth, profile)
+	if len(chain) == 0 {
+		return profile.Name, profile.Strategy, "", nil, false
 	}
-	if len(usable) == 0 {
-		return profileName, "", nil, false
+	usable := make([]string, 0, len(chain))
+	for _, target := range chain {
+		usable = append(usable, target.fullModel)
 	}
 
-	return profileName, usable[0], usable[1:], true
+	return profile.Name, profile.Strategy, usable[0], usable[1:], true
 }
 
 // chatCallChain returns the ordered list of (full model, providerKey,
@@ -433,38 +453,23 @@ func (s *Server) expandRoutingProfileTargets(ctx context.Context, auth *authResu
 // fallback. Entries that fail validation are skipped (with a warning
 // log) so a single bad fallback doesn't break the whole chain.
 //
-// When the model names a routing profile, the profile's targets become the whole
-// chain. Every target still goes through resolveModel, so a profile grants
-// routing and never authorization.
+// When the model names a routing profile, the profile's targets, ordered by
+// its strategy, become the whole chain. Every target still goes through
+// resolveModel, so a profile grants routing and never authorization.
 func (s *Server) chatCallChain(ctx context.Context, auth *authResult, primary string, fallbacks []string) ([]chatCallTarget, string) {
-	profileName, targets := s.resolveRoutingProfile(ctx, auth, primary, fallbacks)
-	if profileName != "" {
-		out := make([]chatCallTarget, 0, len(targets))
-		for _, m := range targets {
-			pKey, actual, info, err := s.resolveModel(ctx, auth, m)
-			if err != nil {
-				slog.Warn("routing profile: skipping unusable target",
-					"profile", profileName, "model", m, "error", err.Error())
-				continue
-			}
-			out = append(out, chatCallTarget{
-				fullModel:   m,
-				providerKey: pKey,
-				actualModel: actual,
-				info:        info,
-			})
-		}
+	if profile := s.resolveRoutingProfile(ctx, auth, primary, fallbacks); profile != nil {
+		out := s.routingProfileChain(ctx, auth, profile)
 		if len(out) == 0 {
 			// Every target was denied or unavailable. Report it against the
 			// profile rather than the individual models, which the caller may
 			// not be permitted to enumerate.
 			return []chatCallTarget{{
 				fullModel: primary,
-				err:       fmt.Errorf("routing profile %q has no usable target for this token", profileName),
-			}}, profileName
+				err:       fmt.Errorf("routing profile %q has no usable target for this token", profile.Name),
+			}}, profile.Name
 		}
 
-		return out, profileName
+		return out, profile.Name
 	}
 
 	out := make([]chatCallTarget, 0, 1+len(fallbacks))
@@ -497,6 +502,11 @@ type chatCallTarget struct {
 	actualModel string
 	info        ProviderInfo
 	err         error // non-nil only when this target failed validation
+	// strategy is the routing profile strategy that ordered the chain, and
+	// deferred why partitionCooledTargets moved this target back. Both only
+	// feed the x-at-route-decision header.
+	strategy string
+	deferred string
 }
 
 // jsonClone returns a deep-clone of v via marshal+unmarshal. Used to

@@ -24,6 +24,7 @@ import (
 var gatewayCORSExposeHeaders = strings.Join([]string{
 	"x-at-model-used",
 	"x-at-routing-profile",
+	"x-at-route-decision",
 	"x-at-mock-response",
 	"x-at-idempotent-replay",
 	"x-at-response-cost-cents",

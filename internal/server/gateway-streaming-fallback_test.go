@@ -17,11 +17,13 @@ type countingStreamProvider struct {
 	name      string
 	failWith  error
 	opens     atomic.Int32
+	calls     atomic.Int32
 	chunks    []service.StreamChunk
 	midStream error
 }
 
 func (p *countingStreamProvider) Chat(context.Context, string, []service.Message, []service.Tool, *service.ChatOptions) (*service.LLMResponse, error) {
+	p.calls.Add(1)
 	if p.failWith != nil {
 		return nil, p.failWith
 	}
@@ -334,5 +336,50 @@ func TestStreamingToolCallIndicesAreStreamWide(t *testing.T) {
 		if got, ok := indices[id]; !ok || got != idx {
 			t.Fatalf("indices = %v want %v", indices, want)
 		}
+	}
+}
+
+// A provider failing with 5xx opens its breaker; later requests try the healthy
+// target first and x-at-route-decision says why.
+func TestCircuitBreakerDefersFailingProviderAndReportsDecision(t *testing.T) {
+	fastGatewayRetry(t)
+
+	down := &countingStreamProvider{name: "down", failWith: &service.UpstreamError{StatusCode: 503, Message: "unavailable"}}
+	healthy := &countingStreamProvider{name: "healthy"}
+
+	s, p, ctx := anthropicEndpointServer(t, map[string]ProviderInfo{
+		"alpha": {provider: down, providerType: "openai", defaultModel: "m", models: []string{"m"}},
+		"beta":  {provider: healthy, providerType: "openai", defaultModel: "m", models: []string{"m"}},
+	})
+	token := gatewayRoutingToken(t, ctx, p, "at_breaker_decision_tk", service.APIToken{})
+	body := `{"model":"alpha/m","at_fallbacks":["beta/m"],"messages":[{"role":"user","content":"hi"}]}`
+
+	for range providerBreakerThreshold {
+		w := postChatStream(t, s, token, body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", w.Code, w.Body)
+		}
+		if got := w.Header().Get(routeDecisionHeader); !strings.Contains(got, "attempt=2/2") {
+			t.Fatalf("fallback attempt not reported: %q", got)
+		}
+	}
+	if _, open := s.breaker.OpenUntil("alpha"); !open {
+		t.Fatal("breaker should be open after repeated 503s")
+	}
+
+	before := down.calls.Load()
+	if before == 0 {
+		t.Fatal("the failing provider was never called")
+	}
+	w := postChatStream(t, s, token, body)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "healthy") {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	decision := w.Header().Get(routeDecisionHeader)
+	if !strings.Contains(decision, "served=beta/m; attempt=1/2") || !strings.Contains(decision, "deferred=alpha/m:circuit_open") {
+		t.Fatalf("decision %q", decision)
+	}
+	if down.calls.Load() != before {
+		t.Fatal("the open provider must not be called before the healthy one")
 	}
 }

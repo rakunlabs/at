@@ -404,7 +404,11 @@ type transcriptionResponse struct {
 
 // TranscribeAudio implements service.AudioProvider.
 func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscribeRequest) (*service.AudioTranscribeResponse, error) {
-	url := p.apiURL("/audio/transcriptions")
+	endpoint := "/audio/transcriptions"
+	if req.Translate {
+		endpoint = "/audio/translations"
+	}
+	url := p.apiURL(endpoint)
 
 	// Whisper API requires multipart/form-data. For simplicity with base64 input,
 	// we first decode the base64 audio, then send as multipart.
@@ -441,7 +445,7 @@ func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscr
 	}
 
 	// Add optional fields.
-	if req.Language != "" {
+	if req.Language != "" && !req.Translate {
 		_ = writer.WriteField("language", req.Language)
 	}
 	if req.Prompt != "" {

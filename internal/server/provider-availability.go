@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -212,7 +213,11 @@ func parseRateLimitReset(v string) time.Duration {
 // noteProviderResponse folds a successful upstream response's headers into the
 // cooldown registry.
 func (s *Server) noteProviderResponse(providerKey string, h http.Header) {
-	if s.cooldown == nil || providerKey == "" {
+	if providerKey == "" {
+		return
+	}
+	s.breaker.Success(providerKey)
+	if s.cooldown == nil {
 		return
 	}
 
@@ -229,18 +234,30 @@ func (s *Server) noteProviderResponse(providerKey string, h http.Header) {
 	}
 }
 
+// noteProviderSuccess closes the provider's breaker on endpoints whose
+// responses carry no rate-limit headers to read (embeddings, decisions).
+func (s *Server) noteProviderSuccess(providerKey string) {
+	s.breaker.Success(providerKey)
+}
+
 // noteProviderError folds a failed upstream call into the cooldown registry. A
 // typed rate-limit error is the strongest signal available; anything else is
 // left alone, because a 500 says nothing about quota.
 func (s *Server) noteProviderError(providerKey string, err error) {
-	if s.cooldown == nil || providerKey == "" || err == nil {
+	if providerKey == "" || err == nil {
 		return
 	}
 
 	var rle *service.RateLimitError
 	if !errors.As(err, &rle) {
 		// A 500 or a timeout says nothing about quota, so it must not park the
-		// provider. Only an explicit rate-limit signal does.
+		// provider in cooldown. It is outage evidence for the breaker instead.
+		if isProviderOutage(err) {
+			s.breaker.Failure(providerKey, err)
+		}
+		return
+	}
+	if s.cooldown == nil {
 		return
 	}
 
@@ -263,14 +280,21 @@ func (s *Server) noteProviderError(providerKey string, err error) {
 // a provider that is actually healthy. Removal would convert bad cache state
 // into an outage, which is strictly worse than the status quo.
 func (s *Server) partitionCooledTargets(chain []chatCallTarget) []chatCallTarget {
-	if s.cooldown == nil || len(chain) < 2 {
+	if (s.cooldown == nil && s.breaker == nil) || len(chain) < 2 {
 		return chain
 	}
 
 	ready := make([]chatCallTarget, 0, len(chain))
 	cooled := make([]chatCallTarget, 0, len(chain))
 	for _, target := range chain {
-		if _, cooling := s.cooldown.CooledUntil(target.providerKey); cooling && target.err == nil {
+		if target.err == nil {
+			if _, cooling := s.cooldown.CooledUntil(target.providerKey); cooling {
+				target.deferred = "cooldown"
+			} else if _, open := s.breaker.OpenUntil(target.providerKey); open {
+				target.deferred = "circuit_open"
+			}
+		}
+		if target.deferred != "" {
 			cooled = append(cooled, target)
 
 			continue
@@ -282,4 +306,153 @@ func (s *Server) partitionCooledTargets(chain []chatCallTarget) []chatCallTarget
 	}
 
 	return append(ready, cooled...)
+}
+
+// ─── Circuit breaker ───
+//
+// Cooldown reacts only to rate-limit signals. A provider that is down — a run
+// of 5xx answers, timeouts or refused connections — kept being tried first on
+// every request, so each request paid for the failed attempt before falling
+// back. The breaker counts consecutive outage-class failures per provider and,
+// at the threshold, opens: the provider moves to the back of every chain, like
+// a cooled one, never removed. When the open window ends the next request is
+// the probe (half-open): a success closes the breaker, a failure reopens it
+// with a doubled window. State is in-memory and per replica for the same
+// reasons as cooldown.
+const (
+	providerBreakerThreshold = 5
+	providerBreakerOpenBase  = 30 * time.Second
+	providerBreakerOpenMax   = 5 * time.Minute
+
+	// providerBreakerDisabled is the in-code rollback switch.
+	providerBreakerDisabled = false
+)
+
+type providerBreakerState struct {
+	failures int
+	trips    int
+	openTill time.Time
+}
+
+type providerBreaker struct {
+	mu    sync.Mutex
+	state map[string]*providerBreakerState
+	now   func() time.Time
+}
+
+func newProviderBreaker() *providerBreaker {
+	return &providerBreaker{state: make(map[string]*providerBreakerState), now: time.Now}
+}
+
+// Failure records one outage-class failure.
+func (b *providerBreaker) Failure(providerKey string, err error) {
+	if providerBreakerDisabled || b == nil || providerKey == "" {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	st := b.state[providerKey]
+	if st == nil {
+		st = &providerBreakerState{}
+		b.state[providerKey] = st
+	}
+	now := b.now()
+
+	// A failure while open came from a request that was already in flight or
+	// had nothing else to try; it is not new evidence.
+	if st.openTill.After(now) {
+		return
+	}
+
+	// A failed probe after a trip reopens at once; otherwise count up.
+	st.failures++
+	if st.trips == 0 && st.failures < providerBreakerThreshold {
+		return
+	}
+
+	d := providerBreakerOpenBase << min(st.trips, 4)
+	if d > providerBreakerOpenMax {
+		d = providerBreakerOpenMax
+	}
+	st.trips++
+	st.failures = 0
+	st.openTill = now.Add(d)
+
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	slog.Warn("gateway: provider circuit open",
+		"provider", providerKey, "for", d, "trips", st.trips, "error", errMsg)
+}
+
+// Success closes the breaker and forgets the failure streak.
+func (b *providerBreaker) Success(providerKey string) {
+	if b == nil || providerKey == "" {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	st, ok := b.state[providerKey]
+	if !ok {
+		return
+	}
+	delete(b.state, providerKey)
+	if st.trips > 0 {
+		slog.Info("gateway: provider circuit closed", "provider", providerKey)
+	}
+}
+
+// OpenUntil reports whether the provider is currently deprioritized.
+func (b *providerBreaker) OpenUntil(providerKey string) (time.Time, bool) {
+	if providerBreakerDisabled || b == nil {
+		return time.Time{}, false
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	st, ok := b.state[providerKey]
+	if !ok || !st.openTill.After(b.now()) {
+		return time.Time{}, false
+	}
+
+	return st.openTill, true
+}
+
+// isProviderOutage reports whether an error says the provider itself is
+// unhealthy. Caller cancellation, request timeouts chosen by the client,
+// budgets, configuration and 4xx answers are not outage evidence: counting
+// them would let one client's behaviour park a provider for everybody.
+func isProviderOutage(err error) bool {
+	if err == nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, service.ErrUnsupportedOperation) ||
+		errors.Is(err, service.ErrProviderBudgetExceeded) ||
+		errors.Is(err, service.ErrProviderUserLimit) ||
+		errors.Is(err, service.ErrProviderUserBlocked) ||
+		errors.Is(err, service.ErrProviderPricingRequired) ||
+		errors.Is(err, service.ErrAccessDenied) {
+		return false
+	}
+	var disabled providerDisabledError
+	if errors.As(err, &disabled) {
+		return false
+	}
+
+	var upstreamErr *service.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		return upstreamErr.StatusCode >= 500 || upstreamErr.StatusCode == http.StatusRequestTimeout
+	}
+
+	// Untyped errors are transport failures (refused connection, reset, TLS)
+	// that classifyGatewayError renders as 502.
+	status, _ := classifyGatewayError(err)
+
+	return status >= 500
 }

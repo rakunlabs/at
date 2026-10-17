@@ -298,6 +298,14 @@ type Server struct {
 	// provider-availability.go.
 	cooldown *providerCooldown
 
+	// breaker parks providers after consecutive outage-class failures (5xx,
+	// timeouts, connection errors), complementing cooldown, which only reacts
+	// to rate-limit signals. In-memory and per replica, like cooldown.
+	breaker *providerBreaker
+
+	// routingRR holds the per-profile round-robin counters.
+	routingRR routingRoundRobin
+
 	// connectorStore is the persistent store for user-defined connector
 	// definitions (external-service connection TYPES). Built-in connectors are
 	// embedded JSON, merged with DB rows at read time (DB overrides by slug).
@@ -587,6 +595,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		connectionStore:           store,
 		routingProfileStore:       store,
 		cooldown:                  newProviderCooldown(),
+		breaker:                   newProviderBreaker(),
 		connectorStore:            store,
 		featureStore:              store,
 		agentRuntimeSettingsStore: store,
@@ -799,6 +808,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.POST("/v1/images/generations", s.Images)
 	gatewayGroup.POST("/v1/audio/speech", s.AudioSpeech)
 	gatewayGroup.POST("/v1/audio/transcriptions", s.AudioTranscriptions)
+	gatewayGroup.POST("/v1/audio/translations", s.AudioTranslations)
 	gatewayGroup.POST("/v1/moderations", s.Moderations)
 	gatewayGroup.POST("/v1/rerank", s.Rerank)
 	gatewayGroup.POST("/v1/decisions", s.Decisions)

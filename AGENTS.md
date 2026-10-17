@@ -243,6 +243,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | `POST /gateway/v1/images/generations` | OpenAI-shape image generation. Backed by `service.ImageProvider` (OpenAI, MiniMax). |
 | `POST /gateway/v1/audio/speech` | OpenAI TTS. Returns raw audio bytes. Backed by `service.AudioProvider`. |
 | `POST /gateway/v1/audio/transcriptions` | Whisper-style multipart upload (`file`, `model`, `language?`, `prompt?`, `response_format?`). |
+| `POST /gateway/v1/audio/translations` | Same multipart shape; English translation via the provider's `/audio/translations` (`AudioTranscribeRequest.Translate`). `language` is not forwarded. |
 | `POST /gateway/v1/moderations` | OpenAI omni-moderation shape. Backed by `service.ModerationProvider`. |
 | `POST /gateway/v1/rerank` | Cohere-shape rerank: `query`, `documents`, `top_n?`, `return_documents?`. Backed by `service.RerankProvider` (Cohere today). |
 | `POST /gateway/v1/decisions` | System 1 typed decisions: `{model, state, questions}` plus any `/v1/systemone` control (`max_len`, `lang`, `min_confidence`, …), forwarded unchanged. Backed by `service.DecisionProvider` (`systemone` providers). The upstream body is returned verbatim (`answers`, `usage`, `routing`). See *System 1 decision services* below. |
@@ -403,6 +404,25 @@ fixed model picker is the reason they exist). Managed at
 `/api/v1/routing-profiles` under the `providers.read`/`.write` capability —
 deliberately reusing it rather than introducing a kind no existing permission
 bundle would carry. Migration `55`; feature key `routing_profiles`.
+
+**Strategies** (migration 107, `strategy` + `weights` columns, default
+`priority` so existing profiles are unchanged) only *order* the resolved chain
+(`orderRoutingTargets`, `internal/server/routing-strategy.go`); the request
+still falls back through every remaining target, and cooled/circuit-open
+targets are moved back afterwards. `round_robin` rotates the first target with
+an in-memory per-profile counter (per replica). `weighted` samples the order
+without replacement by weight (missing = 1, 0 = fallback only, ≤1000, keys must
+be targets). `least_cost` sorts by configured input+output price per 1M
+(`modelPricingFor`); unpriced targets follow in listed order, because unknown is
+not free. `sticky` ranks by rendezvous hash of the request's session ID
+(`withRoutingAffinity`, same sources as trace sessions) or, without one, the
+API token, so one conversation keeps hitting the same provider prompt cache.
+Regression: `routing-strategy_test.go`, `TestRoutingProfileStrategyRoundTrip`.
+
+**`x-at-route-decision`** (all chat-shaped endpoints, CORS-exposed) explains the
+pick: `profile=…; strategy=…; served=…; attempt=N/M; order=…; deferred=<model>:cooldown|circuit_open`.
+Entries of `order` before `attempt` failed. It is set per streaming attempt
+before the first byte and on the final sync response.
 
 ### Personal tokens reach their owner's providers
 
@@ -596,6 +616,22 @@ for information that expires in seconds, and that each replica re-learns from it
 own next 429, is a permanent cost for a benefit that evaporates. Health reports
 `cooling` distinctly from `disabled`. `providerCooldownDisabled` is the in-code
 rollback switch.
+
+### Provider circuit breaker
+
+Cooldown ignores 5xx by design (a 500 says nothing about quota), so a provider
+that was *down* stayed first in every chain and each request paid a failed
+attempt. `providerBreaker` (`provider-availability.go`) counts consecutive
+outage-class failures (`isProviderOutage`: upstream 5xx/408 and untyped
+transport errors; never caller cancellation/deadline, budgets, 4xx, disabled or
+unsupported) fed by `noteProviderError`. At 5 it opens for 30s, doubling per
+trip up to 5m; failures while open are ignored, the first request after the
+window is the probe, a failed probe reopens immediately, and any success
+(`noteProviderResponse` / `noteProviderSuccess`) closes it and forgets the
+streak. `partitionCooledTargets` moves open targets back exactly like cooled
+ones (stable, never removed, fail-open). In-memory, per replica;
+`providerBreakerDisabled` is the rollback switch. Regression:
+`TestProviderBreaker`, `TestCircuitBreakerDefersFailingProviderAndReportsDecision`.
 
 ### Inbound shapes and the translation matrix
 

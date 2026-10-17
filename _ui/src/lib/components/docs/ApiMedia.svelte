@@ -70,6 +70,17 @@
 </section>
 
 <section class="space-y-3">
+  <div class="docs-prose"><h3>Translation</h3></div>
+  <DocsEndpoint method="POST" path="/gateway/v1/audio/translations" {baseUrl} />
+  <div class="docs-prose">
+    <p>
+      Same upload as transcription, answered with an English translation of the speech.
+      <code>language</code> is not accepted here and is ignored.
+    </p>
+  </div>
+</section>
+
+<section class="space-y-3">
   <div class="docs-prose"><h3>Moderation</h3></div>
   <DocsEndpoint method="POST" path="/gateway/v1/moderations" {baseUrl} />
   <DocsCodeBlock code={curlModerationExample(baseUrl)} lang="bash" label="curl" copyLabel="Copy moderation request" />

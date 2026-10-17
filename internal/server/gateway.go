@@ -162,7 +162,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Resolve the call chain: a routing profile, or primary + at_fallbacks.
-	chain, routingProfile := s.chatCallChain(r.Context(), auth, req.Model, req.AtFallbacks)
+	chain, routingProfile := s.chatCallChain(withRoutingAffinity(r.Context(), sessionID), auth, req.Model, req.AtFallbacks)
 	if routingProfile != "" {
 		respW.Header().Set("x-at-routing-profile", routingProfile)
 	}
@@ -268,6 +268,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 			if target.fullModel != req.Model {
 				w.Header().Set("x-at-model-used", target.fullModel)
 			}
+			setRouteDecision(w.Header(), routingProfile, chain, target.fullModel)
 
 			committed, err := s.handleStreamingChat(w, r.WithContext(callCtx), auth, target.info.provider, target.info.RetryAfterCap(),
 				target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts, audit)
@@ -356,6 +357,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if used.fullModel != req.Model {
 		respW.Header().Set("x-at-model-used", used.fullModel)
 	}
+	setRouteDecision(respW.Header(), routingProfile, chain, used.fullModel)
 
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	chatResp := wire.BuildOpenAIResponse(wire.GenerateChatID(), used.fullModel, resp)

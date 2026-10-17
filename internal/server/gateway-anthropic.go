@@ -48,7 +48,10 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 
 	// A bare Anthropic model name is what these clients send, so routing
 	// profiles are what make this endpoint usable without reconfiguring them.
-	chain, routingProfile := s.chatCallChain(r.Context(), auth, req.Model, req.AtFallbacks)
+	traceID, sessionID := auditTraceInfo(r, req.Metadata)
+	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
+
+	chain, routingProfile := s.chatCallChain(withRoutingAffinity(r.Context(), sessionID), auth, req.Model, req.AtFallbacks)
 	if routingProfile != "" {
 		w.Header().Set("x-at-routing-profile", routingProfile)
 	}
@@ -80,14 +83,13 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	traceID, sessionID := auditTraceInfo(r, req.Metadata)
-	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 	opts := wire.BuildAnthropicChatOptions(&req)
 
 	callCtx, cancel := withRequestTimeout(r.Context(), req.TimeoutMs)
 	defer cancel()
 
 	audit := anthropicAuditContext{
+		routingProfile: routingProfile,
 		traceID:        traceID,
 		sessionID:      sessionID,
 		requestBody:    rawBody,
@@ -106,6 +108,7 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 
 // anthropicAuditContext carries the per-request recording inputs.
 type anthropicAuditContext struct {
+	routingProfile string
 	traceID        string
 	sessionID      string
 	requestBody    []byte
@@ -204,6 +207,7 @@ func (s *Server) handleAnthropicSync(
 	if used.fullModel != req.Model {
 		w.Header().Set("x-at-model-used", used.fullModel)
 	}
+	setRouteDecision(w.Header(), audit.routingProfile, chain, used.fullModel)
 
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	body := wire.BuildAnthropicResponse(wire.AnthropicMessageID(), used.actualModel, resp, req.StopSequences)

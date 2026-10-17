@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/rakunlabs/query"
@@ -23,10 +24,16 @@ type RoutingProfile struct {
 	Name        string              `json:"name"`
 	Description string              `json:"description,omitempty"`
 	Targets     types.Slice[string] `json:"targets"` // ordered "provider/model" entries
-	CreatedAt   string              `json:"created_at"`
-	UpdatedAt   string              `json:"updated_at"`
-	CreatedBy   string              `json:"created_by,omitempty"`
-	UpdatedBy   string              `json:"updated_by,omitempty"`
+	// Strategy decides the order targets are attempted in for each request;
+	// every strategy still falls back through the remaining targets.
+	Strategy string `json:"strategy"`
+	// Weights are per-target weights for the weighted strategy (default 1;
+	// 0 makes a target fallback-only). Keys must be listed in Targets.
+	Weights   types.Map[int] `json:"weights,omitempty"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
+	CreatedBy string         `json:"created_by,omitempty"`
+	UpdatedBy string         `json:"updated_by,omitempty"`
 }
 
 // RoutingProfileStorer defines CRUD operations for routing profiles.
@@ -56,6 +63,37 @@ var routingProfileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 // RoutingProfileMaxTargets bounds a chain so one profile cannot turn a single
 // request into an unbounded sequence of upstream attempts.
 const RoutingProfileMaxTargets = 16
+
+// Routing strategies. Each one only orders the chain: the request still falls
+// back through every remaining target, and cooled or circuit-open targets are
+// still moved to the back afterwards.
+const (
+	// RoutingStrategyPriority tries targets in their configured order.
+	RoutingStrategyPriority = "priority"
+	// RoutingStrategyRoundRobin rotates the first target per request.
+	RoutingStrategyRoundRobin = "round_robin"
+	// RoutingStrategyWeighted samples the order by Weights (uniform without).
+	RoutingStrategyWeighted = "weighted"
+	// RoutingStrategyLeastCost orders by configured model price; unpriced
+	// targets keep their relative order after the priced ones.
+	RoutingStrategyLeastCost = "least_cost"
+	// RoutingStrategySticky keeps one session (or one API token when the
+	// request names no session) on the same target, so provider prompt caches
+	// stay warm. Rendezvous hashing moves few sessions when targets change.
+	RoutingStrategySticky = "sticky"
+)
+
+// RoutingStrategies lists the accepted strategy values.
+var RoutingStrategies = []string{
+	RoutingStrategyPriority,
+	RoutingStrategyRoundRobin,
+	RoutingStrategyWeighted,
+	RoutingStrategyLeastCost,
+	RoutingStrategySticky,
+}
+
+// RoutingProfileMaxWeight bounds a single target weight.
+const RoutingProfileMaxWeight = 1000
 
 // ValidateRoutingProfile checks the name and target list. It does not check that
 // the referenced providers exist: providers are configured independently and a
@@ -97,6 +135,18 @@ func ValidateRoutingProfile(p RoutingProfile) error {
 		seen[t] = struct{}{}
 	}
 
+	if !slices.Contains(RoutingStrategies, p.Strategy) {
+		return fmt.Errorf("strategy %q is not supported (use one of %s)", p.Strategy, strings.Join(RoutingStrategies, ", "))
+	}
+	for target, weight := range p.Weights {
+		if _, ok := seen[target]; !ok {
+			return fmt.Errorf("weight for %q does not match any target", target)
+		}
+		if weight < 0 || weight > RoutingProfileMaxWeight {
+			return fmt.Errorf("weight for %q must be between 0 and %d", target, RoutingProfileMaxWeight)
+		}
+	}
+
 	return nil
 }
 
@@ -113,6 +163,18 @@ func NormalizeRoutingProfile(p RoutingProfile) RoutingProfile {
 		}
 	}
 	p.Targets = targets
+
+	p.Strategy = strings.TrimSpace(p.Strategy)
+	if p.Strategy == "" {
+		p.Strategy = RoutingStrategyPriority
+	}
+	if len(p.Weights) > 0 {
+		weights := make(types.Map[int], len(p.Weights))
+		for target, weight := range p.Weights {
+			weights[strings.TrimSpace(target)] = weight
+		}
+		p.Weights = weights
+	}
 
 	return p
 }

@@ -281,6 +281,8 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.noteProviderSuccess(providerKey)
+
 	var data []embeddingDatum
 	if req.EncodingFormat == "base64" {
 		encoded := resp.Base64Embeddings

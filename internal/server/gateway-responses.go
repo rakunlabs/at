@@ -224,7 +224,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 
 	// A bare model name may be a routing profile. Expansion happens before
 	// validation so the rest of this handler sees a concrete provider/model.
-	routingProfile, effectiveModel, effectiveFallbacks, profileUsable := s.expandRoutingProfileTargets(r.Context(), auth, req.Model, req.AtFallbacks)
+	routingProfile, routingStrategy, effectiveModel, effectiveFallbacks, profileUsable := s.expandRoutingProfileTargets(withRoutingAffinity(r.Context(), sessionID), auth, req.Model, req.AtFallbacks)
 	if routingProfile != "" {
 		w.Header().Set("x-at-routing-profile", routingProfile)
 	}
@@ -320,6 +320,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		providerKey: providerKey,
 		actualModel: actualModel,
 		info:        info,
+		strategy:    routingStrategy,
 	}}
 	for _, m := range effectiveFallbacks {
 		pKey, actual, fInfo, ferr := s.resolveModel(r.Context(), auth, m)
@@ -328,7 +329,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		chain = append(chain, chatCallTarget{
-			fullModel: m, providerKey: pKey, actualModel: actual, info: fInfo,
+			fullModel: m, providerKey: pKey, actualModel: actual, info: fInfo, strategy: routingStrategy,
 		})
 	}
 	var inputErr error
@@ -348,6 +349,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		var streamErr error
 		for i, target := range chain {
 			sMessages, _ := s.buildProviderMessages(target.info.providerType, chatMsgs, nil)
+			setRouteDecision(w.Header(), routingProfile, chain, target.fullModel)
 
 			committed, err := s.handleStreamingResponses(w, r.WithContext(callCtx), auth, target.info,
 				target.providerKey, target.actualModel, req.Model, req.Metadata, req.ParallelToolCalls,
@@ -397,6 +399,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		lastErr = err
+		s.noteProviderError(target.providerKey, err)
 		slog.Warn("responses provider call failed",
 			"attempt", i, "provider", target.providerKey, "model", target.actualModel, "error", err)
 		s.recordUsageAsync(r.Context(), auth, target.fullModel, service.Usage{}, totalLatency, "error", classifyHTTPError(err), err.Error())
@@ -419,9 +422,11 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.noteProviderResponse(used.providerKey, resp.Header)
 	if used.fullModel != req.Model {
 		w.Header().Set("x-at-model-used", used.fullModel)
 	}
+	setRouteDecision(w.Header(), routingProfile, chain, used.fullModel)
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	out := buildResponsesResponse(used.fullModel, req.Metadata, req.ParallelToolCalls, resp)
 	s.recordUsageAsync(r.Context(), auth, used.fullModel, resp.Usage, totalLatency, "ok", "", "")
@@ -561,7 +566,7 @@ func (s *Server) handleStreamingResponses(
 	}
 
 	if sp, ok := info.provider.(service.LLMStreamProvider); ok {
-		chunks, _, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
+		chunks, streamHeaders, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
 			s.noteProviderError(providerKey, err)
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, time.Since(callStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
@@ -569,6 +574,7 @@ func (s *Server) handleStreamingResponses(
 			// Nothing emitted yet: the caller may advance the fallback chain.
 			return false, err
 		}
+		s.noteProviderResponse(providerKey, streamHeaders)
 		for chunk := range chunks {
 			if chunk.Error != nil {
 				emit("response.failed", map[string]any{
@@ -636,6 +642,7 @@ func (s *Server) handleStreamingResponses(
 			// Uncommitted for the same reason as the true-streaming open.
 			return false, err
 		}
+		s.noteProviderResponse(providerKey, resp.Header)
 		if resp.ReasoningContent != "" {
 			reasoningText.WriteString(resp.ReasoningContent)
 		}

@@ -94,6 +94,7 @@ func (s *Server) Decisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.noteProviderSuccess(providerKey)
 	out := resp.Raw
 	if out == nil {
 		out = map[string]any{"answers": resp.Answers}

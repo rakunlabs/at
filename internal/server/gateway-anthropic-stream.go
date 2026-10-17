@@ -63,6 +63,7 @@ func (s *Server) handleAnthropicStream(
 		if target.fullModel != req.Model {
 			w.Header().Set("x-at-model-used", target.fullModel)
 		}
+		setRouteDecision(w.Header(), audit.routingProfile, chain, target.fullModel)
 
 		streamStart := time.Now()
 		type opened struct {

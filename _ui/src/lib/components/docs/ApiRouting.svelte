@@ -49,12 +49,23 @@
     <li>A profile grants routing, never access: each target still passes the token’s model restrictions, and targets it may not use are skipped.</li>
     <li>The profile that served the request is reported in <code>x-at-routing-profile</code>.</li>
   </ul>
+  <p>A profile’s <strong>strategy</strong> decides which target is tried first. The rest stay in the chain as fallbacks.</p>
+  <ul>
+    <li><code>priority</code>: the listed order (the default).</li>
+    <li><code>round_robin</code>: rotates the first target on each request.</li>
+    <li><code>weighted</code>: picks the order at random by weight. A weight of 0 makes a target fallback-only.</li>
+    <li><code>least_cost</code>: cheapest priced model first. Models without a price follow in listed order.</li>
+    <li><code>sticky</code>: keeps one session (<code>x-at-session-id</code>, <code>x-claude-code-session-id</code>, …) or, without one, one API token on the same target, so the provider’s prompt cache stays warm.</li>
+  </ul>
 
-  <h3>3. Provider cooldown</h3>
+  <h3>3. Provider cooldown and circuit breaker</h3>
   <p>
     When a provider reports an empty rate-limit bucket (via <code>Retry-After</code> or the
     Anthropic/OpenAI rate-limit headers), AT moves it to the back of every chain until the reset
-    time. It is never removed: a chain whose targets are all cooling is still attempted.
+    time. After five consecutive outage errors (5xx, upstream timeouts, refused connections) its
+    circuit opens and it is moved back for 30 seconds, doubling up to 5 minutes while it keeps
+    failing. The first request after that window is the probe, and one success closes the circuit.
+    A provider is never removed: a chain whose targets are all cooling or open is still attempted.
   </p>
 
   <h3>Streaming</h3>
@@ -68,6 +79,9 @@
 <DocsCallout>
   <p>
     <code>x-at-model-used</code> always names the model that actually answered, so a client can
-    tell whether a fallback happened.
+    tell whether a fallback happened. <code>x-at-route-decision</code> explains the choice, for example
+    <code>profile=stack; strategy=weighted; served=b/m; attempt=2/3; order=a/m,b/m,c/m; deferred=c/m:circuit_open</code>.
+    The entries of <code>order</code> before <code>attempt</code> failed. <code>deferred</code> lists targets
+    moved back because of a <code>cooldown</code> or an open circuit (<code>circuit_open</code>).
   </p>
 </DocsCallout>

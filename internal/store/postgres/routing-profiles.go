@@ -22,6 +22,8 @@ type routingProfileRow struct {
 	Name        string              `db:"name"`
 	Description string              `db:"description"`
 	Targets     types.Slice[string] `db:"targets"`
+	Strategy    string              `db:"strategy"`
+	Weights     types.Map[int]      `db:"weights"`
 	CreatedAt   time.Time           `db:"created_at"`
 	UpdatedAt   time.Time           `db:"updated_at"`
 	CreatedBy   string              `db:"created_by"`
@@ -29,7 +31,7 @@ type routingProfileRow struct {
 }
 
 var routingProfileColumns = []interface{}{
-	"id", "name", "description", "targets",
+	"id", "name", "description", "targets", "strategy", "weights",
 	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 }
 
@@ -37,7 +39,7 @@ func scanRoutingProfileRow(scanner interface {
 	Scan(dest ...interface{}) error
 }, row *routingProfileRow) error {
 	return scanner.Scan(
-		&row.ID, &row.Name, &row.Description, &row.Targets,
+		&row.ID, &row.Name, &row.Description, &row.Targets, &row.Strategy, &row.Weights,
 		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 		&row.WorkspaceID,
 	)
@@ -57,11 +59,22 @@ func routingProfileRowToRecord(row routingProfileRow) *service.RoutingProfile {
 		Name:        row.Name,
 		Description: row.Description,
 		Targets:     targets,
+		Strategy:    row.Strategy,
+		Weights:     row.Weights,
 		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
 		CreatedBy:   row.CreatedBy,
 		UpdatedBy:   row.UpdatedBy,
 	}
+}
+
+// routingProfileWeights stores an absent map as '{}' to satisfy NOT NULL.
+func routingProfileWeights(w types.Map[int]) types.Map[int] {
+	if w == nil {
+		return types.Map[int]{}
+	}
+
+	return w
 }
 
 func (p *Postgres) ListRoutingProfiles(ctx context.Context, q *query.Query) (*service.ListResult[service.RoutingProfile], error) {
@@ -224,6 +237,8 @@ func (p *Postgres) CreateRoutingProfile(ctx context.Context, profile service.Rou
 			"name":         profile.Name,
 			"description":  profile.Description,
 			"targets":      profile.Targets,
+			"strategy":     profile.Strategy,
+			"weights":      routingProfileWeights(profile.Weights),
 			"created_at":   now,
 			"updated_at":   now,
 			"created_by":   profile.CreatedBy,
@@ -272,6 +287,8 @@ func (p *Postgres) UpdateRoutingProfile(ctx context.Context, id string, profile 
 			"name":        profile.Name,
 			"description": profile.Description,
 			"targets":     profile.Targets,
+			"strategy":    profile.Strategy,
+			"weights":     routingProfileWeights(profile.Weights),
 			"updated_at":  now,
 			"updated_by":  profile.UpdatedBy,
 		},

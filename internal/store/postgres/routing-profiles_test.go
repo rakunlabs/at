@@ -156,3 +156,46 @@ func TestRoutingProfileGatewayLookupIsWorkspaceScoped(t *testing.T) {
 		t.Fatalf("gateway list leaked across workspaces: %+v %v", empty, err)
 	}
 }
+
+func TestRoutingProfileStrategyRoundTrip(t *testing.T) {
+	p, ctx, _, _ := workspaceFixture(t)
+
+	created, err := p.CreateRoutingProfile(ctx, service.RoutingProfile{
+		Name:    "legacy",
+		Targets: types.Slice[string]{"openai/gpt-4.1"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.Strategy != service.RoutingStrategyPriority {
+		t.Fatalf("an omitted strategy must default to priority, got %q", created.Strategy)
+	}
+
+	updated, err := p.UpdateRoutingProfile(ctx, created.ID, service.RoutingProfile{
+		Name:     "legacy",
+		Targets:  types.Slice[string]{"openai/gpt-4.1", "anthropic/claude"},
+		Strategy: service.RoutingStrategyWeighted,
+		Weights:  types.Map[int]{"openai/gpt-4.1": 3, "anthropic/claude": 0},
+	})
+	if err != nil || updated == nil {
+		t.Fatalf("update: %v %+v", err, updated)
+	}
+	if updated.Strategy != service.RoutingStrategyWeighted || updated.Weights["openai/gpt-4.1"] != 3 {
+		t.Fatalf("strategy/weights not persisted: %+v", updated)
+	}
+	if w, ok := updated.Weights["anthropic/claude"]; !ok || w != 0 {
+		t.Fatalf("an explicit zero weight must survive: %+v", updated.Weights)
+	}
+
+	if _, err := p.UpdateRoutingProfile(ctx, created.ID, service.RoutingProfile{
+		Name: "legacy", Targets: types.Slice[string]{"openai/gpt-4.1"}, Strategy: "fastest",
+	}); err == nil {
+		t.Fatal("an unknown strategy must be rejected")
+	}
+	if _, err := p.UpdateRoutingProfile(ctx, created.ID, service.RoutingProfile{
+		Name: "legacy", Targets: types.Slice[string]{"openai/gpt-4.1"},
+		Strategy: service.RoutingStrategyWeighted, Weights: types.Map[int]{"other/model": 1},
+	}); err == nil {
+		t.Fatal("a weight for a model outside the targets must be rejected")
+	}
+}

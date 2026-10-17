@@ -182,6 +182,45 @@ func TestTranscribeAudio(t *testing.T) {
 	}
 }
 
+func TestTranslateAudioUsesTranslationsEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/audio/translations" {
+			t.Errorf("path = %q, want /v1/audio/translations", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		// OpenAI rejects a language on translations; it is never sent.
+		if _, ok := r.MultipartForm.Value["language"]; ok {
+			t.Error("language must not be sent to /audio/translations")
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"hello"}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL+"/v1/chat/completions", "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := provider.TranscribeAudio(context.Background(), service.AudioTranscribeRequest{
+		AudioBase64: base64.StdEncoding.EncodeToString([]byte("fake wav")),
+		ContentType: "audio/wav",
+		Model:       "whisper-1",
+		Language:    "tr",
+		Translate:   true,
+	})
+	if err != nil {
+		t.Fatalf("TranscribeAudio: %v", err)
+	}
+	if resp.Text != "hello" {
+		t.Fatalf("response = %#v", resp)
+	}
+}
+
 func TestTranscribeAudioRateLimit(t *testing.T) {
 	t.Parallel()
 

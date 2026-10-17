@@ -31,6 +31,7 @@
         { method: 'POST', path: '/gateway/v1/images/generations', summary: 'Generate images.', section: 'media' },
         { method: 'POST', path: '/gateway/v1/audio/speech', summary: 'Text to speech; returns raw audio bytes.', section: 'media' },
         { method: 'POST', path: '/gateway/v1/audio/transcriptions', summary: 'Speech to text (multipart upload).', section: 'media' },
+        { method: 'POST', path: '/gateway/v1/audio/translations', summary: 'Speech to English text (multipart upload).', section: 'media' },
         { method: 'POST', path: '/gateway/v1/moderations', summary: 'Classify text against a moderation model.', section: 'media' },
         { method: 'POST', path: '/gateway/v1/rerank', summary: 'Order documents by relevance to a query.', section: 'media' },
         { method: 'GET', path: '/gateway/v1/media/{id}', summary: 'Download media this token generated.', section: 'media' },

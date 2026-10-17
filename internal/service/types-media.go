@@ -115,6 +115,9 @@ type AudioTranscribeRequest struct {
 	Language       string `json:"language,omitempty"`        // ISO-639-1 code
 	Prompt         string `json:"prompt,omitempty"`          // optional context prompt
 	ResponseFormat string `json:"response_format,omitempty"` // "json", "text", "srt", "verbose_json", "vtt"
+	// Translate asks for an English translation instead of a same-language
+	// transcript (OpenAI /audio/translations). Language is not sent then.
+	Translate bool `json:"translate,omitempty"`
 }
 
 // AudioTranscribeResponse is the result of a transcription.

@@ -203,6 +203,17 @@ func (s *Server) AudioSpeech(w http.ResponseWriter, r *http.Request) {
 // Accepts multipart/form-data with fields: file, model, language?, prompt?,
 // response_format? (json / verbose_json / text / srt / vtt — default verbose_json).
 func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
+	s.serveAudioSpeechToText(w, r, false)
+}
+
+// AudioTranslations handles POST /gateway/v1/audio/translations: the same
+// multipart shape as transcriptions, answered with an English translation.
+// OpenAI accepts no language field here; one sent is ignored.
+func (s *Server) AudioTranslations(w http.ResponseWriter, r *http.Request) {
+	s.serveAudioSpeechToText(w, r, true)
+}
+
+func (s *Server) serveAudioSpeechToText(w http.ResponseWriter, r *http.Request, translate bool) {
 	auth, authErr := s.authenticateRequest(r)
 	if authErr != "" {
 		httpResponseJSON(w, map[string]any{
@@ -317,10 +328,12 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 		Language:       r.FormValue("language"),
 		Prompt:         r.FormValue("prompt"),
 		ResponseFormat: respFormat,
+		Translate:      translate,
 	})
 	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
-		slog.Error("transcription failed", "provider", providerKey, "error", err)
+		s.noteProviderError(providerKey, err)
+		slog.Error("speech-to-text failed", "provider", providerKey, "translate", translate, "error", err)
 		s.recordUsageAsync(r.Context(), auth, model, service.Usage{}, latencyMs, "error", classifyHTTPError(err), err.Error())
 		status, body := classifyGatewayError(err)
 		addGatewayRateLimitHeaders(w, err)
@@ -328,6 +341,7 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.noteProviderSuccess(providerKey)
 	s.recordUsageAsync(r.Context(), auth, model, service.Usage{}, latencyMs, "ok", "", "")
 
 	// Match OpenAI's response shape based on response_format.
