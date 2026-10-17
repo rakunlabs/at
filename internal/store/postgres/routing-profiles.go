@@ -17,6 +17,7 @@ import (
 // ─── Routing profiles ───
 
 type routingProfileRow struct {
+	OwnerUserID string              `db:"owner_user_id"`
 	WorkspaceID string              `db:"workspace_id"`
 	ID          string              `db:"id"`
 	Name        string              `db:"name"`
@@ -32,7 +33,7 @@ type routingProfileRow struct {
 
 var routingProfileColumns = []interface{}{
 	"id", "name", "description", "targets", "strategy", "weights",
-	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
+	"created_at", "updated_at", "created_by", "updated_by", "workspace_id", "owner_user_id",
 }
 
 func scanRoutingProfileRow(scanner interface {
@@ -41,7 +42,7 @@ func scanRoutingProfileRow(scanner interface {
 	return scanner.Scan(
 		&row.ID, &row.Name, &row.Description, &row.Targets, &row.Strategy, &row.Weights,
 		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
-		&row.WorkspaceID,
+		&row.WorkspaceID, &row.OwnerUserID,
 	)
 }
 
@@ -54,6 +55,8 @@ func routingProfileRowToRecord(row routingProfileRow) *service.RoutingProfile {
 	}
 
 	return &service.RoutingProfile{
+		OwnerUserID: row.OwnerUserID,
+		Scope:       routingProfileScope(row.OwnerUserID),
 		WorkspaceID: row.WorkspaceID,
 		ID:          row.ID,
 		Name:        row.Name,
@@ -151,14 +154,14 @@ func (p *Postgres) getRoutingProfileWhere(ctx context.Context, cond goqu.Express
 // The workspace comes from the presented token's persisted binding rather than
 // from a session principal, so the scope predicate is written explicitly here.
 // An empty workspace matches nothing: there is no public profile.
-func (p *Postgres) GetGatewayRoutingProfile(ctx context.Context, name, workspaceID string) (*service.RoutingProfile, error) {
+func (p *Postgres) GetGatewayRoutingProfile(ctx context.Context, name, workspaceID string, owner ...string) (*service.RoutingProfile, error) {
 	if name == "" || workspaceID == "" {
 		return nil, nil
 	}
 
 	sqlStr, _, err := p.goqu.From(p.tableRoutingProfiles).
 		Select(routingProfileColumns...).
-		Where(goqu.I("workspace_id").Eq(workspaceID), goqu.I("name").Eq(name)).
+		Where(goqu.I("workspace_id").Eq(workspaceID), goqu.I("name").Eq(name), routingProfileOwnerPredicate(owner...)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build gateway routing profile query: %w", err)
@@ -178,14 +181,14 @@ func (p *Postgres) GetGatewayRoutingProfile(ctx context.Context, name, workspace
 
 // ListGatewayRoutingProfiles backs the profile entries advertised by
 // /gateway/v1/models. Same scoping rationale as GetGatewayRoutingProfile.
-func (p *Postgres) ListGatewayRoutingProfiles(ctx context.Context, workspaceID string) ([]service.RoutingProfile, error) {
+func (p *Postgres) ListGatewayRoutingProfiles(ctx context.Context, workspaceID string, owner ...string) ([]service.RoutingProfile, error) {
 	if workspaceID == "" {
 		return nil, nil
 	}
 
 	sqlStr, _, err := p.goqu.From(p.tableRoutingProfiles).
 		Select(routingProfileColumns...).
-		Where(goqu.I("workspace_id").Eq(workspaceID)).
+		Where(goqu.I("workspace_id").Eq(workspaceID), routingProfileOwnerPredicate(owner...)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -212,11 +215,24 @@ func (p *Postgres) ListGatewayRoutingProfiles(ctx context.Context, workspaceID s
 }
 
 func (p *Postgres) CreateRoutingProfile(ctx context.Context, profile service.RoutingProfile) (*service.RoutingProfile, error) {
-	w, err := p.beginBusinessWrite(ctx, p.tableRoutingProfiles, "providers.write", "")
+	cap := "providers.write"
+	if profile.Scope == "personal" {
+		cap = "personal_providers.manage"
+	} else if profile.Scope != "" && profile.Scope != "workspace" {
+		return nil, fmt.Errorf("scope must be personal or workspace")
+	}
+	w, err := p.beginBusinessWrite(ctx, p.tableRoutingProfiles, cap, "")
 	if err != nil {
 		return nil, err
 	}
 	defer w.tx.Rollback()
+	profile.OwnerUserID = ""
+	if profile.Scope == "personal" {
+		if w.actor.UserID == "" {
+			return nil, service.ErrAccessDenied
+		}
+		profile.OwnerUserID = w.actor.UserID
+	}
 
 	if profile.WorkspaceID != "" && profile.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
@@ -232,17 +248,18 @@ func (p *Postgres) CreateRoutingProfile(ctx context.Context, profile service.Rou
 
 	sqlStr, _, err := w.tx.Insert(p.tableRoutingProfiles).Rows(
 		goqu.Record{
-			"workspace_id": w.actor.WorkspaceID,
-			"id":           id,
-			"name":         profile.Name,
-			"description":  profile.Description,
-			"targets":      profile.Targets,
-			"strategy":     profile.Strategy,
-			"weights":      routingProfileWeights(profile.Weights),
-			"created_at":   now,
-			"updated_at":   now,
-			"created_by":   profile.CreatedBy,
-			"updated_by":   profile.UpdatedBy,
+			"owner_user_id": profile.OwnerUserID,
+			"workspace_id":  w.actor.WorkspaceID,
+			"id":            id,
+			"name":          profile.Name,
+			"description":   profile.Description,
+			"targets":       profile.Targets,
+			"strategy":      profile.Strategy,
+			"weights":       routingProfileWeights(profile.Weights),
+			"created_at":    now,
+			"updated_at":    now,
+			"created_by":    profile.CreatedBy,
+			"updated_by":    profile.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {

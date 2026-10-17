@@ -132,6 +132,14 @@ func (p *Postgres) businessReadScope(ctx context.Context, table interface{}) (ex
 	if err != nil {
 		return nil, err
 	}
+	if table == p.tableRoutingProfiles && a.Allows("personal_providers.manage", service.AccessResource{WorkspaceID: a.WorkspaceID}) {
+		own := goqu.And(goqu.C("workspace_id").Eq(a.WorkspaceID), goqu.C("owner_user_id").Eq(a.UserID))
+		shared, err := businessPredicate(a, "providers.read", "id")
+		if err != nil {
+			return own, nil
+		}
+		return goqu.Or(own, goqu.And(shared, goqu.C("owner_user_id").Eq(""))), nil
+	}
 	cap, id, scoped := p.businessTablePolicy(table)
 	if cap == "" {
 		return nil, service.ErrAccessDenied
@@ -151,6 +159,9 @@ func (p *Postgres) businessReadScope(ctx context.Context, table interface{}) (ex
 	}
 	if table == p.tableConnections {
 		predicate = goqu.And(predicate, connectionOwnershipPredicate(a))
+	}
+	if table == p.tableRoutingProfiles {
+		predicate = goqu.And(predicate, routingProfileOwnerPredicate(a.UserID))
 	}
 	return predicate, nil
 }
@@ -191,11 +202,20 @@ func (p *Postgres) beginBusinessWrite(ctx context.Context, table interface{}, ca
 		tx.Rollback()
 		return nil, err
 	}
-	if !a.Allows(capability, service.AccessResource{WorkspaceID: a.WorkspaceID, ID: id}) {
+	personalProfileWrite := table == p.tableRoutingProfiles && id != "" && a.Allows("personal_providers.manage", service.AccessResource{WorkspaceID: a.WorkspaceID})
+	if !personalProfileWrite && !a.Allows(capability, service.AccessResource{WorkspaceID: a.WorkspaceID, ID: id}) {
 		tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	predicate := exp.Expression(goqu.C("workspace_id").Eq(a.WorkspaceID))
+	if table == p.tableRoutingProfiles && id != "" {
+		predicate = ownedResourceWritePredicate(a, "providers.write")
+		if a.Allows("providers.write", service.AccessResource{WorkspaceID: a.WorkspaceID, ID: id}) {
+			predicate = goqu.C("workspace_id").Eq(a.WorkspaceID)
+		}
+		// Unlike platform recovery access, personal profiles are always private.
+		predicate = goqu.And(predicate, routingProfileOwnerPredicate(a.UserID))
+	}
 	if table == p.tableAPITokens {
 		predicate = goqu.And(predicate, tokenOwnershipPredicate(a))
 		if id != "" {

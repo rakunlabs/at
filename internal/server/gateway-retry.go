@@ -175,6 +175,10 @@ func callWithGatewayRetry[T any](
 //
 // Returns (httpStatus, errorBody).
 func classifyGatewayError(err error) (int, map[string]any) {
+	var quota *service.ProviderQuotaError
+	if errors.As(err, &quota) {
+		return http.StatusTooManyRequests, map[string]any{"error": map[string]any{"message": quota.Error(), "type": "rate_limit_error", "code": "provider_quota_exceeded", "reset_at": quota.ResetAt}}
+	}
 	if errors.Is(err, service.ErrProviderUserBlocked) {
 		return http.StatusForbidden, map[string]any{"error": map[string]any{"message": err.Error(), "type": "permission_error", "code": "provider_user_blocked"}}
 	}
@@ -274,6 +278,11 @@ func classifyGatewayError(err error) (int, map[string]any) {
 // header on a response so HTTP clients that follow it can honour the
 // upstream's pacing without parsing the JSON body.
 func addGatewayRateLimitHeaders(w http.ResponseWriter, err error) {
+	var quota *service.ProviderQuotaError
+	if errors.As(err, &quota) {
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", max(1, int64(time.Until(quota.ResetAt).Seconds())+1)))
+		return
+	}
 	var rle *service.RateLimitError
 	if !errors.As(err, &rle) {
 		return

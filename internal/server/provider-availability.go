@@ -429,6 +429,9 @@ func (b *providerBreaker) OpenUntil(providerKey string) (time.Time, bool) {
 // budgets, configuration and 4xx answers are not outage evidence: counting
 // them would let one client's behaviour park a provider for everybody.
 func isProviderOutage(err error) bool {
+	if errors.Is(err, service.ErrProviderQuotaExceeded) {
+		return false
+	}
 	if err == nil ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) ||

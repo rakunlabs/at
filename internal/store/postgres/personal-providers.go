@@ -105,6 +105,9 @@ func (p *Postgres) GetPersonalProvider(ctx context.Context, id string) (*service
 }
 
 func (p *Postgres) CreatePersonalProvider(ctx context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	if err := record.Config.Quota.Validate(); err != nil {
+		return nil, err
+	}
 	scope := record.Scope
 	if scope == "" {
 		scope = service.ProviderScopePersonal
@@ -119,6 +122,9 @@ func (p *Postgres) CreatePersonalProvider(ctx context.Context, record service.Pr
 	defer tx.Rollback()
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
+		return nil, err
+	}
+	if err := p.checkPersonalProviderPolicy(ctx, tx, a.WorkspaceID, record.Config); err != nil {
 		return nil, err
 	}
 	if scope == service.ProviderScopeWorkspace && !a.Allows("providers.write", service.AccessResource{WorkspaceID: a.WorkspaceID}) {
@@ -157,6 +163,9 @@ func (p *Postgres) CreatePersonalProvider(ctx context.Context, record service.Pr
 }
 
 func (p *Postgres) UpdatePersonalProvider(ctx context.Context, id string, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	if err := record.Config.Quota.Validate(); err != nil {
+		return nil, err
+	}
 	tx, err := p.goqu.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin personal provider update: %w", err)
@@ -176,6 +185,9 @@ func (p *Postgres) UpdatePersonalProvider(ctx context.Context, id string, record
 	}
 	if owner != a.UserID {
 		return nil, service.ErrAccessResourceNotFound
+	}
+	if err := p.checkPersonalProviderPolicy(ctx, tx, a.WorkspaceID, record.Config); err != nil {
+		return nil, err
 	}
 	p.encKeyMu.RLock()
 	storeCfg, err := crypto.EncryptLLMConfig(record.Config, p.encKey)

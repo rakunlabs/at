@@ -49,6 +49,8 @@ export interface ModelCapabilityConfig {
 }
 
 export interface LLMConfig {
+  quota?: ProviderQuotaConfig;
+  free_tier?: string;
   type: string;
   shared_with_all_workspaces?: boolean;
   // Availability, managed only through setProviderDisabled: a disabled provider
@@ -82,6 +84,16 @@ export interface LLMConfig {
   proxy?: string;
   insecure_skip_verify?: boolean;
   rate_limit?: RateLimitConfig;
+}
+
+export interface QuotaLimits {
+  requests_per_day?: number;
+  tokens_per_day?: number;
+  requests_per_month?: number;
+  tokens_per_month?: number;
+}
+export interface ProviderQuotaConfig extends QuotaLimits {
+  models?: Record<string, QuotaLimits>;
 }
 
 export interface ProviderRecord {

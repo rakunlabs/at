@@ -395,6 +395,9 @@ func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.Provid
 }
 
 func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	if err := record.Config.Quota.Validate(); err != nil {
+		return nil, err
+	}
 	w, err := p.beginBusinessWrite(ctx, p.tableProviders, "providers.write", "")
 	if err != nil {
 		return nil, err
@@ -468,6 +471,9 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 }
 
 func (p *Postgres) UpdateProvider(ctx context.Context, key string, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	if err := record.Config.Quota.Validate(); err != nil {
+		return nil, err
+	}
 	w, err := p.beginBusinessNamedWrite(ctx, p.tableProviders, "key", key, "providers.write")
 	if err != nil {
 		return nil, err

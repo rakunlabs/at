@@ -18,6 +18,10 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 	if err != nil {
 		return nil, err
 	}
+	personalPolicy, err := p.providerUsePolicy(ctx, p.goqu, a.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
 	var grants []workspaceProviderGrantRow
 	if err := p.goqu.From(p.workspaceTable("workspace_provider_grants")).Where(goqu.Ex{"workspace_id": a.WorkspaceID}).ScanStructsContext(ctx, &grants); err != nil {
 		return nil, fmt.Errorf("load provider catalog grants: %w", err)
@@ -66,7 +70,7 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		if err := json.Unmarshal(row.Config, &cfg); err != nil {
 			return nil, fmt.Errorf("decode personal provider metadata: %w", err)
 		}
-		if cfg.Disabled {
+		if cfg.Disabled || !personalPolicy.Admits(cfg) {
 			continue
 		}
 		reference := service.PersonalProviderReference(row.ID)

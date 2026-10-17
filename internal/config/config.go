@@ -355,6 +355,13 @@ type LLMConfig struct {
 	//     wait_timeout_ms: 60000
 	//     retry_after_cap_ms: 60000
 	RateLimit *RateLimitConfig `cfg:"rate_limit" json:"rate_limit,omitempty"`
+
+	// Quota is a durable, provider-account quota, independent of USD budgets.
+	// Windows reset at UTC midnight / first of the month. Model entries share
+	// the provider-wide allowance; they do not multiply it.
+	Quota *ProviderQuotaConfig `cfg:"quota" json:"quota,omitempty"`
+	// FreeTier is catalog provenance, not proof that an account cannot be billed.
+	FreeTier string `cfg:"free_tier" json:"free_tier,omitempty"`
 }
 
 // ModelLimit describes the token capacity advertised for one model. Context is

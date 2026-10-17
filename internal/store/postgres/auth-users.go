@@ -40,6 +40,7 @@ var authUserDeletionTables = []struct {
 	{"chat_sessions", "owner_user_id"},
 	{"agents", "owner_user_id"},
 	{"tokens", "owner_user_id"},
+	{"routing_profiles", "owner_user_id"},
 	{"providers", "owner_user_id"},
 	{"skills", "owner_user_id"},
 	{"mcp_sets", "owner_user_id"},

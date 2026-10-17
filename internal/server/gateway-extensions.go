@@ -42,6 +42,9 @@ func shouldFallback(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, service.ErrProviderQuotaExceeded) {
+		return true
+	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
@@ -383,7 +386,11 @@ func (s *Server) resolveRoutingProfile(ctx context.Context, auth *authResult, mo
 		return nil
 	}
 
-	profile, err := store.GetGatewayRoutingProfile(ctx, model, auth.token.WorkspaceID)
+	owner := ""
+	if _, valid := s.gatewayTokenPrincipal(ctx, auth); valid {
+		owner = auth.token.OwnerUserID
+	}
+	profile, err := store.GetGatewayRoutingProfile(ctx, model, auth.token.WorkspaceID, owner)
 	if err != nil {
 		// A lookup failure must not turn a routable request into a 500: the
 		// caller still rejects an unqualified model, which is the pre-change

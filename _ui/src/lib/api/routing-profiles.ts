@@ -16,6 +16,8 @@ const api = axios.create({
  * profile name from a direct "provider/model" reference during routing.
  */
 export interface RoutingProfile {
+  owner_user_id?: string;
+  scope?: 'personal' | 'workspace';
   id: string;
   workspace_id: string;
   name: string;

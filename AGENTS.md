@@ -424,6 +424,44 @@ pick: `profile=…; strategy=…; served=…; attempt=N/M; order=…; deferred=<
 Entries of `order` before `attempt` failed. It is set per streaming attempt
 before the first byte and on the final sync response.
 
+### Personal free-tier setup and provider quotas
+
+Providers includes **Free-tier setup and workspace policy** (`FreeTierSetup.svelte`).
+The shipped `service.FreeTierCatalog` is documentation (official endpoints,
+signup/limits links, review date and privacy notes), never an entitlement or a
+token grant. The wizard creates personal providers, a private workspace-bound
+priority profile and, only with `tokens.write`, an optional 30-day personal token
+restricted to those targets (no MCP/webhooks). Paid fallback is explicit and last.
+It never guesses zero prices, pools users' keys, fetches a paid catalog feed or
+automatically retries writes. Partial success is retained and named for recovery.
+
+Migrations 108–110 add durable `config.quota` accounting (day/month UTC request
+and token pools, plus optional model subpools), personal routing-profile
+`owner_user_id`, and per-workspace `provider_use_policy`. Quotas ride the existing
+`budgetedProvider` boundary with physical provider IDs, using row-locked
+reservation/settlement. Missing usage and crashed calls retain conservative
+reservations until rollover. A quota refusal is fallback-eligible 429
+`provider_quota_exceeded`, never outage evidence. Counters are local to AT, not
+upstream balances: separate rows for one upstream account are not pooled, and
+out-of-AT calls are invisible. No output cap is injected; admission reserves
+requested output (32000 when absent). Opaque calls without an estimate must use
+request ceilings, not token ceilings.
+
+Policy reads ride `workspace.read`, writes `workspace.write` with version CAS
+and execution-policy bump. It can block catalog free-tier personal providers
+(known hosts too, including paid accounts on those hosts) and restrict all personal
+providers to exact HTTPS hosts. `null` allowlist is unrestricted; `[]` refuses
+all. Creation, updates, catalog reads and live runtime resolution enforce it;
+other workspaces retain their own policy. This is not a network sandbox or DLP:
+trusted-host tools, browser-local providers and relays need separate controls.
+
+Private profiles are visible only to their owner in the selected workspace; only
+live personal-token owners can resolve/list them through the gateway. Existing
+workspace profiles keep their behaviour. APIs for private profiles live beneath
+`/personal-providers/routing-profiles`, with store ownership guards for every
+read/write. Account deletion sweeps them. See `docs/free-tier-providers.md` for
+limits, recovery and regression paths.
+
 ### Personal tokens reach their owner's providers
 
 The gateway registry (`s.providers`) holds only Default-workspace providers by

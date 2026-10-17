@@ -24,6 +24,38 @@ function builtin(
 
 /** Built-in guides ship with the app and cannot be edited or deleted. */
 export const builtinGuides: DisplayGuide[] = [
+  builtin('free-tiers', 'Personal free-tier setup', 'Connect your own accounts without pooling other users’ credentials', 'KeyRound', `
+## Connect your own free-tier accounts
+
+Open **Providers → Free-tier setup and workspace policy**. AT supplies setup documentation, not tokens or an entitlement to a provider's free plan.
+
+1. Select official API providers and create your own accounts using the registration links.
+2. Paste each key, choose the models eligible under your plan and copy limits from your account console. Model hints are suggestions, not a promise of eligibility.
+3. Set optional daily/monthly request and token ceilings. A provider-wide pool is shared across models; model-specific limits are additional ceilings. Never count the same upstream pool once per model.
+4. Confirm data-use and billing terms. Some free plans permit training on submitted content or are evaluation-only. No shared-use or resale permission is implied.
+5. Create the providers and a personal priority profile. An optional **existing paid fallback** is always last and may incur charges. With no fallback, exhaustion returns an error rather than deliberately choosing a paid model.
+6. If permitted, create a model-restricted personal gateway token (30-day expiry). Copy it once. Shared workspace tokens cannot reach your private profile.
+
+### How quota enforcement works
+
+Counters and reservations are stored in PostgreSQL by physical provider ID, shared across users and replicas. Windows reset at UTC midnight and the first of each month. AT reserves estimated input plus the requested output allowance (32,000 output tokens when omitted), then settles reported usage. No output cap is injected. Use an explicit output allowance for small token quotas. Missing usage retains the estimate; failed upstream attempts still count as requests. A crash leaves its reservation charged conservatively until rollover. Opaque calls cannot use token quotas without an estimate: use request ceilings for those calls.
+
+Quota exhaustion returns 429 with code provider_quota_exceeded and Retry-After, and advances a configured fallback chain without another upstream call. The local ceilings do not include activity outside AT, do not reconcile multiple AT provider rows using the same upstream account, and do not guarantee zero charges. Disable upstream automatic top-up or paid usage where the provider supports it.
+
+### Workspace control
+
+Workspace administrators may block catalog free-tier personal providers and known catalog endpoint hosts. This conservatively blocks paid accounts on those hosts too. An optional exact-host HTTPS allowlist covers all personal endpoints (an empty list permits none); proxies and TLS opt-out are refused with that list. Policy is checked on create/update, catalog reads and live server-side provider resolution. Other workspaces keep their own policy. These are provider controls, not a network sandbox: trusted-host tools, browser-local providers and external relays require separate controls.
+
+### Partial setup and maintenance
+
+Setup is not one database transaction: successful providers are retained if a later step fails. The page names saved references and never retries writes automatically. **Continue setup** checks stable provider keys and reuses completed steps. You can correct a profile name conflict without creating duplicate providers. If a token response was lost, use API Tokens to rotate that token instead of creating another blindly. Edit a provider's daily/monthly quota section to see usage and configure additional model pools.
+
+Personal profiles are workspace-bound and private to their account. They appear in that account's personal-token gateway model catalog; their names are unique in the workspace. The ordinary Routing profiles page shows your profiles when you have its management permission. No one else's key is borrowed on exhaustion.
+
+### Existing aggregators
+
+A self-hosted FreeLLMAPI or OmniRoute can be added as a custom OpenAI-compatible personal provider, using its own base URL and unified key. That is optional, not required by this setup. AT sees aggregate usage for that endpoint, not its underlying account balances. In Chats a browser-local provider can instead reach an aggregator on your computer; server-side workspace quotas do not apply to browser-local calls.
+`),
   builtin(
     'local-providers',
     'Local providers',

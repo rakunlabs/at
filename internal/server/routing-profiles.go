@@ -35,7 +35,11 @@ func (s *Server) routingProfileModels(ctx context.Context, auth *authResult) []w
 		return nil
 	}
 
-	profiles, err := store.ListGatewayRoutingProfiles(ctx, auth.token.WorkspaceID)
+	owner := ""
+	if _, valid := s.gatewayTokenPrincipal(ctx, auth); valid {
+		owner = auth.token.OwnerUserID
+	}
+	profiles, err := store.ListGatewayRoutingProfiles(ctx, auth.token.WorkspaceID, owner)
 	if err != nil {
 		slog.Error("list routing profiles for models failed", "error", err)
 		return nil

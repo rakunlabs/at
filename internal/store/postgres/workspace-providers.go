@@ -186,6 +186,9 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 		return nil, err
 	}
 	if personalReference {
+		if err := p.checkPersonalProviderPolicy(ctx, tx, a.WorkspaceID, record.Config); err != nil {
+			return nil, err
+		}
 		record.Reference = service.PersonalProviderReference(record.ID)
 		if err := p.decoratePersonalProvider(ctx, a.WorkspaceID, record); err != nil {
 			return nil, err

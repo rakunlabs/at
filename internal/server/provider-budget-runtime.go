@@ -78,14 +78,28 @@ func (p *budgetedProvider) estimate(ctx context.Context, model string, usage ser
 	return &value
 }
 
-func (p *budgetedProvider) reserve(ctx context.Context, model string, usage service.Usage) (*service.ProviderBudgetReservation, error) {
+type providerCallReservation struct {
+	budget *service.ProviderBudgetReservation
+	quota  *service.ProviderQuotaReservation
+}
+
+func (p *budgetedProvider) reserve(ctx context.Context, model string, usage service.Usage) (*providerCallReservation, error) {
+	result := &providerCallReservation{}
+	if quotas, ok := p.server.store.(service.ProviderQuotaStorer); ok && p.providerID != "" {
+		var err error
+		result.quota, err = quotas.ReserveProviderQuota(ctx, p.providerID, model, int64(usage.PromptTokens)+int64(usage.CompletionTokens))
+		if err != nil {
+			return nil, err
+		}
+	}
 	store, ok := p.server.store.(service.ProviderBudgetStorer)
 	if !ok || p.providerID == "" {
-		return nil, nil
+		return result, nil
 	}
 	estimate := p.estimate(ctx, model, usage)
 	reservation, err := store.ReserveProviderBudget(ctx, p.resources(), providerBudgetUserID(ctx, p.fallbackUserID), estimate)
 	if err != nil {
+		p.settleQuota(ctx, result.quota, 0, false)
 		switch {
 		case errors.Is(err, service.ErrProviderBudgetExceeded):
 			return nil, fmt.Errorf("%w: the provider's spending limit has been reached", err)
@@ -99,11 +113,29 @@ func (p *budgetedProvider) reserve(ctx context.Context, model string, usage serv
 			return nil, fmt.Errorf("reserve provider budget: %w", err)
 		}
 	}
-	return reservation, nil
+	result.budget = reservation
+	return result, nil
 }
 
-func (p *budgetedProvider) settle(ctx context.Context, reservation *service.ProviderBudgetReservation, model string, usage service.Usage) {
+func (p *budgetedProvider) settleQuota(ctx context.Context, quota *service.ProviderQuotaReservation, tokens int64, attempted bool) {
+	if quota == nil || quota.ID == "" {
+		return
+	}
+	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if store, ok := p.server.store.(service.ProviderQuotaStorer); ok {
+		if err := store.SettleProviderQuota(settleCtx, quota.ID, tokens, attempted); err != nil {
+			slog.Error("settle provider quota failed", "provider", p.providerKey, "error", err)
+		}
+	}
+}
+
+func (p *budgetedProvider) settle(ctx context.Context, reservation *providerCallReservation, model string, usage service.Usage) {
 	if reservation == nil {
+		return
+	}
+	p.settleQuota(ctx, reservation.quota, int64(usage.PromptTokens)+int64(usage.CompletionTokens), true)
+	if reservation.budget == nil {
 		return
 	}
 	actual := 0.0
@@ -113,8 +145,8 @@ func (p *budgetedProvider) settle(ctx context.Context, reservation *service.Prov
 	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if store, ok := p.server.store.(service.ProviderBudgetStorer); ok {
-		if err := store.SettleProviderBudget(settleCtx, reservation.ID, actual); err != nil {
-			slog.Error("settle provider budget failed", "provider", p.providerKey, "reservation_id", reservation.ID, "error", err)
+		if err := store.SettleProviderBudget(settleCtx, reservation.budget.ID, actual); err != nil {
+			slog.Error("settle provider budget failed", "provider", p.providerKey, "reservation_id", reservation.budget.ID, "error", err)
 		}
 	}
 }
@@ -126,17 +158,48 @@ func (p *budgetedProvider) resolvedModel(requested string) string {
 	return requested
 }
 
+// Providers disagree on the precedence of these two wire fields. Reserve the
+// larger positive allowance so neither precedence can under-reserve. Zero is
+// not a zero-output promise (several adapters use their default then).
+func providerOutputAllowance(opts *service.ChatOptions) int {
+	allowance := 0
+	if opts != nil {
+		if opts.MaxTokens != nil {
+			allowance = max(allowance, *opts.MaxTokens)
+		}
+		if opts.MaxCompletionTokens != nil {
+			allowance = max(allowance, *opts.MaxCompletionTokens)
+		}
+	}
+	if allowance <= 0 {
+		return 32000
+	}
+	return allowance
+}
+
+func (p *budgetedProvider) admitQuotaOverrides(ctx context.Context, r *providerCallReservation, model string, opts *service.ChatOptions) error {
+	if r == nil || r.quota == nil || opts == nil || len(opts.ExtraBody) == 0 {
+		return nil
+	}
+	_, changesModel := opts.ExtraBody["model"]
+	if !r.quota.GuardOverrides || !changesModel && !r.quota.TokenLimited {
+		return nil
+	}
+	p.settleQuota(ctx, r.quota, 0, false)
+	r.quota = nil
+	p.settle(ctx, r, model, service.Usage{})
+	return fmt.Errorf("extra_body cannot change quota-sensitive model/input/output fields; omit extra_body when using token quotas: %w", service.ErrUnsupportedOperation)
+}
+
 func (p *budgetedProvider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	model = p.resolvedModel(model)
-	maxOutput := 32000
-	if opts != nil && opts.MaxTokens != nil && *opts.MaxTokens >= 0 {
-		maxOutput = *opts.MaxTokens
-	} else if opts != nil && opts.MaxCompletionTokens != nil && *opts.MaxCompletionTokens >= 0 {
-		maxOutput = *opts.MaxCompletionTokens
-	}
+	maxOutput := providerOutputAllowance(opts)
 	estimated := service.Usage{PromptTokens: common.EstimateInputTokens("", messages, tools), CompletionTokens: maxOutput}
 	reservation, err := p.reserve(ctx, model, estimated)
 	if err != nil {
+		return nil, err
+	}
+	if err := p.admitQuotaOverrides(ctx, reservation, model, opts); err != nil {
 		return nil, err
 	}
 	resp, err := p.inner.Chat(ctx, model, messages, tools, opts)
@@ -154,15 +217,13 @@ func (p *budgetedProvider) ChatStream(ctx context.Context, model string, message
 		return nil, nil, service.ErrUnsupportedOperation
 	}
 	model = p.resolvedModel(model)
-	maxOutput := 32000
-	if opts != nil && opts.MaxTokens != nil && *opts.MaxTokens >= 0 {
-		maxOutput = *opts.MaxTokens
-	} else if opts != nil && opts.MaxCompletionTokens != nil && *opts.MaxCompletionTokens >= 0 {
-		maxOutput = *opts.MaxCompletionTokens
-	}
+	maxOutput := providerOutputAllowance(opts)
 	estimated := service.Usage{PromptTokens: common.EstimateInputTokens("", messages, tools), CompletionTokens: maxOutput}
 	reservation, err := p.reserve(ctx, model, estimated)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := p.admitQuotaOverrides(ctx, reservation, model, opts); err != nil {
 		return nil, nil, err
 	}
 	upstream, headers, err := streamer.ChatStream(ctx, model, messages, tools, opts)
@@ -178,6 +239,12 @@ func (p *budgetedProvider) ChatStream(ctx context.Context, model string, message
 		// the input estimate rather than nothing so it cannot bypass the budget.
 		finish := func() {
 			if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+				// Token quota and money budget have different fallback semantics:
+				// quota keeps the full conservative reservation when usage is lost.
+				if reservation != nil {
+					p.settleQuota(ctx, reservation.quota, 0, true)
+					reservation.quota = nil
+				}
 				usage = service.Usage{PromptTokens: estimated.PromptTokens}
 			}
 			p.settle(ctx, reservation, model, usage)

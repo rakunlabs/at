@@ -23,6 +23,10 @@ func (s *Server) personalProviderStore(w http.ResponseWriter) (service.PersonalP
 }
 
 func validatePersonalProviderRequest(w http.ResponseWriter, cfg config.LLMConfig) bool {
+	if err := cfg.Quota.Validate(); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return false
+	}
 	if cfg.Type == "" {
 		httpResponse(w, "config.type is required", http.StatusBadRequest)
 		return false

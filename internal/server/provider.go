@@ -358,6 +358,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
+	if err := req.Config.Quota.Validate(); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if msg := validateEmbeddingConfig(req.Config); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
 		return
@@ -446,6 +450,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 
 	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+	if err := req.Config.Quota.Validate(); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if msg := validateEmbeddingConfig(req.Config); msg != "" {

@@ -50,6 +50,8 @@
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import VirtualProvidersDialog from '@/lib/components/VirtualProvidersDialog.svelte';
+  import ProviderQuota from '@/lib/components/ProviderQuota.svelte';
+  import FreeTierSetup from '@/lib/components/FreeTierSetup.svelte';
 
   storeNavbar.title = 'Providers';
 
@@ -1161,6 +1163,8 @@
 
   // Rate limit fields. Empty string = unlimited / use default.
   let formRateLimitRPM = $state('');
+  let formQuota = $state<NonNullable<LLMConfig['quota']>>({});
+  let formFreeTier = $state('');
   let formRateLimitITPM = $state('');
   let formRateLimitMaxConcurrent = $state('');
   let formRateLimitWaitTimeoutMs = $state('');
@@ -1276,6 +1280,8 @@
     credentialsError = '';
     if (credentialsFileInput) credentialsFileInput.value = '';
     formRateLimitRPM = '';
+    formQuota = {};
+    formFreeTier = '';
     formRateLimitITPM = '';
     formRateLimitMaxConcurrent = '';
     formRateLimitWaitTimeoutMs = '';
@@ -1345,6 +1351,8 @@
     formHasStoredCredentials = !!rec.config.credentials_json;
     formBaseUrl = rec.config.base_url || '';
     formModel = rec.config.model;
+    formQuota = structuredClone($state.snapshot(rec.config.quota || {}));
+    formFreeTier = rec.config.free_tier || '';
     formModels = [...(rec.config.models || [])];
     formModelLimits = Object.fromEntries(
       Object.entries(rec.config.model_limits || {}).map(([model, limit]) => [
@@ -1386,6 +1394,8 @@
     const cfg: LLMConfig = {
       type: formType,
       model: formModel,
+      quota: formQuota,
+      free_tier: formFreeTier || undefined,
       shared_with_all_workspaces: !editingPersonalId && formScope === 'global',
     };
     if (formApiKey) cfg.api_key = formApiKey;
@@ -2209,6 +2219,9 @@
   {/if}
 
   <!-- Preset Picker -->
+  {#if !showForm && !showPresets && (canManagePersonal || can('workspace.write'))}
+    <FreeTierSetup ondone={load} />
+  {/if}
   {#if showPresets}
     <div class="border border-dark-border mb-6 bg-dark-surface overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
@@ -2773,6 +2786,8 @@
             <span class="text-sm text-dark-text-secondary">Disable certificate verification (insecure)</span>
           </label>
         </div>
+
+        <ProviderQuota bind:value={formQuota} providerKey={editingPersonalId || editingKey || ''} personal={!!editingPersonalId} prefix="provider-quota" />
 
         <!-- Rate Limit (collapsible) -->
         <div class="border-t border-dark-border pt-4">
@@ -3366,6 +3381,7 @@
         >
           <td class={['px-4 py-2.5 font-mono font-medium', rec.config.disabled ? 'text-dark-text-muted' : 'text-dark-text']}>
             <span class={rec.config.disabled ? 'line-through decoration-dark-text-muted' : ''}>{rec.key}</span>
+            {#if rec.config.free_tier}<span class="border border-dark-border px-1.5 py-0.5 text-xs text-dark-text-muted" title="Account eligibility and billing depend on the upstream provider">Free-tier setup</span>{/if}
             {#if rec.config.disabled}
               <span
                 class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide border border-amber-800 bg-amber-900/20 text-amber-400"

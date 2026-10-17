@@ -19,6 +19,9 @@ import (
 // distinguishes a profile name from a direct "provider/model" reference during
 // chain resolution, so it is enforced here rather than relied upon at read time.
 type RoutingProfile struct {
+	// Personal profiles remain workspace-bound and visible only to their owner.
+	OwnerUserID string              `json:"owner_user_id,omitempty"`
+	Scope       string              `json:"scope,omitempty"`
 	WorkspaceID string              `json:"workspace_id"`
 	ID          string              `json:"id"`
 	Name        string              `json:"name"`
@@ -53,8 +56,8 @@ type RoutingProfileStorer interface {
 // resolves nothing: unlike an MCP endpoint there is no "public" profile, so a
 // token with no workspace binding simply has no profiles.
 type GatewayRoutingProfileStorer interface {
-	GetGatewayRoutingProfile(ctx context.Context, name, workspaceID string) (*RoutingProfile, error)
-	ListGatewayRoutingProfiles(ctx context.Context, workspaceID string) ([]RoutingProfile, error)
+	GetGatewayRoutingProfile(ctx context.Context, name, workspaceID string, owner ...string) (*RoutingProfile, error)
+	ListGatewayRoutingProfiles(ctx context.Context, workspaceID string, owner ...string) ([]RoutingProfile, error)
 }
 
 // routingProfileNamePattern excludes "/" by construction. See RoutingProfile.
