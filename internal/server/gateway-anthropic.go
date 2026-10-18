@@ -50,6 +50,7 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 	// profiles are what make this endpoint usable without reconfiguring them.
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
+	r = withUpstreamSession(r, traceID, sessionID)
 
 	chain, routingProfile := s.chatCallChain(withRoutingAffinity(r.Context(), sessionID), auth, req.Model, req.AtFallbacks)
 	if routingProfile != "" {

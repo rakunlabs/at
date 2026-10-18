@@ -250,6 +250,17 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 				}
 				return
 			}
+			// A batch may only run tools the caller could call directly;
+			// otherwise it would bypass an MCP server's or agent's tool list.
+			if !service.BuiltinToolInScope(ctx, c.Name) {
+				results[idx] = batchResult{
+					Index:   idx,
+					Tool:    c.Name,
+					Success: false,
+					Error:   fmt.Sprintf("tool %q is not enabled here, so batch_execute cannot run it", c.Name),
+				}
+				return
+			}
 
 			if c.Arguments == nil {
 				c.Arguments = make(map[string]any)

@@ -891,7 +891,7 @@ func (c *chatRun) callTool(ctx context.Context, call service.ToolCall) (string, 
 			toolCtx, cancel = context.WithTimeout(ctx, chatRunToolTimeout)
 		}
 		defer cancel()
-		return s.dispatchBuiltinTool(toolCtx, call.Name, args)
+		return s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return c.sources[name].kind == "builtin" }), call.Name, args)
 	case "skill":
 		if call.Name == chatRunStatus {
 			id := strings.TrimSpace(stringArg(args, "run_id"))

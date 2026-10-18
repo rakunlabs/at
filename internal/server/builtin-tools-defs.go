@@ -211,6 +211,9 @@ func (s *Server) BuiltinToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := contextWithSessionID(r.Context(), getSessionID(r))
+	// This endpoint already admits every built-in by name, so batch_execute
+	// called through it may reach the same set.
+	ctx = service.ContextWithBuiltinToolScope(ctx, nil)
 	if req.AgentID != "" {
 		ctx = contextWithAgentID(ctx, req.AgentID)
 	}

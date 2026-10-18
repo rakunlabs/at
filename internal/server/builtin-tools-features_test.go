@@ -99,7 +99,7 @@ func TestBuiltinFeatureChangeBlocksDispatchAndBatch(t *testing.T) {
 	if _, err := s.dispatchBuiltinTool(ctx, "file_list", map[string]any{}); err == nil {
 		t.Fatal("saved direct call bypassed feature disable")
 	}
-	result, err := s.dispatchBuiltinTool(ctx, "batch_execute", map[string]any{
+	result, err := s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(ctx, nil), "batch_execute", map[string]any{
 		"tool_calls": []any{map[string]any{"name": "file_list", "arguments": map[string]any{}}},
 	})
 	if err != nil {

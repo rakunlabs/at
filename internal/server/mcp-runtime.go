@@ -443,6 +443,11 @@ func (b *mcpRuntimeBuilder) addUpstreams(runtime *mcpRuntime, upstreams []servic
 }
 
 func (b *mcpRuntimeBuilder) addBuiltins(ctx context.Context, runtime *mcpRuntime, config service.MCPServerConfig) {
+	enabled := make(map[string]bool, len(config.EnabledBuiltinTools))
+	for _, name := range config.EnabledBuiltinTools {
+		enabled[name] = true
+	}
+	inScope := func(name string) bool { return enabled[name] }
 	for _, toolName := range config.EnabledBuiltinTools {
 		if b.server.checkBuiltinToolFeatures(ctx, toolName) != nil {
 			continue
@@ -465,7 +470,7 @@ func (b *mcpRuntimeBuilder) addBuiltins(ctx context.Context, runtime *mcpRuntime
 				if imageConfig != nil {
 					args = applyImageGenerationConfig(args, imageConfig)
 				}
-				result, err := b.server.dispatchBuiltinTool(ctx, builtin.Name, args)
+				result, err := b.server.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(ctx, inScope), builtin.Name, args)
 				if err != nil {
 					return "", fmt.Errorf("builtin tool execution failed: %w", err)
 				}

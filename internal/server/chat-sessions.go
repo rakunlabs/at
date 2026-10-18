@@ -1277,7 +1277,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					} else {
 						toolCtx, cancel = context.WithTimeout(ctx, toolTimeout)
 					}
-					result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
+					result, callErr = s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return toolHandlers[name].handlerType == "builtin" }), tc.Name, tc.Arguments)
 					cancel()
 					if callErr == nil && (tc.Name == "task_complete" || tc.Name == "task_block") {
 						terminalToolCalled = true

@@ -1088,7 +1088,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 				spanCtx, toolObsID := toolSpan()
 				toolCtx, cancel := context.WithTimeout(spanCtx, toolTimeout)
-				result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
+				result, callErr = s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return builtinToolMap[name] }), tc.Name, tc.Arguments)
 				cancel()
 
 				if callErr != nil {

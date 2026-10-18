@@ -46,6 +46,16 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
+	upstreamSession := sessionID
+	if upstreamSession == "" && source == "chats" {
+		var conv struct {
+			ID string `json:"at_conversation_id"`
+		}
+		if json.Unmarshal(rawBody, &conv) == nil {
+			upstreamSession = auditCorrelationID(conv.ID)
+		}
+	}
+	r = withUpstreamSession(r, traceID, upstreamSession)
 
 	// Parse model: "provider_key/actual_model"
 	providerKey, actualModel, err := parseModelID(req.Model)

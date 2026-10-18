@@ -199,7 +199,7 @@ func TestRuntimeBuiltinBashAndBatchDenied(t *testing.T) {
 	if _, err := s.dispatchBuiltinTool(ctx, "bash_execute", map[string]any{"command": "touch " + marker}); !errors.Is(err, service.ErrExecutionDenied) {
 		t.Fatalf("bash error %v", err)
 	}
-	result, err := s.dispatchBuiltinTool(ctx, "batch_execute", map[string]any{"tool_calls": []any{map[string]any{"name": "bash_execute", "arguments": map[string]any{"command": "touch " + marker}}}})
+	result, err := s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(ctx, nil), "batch_execute", map[string]any{"tool_calls": []any{map[string]any{"name": "bash_execute", "arguments": map[string]any{"command": "touch " + marker}}}})
 	if err == nil && !strings.Contains(result, "denied") {
 		t.Fatalf("batch did not deny nested bash: %q %v", result, err)
 	}

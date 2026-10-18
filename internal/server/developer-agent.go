@@ -405,7 +405,7 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *runEventStream, h 
 		s.captureDeveloperSnapshot(r, session, h, step, "before")
 		stream.send(map[string]any{"type": "turn_start"})
 		var partial strings.Builder
-		resp, callMessages, latency, err := agentloop.CallProviderStream(r.Context(), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, effort, func(delta agentloop.StreamDelta) {
+		resp, callMessages, latency, err := agentloop.CallProviderStream(service.ContextWithUpstreamSession(r.Context(), session.ID), s.loopGov, provider, model, "developer:"+session.ID, session.ID, messages, kit.tools, effort, func(delta agentloop.StreamDelta) {
 			event := map[string]any{"type": "delta"}
 			if delta.Content != "" {
 				partial.WriteString(delta.Content)

@@ -946,7 +946,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						runnerArgs["_parent_trace_id"] = runTraceID
 						result, callErr = reg.AgentRunner(toolCtx, n.agentID, tc.Name, runnerArgs)
 					} else {
-						result, callErr = reg.BuiltinToolDispatcher(toolCtx, tc.Name, tc.Arguments)
+						result, callErr = reg.BuiltinToolDispatcher(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return toolHandlers[name].handlerType == "builtin" }), tc.Name, tc.Arguments)
 					}
 					cancel()
 				} else if hi.handlerType == "workflow" {

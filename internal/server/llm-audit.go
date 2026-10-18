@@ -52,6 +52,19 @@ func auditTraceInfo(r *http.Request, metadata ...map[string]any) (traceID, sessi
 	return traceID, sessionID
 }
 
+// withUpstreamSession forwards the client's conversation identity to
+// providers that need one (OpenCode Go's x-opencode-session).
+func withUpstreamSession(r *http.Request, traceID, sessionID string) *http.Request {
+	id := sessionID
+	if id == "" {
+		id = traceID
+	}
+	if id == "" {
+		return r
+	}
+	return r.WithContext(service.ContextWithUpstreamSession(r.Context(), id))
+}
+
 // gatewayTurnTrace returns the client's trace ID, or, when the client sent
 // only a session ID, one derived from the conversational turn so that every
 // model call of an agentic turn lands in one trace.

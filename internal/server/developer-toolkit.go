@@ -207,7 +207,7 @@ func (s *Server) executeDeveloperAgentTool(ctx context.Context, kit *developerTo
 		if err := workflow.AuthorizeToolHandler(ctx, call.Name, "builtin", "", call.Name); err != nil {
 			return "", err
 		}
-		return s.dispatchBuiltinTool(ctx, call.Name, call.Arguments)
+		return s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(ctx, func(name string) bool { return kit.builtins[name] }), call.Name, call.Arguments)
 	}
 	return "", fmt.Errorf("unknown tool %q", call.Name)
 }
