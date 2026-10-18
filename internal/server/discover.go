@@ -17,6 +17,7 @@ import (
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
+	"github.com/rakunlabs/at/internal/service/llm/gemini"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 	"github.com/rakunlabs/at/internal/service/llm/systemone"
 )
@@ -847,7 +848,7 @@ func listGeminiModels(ctx context.Context, cfg config.LLMConfig, bearerAuth bool
 	if baseURL == "" {
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
+	baseURL = gemini.NormalizeBaseURL(baseURL)
 
 	modelsURL := baseURL + "/v1beta/models"
 

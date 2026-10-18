@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -155,5 +156,33 @@ func TestProviderQuotaRejectsUnresolvedPassthroughModel(t *testing.T) {
 	}
 	if _, err := p.ReserveProviderQuota(ctx, provider.ID, "", 0); !errors.Is(err, service.ErrUnsupportedOperation) {
 		t.Fatalf("opaque path bypassed model quotas: %v", err)
+	}
+}
+
+// A provider without a quota must not take the provider row lock: OAuth
+// refresh and config saves hold it, and ordinary traffic would queue behind.
+func TestProviderQuotaWithoutLimitsDoesNotLockProvider(t *testing.T) {
+	p, ctx, _, _ := workspaceFixture(t)
+	provider, err := p.CreateProvider(ctx, service.ProviderRecord{Key: "unlimited", Config: config.LLMConfig{Type: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var id string
+	if _, err := tx.From(p.tableProviders).Select("id").Where(goqu.C("id").Eq(provider.ID)).ForUpdate(goqu.Wait).ScanValContext(ctx, &id); err != nil {
+		t.Fatal(err)
+	}
+	reserveCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	r, err := p.ReserveProviderQuota(reserveCtx, provider.ID, "m", 10)
+	if err != nil {
+		t.Fatalf("reservation blocked or failed while the row was locked: %v", err)
+	}
+	if r != nil {
+		t.Fatalf("reservation = %+v, want nil without limits", r)
 	}
 }

@@ -100,6 +100,15 @@ func WithEmbeddingMaxInputs(limit int) Option {
 	}
 }
 
+// NormalizeBaseURL drops a trailing slash and a trailing "/v1beta": the
+// adapter appends its own versioned path, so a base URL copied with the
+// version (as the free-tier catalog once shipped) would otherwise produce
+// "/v1beta/v1beta/..." on streaming, discovery and passthrough calls.
+func NormalizeBaseURL(baseURL string) string {
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	return strings.TrimSuffix(baseURL, "/v1beta")
+}
+
 // New creates a Google AI (Gemini) provider.
 //
 // apiKey is the API key from Google AI Studio (aistudio.google.com).
@@ -115,7 +124,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	baseURL = strings.TrimSuffix(baseURL, "/")
+	baseURL = NormalizeBaseURL(baseURL)
 
 	headers := http.Header{
 		"Content-Type": []string{"application/json"},

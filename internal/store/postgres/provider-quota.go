@@ -50,6 +50,24 @@ func (p *Postgres) ReserveProviderQuota(ctx context.Context, providerID, model s
 	if providerID == "" {
 		return nil, nil
 	}
+	// Most providers have no quota. Check without a lock first so ordinary
+	// traffic does not serialize on the provider row (which OAuth refresh and
+	// config saves also lock); the locked re-read below stays authoritative.
+	var unlocked string
+	found, err := p.goqu.From(p.tableProviders).Select("config").Where(goqu.C("id").Eq(providerID)).ScanValContext(ctx, &unlocked)
+	if err != nil {
+		return nil, fmt.Errorf("read quota provider: %w", err)
+	}
+	if !found {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	var precheck config.LLMConfig
+	if err := json.Unmarshal([]byte(unlocked), &precheck); err != nil {
+		return nil, fmt.Errorf("decode quota config: %w", err)
+	}
+	if !precheck.Quota.HasLimits() {
+		return nil, nil
+	}
 	tx, err := p.goqu.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin provider quota: %w", err)
@@ -58,7 +76,7 @@ func (p *Postgres) ReserveProviderQuota(ctx context.Context, providerID, model s
 	// One physical account row serializes admission and settlement across models,
 	// users and replicas; never lock by a workspace-local bare key.
 	var raw string
-	found, err := tx.From(p.tableProviders).Select("config").Where(goqu.C("id").Eq(providerID)).ForUpdate(goqu.Wait).ScanValContext(ctx, &raw)
+	found, err = tx.From(p.tableProviders).Select("config").Where(goqu.C("id").Eq(providerID)).ForUpdate(goqu.Wait).ScanValContext(ctx, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("lock quota provider: %w", err)
 	}

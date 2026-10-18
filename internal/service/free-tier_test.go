@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -46,5 +47,15 @@ func TestFreeTierCatalogAndPolicy(t *testing.T) {
 				t.Fatalf("Admits=%v want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFreeTierCatalogGeminiBaseURLUnversioned(t *testing.T) {
+	entry, ok := FreeTierByID("google-ai")
+	if !ok {
+		t.Fatal("google-ai entry missing")
+	}
+	if strings.Contains(entry.URL, "/v1beta") {
+		t.Fatalf("gemini adapter appends /v1beta itself; catalog URL %q must not include it", entry.URL)
 	}
 }
