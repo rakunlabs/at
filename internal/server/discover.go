@@ -390,6 +390,21 @@ func sameChatGPTDiscoveryConfig(a, b config.LLMConfig) bool {
 		maps.Equal(a.ExtraHeaders, b.ExtraHeaders)
 }
 
+// opencodeModelsPath rewrites OpenCode Go's per-format endpoints
+// (/inference/go/openai/v1, /inference/go/anthropic/v1) to the one shared
+// catalog at /inference/go/v1/models; the per-format paths answer 404.
+func opencodeModelsPath(u *url.URL) {
+	if !strings.EqualFold(u.Hostname(), "opencode.ai") {
+		return
+	}
+	for _, format := range []string{"/openai/v1/models", "/anthropic/v1/models"} {
+		if prefix, ok := strings.CutSuffix(u.Path, format); ok && strings.HasSuffix(prefix, "/go") {
+			u.Path = prefix + "/v1/models"
+			return
+		}
+	}
+}
+
 // discoverOpenAIModels calls GET /v1/models on an OpenAI-compatible endpoint.
 // It derives the models URL from the configured base_url by stripping /chat/completions.
 func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersions ...string) ([]string, error) {
@@ -424,6 +439,7 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 		// Fallback: append /models to the path
 		parsedURL.Path = strings.TrimSuffix(path, "/") + "/models"
 	}
+	opencodeModelsPath(parsedURL)
 
 	modelsURL := parsedURL.String()
 
@@ -728,6 +744,7 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 	basePath := strings.TrimRight(parsedURL.Path, "/")
 	basePath = strings.TrimSuffix(strings.TrimSuffix(basePath, "/messages"), "/v1")
 	parsedURL.Path = basePath + "/v1/models"
+	opencodeModelsPath(parsedURL)
 
 	client, err := clientForConfig(cfg)
 	if err != nil {
