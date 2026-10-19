@@ -454,7 +454,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -490,7 +490,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 
 		// OpenAI streams tool calls as many small deltas: the first
@@ -698,13 +698,9 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	// Azure-style base URLs carry a query string ("...?api-version=...");
 	// split it off before suffix matching and re-append it afterwards.
 	baseURL, baseQuery := splitBaseQuery(p.BaseURL)
-	if strings.HasSuffix(baseURL, "/chat/completions") {
-		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
-	} else if strings.HasSuffix(baseURL, "/v1") {
-		// Keep /v1 as root for most calls
-	} else {
-		// Just append path if it's a generic base
-	}
+	// A /v1 or generic base is kept as the root; only a full chat endpoint
+	// is trimmed back to it.
+	baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 
 	// Handle case where path starts with /v1/ and base ends with /v1
 	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(path, "/v1/") {
@@ -753,7 +749,8 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	r.Header.Del("Api-Key")
 	r.Header.Del("X-Api-Key")
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			req.URL = targetURL
 			req.Host = targetURL.Host
 

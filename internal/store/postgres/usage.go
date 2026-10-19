@@ -189,7 +189,7 @@ func (p *Postgres) GetUsageGrouped(ctx context.Context, filter service.UsageFilt
 	if err != nil {
 		return nil, fmt.Errorf("usage grouped: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var out []service.UsageSummary
 	for rows.Next() {
@@ -254,7 +254,7 @@ func (p *Postgres) GetUsageTimeSeries(ctx context.Context, filter service.UsageF
 	if err != nil {
 		return nil, fmt.Errorf("usage timeseries: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var out []service.UsageTimeSeriesPoint
 	for rows.Next() {

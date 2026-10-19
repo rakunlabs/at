@@ -49,7 +49,7 @@ func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*servic
 	if err != nil {
 		return nil, fmt.Errorf("list connections: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -107,7 +107,7 @@ func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider strin
 	if err != nil {
 		return nil, fmt.Errorf("list connections by provider: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -216,7 +216,7 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -302,7 +302,7 @@ func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Co
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -368,7 +368,7 @@ func (p *Postgres) DeleteConnection(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	sqlStr, _, err := p.goqu.Delete(p.tableConnections).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -423,7 +423,7 @@ func (p *Postgres) beginConnectionWrite(ctx context.Context, id string, deleting
 		Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID, "id": id}, connectionOwnershipPredicate(w.actor)).
 		ForUpdate(goqu.Wait).ScanValContext(ctx, &owner)
 	if err != nil || !found {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		if err != nil {
 			return nil, fmt.Errorf("lock connection: %w", err)
 		}
@@ -435,7 +435,7 @@ func (p *Postgres) beginConnectionWrite(ctx context.Context, id string, deleting
 	case owner != "" && deleting && w.actor.PlatformAdmin:
 	case owner == "" && w.actor.Allows("connections.write", resource) && w.actor.Allows("credentials.manage", resource):
 	default:
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	w.predicate = goqu.And(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.C("owner_user_id").Eq(owner))
@@ -492,7 +492,7 @@ func (p *Postgres) rotateConnectionCredentialsKey(ctx context.Context, tx *sql.T
 	for rows.Next() {
 		var record encryptedConnection
 		if err := rows.Scan(&record.id, &record.provider, &record.credentials); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return fmt.Errorf("scan connection for rotation: %w", err)
 		}
 		records = append(records, record)

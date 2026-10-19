@@ -177,7 +177,7 @@ func (p *Postgres) playgroundLocked(ctx context.Context, owner, id string, fn fu
 	if err != nil {
 		return fmt.Errorf("begin playground transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	var row playgroundConversationRow
 	found, err := tx.From(p.tablePlaygroundChats).Select(playgroundConversationColumns...).Where(goqu.Ex{"id": id, "owner_user_id": owner}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)

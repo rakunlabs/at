@@ -52,13 +52,13 @@ func (s *Server) downloadTelegramFile(bot *tgbotapi.BotAPI, fileID, fileName str
 	if err != nil {
 		return "", fmt.Errorf("download file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	out, err := os.Create(localPath)
 	if err != nil {
 		return "", fmt.Errorf("create file: %w", err)
 	}
-	defer out.Close()
+	defer out.Close() //nolint:errcheck
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		return "", fmt.Errorf("save file: %w", err)
@@ -66,13 +66,6 @@ func (s *Server) downloadTelegramFile(bot *tgbotapi.BotAPI, fileID, fileName str
 
 	slog.Info("telegram bot: downloaded file", "path", localPath, "size", resp.ContentLength)
 	return localPath, nil
-}
-
-// transcribeAudio transcribes an audio file using the configured method.
-// method: "openai" (cloud API), "local" (openai-whisper), "faster-whisper", "none"
-// whisperModel: local model size ("tiny", "base", "small", "medium", "large-v3")
-func (s *Server) transcribeAudio(ctx context.Context, audioPath string) string {
-	return s.transcribeAudioWithConfig(ctx, audioPath, "openai", "base")
 }
 
 func (s *Server) transcribeAudioWithConfig(ctx context.Context, audioPath, method, whisperModel string) string {
@@ -112,12 +105,12 @@ func (s *Server) transcribeOpenAI(ctx context.Context, audioPath string) string 
 		slog.Warn("transcribeAudio: failed to open file", "path", audioPath, "error", err)
 		return ""
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	writer.WriteField("model", "whisper-1")
-	writer.WriteField("response_format", "text")
+	_ = writer.WriteField("model", "whisper-1")
+	_ = writer.WriteField("response_format", "text")
 
 	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
 	if err != nil {
@@ -126,7 +119,7 @@ func (s *Server) transcribeOpenAI(ctx context.Context, audioPath string) string 
 	if _, err := io.Copy(part, f); err != nil {
 		return ""
 	}
-	writer.Close()
+	_ = writer.Close()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/audio/transcriptions", &body)
 	if err != nil {
@@ -140,7 +133,7 @@ func (s *Server) transcribeOpenAI(ctx context.Context, audioPath string) string 
 		slog.Warn("transcribeAudio: API request failed", "error", err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -487,18 +480,6 @@ func isResumableTaskStatus(status string) bool {
 		status == service.TaskStatusInProgress
 }
 
-// isRunningTaskStatus returns true when the task is still in motion.
-func isRunningTaskStatus(status string) bool {
-	switch status {
-	case service.TaskStatusInProgress,
-		service.TaskStatusInReview,
-		service.TaskStatusTodo,
-		service.TaskStatusBacklog:
-		return true
-	}
-	return false
-}
-
 // extractMediaFiles scans task result text for video and image file paths.
 func extractMediaFiles(result string) (videos []string, images []string) {
 	videoExts := map[string]bool{".mp4": true, ".mov": true, ".webm": true, ".avi": true}
@@ -827,7 +808,7 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 					continue
 				}
 				userIDStr := fmt.Sprintf("%d", update.Message.From.ID)
-				allowed, wasPending := s.checkBotAccess(ctx, botID, userIDStr, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers)
+				allowed, wasPending := s.checkBotAccess(ctx, botID, userIDStr, cfg.AccessMode, cfg.AllowedUsers)
 				if !allowed {
 					if wasPending {
 						reply := tgbotapi.NewMessage(update.Message.Chat.ID, "Your access is pending approval.")
@@ -916,7 +897,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		}
 	}
 
-	if msg.Photo != nil && len(msg.Photo) > 0 {
+	if len(msg.Photo) > 0 {
 		// Get the largest photo
 		photo := msg.Photo[len(msg.Photo)-1]
 		filePath, err := s.downloadTelegramFile(bot, photo.FileID, "photo.jpg")
@@ -1230,7 +1211,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				if taskRef == "" {
 					taskRef = sanitizeUTF8(t.ID)
 				}
-				sb.WriteString(fmt.Sprintf("%s %s - %s\n/status %s\n\n", status, taskRef, title, taskRef))
+				fmt.Fprintf(&sb, "%s %s - %s\n/status %s\n\n", status, taskRef, title, taskRef)
 			}
 			sendTelegramText(bot, msg.Chat.ID, sb.String())
 			return
@@ -1306,9 +1287,9 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			for _, a := range agents {
 				desc := a.Config.Description
 				if desc != "" {
-					sb.WriteString(fmt.Sprintf("• %s - %s\n", a.Name, desc))
+					fmt.Fprintf(&sb, "• %s - %s\n", a.Name, desc)
 				} else {
-					sb.WriteString(fmt.Sprintf("• %s\n", a.Name))
+					fmt.Fprintf(&sb, "• %s\n", a.Name)
 				}
 			}
 			sb.WriteString("\nUsage: /switch <agent name>")
@@ -1501,8 +1482,8 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			}
 
 			var revBriefBuilder strings.Builder
-			revBriefBuilder.WriteString(fmt.Sprintf("This is a REVISION of task %s. Produce a NEW deliverable from scratch — do not edit the original task's files in place.\n\n", sanitizeUTF8(sourceRef)))
-			revBriefBuilder.WriteString(fmt.Sprintf("Original task title: %s\n\n", sanitizeUTF8(sourceTask.Title)))
+			fmt.Fprintf(&revBriefBuilder, "This is a REVISION of task %s. Produce a NEW deliverable from scratch — do not edit the original task's files in place.\n\n", sanitizeUTF8(sourceRef))
+			fmt.Fprintf(&revBriefBuilder, "Original task title: %s\n\n", sanitizeUTF8(sourceTask.Title))
 			if sourceTask.Description != "" {
 				origBrief := sourceTask.Description
 				if len(origBrief) > 4000 {

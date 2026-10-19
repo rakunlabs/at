@@ -234,7 +234,7 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 		if err := os.WriteFile(scriptFile, []byte(command), 0o644); err != nil {
 			return nil, fmt.Errorf("exec: write python script: %w", err)
 		}
-		defer os.Remove(scriptFile)
+		defer os.Remove(scriptFile) //nolint:errcheck
 		cmd = exec.CommandContext(execCtx, "python3", scriptFile)
 	default: // bash
 		cmd = exec.CommandContext(execCtx, "/bin/sh", "-c", command)

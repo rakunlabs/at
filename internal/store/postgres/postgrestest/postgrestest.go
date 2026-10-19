@@ -47,10 +47,10 @@ func New(t *testing.T, encKey []byte) *postgres.Postgres {
 			t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
 		}
 		if err := db.PingContext(ctx); err != nil {
-			db.Close()
+			_ = db.Close()
 			t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
 		}
-		db.Close()
+		_ = db.Close()
 	}
 
 	// A copy of the process template is a private database created in about
@@ -112,7 +112,7 @@ func dropTables(t *testing.T, dsn, prefix string) {
 		t.Logf("cleanup: open: %v", err)
 		return
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename LIKE $1`,
@@ -121,7 +121,7 @@ func dropTables(t *testing.T, dsn, prefix string) {
 		t.Logf("cleanup: list tables: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tables []string
 	for rows.Next() {

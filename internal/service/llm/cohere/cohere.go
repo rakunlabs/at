@@ -121,7 +121,7 @@ func (p *Provider) doJSON(ctx context.Context, method, path string, body any, ou
 	if err != nil {
 		return nil, 0, fmt.Errorf("cohere http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, jsonResponseMaxBytes+1))
 	if err != nil {
@@ -286,7 +286,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	if err != nil {
 		return nil, fmt.Errorf("cohere http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, &service.RateLimitError{
@@ -318,9 +318,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	out.Usage.TotalTokens = out.Usage.PromptTokens + out.Usage.CompletionTokens
 
 	for _, block := range parsed.Message.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			out.Content += block.Text
-		} else if block.Type == "thinking" {
+		case "thinking":
 			out.ReasoningContent += block.Thinking
 		}
 	}
@@ -708,7 +709,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Meter the passthrough. This adapter relays by hand rather than through a
 	// ReverseProxy, so the hook is applied directly; it wraps resp.Body, and the

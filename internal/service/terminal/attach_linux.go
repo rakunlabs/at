@@ -115,7 +115,7 @@ func resizeWindowSocket(ctx context.Context, socket string, cols, rows uint16) {
 
 func (a *Attachment) Close() {
 	a.once.Do(func() {
-		a.File.Close()
+		_ = a.File.Close()
 		_ = a.cmd.Process.Kill() // attached client only; the systemd-owned server survives
 		_ = a.cmd.Wait()
 	})

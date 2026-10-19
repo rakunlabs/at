@@ -61,5 +61,5 @@ func JSONBytes(w http.ResponseWriter, msg []byte, code int) {
 	w.Header().Set("Content-Type", "application/json")
 
 	w.WriteHeader(code)
-	w.Write(msg)
+	_, _ = w.Write(msg)
 }

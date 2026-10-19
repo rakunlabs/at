@@ -77,7 +77,7 @@ func extractTarArchive(r io.Reader, gzipped bool, destRoot string) (int, int64, 
 		if err != nil {
 			return 0, 0, fmt.Errorf("invalid gzip stream: %w", err)
 		}
-		defer gz.Close()
+		defer gz.Close() //nolint:errcheck
 		tr = tar.NewReader(gz)
 	} else {
 		tr = tar.NewReader(r)
@@ -236,14 +236,14 @@ func (s *Server) UploadMCPBinaryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
+		defer r.MultipartForm.RemoveAll() //nolint:errcheck
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		httpResponse(w, "file field is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	name := r.FormValue("name")
 	if name == "" {
@@ -277,8 +277,8 @@ func (s *Server) UploadMCPBinaryAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpName := tmp.Name()
 	cleanup := func() {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 	}
 	n, err := io.Copy(tmp, file)
 	if err != nil {
@@ -292,13 +292,13 @@ func (s *Server) UploadMCPBinaryAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		httpResponse(w, fmt.Sprintf("upload failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	dest := filepath.Join(dir, name)
 	if err := os.Rename(tmpName, dest); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		httpResponse(w, fmt.Sprintf("upload failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -334,17 +334,17 @@ func (s *Server) extractMCPArchive(w http.ResponseWriter, dir, name, uploadedFil
 	gzipped := !strings.HasSuffix(strings.ToLower(ref), ".tar")
 	count, total, err := extractTarArchive(file, gzipped, tmpDir)
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		httpResponse(w, fmt.Sprintf("extract failed: %v", err), http.StatusBadRequest)
 		return
 	}
 	if count == 0 {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		httpResponse(w, "archive contains no files", http.StatusBadRequest)
 		return
 	}
 	if err := os.Chmod(tmpDir, 0o755); err != nil { // MkdirTemp creates 0700
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		httpResponse(w, fmt.Sprintf("extract failed: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -353,12 +353,12 @@ func (s *Server) extractMCPArchive(w http.ResponseWriter, dir, name, uploadedFil
 	// Replace an existing extraction of the same name: re-uploading the
 	// archive is the upgrade path.
 	if err := os.RemoveAll(dest); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		httpResponse(w, fmt.Sprintf("extract failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if err := os.Rename(tmpDir, dest); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		httpResponse(w, fmt.Sprintf("extract failed: %v", err), http.StatusInternalServerError)
 		return
 	}

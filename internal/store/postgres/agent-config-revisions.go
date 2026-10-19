@@ -101,7 +101,7 @@ func (p *Postgres) ListRevisions(ctx context.Context, agentID string) ([]service
 	if err != nil {
 		return nil, fmt.Errorf("list revisions for agent %q: %w", agentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.AgentConfigRevision
 	for rows.Next() {

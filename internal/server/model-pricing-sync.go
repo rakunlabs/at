@@ -714,7 +714,7 @@ func fetchPricingAgentSource(ctx context.Context, rawURL string) (string, string
 	if err != nil {
 		return "", "", fmt.Errorf("fetch pricing source: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", fmt.Errorf("fetch pricing source: status %d", resp.StatusCode)
 	}
@@ -1057,7 +1057,7 @@ func fetchLLMPricesModelPricing(ctx context.Context) ([]modelPricingSourceItem, 
 	if err != nil {
 		return nil, fmt.Errorf("fetch llm-prices current catalog: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch llm-prices current catalog: status %d", resp.StatusCode)
 	}

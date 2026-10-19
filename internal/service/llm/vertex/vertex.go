@@ -443,7 +443,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -478,7 +478,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 
 		// Vertex's OpenAI-compatible endpoint streams tool calls the same
@@ -635,7 +635,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		if !finished && sawText && len(toolOrder) == 0 {
 			ch <- service.StreamChunk{FinishReason: "stop"}
 		} else if !finished {
-			ch <- service.StreamChunk{Error: fmt.Errorf("Vertex stream closed before finish_reason: %w", io.ErrUnexpectedEOF)}
+			ch <- service.StreamChunk{Error: fmt.Errorf("stream from Vertex closed before finish_reason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
@@ -690,7 +690,8 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	r = r.Clone(r.Context())
 	r.Header.Del("Cookie")
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			req.URL = targetURL
 			req.Host = targetURL.Host
 

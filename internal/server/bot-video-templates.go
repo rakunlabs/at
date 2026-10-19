@@ -47,7 +47,7 @@ func listBotVideoTemplates(assets string) ([]botVideoTemplateSummary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open assets: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	dir, err := openStudioVideoRoot(root, "video-templates")
 	if errors.Is(err, os.ErrNotExist) {
 		return items, nil
@@ -55,12 +55,12 @@ func listBotVideoTemplates(assets string) ([]botVideoTemplateSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	f, err := dir.Open(".")
 	if err != nil {
 		return nil, fmt.Errorf("open template directory: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	entries, err := f.ReadDir(-1)
 	if err != nil {
 		return nil, fmt.Errorf("list templates: %w", err)

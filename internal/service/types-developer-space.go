@@ -150,10 +150,10 @@ type DeveloperSession struct {
 	// prompt, skills, MCP sets, built-in tools and confirmation list. Empty
 	// uses the built-in coding profile named by Mode. Provider/Model stay
 	// per session, so the agent's model is only the starting choice.
-	AgentID    string         `json:"agent_id,omitempty"`
-	Status     string         `json:"status"`
-	Provider   string         `json:"provider,omitempty"`
-	Model      string         `json:"model,omitempty"`
+	AgentID  string `json:"agent_id,omitempty"`
+	Status   string `json:"status"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 	// ReasoningEffort is sent with every model call of the session. Empty
 	// uses the agent's own effort (agent sessions) or the provider default.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`

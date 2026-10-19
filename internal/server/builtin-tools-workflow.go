@@ -149,13 +149,13 @@ func (s *Server) execWorkflowCreate(ctx context.Context, args map[string]any) (s
 		if s.hasTriggerNodes(record.Graph) {
 			record.UpdatedBy = "agent"
 			if _, err = s.workflowStore.UpdateWorkflow(ctx, record.ID, *record); err != nil {
-				// Non-fatal.
+				slog.Warn("workflow_create: failed to store synced trigger IDs", "workflow_id", record.ID, "error", err)
 			}
 		}
 
 		if cronChanged && s.scheduler != nil {
 			if err := s.scheduler.Reload(); err != nil {
-				// Non-fatal.
+				slog.Warn("workflow_create: failed to reload scheduler", "workflow_id", record.ID, "error", err)
 			}
 		}
 	}

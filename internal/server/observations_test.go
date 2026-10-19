@@ -392,9 +392,9 @@ func TestOrgDelegation_TaskCompleteToolStopsLoop(t *testing.T) {
 
 	// Expected observations: task_started, generation, tool(task_complete),
 	// task_completed — and no duplicate completion event.
-	obs := waitForObservations(t, obsStore, 4)
+	waitForObservations(t, obsStore, 4)
 	time.Sleep(100 * time.Millisecond) // catch any late duplicate event
-	obs = obsStore.snapshot()
+	obs := obsStore.snapshot()
 
 	var gens, completions int
 	for _, o := range obs {

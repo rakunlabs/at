@@ -109,7 +109,7 @@ func (p *Postgres) GetProviderBudgetPolicy(ctx context.Context, kind, id string)
 	if err != nil {
 		return nil, fmt.Errorf("begin provider budget read: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if _, _, err = p.providerBudgetAccess(ctx, tx, kind, id, "providers.read", true); err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (p *Postgres) SaveProviderBudgetPolicy(ctx context.Context, policy service.
 	if err != nil {
 		return nil, fmt.Errorf("begin provider budget save: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.providerBudgetActor(ctx, tx, policy.ResourceKind, policy.ResourceID, "providers.write")
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func (p *Postgres) DeleteProviderBudgetPolicy(ctx context.Context, kind, id stri
 	if err != nil {
 		return fmt.Errorf("begin provider budget delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if _, err = p.providerBudgetActor(ctx, tx, kind, id, "providers.write"); err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func (p *Postgres) authorizedProviderBudgetPolicy(ctx context.Context, policyID,
 	if err != nil {
 		return nil, service.AccessPrincipal{}, nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, grant, err := p.providerBudgetAccess(ctx, tx, row.ResourceKind, row.ResourceID, capability, true)
 	if err != nil {
 		return nil, service.AccessPrincipal{}, nil, err
@@ -358,7 +358,7 @@ func (p *Postgres) ReserveProviderBudget(ctx context.Context, resources []servic
 	if err != nil {
 		return nil, fmt.Errorf("begin provider budget reservation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	// A process can disappear after reserving but before settlement. Release
 	// abandoned reservations so a crash cannot permanently consume a budget.
 	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`
@@ -479,7 +479,7 @@ func (p *Postgres) SettleProviderBudget(ctx context.Context, reservationID strin
 	if err != nil {
 		return fmt.Errorf("begin provider budget settlement: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var rows []struct {
 		PolicyID    string    `db:"policy_id"`
 		PeriodStart time.Time `db:"period_start"`

@@ -19,7 +19,7 @@ func (p *Postgres) CreateAuthMobileRequest(ctx context.Context, r service.AuthMo
 	if err != nil {
 		return fmt.Errorf("begin mobile request: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var claimed bool
 	if _, err := tx.From(p.tableAuthBootstrap).Select("claimed").ForUpdate(goqu.Wait).ScanValContext(ctx, &claimed); err != nil {
 		return fmt.Errorf("lock mobile admission: %w", err)
@@ -62,7 +62,7 @@ func (p *Postgres) DecideAuthMobileRequest(ctx context.Context, id, userID, webS
 	if err != nil {
 		return nil, fmt.Errorf("begin mobile decision: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var u authUserRow
 	found, err := tx.From(p.tableAuthUsers).Select("id", "session_version").Where(goqu.Ex{"id": userID, "disabled": false}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &u)
 	if err != nil {
@@ -129,7 +129,7 @@ func (p *Postgres) RedeemAuthMobileCode(ctx context.Context, hash, challenge str
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin mobile redemption: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var candidate service.AuthMobileRequest
 	found, err := tx.From(p.tableAuthMobileRequests).Where(goqu.Ex{"code_hash": hash}, goqu.I("user_id").Neq("")).ScanStructContext(ctx, &candidate)
 	if err != nil {

@@ -558,7 +558,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusTooManyRequests {
@@ -591,7 +591,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 
 		// Track whether any tool calls have been seen across all SSE events.
@@ -706,7 +706,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		} else if !finished && sawOutput && len(pendingToolCalls) == 0 {
 			ch <- service.StreamChunk{FinishReason: "stop", Usage: lastUsage}
 		} else if !finished {
-			ch <- service.StreamChunk{Error: fmt.Errorf("Gemini stream closed before finishReason: %w", io.ErrUnexpectedEOF)}
+			ch <- service.StreamChunk{Error: fmt.Errorf("stream from Gemini closed before finishReason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
@@ -745,14 +745,15 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 			return fmt.Errorf("get Gemini proxy token: %w", err)
 		}
 		if token == "" {
-			return fmt.Errorf("Gemini proxy token is empty")
+			return fmt.Errorf("proxy token for Gemini is empty")
 		}
 	}
 	r = r.Clone(r.Context())
 	r.Header.Del("Authorization")
 	r.Header.Del("Cookie")
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			req.URL = targetURL
 			req.Host = targetURL.Host
 			if p.tokenSource != nil {
@@ -1251,7 +1252,7 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				argsStr, _ := fn["arguments"].(string)
 				var args map[string]any
 				if argsStr != "" {
-					json.Unmarshal([]byte(argsStr), &args)
+					_ = json.Unmarshal([]byte(argsStr), &args)
 				}
 				thoughtSig, _ := tcMap["thought_signature"].(string)
 				id, _ := tcMap["id"].(string)
@@ -1513,7 +1514,7 @@ func (p *Provider) fetchImageAsInlineData(ctx context.Context, url string) (*inl
 	if err != nil {
 		return nil, fmt.Errorf("fetch image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch image: status %d", resp.StatusCode)

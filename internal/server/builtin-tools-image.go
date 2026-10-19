@@ -426,7 +426,7 @@ func fetchGeneratedImage(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download generated image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download generated image: status %d", resp.StatusCode)
 	}
@@ -447,7 +447,7 @@ func writeGeneratedImages(dir string, images []generatedImageFile) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("open work directory: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	var paths []string
 	for _, image := range images {
 		name := "image-" + strings.ToLower(ulid.Make().String()) + image.ext
@@ -473,7 +473,7 @@ func (s *Server) storeGeneratedImages(ctx context.Context, images []generatedIma
 	if err != nil {
 		return nil, "", fmt.Errorf("create staging directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer os.RemoveAll(dir) //nolint:errcheck
 	paths, err := writeGeneratedImages(dir, images)
 	if err != nil {
 		return nil, "", err
@@ -482,7 +482,7 @@ func (s *Server) storeGeneratedImages(ctx context.Context, images []generatedIma
 	if err != nil {
 		return nil, "", fmt.Errorf("open staging directory: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	pending := make([]pendingArtifact, 0, len(paths))
 	for _, p := range paths {
 		pending = append(pending, pendingArtifact{name: filepath.Base(p)})

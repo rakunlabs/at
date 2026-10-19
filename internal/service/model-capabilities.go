@@ -255,9 +255,9 @@ func claudeRejectsSampling(id string) bool {
 		return true
 	}
 	major, minor := 0, 0
-	fmt.Sscanf(m[2], "%d", &major)
+	_, _ = fmt.Sscanf(m[2], "%d", &major)
 	if m[3] != "" {
-		fmt.Sscanf(m[3], "%d", &minor)
+		_, _ = fmt.Sscanf(m[3], "%d", &minor)
 	}
 	switch family {
 	case "opus":
@@ -329,7 +329,7 @@ func detectOpenAICapabilities(caps *ModelCapabilities, id string) {
 		return
 	}
 
-	reasoning := caps.ReasoningEfforts != nil && len(caps.ReasoningEfforts) > 0
+	reasoning := len(caps.ReasoningEfforts) > 0
 	_, family := openAIReasoningEfforts(id)
 	isO := oRe.MatchString(id)
 	m := gptRe.FindStringSubmatch(id)
@@ -338,7 +338,7 @@ func detectOpenAICapabilities(caps *ModelCapabilities, id string) {
 	}
 	if m != nil {
 		major := 0
-		fmt.Sscanf(m[1], "%d", &major)
+		_, _ = fmt.Sscanf(m[1], "%d", &major)
 		if major < 4 || (major == 4 && !strings.HasPrefix(id, "gpt-4o") && !strings.HasPrefix(id, "gpt-4.1")) {
 			// gpt-3.5 / original gpt-4: text only, not worth modelling.
 			caps.InputModalities = []string{ModalityText}

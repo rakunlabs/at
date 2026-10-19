@@ -122,8 +122,8 @@ func sanitizeForFilename(s string) string {
 	out := make([]byte, len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		switch {
-		case c == '/' || c == '\\' || c == ':' || c == '.' || c == ' ':
+		switch c {
+		case '/', '\\', ':', '.', ' ':
 			out[i] = '_'
 		default:
 			out[i] = c

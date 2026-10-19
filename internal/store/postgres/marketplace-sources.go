@@ -61,7 +61,7 @@ func (p *Postgres) ListMarketplaceSources(ctx context.Context) ([]service.Market
 	if err != nil {
 		return nil, fmt.Errorf("list marketplace sources: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.MarketplaceSource
 	for rows.Next() {

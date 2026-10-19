@@ -149,7 +149,7 @@ func (p *Provider) postEmbedding(ctx context.Context, path string, jsonData []by
 	if err != nil {
 		return nil, fmt.Errorf("gemini embed http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, embeddingResponseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read embed response: %w", err)

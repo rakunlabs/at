@@ -338,7 +338,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	if err != nil {
 		return nil, fmt.Errorf("bedrock http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -883,7 +883,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Meter the passthrough. This adapter relays by hand rather than through a
 	// ReverseProxy, so the hook is applied directly; it wraps resp.Body, and the

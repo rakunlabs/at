@@ -88,7 +88,7 @@ func WriteRunFile(ctx context.Context, relPath string, r io.Reader, limit int64,
 	if err != nil {
 		return RunFile{}, err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 
 	if dir := filepath.Dir(name); dir != "." {
 		if err := root.MkdirAll(dir, 0o755); err != nil {

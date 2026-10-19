@@ -23,7 +23,7 @@ func (s *Server) TranscribeAudioAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	// Save to temp file
 	dir := fmt.Sprintf("/tmp/at-audio/%d", time.Now().UnixNano())
@@ -44,11 +44,11 @@ func (s *Server) TranscribeAudioAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := io.Copy(out, file); err != nil {
-		out.Close()
+		_ = out.Close()
 		http.Error(w, "failed to save file", http.StatusInternalServerError)
 		return
 	}
-	out.Close()
+	_ = out.Close()
 
 	// Get transcription method: query param > variable > default "openai"
 	method := r.URL.Query().Get("method")
@@ -76,7 +76,7 @@ func (s *Server) TranscribeAudioAPI(w http.ResponseWriter, r *http.Request) {
 	text := s.transcribeAudioWithConfig(r.Context(), tempPath, method, model)
 
 	// Clean up temp file
-	defer os.RemoveAll(dir)
+	defer os.RemoveAll(dir) //nolint:errcheck
 
 	if text == "" {
 		http.Error(w, "transcription failed", http.StatusInternalServerError)
@@ -84,7 +84,7 @@ func (s *Server) TranscribeAudioAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"text": text,
 	})
 }

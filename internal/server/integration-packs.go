@@ -577,7 +577,7 @@ func (s *Server) InstallIntegrationPackAPI(w http.ResponseWriter, r *http.Reques
 							oa.ParentAgentID = parentID
 						}
 					}
-					s.orgAgentStore.CreateOrganizationAgent(ctx, oa)
+					_, _ = s.orgAgentStore.CreateOrganizationAgent(ctx, oa)
 					if rel.IsHead {
 						headAgentID = agentID
 					}
@@ -585,7 +585,7 @@ func (s *Server) InstallIntegrationPackAPI(w http.ResponseWriter, r *http.Reques
 				if headAgentID != "" {
 					created.HeadAgentID = headAgentID
 					created.UpdatedBy = userEmail
-					s.organizationStore.UpdateOrganization(ctx, created.ID, *created)
+					_, _ = s.organizationStore.UpdateOrganization(ctx, created.ID, *created)
 				}
 			}
 		}
@@ -744,7 +744,7 @@ func (s *Server) AddSkillToPackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skillsDir := filepath.Join(packDir, "skills")
-	os.MkdirAll(skillsDir, 0o755)
+	_ = os.MkdirAll(skillsDir, 0o755)
 
 	filename := strings.ReplaceAll(req.Name, " ", "-") + ".md"
 	if err := os.WriteFile(filepath.Join(skillsDir, filename), data, 0o644); err != nil {
@@ -799,7 +799,7 @@ func (s *Server) AddAgentToPackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentsDir := filepath.Join(packDir, "agents")
-	os.MkdirAll(agentsDir, 0o755)
+	_ = os.MkdirAll(agentsDir, 0o755)
 
 	filename := strings.ReplaceAll(req.Name, " ", "-") + ".md"
 	if err := os.WriteFile(filepath.Join(agentsDir, filename), data, 0o644); err != nil {
@@ -837,7 +837,7 @@ func (s *Server) AddMCPSetToPackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mcpDir := filepath.Join(packDir, "mcp_sets")
-	os.MkdirAll(mcpDir, 0o755)
+	_ = os.MkdirAll(mcpDir, 0o755)
 
 	filename := strings.ReplaceAll(req.Name, " ", "-") + ".json"
 	if err := os.WriteFile(filepath.Join(mcpDir, filename), data, 0o644); err != nil {

@@ -39,7 +39,7 @@ func (s *Server) DeveloperSpaceTerminalAPI(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
-	defer ws.Close()
+	defer ws.Close() //nolint:errcheck
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	// A folder deleted since the tab was opened falls back to the space root

@@ -224,7 +224,7 @@ func TestKubernetesClusterLifecycleAndExec(t *testing.T) {
 	})
 	t.Run("controller exclusivity", func(t *testing.T) {
 		second := newControllerOwnership(d.client.CoordinationV1().Leases(d.opts.Namespace), d.opts.DeploymentID)
-		defer second.Close()
+		defer second.Close() //nolint:errcheck
 		if _, _, err := second.begin(ctx); !errors.Is(err, errControllerOwnership) {
 			t.Fatalf("second controller admitted: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestKubernetesClusterCancellationAndTTY(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer term.Close()
+			defer term.Close() //nolint:errcheck
 			result := make(chan string, 1)
 			go func() { data, _ := io.ReadAll(term); result <- string(data) }()
 			if err := term.Resize(100, 32); err != nil {

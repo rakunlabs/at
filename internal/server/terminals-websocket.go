@@ -54,7 +54,7 @@ func (s *Server) TerminalWebSocketAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer ws.Close()
+	defer ws.Close() //nolint:errcheck
 	ws.SetReadLimit(32768)
 	_ = ws.SetReadDeadline(time.Now().Add(40 * time.Second))
 	ws.SetPongHandler(func(string) error { return ws.SetReadDeadline(time.Now().Add(40 * time.Second)) })
@@ -112,8 +112,8 @@ func (s *Server) TerminalWebSocketAPI(w http.ResponseWriter, r *http.Request) {
 		m.outputs[req.Link] = terminalOutput{peer: peer.String(), writer: writer}
 		m.mu.Unlock()
 		defer func() {
-			reader.Close()
-			writer.Close()
+			_ = reader.Close()
+			_ = writer.Close()
 			m.mu.Lock()
 			delete(m.outputs, req.Link)
 			m.mu.Unlock()
@@ -141,11 +141,11 @@ func (s *Server) TerminalWebSocketAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	// All goroutines are bounded by the attachment context. Closing the local
 	// PTY kills only tmux's attached client, not its independent system service.
-	defer output.Close()
+	defer output.Close() //nolint:errcheck
 	go func() {
 		<-ctx.Done()
-		ws.Close()
-		output.Close()
+		_ = ws.Close()
+		_ = output.Close()
 	}()
 	go func() {
 		defer cancel()

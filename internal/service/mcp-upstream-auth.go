@@ -100,7 +100,7 @@ func NormalizeMCPUpstreamAuth(upstreams []MCPUpstream) error {
 		a.Scopes = scopes
 		a.ClientID = strings.TrimSpace(a.ClientID)
 		a.AuthorizationServer = strings.TrimSpace(a.AuthorizationServer)
-		if a.AuthorizationServer != "" && !strings.HasPrefix(a.AuthorizationServer, "https://") && !(strings.HasPrefix(a.AuthorizationServer, "http://") && mcpauth.AllowsPrivate(u.URL)) {
+		if a.AuthorizationServer != "" && !strings.HasPrefix(a.AuthorizationServer, "https://") && !(strings.HasPrefix(a.AuthorizationServer, "http://") && mcpauth.AllowsPrivate(u.URL)) { //nolint:staticcheck // QF1001: keep the un-negated condition readable
 			return fmt.Errorf("%s: the authorization server must be an https URL", label)
 		}
 	}

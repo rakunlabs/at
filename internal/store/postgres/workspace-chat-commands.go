@@ -91,7 +91,7 @@ func (p *Postgres) ListWorkspaceChatCommands(ctx context.Context, workspaceID st
 	if err != nil {
 		return nil, fmt.Errorf("list workspace chat commands: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	items := []service.WorkspaceChatCommand{}
 	for rows.Next() {

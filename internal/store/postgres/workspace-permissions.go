@@ -63,7 +63,7 @@ func (p *Postgres) ListPermissions(ctx context.Context) ([]service.PermissionBun
 	if err != nil {
 		return nil, fmt.Errorf("begin permission list: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.read")
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (p *Postgres) SavePermission(ctx context.Context, b service.PermissionBundl
 	if err != nil {
 		return nil, fmt.Errorf("begin permission save: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (p *Postgres) DeletePermission(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("begin permission delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return err
@@ -189,7 +189,7 @@ func (p *Postgres) GetUserPermissions(ctx context.Context, userID string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("begin user permissions: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.read")
 	if err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func (p *Postgres) SetUserPermissions(ctx context.Context, userID string, ids []
 	if err != nil {
 		return fmt.Errorf("begin assign permissions: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return err
@@ -260,7 +260,7 @@ func (p *Postgres) SetUserDenied(ctx context.Context, userID string, keys []stri
 	if err != nil {
 		return fmt.Errorf("begin denied permissions: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return err
@@ -301,7 +301,7 @@ func (p *Postgres) ListPermissionMappings(ctx context.Context) ([]service.Permis
 	if err != nil {
 		return nil, fmt.Errorf("begin mapping list: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.read")
 	if err != nil {
 		return nil, err
@@ -332,7 +332,7 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 	if err != nil {
 		return nil, fmt.Errorf("begin mapping save: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return nil, err
@@ -407,7 +407,7 @@ func (p *Postgres) DeletePermissionMapping(ctx context.Context, id string) error
 	if err != nil {
 		return fmt.Errorf("begin mapping delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "permissions.manage")
 	if err != nil {
 		return err

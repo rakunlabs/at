@@ -59,7 +59,7 @@ func (p *Postgres) ListPackSources(ctx context.Context, q *query.Query) (*servic
 	if err != nil {
 		return nil, fmt.Errorf("list pack sources: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.PackSource
 	for rows.Next() {

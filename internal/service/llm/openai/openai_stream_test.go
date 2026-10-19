@@ -21,7 +21,7 @@ func newSSEServer(t *testing.T, events []string) *httptest.Server {
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
 		for _, ev := range events {
-			fmt.Fprintf(w, "data: %s\n\n", ev)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", ev)
 			if flusher != nil {
 				flusher.Flush()
 			}

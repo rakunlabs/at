@@ -72,7 +72,7 @@ func (p *Postgres) ReserveProviderQuota(ctx context.Context, providerID, model s
 	if err != nil {
 		return nil, fmt.Errorf("begin provider quota: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	// One physical account row serializes admission and settlement across models,
 	// users and replicas; never lock by a workspace-local bare key.
 	var raw string
@@ -159,7 +159,7 @@ func (p *Postgres) SettleProviderQuota(ctx context.Context, id string, tokens in
 	if err != nil {
 		return fmt.Errorf("begin quota settlement: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	table := p.workspaceTable("provider_quota_reservations")
 	var providerID string
 	found, err := tx.From(table).Select("provider_id").Where(goqu.C("id").Eq(id)).ScanValContext(ctx, &providerID)

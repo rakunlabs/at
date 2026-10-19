@@ -464,7 +464,7 @@ func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
 	if HasDurableWait(graph, entryNodeIDs) {
-		err := fmt.Errorf("Wait requires a durable workflow launch; partial tests and nested calls cannot cross a Wait node")
+		err := fmt.Errorf("a Wait node requires a durable workflow launch; partial tests and nested calls cannot cross a Wait node")
 		signalOutput(nil, err)
 		return nil, err
 	}

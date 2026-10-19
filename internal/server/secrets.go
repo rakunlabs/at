@@ -13,11 +13,6 @@ import (
 
 // ─── Variable CRUD API ───
 
-// variablesResponse wraps a list of variable records for JSON output.
-type variablesResponse struct {
-	Variables []service.Variable `json:"variables"`
-}
-
 // ListVariablesAPI handles GET /api/v1/variables.
 // Secret variable values are redacted; non-secret values are shown inline.
 func (s *Server) ListVariablesAPI(w http.ResponseWriter, r *http.Request) {

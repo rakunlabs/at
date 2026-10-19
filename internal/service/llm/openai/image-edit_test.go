@@ -68,7 +68,7 @@ func TestOpenAIEditImageMultipart(t *testing.T) {
 				for _, fh := range r.MultipartForm.File[tt.field] {
 					f, _ := fh.Open()
 					data, _ := io.ReadAll(f)
-					f.Close()
+					_ = f.Close()
 					if string(data) == "png" && fh.Header.Get("Content-Type") == "image/png" {
 						gotFiles++
 					}

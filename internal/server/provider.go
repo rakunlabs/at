@@ -256,11 +256,6 @@ type providerResponse struct {
 	service.ProviderRecord
 }
 
-// providersResponse wraps a list of provider records for JSON output.
-type providersResponse struct {
-	Providers []service.ProviderRecord `json:"providers"`
-}
-
 // ListProvidersAPI handles GET /api/v1/providers.
 func (s *Server) ListProvidersAPI(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {

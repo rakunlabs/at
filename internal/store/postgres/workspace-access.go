@@ -78,7 +78,7 @@ func (p *Postgres) resolveWorkspaceAccessSnapshot(ctx context.Context, workspace
 	if err != nil {
 		return service.AccessPrincipal{}, service.EffectiveAccess{}, fmt.Errorf("begin workspace resolution: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var w service.Workspace
 	found, err := tx.From(p.workspaceTable("workspaces")).Select("id", "name", "archived", "execution_enabled", "created_at").Where(goqu.Ex{"id": workspaceID, "archived": false}).ForShare(goqu.Wait).ScanStructContext(ctx, &w)
 	if err != nil {
@@ -101,7 +101,7 @@ func (p *Postgres) ensureDefaultWorkspaceOwner(ctx context.Context, userID, sess
 	if err != nil {
 		return fmt.Errorf("begin default owner: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	u, err := p.workspaceIdentity(ctx, tx, userID, sessionID)
 	if err != nil {
 		return err
@@ -140,7 +140,7 @@ func (p *Postgres) ensureMappedMemberships(ctx context.Context, userID, sessionI
 	if err != nil {
 		return false, fmt.Errorf("begin claim admission: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	u, err := p.workspaceIdentity(ctx, tx, userID, sessionID)
 	if err != nil {
 		return false, err

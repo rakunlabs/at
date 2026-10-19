@@ -82,11 +82,11 @@ func (s *SystemSettings) Normalize() error {
 	switch s.Sandbox.Backend {
 	case "docker":
 		if s.Sandbox.Kubernetes != nil {
-			return fmt.Errorf("Kubernetes settings require the Kubernetes backend")
+			return fmt.Errorf("settings for Kubernetes require the Kubernetes backend")
 		}
 	case "kubernetes":
 		if s.Sandbox.Kubernetes == nil {
-			return fmt.Errorf("Kubernetes settings are required")
+			return fmt.Errorf("settings for Kubernetes are required")
 		}
 		k, err := NormalizeKubernetesSandbox(*s.Sandbox.Kubernetes)
 		if err != nil {
@@ -102,7 +102,7 @@ func (s *SystemSettings) Normalize() error {
 // NormalizeKubernetesSandbox is shared by persistence and driver construction.
 func NormalizeKubernetesSandbox(opts KubernetesSandbox) (KubernetesSandbox, error) {
 	if !opts.SingleReplica {
-		return opts, fmt.Errorf("Kubernetes sandboxes require one AT replica and single_replica: true")
+		return opts, fmt.Errorf("sandboxes on Kubernetes require one AT replica and single_replica: true")
 	}
 	if !opts.NetworkPolicyEnforced {
 		return opts, fmt.Errorf("verify the cluster CNI enforces NetworkPolicy before enabling network_policy_enforced")

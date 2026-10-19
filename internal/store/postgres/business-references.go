@@ -83,15 +83,15 @@ func (p *Postgres) beginTriggerWrite(ctx context.Context, id string) (*businessW
 	var target string
 	found, err := w.tx.From(p.tableTriggers).Select("target_id").Where(w.predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanValContext(ctx, &target)
 	if err != nil {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, fmt.Errorf("lock trigger: %w", err)
 	}
 	if !found {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessResourceNotFound
 	}
 	if !w.actor.Allows("workflows.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: target}) {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	return w, nil
@@ -118,15 +118,15 @@ func (p *Postgres) beginOrgAgentWrite(ctx context.Context, id string) (*business
 	}
 	found, err := w.tx.From(p.tableOrganizationAgents).Where(w.predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
 	if err != nil {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, fmt.Errorf("lock organization agent: %w", err)
 	}
 	if !found {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessResourceNotFound
 	}
 	if !w.actor.Allows("organizations.write", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: row.OrganizationID}) {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	return w, nil

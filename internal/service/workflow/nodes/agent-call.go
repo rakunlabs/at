@@ -315,7 +315,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	var mcpClients []service.MCPClient
 	defer func() {
 		for _, c := range mcpClients {
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 
@@ -932,10 +932,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					ctx = iterationCtx
 					continue
 				}
-				if hi.handlerType == "bash" {
+				switch hi.handlerType {
+				case "bash":
 					// Execute bash handler.
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
-				} else if hi.handlerType == "builtin" {
+				case "builtin":
 					// Execute builtin tool via dispatcher.
 					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
 					if reg.AgentRunner != nil && (tc.Name == "agent_run" || tc.Name == "agent_run_status" || tc.Name == "agent_run_cancel") {
@@ -949,7 +950,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						result, callErr = reg.BuiltinToolDispatcher(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return toolHandlers[name].handlerType == "builtin" }), tc.Name, tc.Arguments)
 					}
 					cancel()
-				} else if hi.handlerType == "workflow" {
+				case "workflow":
 					// Execute an agent-attached workflow via the engine-owned executor.
 					if reg.WorkflowExecutor == nil || reg.WorkflowLookup == nil {
 						callErr = fmt.Errorf("workflow executor not configured")
@@ -961,7 +962,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 							result, callErr = reg.WorkflowExecutor(ctx, wf, tc.Arguments)
 						}
 					}
-				} else if hi.handlerType == "agent" {
+				case "agent":
 					// Execute sub-agent.
 					// hi.handler contains the agent ID.
 					// tc.Arguments["task"] contains the prompt.
@@ -969,7 +970,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					subAgentID := hi.handler
 
 					result, callErr = runIsolatedSubagent(ctx, reg, subAgentID, task, "", "")
-				} else {
+				default:
 					// Arbitrary handlers receive only the non-secret variable view
 					// prepared by the server. Secret references resolve only at
 					// approved tool boundaries.

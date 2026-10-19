@@ -23,7 +23,7 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
@@ -98,7 +98,7 @@ func TestWebhookServerEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
@@ -188,7 +188,7 @@ func TestWebhookServerEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer ln.Close() //nolint:errcheck
 	srv.Enabled, srv.AllowedCIDRs, srv.Port = true, nil, ln.Addr().(*net.TCPAddr).Port
 	if _, err := f.store.UpdateWebhookServer(f.ctx, srv.ID, *srv); err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestVerifyWebhookSignature(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	stripe := func(secret string, ts int64) string {
 		mac := hmac.New(sha256.New, []byte(secret))
-		fmt.Fprintf(mac, "%d.%s", ts, body)
+		_, _ = fmt.Fprintf(mac, "%d.%s", ts, body)
 		return fmt.Sprintf("t=%d,v1=deadbeef,v1=%s", ts, hex.EncodeToString(mac.Sum(nil)))
 	}
 	tests := []struct {

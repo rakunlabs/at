@@ -167,36 +167,6 @@ func slugifyForBrief(title string) string {
 	return out
 }
 
-// summarizeChildResult returns a compact one-line summary of a child
-// task's result for use when the Director records the outcome.
-// Caller-side use (org_task_intake response, task_create response).
-//
-// It pulls out the most useful artifacts:
-//   - File paths (.mp4, .png, .mp3)
-//   - "title:" / "video_file:" lines from manifests
-//
-// and keeps the total under maxBytes. The full result is still on disk
-// (in task.Result) for any agent that genuinely needs it.
-func summarizeChildResult(result string, maxBytes int) string {
-	result = strings.TrimSpace(result)
-	if result == "" {
-		return ""
-	}
-	if maxBytes <= 0 {
-		maxBytes = 800
-	}
-	if len(result) <= maxBytes {
-		return result
-	}
-	// Grab the first interesting block (often a JSON manifest with
-	// video_file / title keys) plus any file paths sprinkled later.
-	head := result[:maxBytes]
-	if idx := strings.LastIndex(head, "\n"); idx > maxBytes/2 {
-		head = head[:idx]
-	}
-	return head + "\n... (truncated, full result on task.Result)"
-}
-
 // briefServiceTask is a tiny interface so this file doesn't import
 // service-specific packages just to access a Task's Description; kept
 // at package scope to make the unit-test friction low.

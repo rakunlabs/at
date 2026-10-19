@@ -36,7 +36,7 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.APIToken
 	for rows.Next() {
@@ -127,7 +127,7 @@ func (p *Postgres) CreateAPIToken(ctx context.Context, token service.APIToken, t
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if token.OwnerUserID != "" && token.OwnerUserID != w.actor.UserID {
 		return nil, service.ErrAccessDenied
 	}
@@ -186,7 +186,7 @@ func (p *Postgres) DeleteAPIToken(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableAPITokens).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -210,7 +210,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if token.WorkspaceID != "" && token.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -293,7 +293,7 @@ func (p *Postgres) RotateAPIToken(ctx context.Context, id, tokenHash, tokenPrefi
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	stmt, _, err := p.goqu.Update(p.tableAPITokens).Set(goqu.Record{
 		"token_hash":   tokenHash,
@@ -371,7 +371,7 @@ func (p *Postgres) SetAPITokenPaused(ctx context.Context, id string, paused bool
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	stmt, _, err := p.goqu.Update(p.tableAPITokens).
 		Set(goqu.Record{"paused": paused, "updated_by": updatedBy}).
 		Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()

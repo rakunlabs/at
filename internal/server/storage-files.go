@@ -156,7 +156,7 @@ func (s *Server) StorageFileUploadAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "file field is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" {
 		name = header.Filename
@@ -223,7 +223,7 @@ func (s *Server) StorageFileServeAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage could not return the file", http.StatusBadGateway)
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	data, err := io.ReadAll(io.LimitReader(reader, storageFileMaxBytes+1))
 	if err != nil {
 		http.Error(w, "stored file is incomplete", http.StatusBadGateway)

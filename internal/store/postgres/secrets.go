@@ -48,7 +48,7 @@ func (p *Postgres) ListVariables(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("list variables: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -163,7 +163,7 @@ func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*ser
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if v.WorkspaceID != "" && v.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -245,7 +245,7 @@ func (p *Postgres) UpdateVariable(ctx context.Context, id string, v service.Vari
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if v.WorkspaceID != "" && v.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -329,7 +329,7 @@ func (p *Postgres) DeleteVariable(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableVariables).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()

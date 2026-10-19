@@ -64,7 +64,7 @@ func TestExplicitThinkingWinsOverEffort(t *testing.T) {
 }
 
 func TestExplicitAdaptiveAndDisabledThinking(t *testing.T) {
-	for _, mode := range []string{"adaptive", "disabled"} {
+	for _, mode := range []string{"adaptive", "disabled", "between_tools"} {
 		t.Run(mode, func(t *testing.T) {
 			p := &Provider{MaxTokens: 32768, tokenSource: NewStaticTokenSource("test-token")}
 			body := p.buildRequestBody("claude-opus-4-7", nil, nil, &service.ChatOptions{
@@ -75,7 +75,7 @@ func TestExplicitAdaptiveAndDisabledThinking(t *testing.T) {
 				t.Fatalf("thinking = %+v", thinking)
 			}
 			cfg, _ := body["output_config"].(map[string]any)
-			if mode == "adaptive" && cfg["effort"] != "high" || mode == "disabled" && cfg != nil {
+			if mode != "disabled" && cfg["effort"] != "high" || mode == "disabled" && cfg != nil {
 				t.Fatalf("output_config = %+v", cfg)
 			}
 		})

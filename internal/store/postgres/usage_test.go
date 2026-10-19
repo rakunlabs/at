@@ -45,12 +45,12 @@ func seedCostEvents(t *testing.T, store *Postgres) {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			t.Fatalf("scan id: %v", err)
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	if len(ids) != len(events) {
 		t.Fatalf("expected %d seeded rows, got %d", len(events), len(ids))

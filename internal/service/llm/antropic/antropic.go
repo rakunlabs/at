@@ -570,7 +570,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
 		slog.Error("anthropic stream error",
@@ -613,7 +613,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	go func() {
 		defer close(ch)
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 
 		// Track the current content block for tool_use streaming.
@@ -806,7 +806,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				Usage:        usagePtr(anthropicServiceUsage(usage)),
 			}
 		} else {
-			ch <- service.StreamChunk{Error: fmt.Errorf("Anthropic stream closed before message_stop: %w", io.ErrUnexpectedEOF)}
+			ch <- service.StreamChunk{Error: fmt.Errorf("stream from Anthropic closed before message_stop: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
@@ -861,7 +861,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 			return fmt.Errorf("get Anthropic proxy token: %w", err)
 		}
 		if token == "" {
-			return fmt.Errorf("Anthropic proxy token is empty")
+			return fmt.Errorf("proxy token for Anthropic is empty")
 		}
 		if r.Body != nil {
 			bodyBytes, readErr := io.ReadAll(r.Body)
@@ -876,7 +876,8 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		}
 	}
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			req.URL = targetURL
 			req.Host = targetURL.Host
 
@@ -1146,9 +1147,11 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 
 		// Thinking / extended thinking support.
 		// Direct thinking config takes precedence over reasoning_effort mapping.
-		if opts.Thinking != nil && (opts.Thinking.Type == "adaptive" || opts.Thinking.Type == "disabled") {
+		// between_tools (Sonnet 5.5) skips up-front thinking and, like
+		// adaptive, is steered by effort; the API rejects it at xhigh/max.
+		if opts.Thinking != nil && (opts.Thinking.Type == "adaptive" || opts.Thinking.Type == "disabled" || opts.Thinking.Type == "between_tools") {
 			reqBody["thinking"] = map[string]any{"type": opts.Thinking.Type}
-			if opts.Thinking.Type == "adaptive" && opts.ReasoningEffort != "" {
+			if opts.Thinking.Type != "disabled" && opts.ReasoningEffort != "" {
 				reqBody["output_config"] = map[string]any{"effort": opts.ReasoningEffort}
 			}
 		} else if opts.Thinking != nil && opts.Thinking.Type == "enabled" {

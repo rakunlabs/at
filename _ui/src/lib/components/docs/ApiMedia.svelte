@@ -30,8 +30,8 @@
   <DocsEndpoint method="POST" path="/gateway/v1/images/generations" {baseUrl} />
   <div class="docs-prose">
     <p>
-      Supported by OpenAI providers with an API key (<code>gpt-image-*</code>,
-      <code>dall-e-*</code>), OpenAI providers using ChatGPT sign-in (billed to the subscription)
+      Supported by OpenAI providers with an API key (<code>gpt-image-*</code>; the default is
+      <code>gpt-image-2.5-flare</code>), OpenAI providers using ChatGPT sign-in (billed to the subscription)
       and MiniMax. Fields: <code>prompt</code>, <code>size</code>, <code>quality</code>,
       <code>background</code>, <code>n</code>.
     </p>

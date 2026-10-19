@@ -107,7 +107,7 @@ func TestHTTPMCPClient_StreamableHTTP(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			result := `{"protocolVersion":"2025-03-26","serverInfo":{"name":"test","version":"1.0"}}`
-			w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":" +
+			_, _ = w.Write([]byte("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":" +
 				itoa(req.ID) + ",\"result\":" + result + "}\n\n"))
 		case "notifications/initialized", "notifications/cancelled":
 			w.WriteHeader(http.StatusAccepted)
@@ -119,7 +119,7 @@ func TestHTTPMCPClient_StreamableHTTP(t *testing.T) {
 				t.Errorf("MCP-Protocol-Version = %q, want 2025-03-26", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) +
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) +
 				`,"result":{"tools":[{"name":"t1","description":"d","inputSchema":{}}]}}`))
 		default:
 			t.Errorf("unexpected method %q", req.Method)
@@ -134,7 +134,7 @@ func TestHTTPMCPClient_StreamableHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTPMCPClient: %v", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	if client.sessionID != "sess-123" {
 		t.Errorf("sessionID = %q, want sess-123", client.sessionID)
@@ -195,9 +195,9 @@ func TestHTTPMCPClientDialsConfiguredPath(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch req.Method {
 		case "initialize":
-			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"t","version":"1"}}}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"t","version":"1"}}}`))
 		case "tools/list":
-			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"tools":[]}}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"tools":[]}}`))
 		default:
 			// notifications/initialized, notifications/cancelled, ...
 			w.WriteHeader(http.StatusAccepted)
@@ -209,7 +209,7 @@ func TestHTTPMCPClientDialsConfiguredPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTPMCPClient: %v", err)
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	if _, err := client.ListTools(context.Background()); err != nil {
 		t.Fatalf("ListTools: %v", err)
@@ -234,7 +234,7 @@ func TestHTTPMCPClientCloseIsBounded(t *testing.T) {
 		switch req.Method {
 		case "initialize":
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"test","version":"1"}}}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"test","version":"1"}}}`))
 		case "notifications/initialized":
 			w.WriteHeader(http.StatusAccepted)
 		case "notifications/cancelled":

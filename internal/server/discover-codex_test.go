@@ -41,11 +41,11 @@ func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 			var body map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			if body["refresh_token"] != "refresh-one" {
-				http.Error(w, "refresh token reused", 401)
+				http.Error(w, "refresh token reused", http.StatusUnauthorized)
 				return
 			}
 			if rotations.Add(1) != 1 {
-				http.Error(w, "refresh token reused", 401)
+				http.Error(w, "refresh token reused", http.StatusUnauthorized)
 				return
 			}
 			_, _ = w.Write([]byte(`{"access_token":"access-new","refresh_token":"refresh-new","expires_in":3600}`))
@@ -62,7 +62,7 @@ func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 			want = "Bearer access-two"
 		}
 		if r.Header.Get("Authorization") != want {
-			http.Error(w, "wrong account credential", 401)
+			http.Error(w, "wrong account credential", http.StatusUnauthorized)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]string{{"slug": "model-" + account}}})

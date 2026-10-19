@@ -63,7 +63,7 @@ func (s *Server) MCPListToolsAPI(w http.ResponseWriter, r *http.Request) {
 			errors = append(errors, fmt.Sprintf("%s: %v", mcpURL, err))
 			continue
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		tools, err := client.ListTools(r.Context())
 		if err != nil {
@@ -148,7 +148,7 @@ func (s *Server) MCPCallToolAPI(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusOK)
 		return
 	}
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	result, err := client.CallTool(r.Context(), req.Name, req.Arguments)
 	if err != nil {

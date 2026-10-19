@@ -30,7 +30,7 @@ func TestWorkspacePostgresLegacyOwnershipMigration(t *testing.T) {
 	id := ulid.Make().String()
 	prefix := strings.ToLower("t" + id[len(id)-10:] + "_")
 	p := &Postgres{db: db, goqu: goqu.New("postgres", db), tableAuthUsers: goqu.T(prefix + "auth_users"), tableAuthSessions: goqu.T(prefix + "auth_sessions")}
-	t.Cleanup(func() { dropTestTables(t, p, prefix); db.Close() })
+	t.Cleanup(func() { dropTestTables(t, p, prefix); _ = db.Close() })
 	legacy := fstest.MapFS{}
 	entries, err := migrationFS.ReadDir("migrations")
 	if err != nil {

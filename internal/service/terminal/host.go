@@ -79,7 +79,7 @@ func lookupUser(ctx context.Context, name string) (*User, error) {
 			return &u, nil
 		}
 	}
-	return nil, fmt.Errorf("Linux user %q has no interactive login shell", name)
+	return nil, fmt.Errorf("user %q has no interactive login shell", name)
 }
 
 func validID(id string) error {

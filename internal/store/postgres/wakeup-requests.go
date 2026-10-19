@@ -208,7 +208,7 @@ func (p *Postgres) ListPendingForAgent(ctx context.Context, agentID string) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("list pending wakeup requests for agent %q: %w", agentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.WakeupRequest
 	for rows.Next() {

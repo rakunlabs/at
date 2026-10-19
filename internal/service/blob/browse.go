@@ -62,7 +62,7 @@ func (f *filesystemStore) ListDirectory(ctx context.Context, prefix string) ([]E
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := rejectStorageSymlinks(root, strings.TrimSuffix(prefix, "/")); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return []Entry{}, nil
@@ -76,7 +76,7 @@ func (f *filesystemStore) ListDirectory(ctx context.Context, prefix string) ([]E
 	if err != nil {
 		return nil, fmt.Errorf("open storage directory: %w", err)
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	entries := make([]Entry, 0)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -150,7 +150,7 @@ func (s *s3Store) ListDirectory(ctx context.Context, prefix string) ([]Entry, er
 			Prefixes []struct{ Prefix string } `xml:"CommonPrefixes"`
 		}
 		err = xml.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&result)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("decode S3 directory: %w", err)
 		}

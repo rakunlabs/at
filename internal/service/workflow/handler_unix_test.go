@@ -30,8 +30,8 @@ func TestExecuteBashHandler_KillsChildProcessGroupOnCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	pidPath := pidFile.Name()
-	pidFile.Close()
-	defer os.Remove(pidPath)
+	_ = pidFile.Close()
+	defer os.Remove(pidPath) //nolint:errcheck
 
 	// Background `sleep 30` (the "child"), record its PID, then wait so
 	// the parent shell is alive when we cancel ctx. The handler returns
@@ -79,7 +79,7 @@ wait $CHILD
 
 	// Handler should return promptly after cancel.
 	select {
-	case <-done:
+	case <-done: //nolint:errcheck
 	case <-time.After(3 * time.Second):
 		t.Fatal("handler did not return after ctx cancel within 3s")
 	}

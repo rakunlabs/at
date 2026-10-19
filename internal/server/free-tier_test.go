@@ -95,7 +95,7 @@ func TestProviderQuotaRuntimeAdmissionAndSettlement(t *testing.T) {
 	if store.estimate < 32000 || store.actual != 13 || !store.attempted {
 		t.Fatalf("estimate=%d settled=%d attempted=%v", store.estimate, store.actual, store.attempted)
 	}
-	store.governanceTestStore.reserveErr = service.ErrProviderBudgetExceeded
+	store.reserveErr = service.ErrProviderBudgetExceeded
 	if _, err := p.Chat(t.Context(), "m", nil, nil, nil); !errors.Is(err, service.ErrProviderBudgetExceeded) {
 		t.Fatal(err)
 	}

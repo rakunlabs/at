@@ -41,7 +41,7 @@ func TestExtraBodyUsesNativeTopLevelShape(t *testing.T) {
 		if additional["top_k"] != float64(10) {
 			t.Errorf("additional fields = %#v", additional)
 		}
-		fmt.Fprint(w, `{"output":{"message":{"role":"assistant","content":[{"text":"ok"}]}},"stopReason":"end_turn"}`)
+		_, _ = fmt.Fprint(w, `{"output":{"message":{"role":"assistant","content":[{"text":"ok"}]}},"stopReason":"end_turn"}`)
 	}))
 	defer srv.Close()
 	p, err := New("access:secret", "model", srv.URL, "", false)

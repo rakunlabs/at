@@ -214,8 +214,7 @@ func (s *Server) ResetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 		developerSpaceError(w, err)
 		return
 	}
-	sessions, err := store.ListDeveloperSessions(r.Context(), space.ID)
-	if err != nil {
+	if _, err := store.ListDeveloperSessions(r.Context(), space.ID); err != nil {
 		developerSpaceError(w, err)
 		return
 	}
@@ -223,10 +222,10 @@ func (s *Server) ResetDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	defer finish(true)
+	defer finish(true) //nolint:errcheck
 	// Re-read after closing admission: another session/run may have appeared
 	// between the original metadata read and acquiring control.
-	sessions, err = store.ListDeveloperSessions(r.Context(), space.ID)
+	sessions, err := store.ListDeveloperSessions(r.Context(), space.ID)
 	if err != nil {
 		developerSpaceError(w, err)
 		return
@@ -315,7 +314,7 @@ func (s *Server) StopDeveloperSpaceAPI(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	defer finish(true)
+	defer finish(true) //nolint:errcheck
 	sessions, err := h.store.ListDeveloperSessions(r.Context(), h.space.ID)
 	if err != nil {
 		developerSpaceError(w, err)

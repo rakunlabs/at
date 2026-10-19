@@ -37,7 +37,7 @@ func (p *Postgres) InitializeAuthSettings(ctx context.Context, settings service.
 	if err != nil {
 		return nil, authSettingsError(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var claimed bool
 	found, err := tx.From(p.tableAuthBootstrap).Select("claimed").ForUpdate(goqu.Wait).ScanValContext(ctx, &claimed)
 	if err != nil {
@@ -123,7 +123,7 @@ func (p *Postgres) SetupAuth(ctx context.Context, user service.AuthUser, setting
 	if err != nil {
 		return nil, authSettingsError(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	result, err := tx.Update(p.tableAuthBootstrap).Set(goqu.Record{"claimed": true}).Where(goqu.Ex{"singleton": true, "claimed": false}).Executor().ExecContext(ctx)
 	if err != nil {
 		return nil, authSettingsError(err)

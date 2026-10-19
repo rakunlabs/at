@@ -13,11 +13,6 @@ import (
 
 // ─── Node Config CRUD API ───
 
-// nodeConfigsResponse wraps a list of node config records for JSON output.
-type nodeConfigsResponse struct {
-	NodeConfigs []service.NodeConfig `json:"node_configs"`
-}
-
 // sensitiveNodeConfigFields lists fields that should be redacted in list responses, keyed by config type.
 var sensitiveNodeConfigFields = map[string][]string{
 	"email": {"password"},

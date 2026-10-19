@@ -33,7 +33,7 @@ func TestControllerOwnershipExclusiveAndCleanRelease(t *testing.T) {
 	}
 	release()
 	second := newControllerOwnership(client.CoordinationV1().Leases("test"), "deployment")
-	defer second.Close()
+	defer second.Close() //nolint:errcheck
 	if _, _, err := second.begin(context.Background()); !errors.Is(err, errControllerOwnership) {
 		t.Fatalf("second controller admitted: %v", err)
 	}

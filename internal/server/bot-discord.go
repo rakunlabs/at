@@ -52,7 +52,7 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 		}
 
 		// Access control check.
-		allowed, wasPending := s.checkBotAccess(ctx, botID, m.Author.ID, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers)
+		allowed, wasPending := s.checkBotAccess(ctx, botID, m.Author.ID, cfg.AccessMode, cfg.AllowedUsers)
 		if !allowed {
 			if wasPending {
 				sess.ChannelMessageSend(m.ChannelID, "Your access is pending approval.") //nolint:errcheck
@@ -75,20 +75,20 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 	go func() {
 		<-ctx.Done()
 		slog.Info("discord bot: shutting down")
-		dg.Close()
+		_ = dg.Close()
 	}()
 	return nil
 }
 
 func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Session, m *discordgo.MessageCreate, agentID string, dcCtx *discordContext) {
-	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "discord", dcCtx.botID, m.Author.ID, m.ChannelID, agentID)
+	// The agentic loop reads the session's current agent (respecting !switch),
+	// so the bot's default agentID is only used to create the session.
+	sessionID, _, err := s.findOrCreateBotSession(ctx, "discord", dcCtx.botID, m.Author.ID, m.ChannelID, agentID)
 	if err != nil {
 		slog.Error("discord bot: session lookup failed", "error", err)
 		sess.ChannelMessageSend(m.ChannelID, "Your message could not be processed. Ask the bot administrator to check its execution identity and agent permissions.") //nolint:errcheck
 		return
 	}
-	// Use the session's actual agent (respects !switch), not the bot's default.
-	agentID = sessionAgentID
 
 	// Handle bot commands.
 	switch {
@@ -124,9 +124,9 @@ func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Sessi
 		for _, a := range agents {
 			desc := a.Config.Description
 			if desc != "" {
-				sb.WriteString(fmt.Sprintf("**%s** - %s\n", a.Name, desc))
+				fmt.Fprintf(&sb, "**%s** - %s\n", a.Name, desc)
 			} else {
-				sb.WriteString(fmt.Sprintf("**%s**\n", a.Name))
+				fmt.Fprintf(&sb, "**%s**\n", a.Name)
 			}
 		}
 		sb.WriteString("\nUsage: !switch <agent name>")

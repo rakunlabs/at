@@ -147,7 +147,7 @@ func (s *Server) CreateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Start the bot if enabled (use server context, not request context).
 	if record.Enabled && record.Token != "" {
-		s.startBotFromConfig(s.ctx, record)
+		_ = s.startBotFromConfig(s.ctx, record)
 	}
 
 	httpResponseJSON(w, record, http.StatusCreated)
@@ -202,7 +202,7 @@ func (s *Server) UpdateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	wasRunning := s.isBotRunning(id)
 	if record.Enabled && record.Token != "" && !wasRunning {
 		// Enabled was turned on — start the bot.
-		s.startBotFromConfig(s.ctx, record)
+		_ = s.startBotFromConfig(s.ctx, record)
 	} else if !record.Enabled && wasRunning {
 		// Enabled was turned off — stop the bot.
 		s.stopBot(id)
@@ -210,7 +210,7 @@ func (s *Server) UpdateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 		// Token, platform or command schedules changed while running — restart.
 		s.stopBot(id)
 		if record.Enabled && record.Token != "" {
-			s.startBotFromConfig(s.ctx, record)
+			_ = s.startBotFromConfig(s.ctx, record)
 		}
 	}
 

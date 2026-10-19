@@ -7,8 +7,8 @@ import (
 	"github.com/rakunlabs/at/internal/render"
 )
 
-// TestRenderTemplateHelpers verifies that the mugo-backed render engine (used
-// by resolveTemplate in gateway-mcp.go) exposes the helpers we rely on for
+// TestRenderTemplateHelpers verifies that the mugo-backed render engine
+// exposes the helpers we rely on for
 // MCP HTTP tool body/URL/header templates.
 //
 // Reference: https://rytsh.io/mugo/functions/reference.html

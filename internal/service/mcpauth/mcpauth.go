@@ -286,10 +286,7 @@ func CanonicalResource(raw string) string {
 
 func sameResource(declared, mcpURL string) bool {
 	d, m := strings.TrimSuffix(CanonicalResource(declared), "/"), strings.TrimSuffix(CanonicalResource(mcpURL), "/")
-	if d == m {
-		return true
-	}
-	return false
+	return d == m
 }
 
 type protectedResourceMetadata struct {
@@ -366,7 +363,7 @@ func probeChallenge(ctx context.Context, client *http.Client, mcpURL string) (st
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode != http.StatusUnauthorized {
 		return "", nil
@@ -424,10 +421,10 @@ func getJSON(ctx context.Context, client *http.Client, rawURL string, out any) (
 	if err != nil {
 		return false, fmt.Errorf("fetch %s: %w", rawURL, err)
 	}
-	defer resp.Body.Close()
-	switch {
-	case resp.StatusCode == http.StatusOK:
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed:
+	defer resp.Body.Close() //nolint:errcheck
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		return false, nil
 	default:
@@ -547,7 +544,7 @@ func Register(ctx context.Context, client *http.Client, meta *Metadata, redirect
 	if err != nil {
 		return "", "", fmt.Errorf("register client: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	data, err := readPayload(resp.Body)
 	if err != nil {
 		return "", "", fmt.Errorf("read registration response: %w", err)
@@ -650,7 +647,7 @@ func tokenRequest(ctx context.Context, client *http.Client, endpoint, clientSecr
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	data, err := readPayload(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read token response: %w", err)
@@ -674,7 +671,7 @@ func tokenRequest(ctx context.Context, client *http.Client, endpoint, clientSecr
 		payload.Error = values.Get("error")
 		payload.ErrorDescription = values.Get("error_description")
 		if v := values.Get("expires_in"); v != "" {
-			fmt.Sscan(v, &payload.ExpiresIn)
+			_, _ = fmt.Sscan(v, &payload.ExpiresIn)
 		}
 	}
 	// GitHub reports OAuth errors with HTTP 200.
@@ -719,7 +716,7 @@ func ValidProvider(p string) bool {
 		return false
 	}
 	for _, r := range p {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') { //nolint:staticcheck // QF1001: keep the un-negated condition readable
 			return false
 		}
 	}

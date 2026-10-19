@@ -216,7 +216,7 @@ func (s *AnthropicStreamWriter) event(name string, payload map[string]any) {
 	}
 	// Anthropic sends both the event name and the JSON type field; clients read
 	// one or the other, so both are emitted.
-	fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", name, data)
+	_, _ = fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", name, data)
 	s.flusher.Flush()
 }
 

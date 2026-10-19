@@ -24,7 +24,7 @@ func (p *Postgres) ListWorkspaceProviderGrants(ctx context.Context) ([]service.W
 	if err != nil {
 		return nil, fmt.Errorf("begin provider grants: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "providers.read")
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (p *Postgres) SaveWorkspaceProviderGrant(ctx context.Context, v service.Wor
 	if err != nil {
 		return fmt.Errorf("begin provider grant: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "credentials.manage")
 	if err != nil {
 		return err
@@ -84,7 +84,7 @@ func (p *Postgres) DeleteWorkspaceProviderGrant(ctx context.Context, id string) 
 	if err != nil {
 		return fmt.Errorf("begin delete provider grant: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "credentials.manage")
 	if err != nil {
 		return err
@@ -109,7 +109,7 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 	if err != nil {
 		return nil, fmt.Errorf("begin provider use: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var a service.AccessPrincipal
 	if _, ok := service.AccessPrincipalFromContext(ctx); !ok && service.LegacyWorkspaceAccessFromContext(ctx) {
 		a, err = p.legacyBusinessPrincipal(ctx, tx, true)

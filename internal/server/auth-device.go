@@ -444,7 +444,7 @@ func requestDeviceCode(ctx context.Context, httpClient *http.Client) (*githubDev
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -487,7 +487,7 @@ func pollAccessToken(ctx context.Context, deviceCode string, httpClient *http.Cl
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -1242,7 +1242,7 @@ func (s *Server) chatGPTOAuthRefreshCallback(providerKey, workspace string) open
 	return func(parent context.Context, previous, access, refresh, account string, expiry time.Time) error {
 		store, ok := s.store.(service.CodexOAuthTokenStorer)
 		if !ok {
-			return fmt.Errorf("Codex credential rotation store unavailable")
+			return fmt.Errorf("credential rotation store for Codex is unavailable")
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 10*time.Second)
 		defer cancel()

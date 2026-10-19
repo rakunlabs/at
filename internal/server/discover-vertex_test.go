@@ -100,8 +100,7 @@ func TestVertexDiscoveryHost(t *testing.T) {
 // The HTTP handlers must accept vertex-gemini for both chat and embedding
 // discovery, reading the key the UI never sees back from the stored row.
 func TestDiscoverVertexGeminiHTTP(t *testing.T) {
-	var google *httptest.Server
-	google = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	google := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/token":

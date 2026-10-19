@@ -143,7 +143,7 @@ func TestGRPCExport(t *testing.T) {
 	s := grpc.NewServer()
 	receiver := &grpcReceiver{}
 	collector.RegisterTraceServiceServer(s, receiver)
-	go s.Serve(l)
+	go s.Serve(l) //nolint:errcheck
 	defer s.Stop()
 	c := service.DefaultTraceExportSettings()
 	c.Protocol = "grpc"

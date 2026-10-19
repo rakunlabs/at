@@ -75,7 +75,7 @@ func (p *Postgres) ListOrganizationAgents(ctx context.Context, orgID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list organization agents: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.OrganizationAgent
 	for rows.Next() {
@@ -108,7 +108,7 @@ func (p *Postgres) ListAgentOrganizations(ctx context.Context, agentID string) (
 	if err != nil {
 		return nil, fmt.Errorf("list agent organizations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.OrganizationAgent
 	for rows.Next() {
@@ -180,7 +180,7 @@ func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.Organ
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if oa.WorkspaceID != "" && oa.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -241,7 +241,7 @@ func (p *Postgres) UpdateOrganizationAgent(ctx context.Context, id string, oa se
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if oa.WorkspaceID != "" && oa.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -288,7 +288,7 @@ func (p *Postgres) DeleteOrganizationAgent(ctx context.Context, id string) error
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -309,7 +309,7 @@ func (p *Postgres) DeleteOrganizationAgentByPair(ctx context.Context, orgID, age
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
 		Where(w.predicate, goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
 		ToSQL()

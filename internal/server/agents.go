@@ -14,11 +14,6 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
-// agentsResponse wraps a list of agent records for JSON output.
-type agentsResponse struct {
-	Agents []service.Agent `json:"agents"`
-}
-
 // validateAgentReasoningConfig checks configured adapter support without calling
 // upstream. Model-specific support remains the runtime provider's responsibility.
 func (s *Server) validateAgentReasoningConfig(ctx context.Context, config service.AgentConfig) error {
@@ -369,7 +364,7 @@ func (s *Server) ExportAgentAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.md"`, record.Name))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // ExportAgentJSONAPI handles GET /api/v1/agents/{id}/export-json.

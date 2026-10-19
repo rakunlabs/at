@@ -73,7 +73,7 @@ func (p *Postgres) DeleteAuthUser(ctx context.Context, id string) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("begin delete auth user: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	// Same serialization point as InvalidateAuthUser: two administrators must
 	// not be able to remove each other concurrently and lock AT out.
 	var claimed bool

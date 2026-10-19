@@ -62,12 +62,12 @@ func TestS3DirectoryPaginationAndPrefixIsolation(t *testing.T) {
 			t.Error("noncanonical query encoding")
 		}
 		if calls == 1 {
-			fmt.Fprintf(w, `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>next +</NextContinuationToken><Contents><Key>%sexternal.txt</Key><Size>8</Size><LastModified>2026-10-07T12:00:00Z</LastModified></Contents><Contents><Key>other/secret</Key></Contents><CommonPrefixes><Prefix>%sdocs/</Prefix></CommonPrefixes></ListBucketResult>`, prefix, prefix)
+			_, _ = fmt.Fprintf(w, `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>next +</NextContinuationToken><Contents><Key>%sexternal.txt</Key><Size>8</Size><LastModified>2026-10-07T12:00:00Z</LastModified></Contents><Contents><Key>other/secret</Key></Contents><CommonPrefixes><Prefix>%sdocs/</Prefix></CommonPrefixes></ListBucketResult>`, prefix, prefix)
 		} else {
 			if q.Get("continuation-token") != "next +" {
 				t.Error("lost continuation token")
 			}
-			fmt.Fprintf(w, `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>%ssecond.txt</Key><Size>4</Size></Contents></ListBucketResult>`, prefix)
+			_, _ = fmt.Fprintf(w, `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>%ssecond.txt</Key><Size>4</Size></Contents></ListBucketResult>`, prefix)
 		}
 	}))
 	defer server.Close()

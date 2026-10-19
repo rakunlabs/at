@@ -206,7 +206,7 @@ test('opencodeDiscoveryConfig leaves models empty and wires the discovery plugin
     snippets.opencodeDiscoveryConfig({ baseUrl: 'https://at', instanceName: 'My Gateway' }),
   );
   assert.equal(cfg.plugin, undefined);
-  assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@1.10.0', options: {} }]);
+  assert.deepEqual(cfg.plugins, [{ package: 'opencode-models-discovery@2.0.0', options: {} }]);
   assert.deepEqual(cfg.providers['my-gateway'], {
     name: 'My Gateway',
     package: '@opencode/ai/providers/openai-compatible',

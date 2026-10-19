@@ -117,9 +117,10 @@ func TestCallWithGatewayRetry_Cancellation(t *testing.T) {
 			calls := 0
 			_, err := callWithGatewayRetry(ctx, "test", "model", -1, func(context.Context) (string, error) {
 				calls++
-				if when == "during call" {
+				switch when {
+				case "during call":
 					cancel()
-				} else if when == "during backoff" {
+				case "during backoff":
 					timer := time.AfterFunc(10*time.Millisecond, cancel)
 					t.Cleanup(func() { timer.Stop() })
 				}

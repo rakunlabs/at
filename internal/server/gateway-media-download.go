@@ -192,7 +192,7 @@ func (s *Server) GatewayMediaAPI(w http.ResponseWriter, r *http.Request) {
 		gatewayMediaError(w, http.StatusBadGateway, "media storage could not return the object", "upstream_error")
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	w.Header().Set("Content-Type", object.ContentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(object.SizeBytes, 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")

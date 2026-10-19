@@ -319,7 +319,7 @@ func discoverCohereEmbeddingModels(ctx context.Context, cfg config.LLMConfig) ([
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -466,7 +466,7 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -589,7 +589,7 @@ func fetchCopilotModels(ctx context.Context, cfg config.LLMConfig, token, capabi
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -701,7 +701,7 @@ func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL 
 	if err != nil {
 		return nil, fmt.Errorf("ChatGPT models request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read ChatGPT models response: %w", err)
@@ -725,7 +725,7 @@ func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL 
 		}
 	}
 	if len(models) == 0 {
-		return nil, fmt.Errorf("Codex returned no available models. Check this ChatGPT account's Codex access and reconnect the provider")
+		return nil, fmt.Errorf("no available models were returned by Codex; check this ChatGPT account's Codex access and reconnect the provider")
 	}
 	return models, nil
 }
@@ -785,7 +785,7 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
@@ -815,7 +815,7 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 			break
 		}
 		if seenPages[page.LastID] {
-			return nil, fmt.Errorf("Anthropic model pagination repeated cursor %q", page.LastID)
+			return nil, fmt.Errorf("model pagination from Anthropic repeated cursor %q", page.LastID)
 		}
 		seenPages[page.LastID] = true
 		afterID = page.LastID
@@ -891,7 +891,7 @@ func listGeminiModels(ctx context.Context, cfg config.LLMConfig, bearerAuth bool
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

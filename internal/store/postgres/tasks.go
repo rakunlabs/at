@@ -78,7 +78,7 @@ func (p *Postgres) ListTasks(ctx context.Context, q *query.Query) (*service.List
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Task
 	for rows.Next() {
@@ -144,7 +144,7 @@ func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if task.WorkspaceID != "" && task.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -261,7 +261,7 @@ func (p *Postgres) UpdateTask(ctx context.Context, id string, task service.Task)
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if task.WorkspaceID != "" && task.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -340,7 +340,7 @@ func (p *Postgres) DeleteTask(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := w.tx.Delete(p.tableTasks).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -373,7 +373,7 @@ func (p *Postgres) ListTasksByAgent(ctx context.Context, agentID string) ([]serv
 	if err != nil {
 		return nil, fmt.Errorf("list tasks by agent %q: %w", agentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Task
 	for rows.Next() {
@@ -405,7 +405,7 @@ func (p *Postgres) ListTasksByGoal(ctx context.Context, goalID string) ([]servic
 	if err != nil {
 		return nil, fmt.Errorf("list tasks by goal %q: %w", goalID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Task
 	for rows.Next() {
@@ -486,7 +486,7 @@ func (p *Postgres) ReleaseTask(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	now := time.Now().UTC()
 
 	query, _, err := p.goqu.Update(p.tableTasks).Set(
@@ -525,7 +525,7 @@ func (p *Postgres) ListChildTasks(ctx context.Context, parentID string) ([]servi
 	if err != nil {
 		return nil, fmt.Errorf("list child tasks for parent %q: %w", parentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Task
 	for rows.Next() {
@@ -545,7 +545,7 @@ func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status strin
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	now := time.Now().UTC()
 	var row taskRow
 	found, err := w.tx.From(p.tableTasks).Select(taskColumns...).Where(w.predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
@@ -596,7 +596,7 @@ func (p *Postgres) UpdateTaskResult(ctx context.Context, id string, result strin
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Update(p.tableTasks).Set(goqu.Record{
 		"result":     nullString(result),
 		"updated_at": time.Now().UTC(),

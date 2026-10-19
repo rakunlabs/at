@@ -35,7 +35,7 @@ func (p *Postgres) ListFeatureSettings(ctx context.Context) ([]service.FeatureSe
 	if err != nil {
 		return nil, fmt.Errorf("list feature settings: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.FeatureSetting
 	for rows.Next() {

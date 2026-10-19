@@ -198,11 +198,11 @@ func TestTerminalAlanRoutingAndStreaming(t *testing.T) {
 		t.Skipf("needs loopback aliases 127.0.0.2/127.0.0.3 (macOS: sudo ifconfig lo0 alias 127.0.0.2; sudo ifconfig lo0 alias 127.0.0.3): %v", err)
 	}
 	port := listener.LocalAddr().(*net.UDPAddr).Port
-	listener.Close()
+	_ = listener.Close()
 	if second, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.3:%d", port)); err != nil {
 		t.Skipf("needs loopback alias 127.0.0.3 (macOS: sudo ifconfig lo0 alias 127.0.0.3): %v", err)
 	} else {
-		second.Close()
+		_ = second.Close()
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
@@ -249,8 +249,8 @@ func TestTerminalAlanRoutingAndStreaming(t *testing.T) {
 	// UTF-8 sequences, without the agent loop's tool-output truncation.
 	link := ulid.Make().String()
 	reader, writer := io.Pipe()
-	defer reader.Close()
-	defer writer.Close()
+	defer reader.Close() //nolint:errcheck
+	defer writer.Close() //nolint:errcheck
 	a.mu.Lock()
 	a.outputs[link] = terminalOutput{peer: peers["host-b"].String(), writer: writer}
 	a.mu.Unlock()

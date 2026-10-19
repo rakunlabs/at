@@ -211,7 +211,7 @@ func TestFileUploadAPI(t *testing.T) {
 	if _, err := fw.Write([]byte("png-bytes")); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
-	mw.Close()
+	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
@@ -283,7 +283,7 @@ func TestFileUploadAPI_TraversalName(t *testing.T) {
 	_ = mw.WriteField("name", "../../escape.txt")
 	fw, _ := mw.CreateFormFile("file", "x.txt")
 	_, _ = fw.Write([]byte("data"))
-	mw.Close()
+	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())

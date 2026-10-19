@@ -168,7 +168,7 @@ func writeMockChatStream(w http.ResponseWriter, model, content string, includeUs
 			},
 		})
 	}
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 

@@ -55,7 +55,7 @@ func fetchATModelPricingURL(ctx context.Context, client *http.Client, catalogURL
 	if err != nil {
 		return nil, fmt.Errorf("fetch AT pricing catalog: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch AT pricing catalog: status %d; ensure pricing/index.json is published on GitHub main", resp.StatusCode)
 	}

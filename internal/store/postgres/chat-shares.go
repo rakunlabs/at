@@ -101,7 +101,7 @@ func (p *Postgres) writeChatShare(ctx context.Context, share service.ChatShare, 
 	if err != nil {
 		return nil, fmt.Errorf("begin chat share write: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	actor, err := p.workspaceActor(ctx, tx, "models.use")
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (p *Postgres) revokeChatShares(ctx context.Context, where goqu.Ex, requireM
 	if err != nil {
 		return nil, fmt.Errorf("begin chat share revoke: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var shareIDs []string
 	err = tx.From(p.workspaceTable("chat_shares").As("s")).Select("s.id").Where(where).ForUpdate(goqu.Wait).ScanValsContext(ctx, &shareIDs)
 	if err != nil {
@@ -248,7 +248,7 @@ func (p *Postgres) ImportChatShare(ctx context.Context, id string, version int64
 	if err != nil {
 		return nil, fmt.Errorf("begin chat share import: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	actor, err := p.workspaceActor(ctx, tx, "models.use")
 	if err != nil {
 		return nil, err

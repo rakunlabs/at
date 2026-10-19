@@ -106,11 +106,11 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				switch r.URL.Path {
 				case "/.well-known/openid-configuration":
 					discovery.Add(1)
-					json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks"})
+					_ = json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks"})
 				case "/jwks":
-					json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "test", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "test", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 				case "/token":
-					r.ParseForm()
+					_ = r.ParseForm()
 					verifier := r.Form.Get("code_verifier")
 					sum := sha256.Sum256([]byte(verifier))
 					if verifier == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
@@ -137,7 +137,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if name == "userinfo" {
 						delete(response, "id_token")
 					}
-					json.NewEncoder(w).Encode(response)
+					_ = json.NewEncoder(w).Encode(response)
 				case "/userinfo":
 					sub := "stable-subject"
 					if name == "userinfo_subject" {
@@ -153,7 +153,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if name == "email_without_verification" {
 						delete(claims, "email_verified")
 					}
-					json.NewEncoder(w).Encode(claims)
+					_ = json.NewEncoder(w).Encode(claims)
 				default:
 					http.NotFound(w, r)
 				}
@@ -227,7 +227,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				t.Fatalf("begin %d: %s", w.Code, w.Body.String())
 			}
 			var response map[string]string
-			json.Unmarshal(w.Body.Bytes(), &response)
+			_ = json.Unmarshal(w.Body.Bytes(), &response)
 			authorize, _ := url.Parse(response["authorization_url"])
 			nonce = authorize.Query().Get("nonce")
 			challenge = authorize.Query().Get("code_challenge")
@@ -463,7 +463,7 @@ func TestExternalCommonMFACoordinatorPostgres(t *testing.T) {
 	var pending struct {
 		Challenge string `json:"challenge"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &pending)
+	_ = json.Unmarshal(w.Body.Bytes(), &pending)
 	// Provider disable between primary and second-factor completion invalidates
 	// the original user version, so even a valid backup code cannot finish it.
 	v.Enabled = false
@@ -649,7 +649,7 @@ func TestExternalRecentAuthLocalMFAPostgres(t *testing.T) {
 	var pending struct {
 		Challenge string `json:"challenge"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &pending)
+	_ = json.Unmarshal(w.Body.Bytes(), &pending)
 	body, _ := json.Marshal(map[string]string{"challenge": pending.Challenge, "code": backup})
 	finish := httptest.NewRecorder()
 	e.finishReauth(finish, request(string(body)))
@@ -659,7 +659,7 @@ func TestExternalRecentAuthLocalMFAPostgres(t *testing.T) {
 	var proof struct {
 		Proof string `json:"proof"`
 	}
-	json.Unmarshal(finish.Body.Bytes(), &proof)
+	_ = json.Unmarshal(finish.Body.Bytes(), &proof)
 	if proof.Proof == "" {
 		t.Fatal("missing recent proof")
 	}

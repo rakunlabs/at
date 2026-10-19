@@ -153,7 +153,7 @@ func TestTranscribeAudio(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FormFile: %v", err)
 		}
-		defer file.Close()
+		defer file.Close() //nolint:errcheck
 		if header.Filename != "speech.mp3" {
 			t.Errorf("filename = %q, want speech.mp3", header.Filename)
 		}

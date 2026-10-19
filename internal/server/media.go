@@ -94,7 +94,7 @@ func (s *Server) storageSettingsAccess(w http.ResponseWriter, r *http.Request) s
 
 func mediaSettingsRedacted(settings service.MediaSettings) mediaSettingsResponse {
 	out := mediaSettingsResponse{MediaSettings: settings, SecretAccessKeySet: settings.S3.SecretAccessKey != ""}
-	out.MediaSettings.S3.SecretAccessKey = ""
+	out.S3.SecretAccessKey = ""
 	return out
 }
 
@@ -319,7 +319,7 @@ func (s *Server) MediaUploadAPI(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, http.StatusBadRequest, "file field is required")
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 	head := make([]byte, 512)
 	headN, err := io.ReadFull(file, head)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
@@ -493,7 +493,7 @@ func (s *Server) mediaServe(w http.ResponseWriter, r *http.Request, store servic
 		nativeError(w, http.StatusBadGateway, "media storage could not return the object")
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	// The type recorded at upload time is authoritative: it was sniffed from
 	// the bytes and checked against the allowlist. The backend's own claim is
 	// ignored, and nosniff stops the browser from inventing a third answer.

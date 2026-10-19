@@ -243,7 +243,7 @@ func TestIntakeTask_IdentifierFormat(t *testing.T) {
 	}
 
 	var resp intakeTaskResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Identifier != "PAP-42" {
 		t.Fatalf("expected identifier PAP-42 (counter was 41, incremented to 42), got %q", resp.Identifier)
 	}

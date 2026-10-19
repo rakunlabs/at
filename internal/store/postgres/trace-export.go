@@ -72,7 +72,7 @@ func (p *Postgres) SaveTraceExportSettings(ctx context.Context, c service.TraceE
 	if err != nil {
 		return c, fmt.Errorf("begin trace export save: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.write")
 	if err != nil {
 		return c, err
@@ -117,12 +117,12 @@ func (p *Postgres) rotateTraceExportKey(ctx context.Context, tx *sql.Tx, oldKey,
 	for rows.Next() {
 		var id, raw string
 		if err := rows.Scan(&id, &raw); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		values[id] = raw
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}

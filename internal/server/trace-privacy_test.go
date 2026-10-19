@@ -93,9 +93,9 @@ func TestTracePrivacySkipAndRedact(t *testing.T) {
 		trace: &service.TraceUpdate{Name: "n", Input: "private-in", Output: "private-out"}})
 	s.recordLLMCallAsync(ctx, llmAuditParams{auth: gatewayAuth("other", "ws"), source: "gateway", traceID: "t-keep", fullModel: "anthropic/claude", requestBody: []byte("kept")})
 
-	got := waitForObservations(t, obs, 2)
+	waitForObservations(t, obs, 2)
 	time.Sleep(50 * time.Millisecond)
-	got = obs.snapshot()
+	got := obs.snapshot()
 	if len(got) != 2 {
 		t.Fatalf("skip rule did not suppress the write: %v", obsNames(got))
 	}

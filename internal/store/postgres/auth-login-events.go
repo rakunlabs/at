@@ -33,7 +33,7 @@ func (p *Postgres) RecordAuthLoginEvent(ctx context.Context, event service.AuthL
 	if err != nil {
 		return fmt.Errorf("begin login event: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var recorded authLoginEventRow
 	if _, err := tx.Insert(p.authSecurityTable("auth_login_events")).Rows(goqu.Record{
 		"id": ulid.Make().String(), "user_id": event.UserID, "action": event.Action,

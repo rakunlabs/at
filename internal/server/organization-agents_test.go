@@ -292,7 +292,7 @@ func TestAddAgentToOrg_HierarchyValidation(t *testing.T) {
 	}
 
 	var resp responseMessage
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if !strings.Contains(resp.Message, "hierarchy") {
 		t.Fatalf("expected hierarchy error, got: %s", resp.Message)
 	}
@@ -320,7 +320,7 @@ func TestUpdateOrgAgent_HierarchyValidation(t *testing.T) {
 	}
 
 	var resp responseMessage
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if !strings.Contains(resp.Message, "hierarchy") {
 		t.Fatalf("expected hierarchy error, got: %s", resp.Message)
 	}

@@ -25,7 +25,7 @@ func readStore(t *testing.T, store Store, key string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatal(err)

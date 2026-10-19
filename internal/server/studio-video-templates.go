@@ -157,7 +157,7 @@ func readStudioVideoJSON(root *os.Root, name string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", name, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	opened, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("stat opened %s: %w", name, err)
@@ -192,11 +192,11 @@ func openStudioVideoRoot(root *os.Root, name string) (*os.Root, error) {
 	}
 	opened, err := child.Stat(".")
 	if err != nil || !os.SameFile(info, opened) {
-		child.Close()
+		_ = child.Close()
 		return nil, fmt.Errorf("directory %s changed while opening", name)
 	}
 	if _, err := studioVideoPath(root, name); err != nil {
-		child.Close()
+		_ = child.Close()
 		return nil, err
 	}
 	return child, nil
@@ -227,7 +227,7 @@ func syncStudioVideoDir(root *os.Root, name string) error {
 	if err != nil {
 		return fmt.Errorf("open directory %s: %w", name, err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("sync directory %s: %w", name, err)
 	}
@@ -260,7 +260,7 @@ func (s *Server) createTelegramVideoTaskIn(ctx context.Context, assets string, b
 	if err != nil {
 		return "", "", fmt.Errorf("open video assets: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	projectID := telegramVideoProjectID(botID, chatID, messageID)
 	project := filepath.Join("videos", projectID)
 	// Consult the receipt before mutable template/org validation: edits or removal
@@ -270,7 +270,7 @@ func (s *Server) createTelegramVideoTaskIn(ctx context.Context, assets string, b
 		if err != nil {
 			return "", "", fmt.Errorf("open claimed video project: %w", err)
 		}
-		defer projectRoot.Close()
+		defer projectRoot.Close() //nolint:errcheck
 		data, err := readStudioVideoJSON(projectRoot, "submission.json")
 		if err != nil {
 			return "", "", fmt.Errorf("video project %s is already claimed; submission is in progress or uncertain; inspect tasks before using /resume (do not resubmit): %w", projectID, err)
@@ -335,7 +335,7 @@ func (s *Server) createTelegramVideoTaskIn(ctx context.Context, assets string, b
 	if err != nil {
 		return "", "", fmt.Errorf("open new video project: %w", err)
 	}
-	defer projectRoot.Close()
+	defer projectRoot.Close() //nolint:errcheck
 	brief := template.Brief
 	brief.ID, brief.Topic = projectID, topic
 	title := strings.TrimSpace(strings.SplitN(strings.ReplaceAll(strings.TrimSpace(topic), "\r", "\n"), "\n", 2)[0])
@@ -404,13 +404,13 @@ func telegramVideoCompletion(project, status, result string) string {
 	if err != nil {
 		return unavailable
 	}
-	defer assets.Close()
+	defer assets.Close() //nolint:errcheck
 	relProject := filepath.Join("videos", filepath.Base(project))
 	root, err := openStudioVideoRoot(assets, relProject)
 	if err != nil {
 		return unavailable
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	data, err := readStudioVideoJSON(root, "video.json")
 	if err != nil {
 		return unavailable

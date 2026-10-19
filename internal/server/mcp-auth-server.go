@@ -384,7 +384,7 @@ func (s *Server) MCPAuthAuthorizeAPI(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "Authorization request refused: %s\n", err.Error())
+		_, _ = fmt.Fprintf(w, "Authorization request refused: %s\n", err.Error())
 		return
 	}
 	// The consent page selects the server's workspace before asking; the ID

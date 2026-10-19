@@ -103,7 +103,7 @@ func (p *Postgres) SaveAuthIdentityProvider(ctx context.Context, v service.AuthI
 	if err != nil {
 		return nil, fmt.Errorf("begin identity provider: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	// A common admission lock keeps all external operations in one lock order.
 	if err := p.lockExternalAdmission(ctx, tx); err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func (p *Postgres) SaveAuthExternalFlow(ctx context.Context, f service.AuthExter
 	if err != nil {
 		return fmt.Errorf("begin external flow: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if err = p.lockExternalAdmission(ctx, tx); err != nil {
 		return err
 	}
@@ -325,7 +325,7 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin external identity: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if err = p.lockExternalAdmission(ctx, tx); err != nil {
 		return nil, nil, err
 	}
@@ -471,7 +471,7 @@ func (p *Postgres) UnlinkAuthIdentity(ctx context.Context, id string, a service.
 	if err != nil {
 		return fmt.Errorf("begin unlink: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if err = p.lockExternalAdmission(ctx, tx); err != nil {
 		return err
 	}
@@ -560,12 +560,12 @@ func (p *Postgres) rotateAuthExternalSecrets(ctx context.Context, tx *sql.Tx, ol
 				Secret string `db:"secret"`
 			}
 			if err := result.Scan(&row.ID, &row.Secret); err != nil {
-				result.Close()
+				_ = result.Close()
 				return fmt.Errorf("scan external rotation: %w", err)
 			}
 			rows = append(rows, row)
 		}
-		result.Close()
+		_ = result.Close()
 		if err := result.Err(); err != nil {
 			return fmt.Errorf("iterate external rotation: %w", err)
 		}

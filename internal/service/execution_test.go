@@ -97,7 +97,7 @@ func TestExecutionConcurrentRootContainment(t *testing.T) {
 	for _, path := range []string{"../b/media", roots[1] + "/media"} {
 		r, _, err := OpenExecutionRoot(ctxA, path, false)
 		if r != nil {
-			r.Close()
+			_ = r.Close()
 		}
 		if err == nil {
 			t.Fatalf("accepted %q", path)
@@ -108,10 +108,10 @@ func TestExecutionConcurrentRootContainment(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f, err := OpenExecutionFile(r, name, os.O_RDONLY, 0); err == nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatal("followed escaping symlink")
 	}
-	r.Close()
+	_ = r.Close()
 	var wg sync.WaitGroup
 	for i, root := range roots {
 		ctx := executionTestContext(t, root, ExecutionPolicy{WorkspaceID: string(rune('a' + i))}, false, &revoked)
@@ -125,14 +125,14 @@ func TestExecutionConcurrentRootContainment(t *testing.T) {
 					return
 				}
 				f, err := OpenExecutionFile(r, name, os.O_RDONLY, 0)
-				r.Close()
+				_ = r.Close()
 				if err != nil {
 					t.Error(err)
 					return
 				}
 				b := make([]byte, 1)
 				_, err = f.Read(b)
-				f.Close()
+				_ = f.Close()
 				if err != nil || b[0] != byte('a'+i) {
 					t.Errorf("cross-root content %q: %v", b, err)
 					return

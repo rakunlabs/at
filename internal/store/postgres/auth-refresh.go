@@ -56,7 +56,7 @@ func (p *Postgres) RotateAuthRefreshTransport(ctx context.Context, hash, access,
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin auth rotation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var candidate struct {
 		SessionID string `db:"session_id"`
 		UserID    string `db:"user_id"`
@@ -181,7 +181,7 @@ func (p *Postgres) CleanupAuthCredentials(ctx context.Context, limit uint) (int6
 	if err != nil {
 		return 0, fmt.Errorf("begin auth cleanup: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	selected := tx.From(p.tableAuthCredentials).Select("hash").Where(goqu.I("expires_at").Lte(goqu.L("clock_timestamp()"))).Order(goqu.I("expires_at").Asc()).Limit(limit).ForUpdate(goqu.SkipLocked)
 	result, err := tx.Delete(p.tableAuthCredentials).Where(goqu.I("hash").In(selected)).Executor().ExecContext(ctx)
 	if err != nil {

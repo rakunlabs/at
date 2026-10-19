@@ -90,7 +90,7 @@ func (p *Postgres) ListRoutingProfiles(ctx context.Context, q *query.Query) (*se
 	if err != nil {
 		return nil, fmt.Errorf("list routing profiles: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	items := []service.RoutingProfile{}
 	for rows.Next() {
@@ -199,7 +199,7 @@ func (p *Postgres) ListGatewayRoutingProfiles(ctx context.Context, workspaceID s
 	if err != nil {
 		return nil, fmt.Errorf("list gateway routing profiles: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	items := []service.RoutingProfile{}
 	for rows.Next() {
@@ -225,7 +225,7 @@ func (p *Postgres) CreateRoutingProfile(ctx context.Context, profile service.Rou
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	profile.OwnerUserID = ""
 	if profile.Scope == "personal" {
 		if w.actor.UserID == "" {
@@ -286,7 +286,7 @@ func (p *Postgres) UpdateRoutingProfile(ctx context.Context, id string, profile 
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	if profile.WorkspaceID != "" && profile.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
@@ -338,7 +338,7 @@ func (p *Postgres) DeleteRoutingProfile(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	sqlStr, _, err := p.goqu.Delete(p.tableRoutingProfiles).
 		Where(w.predicate, goqu.I("id").Eq(id)).

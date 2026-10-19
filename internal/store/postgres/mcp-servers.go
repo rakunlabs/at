@@ -44,7 +44,7 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 	if err != nil {
 		return nil, fmt.Errorf("list mcp servers: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.MCPServer
 	for rows.Next() {
@@ -146,7 +146,7 @@ func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*s
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -217,7 +217,7 @@ func (p *Postgres) UpdateMCPServer(ctx context.Context, id string, s service.MCP
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -279,7 +279,7 @@ func (p *Postgres) DeleteMCPServer(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableMCPServers).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()

@@ -99,7 +99,7 @@ func TestMCPRuntimeDuplicateRouteFallsThroughOnError(t *testing.T) {
 	runtime.addClientSource("second upstream", func(context.Context) (mcpClientLease, error) {
 		return mcpClientLease{client: second, owned: true}, nil
 	})
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 
 	result, err := runtime.CallTool(context.Background(), "duplicate", nil)
 	if err != nil {
@@ -120,7 +120,7 @@ func TestMCPRuntimePreservesUpstreamErrors(t *testing.T) {
 	}
 	runtime := newMCPRuntime()
 	runtime.addClient(context.Background(), mcpClientLease{client: client, owned: true}, "video upstream")
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 
 	_, err := runtime.CallTool(context.Background(), "generate", nil)
 	if err == nil || !strings.Contains(err.Error(), "upstream quota exhausted") || !strings.Contains(err.Error(), "video upstream") {
@@ -132,7 +132,7 @@ func TestMCPRuntimeUnknownToolIncludesDiscoveryFailure(t *testing.T) {
 	client := &fakeRuntimeMCPClient{listErr: errors.New("connection reset")}
 	runtime := newMCPRuntime()
 	runtime.addClient(context.Background(), mcpClientLease{client: client, owned: true}, "broken upstream")
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 
 	_, err := runtime.CallTool(context.Background(), "missing", nil)
 	var notFound *mcpToolNotFoundError
@@ -210,7 +210,7 @@ func TestMCPSetRuntimePropagatesContextAndPreservesPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSet: %v", err)
 	}
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 	if setStore.ctx != ctx {
 		t.Fatal("set lookup lost caller context")
 	}
@@ -252,7 +252,7 @@ func TestMCPSetRuntimeUsesUnredactedExecutionConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildSet: %v", err)
 	}
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 	tools := runtime.ListTools(context.Background())
 	if !store.used {
 		t.Fatal("runtime used the redacted management reader instead of ResolveMCPSetForUse")
@@ -275,7 +275,7 @@ func TestGatewayMCPRuntimeHTTPToolWinsDuplicateName(t *testing.T) {
 	}}
 
 	runtime := builder.buildGateway(context.Background(), srv)
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 	if len(runtime.Tools()) != 1 || runtime.routes["duplicate"][0].source != "HTTP tool" {
 		t.Fatalf("duplicate route = %#v, want gateway HTTP precedence", runtime.routes["duplicate"])
 	}
@@ -289,9 +289,9 @@ func TestGatewayMCPRuntimeIgnoresLegacySkillTools(t *testing.T) {
 	s := &Server{skillStore: skillStore}
 	builder := s.newMCPRuntimeBuilder()
 	runtime := builder.buildGateway(context.Background(), &service.MCPServer{Config: service.MCPServerConfig{
-		EnabledSkills: []string{"local-skill"},
+		EnabledSkills: []string{"local-skill"}, //nolint:staticcheck // the deprecated field is what this test exercises
 	}})
-	defer runtime.Close(context.Background())
+	defer runtime.Close(context.Background()) //nolint:errcheck
 	if tools := runtime.ListTools(executiontest.Context(t)); len(tools) != 0 {
 		t.Fatalf("legacy skill exposed tools: %+v", tools)
 	}

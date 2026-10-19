@@ -42,7 +42,7 @@ func TestATPricingFetch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
-				fmt.Fprint(w, tt.body)
+				_, _ = fmt.Fprint(w, tt.body)
 			}))
 			defer srv.Close()
 			ctx, cancel := context.WithCancel(context.Background())

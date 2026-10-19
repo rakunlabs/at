@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,7 +184,7 @@ func TestAuthSettingsRuntimePostgres(t *testing.T) {
 			for range 8 {
 				w := settingsHTTPRequest(second, "GET", "/auth/status", nil, nil)
 				if w.Code != 200 {
-					t.Error(fmt.Sprintf("concurrent status: %d", w.Code))
+					t.Errorf("concurrent status: %d", w.Code)
 				}
 			}
 		})

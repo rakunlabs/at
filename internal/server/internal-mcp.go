@@ -218,17 +218,6 @@ func (s *Server) mcpSetToVirtualServer(ctx context.Context, name string) (*servi
 	}, nil
 }
 
-// listMCPSetTools returns all tools from an MCPSet by directly resolving its config
-// (HTTP, skills, builtins, upstreams) without any HTTP round-trip.
-func (s *Server) listMCPSetTools(ctx context.Context, setName string) ([]service.Tool, error) {
-	runtime, err := s.newMCPRuntimeBuilder().buildSet(ctx, setName)
-	if err != nil {
-		return nil, err
-	}
-	defer closeMCPRuntime(ctx, runtime)
-	return runtime.ListTools(ctx), nil
-}
-
 // callMCPSetTool calls a tool on an MCPSet by directly resolving its config —
 // no HTTP round-trip. Returns the tool result string or an error.
 func (s *Server) callMCPSetTool(ctx context.Context, setName, toolName string, args map[string]any) (string, error) {
@@ -288,7 +277,7 @@ func (s *Server) callHTTPToolInline(ctx context.Context, tool service.MCPHTTPToo
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

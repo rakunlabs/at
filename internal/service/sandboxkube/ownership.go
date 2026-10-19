@@ -19,7 +19,7 @@ const controllerLeaseName = "at-sandbox-controller"
 const ownershipTimeout = 5 * time.Second
 const ownershipRenewInterval = 5 * time.Second
 
-var errControllerOwnership = errors.New("Kubernetes sandbox controller ownership unavailable")
+var errControllerOwnership = errors.New("sandbox controller ownership in Kubernetes is unavailable")
 
 // controllerOwnership is an exclusive namespace guard, NOT leader election.
 // A stale lease is never automatically stolen: an API partition or paused old

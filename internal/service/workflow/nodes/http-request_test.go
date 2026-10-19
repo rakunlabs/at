@@ -52,7 +52,7 @@ func TestHTTPClientRetryBehavior(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck
 			body, err := io.ReadAll(resp.Body)
 			if err != nil || string(body) != "upstream body" || resp.StatusCode != tt.status {
 				t.Fatalf("response status = %d, body = %q, error = %v", resp.StatusCode, body, err)

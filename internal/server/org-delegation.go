@@ -140,7 +140,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			return fmt.Errorf("open task workspace: %w", err)
 		}
 		err = root.MkdirAll(filepath.Join("tasks", rootID), 0700)
-		root.Close()
+		_ = root.Close()
 		if err != nil {
 			return fmt.Errorf("create task workspace: %w", err)
 		}
@@ -410,15 +410,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			desc := ri.agent.Config.Description
 			if desc != "" {
-				teamSection.WriteString(fmt.Sprintf("- **%s**: %s\n", header, desc))
+				fmt.Fprintf(&teamSection, "- **%s**: %s\n", header, desc)
 			} else {
-				teamSection.WriteString(fmt.Sprintf("- **%s**\n", header))
+				fmt.Fprintf(&teamSection, "- **%s**\n", header)
 			}
 			if ri.capabilities != "" {
-				teamSection.WriteString(fmt.Sprintf("  - Capabilities: %s\n", ri.capabilities))
+				fmt.Fprintf(&teamSection, "  - Capabilities: %s\n", ri.capabilities)
 			}
 			if len(ri.subReports) > 0 {
-				teamSection.WriteString(fmt.Sprintf("  - Leads a sub-team: %s (can delegate further)\n", joinCapped(ri.subReports, maxRosterSkills)))
+				fmt.Fprintf(&teamSection, "  - Leads a sub-team: %s (can delegate further)\n", joinCapped(ri.subReports, maxRosterSkills))
 			}
 		}
 		teamSection.WriteString("\n## CRITICAL Delegation Rules\n")
@@ -607,12 +607,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					if c.AuthorType != "" {
 						author = fmt.Sprintf("%s (%s)", c.AuthorID, c.AuthorType)
 					}
-					feedback.WriteString(fmt.Sprintf("**%s** [%s]:\n%s\n\n", author,
-						c.CreatedAt, truncateRunes(c.Body, delegationFeedbackBodyLimit)))
+					fmt.Fprintf(&feedback, "**%s** [%s]:\n%s\n\n", author,
+						c.CreatedAt, truncateRunes(c.Body, delegationFeedbackBodyLimit))
 				}
 				if skipped > 0 {
-					feedback.WriteString(fmt.Sprintf("_%s older; showing the most recent %d. Call task_get for the full thread._\n\n",
-						plural(skipped, "comment is", "comments are"), delegationFeedbackCommentLimit))
+					fmt.Fprintf(&feedback, "_%s older; showing the most recent %d. Call task_get for the full thread._\n\n",
+						plural(skipped, "comment is", "comments are"), delegationFeedbackCommentLimit)
 				}
 				userPrompt += feedback.String()
 			}
@@ -1340,9 +1340,10 @@ func (s *Server) completeTaskWithStatus(ctx context.Context, task *service.Task,
 	// context when we're inside a delegation run; outside one the
 	// recorder mints a fresh trace.
 	action := "task_completed"
-	if status == service.TaskStatusCancelled {
+	switch status {
+	case service.TaskStatusCancelled:
 		action = "task_cancelled"
-	} else if status == service.TaskStatusBlocked {
+	case service.TaskStatusBlocked:
 		action = "task_blocked"
 	}
 

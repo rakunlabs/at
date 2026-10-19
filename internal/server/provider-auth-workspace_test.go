@@ -136,7 +136,7 @@ func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 			t.Errorf("missing workspace credential: %s", r.Header.Get("Authorization"))
 		}
 		model := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer access-")
-		json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": model}}, "has_more": false})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": model}}, "has_more": false})
 	}))
 	defer modelsAPI.Close()
 	for i, workspace := range workspaces {

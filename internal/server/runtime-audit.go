@@ -17,7 +17,7 @@ func (s *Server) spillExecutionPayload(base, id, side string, body []byte) strin
 	if err != nil {
 		return ""
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	name := filepath.Join(llmAuditDumpDir, time.Now().UTC().Format("2006-01-02"), id+"-"+side+".json")
 	if !filepath.IsLocal(name) {
 		return ""

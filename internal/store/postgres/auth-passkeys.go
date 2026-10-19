@@ -89,7 +89,7 @@ func (p *Postgres) SaveAuthChallenge(ctx context.Context, c service.AuthChalleng
 	if err != nil {
 		return fmt.Errorf("begin auth challenge: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	// One database lock bounds the pool across replicas, not just this process.
 	var claimed bool
 	if _, err := tx.From(p.tableAuthBootstrap).Select("claimed").ForUpdate(goqu.Wait).ScanValContext(ctx, &claimed); err != nil {
@@ -170,7 +170,7 @@ func (p *Postgres) passkeyTransaction(ctx context.Context, userID string, versio
 	if err != nil {
 		return fmt.Errorf("begin auth passkey: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var id string
 	found, err := tx.From(p.tableAuthUsers).Select("id").Where(goqu.Ex{"id": userID, "session_version": version, "disabled": false}).ForUpdate(goqu.Wait).ScanValContext(ctx, &id)
 	if err != nil {

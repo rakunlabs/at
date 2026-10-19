@@ -182,7 +182,7 @@ func (p *Provider) Decide(ctx context.Context, req service.DecisionRequest) (*se
 		// unreachable provider.
 		return nil, &service.UpstreamError{Provider: "systemone", StatusCode: http.StatusBadGateway, Message: "decision service unreachable: " + err.Error(), Underlying: err}
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyMaxBytes))

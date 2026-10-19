@@ -235,7 +235,7 @@ func TestS3PathStyleRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader.Close()
+	_ = reader.Close()
 	if rec.method != http.MethodGet || rec.sha != hex.EncodeToString(empty[:]) || contentType != "" {
 		t.Fatalf("get %s %s %q", rec.method, rec.sha, contentType)
 	}
@@ -273,7 +273,7 @@ func TestS3VirtualHostStyle(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := io.ReadAll(reader)
-	reader.Close()
+	_ = reader.Close()
 	if string(data) != "image-bytes" || contentType != "image/jpeg" {
 		t.Fatalf("body %q type %q", data, contentType)
 	}

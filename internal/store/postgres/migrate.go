@@ -22,7 +22,7 @@ func MigrateDB(ctx context.Context, cfg *config.Migrate) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	m := muz.Migrate{
 		Path:      "migrations",

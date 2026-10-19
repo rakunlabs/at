@@ -17,7 +17,7 @@ func TestPublishedCatalogMatchesProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	got, err := Parse(f)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestEmbeddedCatalogMatchesPublishedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	got, err := Parse(f)
 	if err != nil {
 		t.Fatal(err)

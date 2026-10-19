@@ -64,7 +64,7 @@ func (p *Postgres) ListCommentsByTask(ctx context.Context, taskID string) ([]ser
 	if err != nil {
 		return nil, fmt.Errorf("list comments by task %q: %w", taskID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.IssueComment
 	for rows.Next() {
@@ -109,7 +109,7 @@ func (p *Postgres) CreateComment(ctx context.Context, comment service.IssueComme
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if comment.WorkspaceID != "" && comment.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -182,7 +182,7 @@ func (p *Postgres) UpdateComment(ctx context.Context, id string, comment service
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if comment.WorkspaceID != "" && comment.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -222,7 +222,7 @@ func (p *Postgres) DeleteComment(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableIssueComments).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()

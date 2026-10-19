@@ -163,7 +163,8 @@ type ChatOptions struct {
 
 // ThinkingConfig enables extended thinking / chain-of-thought.
 type ThinkingConfig struct {
-	// Type is "enabled", "disabled", or "adaptive" (provider-dependent).
+	// Type is "enabled", "disabled", "adaptive" or "between_tools"
+	// (provider-dependent).
 	Type string
 	// BudgetTokens is the token budget for the thinking phase.
 	// 0 means the provider should use its own default.

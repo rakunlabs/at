@@ -142,7 +142,7 @@ func (s *Server) removeWorkspaceFiles(id string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	return root.RemoveAll(filepath.Join("workspaces", id))
 }
 

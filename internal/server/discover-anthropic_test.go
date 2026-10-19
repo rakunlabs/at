@@ -25,12 +25,12 @@ func TestAnthropicModelDiscoveryHeadersPathsAndPagination(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if calls == 1 {
-			io.WriteString(w, `{"data":[{"id":"claude-first"}],"has_more":true,"last_id":"cursor /+?"}`)
+			_, _ = io.WriteString(w, `{"data":[{"id":"claude-first"}],"has_more":true,"last_id":"cursor /+?"}`)
 		} else {
 			if r.URL.Query().Get("after_id") != "cursor /+?" {
 				t.Errorf("cursor not escaped: %s", r.URL)
 			}
-			io.WriteString(w, `{"data":[{"id":"claude-second"}],"has_more":false}`)
+			_, _ = io.WriteString(w, `{"data":[{"id":"claude-second"}],"has_more":false}`)
 		}
 	}))
 	defer upstream.Close()
@@ -59,7 +59,7 @@ func TestAnthropicDiscoveryRefreshesAndPersistsWorkspaceOAuth(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer fresh-access" || r.Header.Get("x-api-key") != "" || r.Header.Get("anthropic-beta") != "oauth-2025-04-20" {
 			t.Errorf("OAuth discovery headers: %v", r.Header)
 		}
-		io.WriteString(w, `{"data":[{"id":"claude-current"}],"has_more":false}`)
+		_, _ = io.WriteString(w, `{"data":[{"id":"claude-current"}],"has_more":false}`)
 	}))
 	defer upstream.Close()
 	_, err := f.store.CreateProvider(f.ctx, service.ProviderRecord{Key: "claude", Config: config.LLMConfig{Type: "anthropic", AuthType: "claude-code", APIKey: "expired-access", RefreshToken: "old-refresh", TokenExpiresAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), BaseURL: upstream.URL}})

@@ -84,7 +84,7 @@ func (p *Postgres) RegisterDynamicMCPAuthClient(ctx context.Context, c service.M
 	if err != nil {
 		return nil, fmt.Errorf("begin client registration: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	table := p.workspaceTable("mcp_auth_clients")
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", fmt.Sprintf("%v:dynamic", table)); err != nil {
 		return nil, fmt.Errorf("lock client registration: %w", err)
@@ -146,7 +146,7 @@ func (p *Postgres) CreateMCPAuthClient(ctx context.Context, c service.MCPAuthCli
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var id string
 	found, err := w.tx.From(p.tableMCPServers).Select("id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID, "id": c.MCPServerID}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
 	if err != nil {
@@ -201,7 +201,7 @@ func (p *Postgres) DeleteMCPAuthClient(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("begin MCP auth client delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var row mcpAuthClientRow
 	found, err := tx.From(p.workspaceTable("mcp_auth_clients")).Select(mcpAuthClientColumns...).
 		Where(goqu.Ex{"id": id, "workspace_id": a.WorkspaceID, "dynamic": false}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
@@ -259,7 +259,7 @@ func (p *Postgres) IssueMCPAuthCode(ctx context.Context, client service.MCPAuthC
 	if err != nil {
 		return nil, fmt.Errorf("begin MCP authorization: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var serverID string
 	found, err := tx.From(p.tableMCPServers).Select("id").Where(goqu.Ex{"workspace_id": a.WorkspaceID, "id": mcpServerID}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &serverID)
 	if err != nil {
@@ -311,7 +311,7 @@ func (p *Postgres) ExchangeMCPAuthCode(ctx context.Context, codeHash, clientID, 
 	if err != nil {
 		return nil, fmt.Errorf("begin MCP code exchange: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var code struct {
 		GrantID       string    `db:"grant_id"`
 		RedirectURI   string    `db:"redirect_uri"`
@@ -383,7 +383,7 @@ func (p *Postgres) RefreshMCPAuthTokens(ctx context.Context, refreshHash, client
 	if err != nil {
 		return nil, fmt.Errorf("begin MCP refresh: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var token struct {
 		GrantID   string    `db:"grant_id"`
 		ExpiresAt time.Time `db:"expires_at"`

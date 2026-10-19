@@ -26,11 +26,6 @@ func sha256Hex(s string) string {
 
 // ─── Skill CRUD API ───
 
-// skillsResponse wraps a list of skill records for JSON output.
-type skillsResponse struct {
-	Skills []service.Skill `json:"skills"`
-}
-
 // ListSkillsAPI handles GET /api/v1/skills.
 func (s *Server) ListSkillsAPI(w http.ResponseWriter, r *http.Request) {
 	if s.skillStore == nil {
@@ -395,7 +390,7 @@ func (s *Server) ExportSkillMDAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.md"`, record.Name))
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // ImportSkillAPI handles POST /api/v1/skills/import.
@@ -614,7 +609,7 @@ func (s *Server) fetchAndParseSkillURL(ctx context.Context, url string) (*skillE
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("URL returned status %d", resp.StatusCode)

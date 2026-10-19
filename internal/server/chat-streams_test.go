@@ -23,14 +23,14 @@ func TestChatStreamDisconnectReplayAndOwnership(t *testing.T) {
 	worker := func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, "data: {\"text\":\"merhaba\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"text\":\"merhaba\"}\n\n")
 		w.(http.Flusher).Flush()
 		select {
 		case <-release:
 		case <-r.Context().Done():
 			t.Error("disconnect cancelled execution")
 		}
-		io.WriteString(w, "data: {\"text\":\" dünya\"}\n\ndata: [DONE]\n\n")
+		_, _ = io.WriteString(w, "data: {\"text\":\" dünya\"}\n\ndata: [DONE]\n\n")
 		close(finished)
 	}
 	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,10 +65,10 @@ func TestChatStreamDisconnectReplayAndOwnership(t *testing.T) {
 	if _, err := io.ReadFull(response.Body, first); err != nil {
 		t.Fatal(err)
 	}
-	response.Body.Close() // the producer must continue, not run again
+	_ = response.Body.Close() // the producer must continue, not run again
 	duplicate := post()
-	io.Copy(io.Discard, duplicate.Body)
-	duplicate.Body.Close()
+	_, _ = io.Copy(io.Discard, duplicate.Body)
+	_ = duplicate.Body.Close()
 	if duplicate.StatusCode != 409 {
 		t.Fatal(duplicate.StatusCode)
 	}
@@ -81,7 +81,7 @@ func TestChatStreamDisconnectReplayAndOwnership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got.Body.Close()
+		_ = got.Body.Close()
 		if got.StatusCode != 404 {
 			t.Fatalf("foreign replay admitted: %d", got.StatusCode)
 		}
@@ -98,7 +98,7 @@ func TestChatStreamDisconnectReplayAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	full, err := io.ReadAll(all.Body)
-	all.Body.Close()
+	_ = all.Body.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestChatStreamDisconnectReplayAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	rest, err := io.ReadAll(partial.Body)
-	partial.Body.Close()
+	_ = partial.Body.Close()
 	if err != nil {
 		t.Fatal(err)
 	}

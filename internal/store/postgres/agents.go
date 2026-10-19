@@ -99,7 +99,7 @@ func (p *Postgres) ListAgents(ctx context.Context, q *query.Query) (*service.Lis
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Agent
 	for rows.Next() {
@@ -157,7 +157,7 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if agent.WorkspaceID != "" && agent.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -270,7 +270,7 @@ func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Age
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if agent.WorkspaceID != "" && agent.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -336,7 +336,7 @@ func (p *Postgres) DeleteAgent(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	currentOwner, found, err := p.lockAgentForWrite(ctx, w, p.tableAgents, id)
 	if err != nil {
 		return err
@@ -370,7 +370,7 @@ func (p *Postgres) PublishAgentToWorkspace(ctx context.Context, id, by string) (
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	var row agentRow
 	found, err := w.tx.From(p.tableAgents).

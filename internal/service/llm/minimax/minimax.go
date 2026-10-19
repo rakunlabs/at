@@ -181,7 +181,7 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

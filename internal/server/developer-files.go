@@ -249,7 +249,7 @@ func (s *Server) UploadDeveloperFileAPI(w http.ResponseWriter, r *http.Request) 
 		httpResponse(w, "file is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 	dir, err := service.CleanDeveloperPath(r.FormValue("path"))
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)

@@ -560,7 +560,7 @@ func (e *nativeExternalAuth) renderAuthBridge(w http.ResponseWriter, code int, p
 		code = 200
 	}
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Signing in</title></head>
 <body><p>You can close this window and return to the application.</p>
 <script type="application/json" id="at-auth-payload" nonce="%[1]s">%[2]s</script>

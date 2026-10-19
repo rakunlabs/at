@@ -40,7 +40,7 @@ func (a *Auth) initPasskeys(host string) error {
 			return fmt.Errorf("invalid native_auth.origin DNS hostname")
 		}
 		for _, ch := range label {
-			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
+			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') { //nolint:staticcheck // QF1001: keep the un-negated condition readable
 				return fmt.Errorf("invalid native_auth.origin DNS hostname")
 			}
 		}

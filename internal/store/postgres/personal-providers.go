@@ -119,7 +119,7 @@ func (p *Postgres) CreatePersonalProvider(ctx context.Context, record service.Pr
 	if err != nil {
 		return nil, fmt.Errorf("begin personal provider create: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (p *Postgres) UpdatePersonalProvider(ctx context.Context, id string, record
 	if err != nil {
 		return nil, fmt.Errorf("begin personal provider update: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func (p *Postgres) DeletePersonalProvider(ctx context.Context, id string) error 
 	if err != nil {
 		return fmt.Errorf("begin personal provider delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return err
@@ -245,7 +245,7 @@ func (p *Postgres) SetPersonalProviderScope(ctx context.Context, id, scope, crea
 	if err != nil {
 		return nil, fmt.Errorf("begin personal provider scope update: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return nil, err
@@ -285,7 +285,7 @@ func (p *Postgres) SetPersonalProviderDisabled(ctx context.Context, id string, d
 	if err != nil {
 		return fmt.Errorf("begin personal provider availability update: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return err

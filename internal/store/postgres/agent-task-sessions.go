@@ -135,7 +135,7 @@ func (p *Postgres) ListAgentTaskSessions(ctx context.Context, agentID string) ([
 	if err != nil {
 		return nil, fmt.Errorf("list agent task sessions for %q: %w", agentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.AgentTaskSession
 	for rows.Next() {

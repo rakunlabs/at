@@ -706,8 +706,8 @@ func TestDispatch_APITokenCreate_TwoCallsProduceDifferentTokens(t *testing.T) {
 	var r1, r2 struct {
 		Token string `json:"token"`
 	}
-	json.Unmarshal([]byte(out1), &r1)
-	json.Unmarshal([]byte(out2), &r2)
+	_ = json.Unmarshal([]byte(out1), &r1)
+	_ = json.Unmarshal([]byte(out2), &r2)
 	if r1.Token == r2.Token {
 		t.Fatal("two consecutive token creations produced the same plaintext — randomness is broken")
 	}

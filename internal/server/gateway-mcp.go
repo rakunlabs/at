@@ -47,7 +47,7 @@ func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// Send the endpoint event — tells the client where to POST requests.
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", postURL)
+	_, _ = fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", postURL)
 	flusher.Flush()
 
 	// Keep the SSE connection alive until the client disconnects.
@@ -61,7 +61,7 @@ func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			fmt.Fprintf(w, ": ping\n\n")
+			_, _ = fmt.Fprintf(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
@@ -253,14 +253,6 @@ func negotiateMCPProtocolVersion(params any) string {
 }
 
 func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
-	description := srv.Description
-	if description == "" {
-		description = srv.Config.Description
-	}
-	if description == "" {
-		description = fmt.Sprintf("MCP server: %s", srv.Name)
-	}
-
 	result := map[string]any{
 		"protocolVersion": negotiateMCPProtocolVersion(req.Params),
 		"capabilities": map[string]any{
@@ -414,7 +406,7 @@ func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken 
 				w.Header().Set("X-Accel-Buffering", "no")
 				w.WriteHeader(http.StatusOK)
 			}
-			fmt.Fprint(w, ": keep-alive\n\n")
+			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 			if progressToken != nil {
 				elapsed := int(time.Since(started).Seconds())
 				writeMCPEvent(w, map[string]any{
@@ -437,7 +429,7 @@ func writeMCPEvent(w io.Writer, message any) {
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 }
 
 func acceptsEventStream(r *http.Request) bool {
@@ -485,19 +477,6 @@ func (s *Server) acquireMCPClient(ctx context.Context, upstream service.MCPUpstr
 }
 
 // ─── HTTP Tool Execution ───
-
-func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id int, tool service.MCPHTTPTool, args map[string]any, srv *service.MCPServer) {
-	text, err := s.callGatewayMCPHTTPTool(r.Context(), tool, args)
-	if err != nil {
-		mcpError(w, id, -32000, err.Error())
-		return
-	}
-	mcpResult(w, id, map[string]any{
-		"content": []map[string]any{
-			{"type": "text", "text": text},
-		},
-	})
-}
 
 func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTTPTool, args map[string]any) (string, error) {
 	if args == nil {
@@ -559,7 +538,7 @@ func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTT
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read response body with 1MB limit.
 	const maxBody = 1048576
@@ -624,13 +603,6 @@ func (s *Server) resolveVarRefsContext(ctx context.Context, val string) string {
 	return resolved
 }
 
-// resolveUpstreamVars resolves {{var:key}} references in an MCPUpstream's
-// env values and args. This allows MCP server configs to reference secrets
-// stored in the variable store (e.g. MINIMAX_API_KEY={{var:minimax_api_key}}).
-func (s *Server) resolveUpstreamVars(upstream service.MCPUpstream) service.MCPUpstream {
-	return s.resolveUpstreamVarsContext(context.Background(), upstream)
-}
-
 func (s *Server) resolveUpstreamVarsContext(ctx context.Context, upstream service.MCPUpstream) service.MCPUpstream {
 	resolve := func(value string) string { return s.resolveVarRefsContext(ctx, value) }
 
@@ -655,12 +627,6 @@ func (s *Server) resolveUpstreamVarsContext(ctx context.Context, upstream servic
 	}
 
 	return upstream
-}
-
-// resolveTemplate resolves a Go text/template string with args as data.
-// Also supports {{var:key}} syntax to look up variables from the variable store.
-func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, error) {
-	return s.resolveTemplateContext(context.Background(), tmplStr, args)
 }
 
 func (s *Server) resolveTemplateContext(ctx context.Context, tmplStr string, args map[string]any) (string, error) {
@@ -721,7 +687,7 @@ func mcpResult(w http.ResponseWriter, id int, result any) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func mcpError(w http.ResponseWriter, id int, code int, message string) {
@@ -736,5 +702,5 @@ func mcpError(w http.ResponseWriter, id int, code int, message string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }

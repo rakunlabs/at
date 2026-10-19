@@ -204,7 +204,7 @@ func TestCheckBotAccessRestrictedAndFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &videoCommandBotStore{cfg: service.BotConfig{AccessMode: tt.mode, AllowedUsers: tt.users}, err: tt.err}
 			s := &Server{botConfigStore: store}
-			allowed, pending := s.checkBotAccess(executiontest.Context(t), "bot-1", "42", "public", false, []string{"42"})
+			allowed, pending := s.checkBotAccess(executiontest.Context(t), "bot-1", "42", "public", []string{"42"})
 			if allowed != tt.allowed || pending != tt.pending {
 				t.Fatalf("got (%v, %v), want (%v, %v)", allowed, pending, tt.allowed, tt.pending)
 			}

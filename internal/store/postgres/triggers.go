@@ -71,7 +71,7 @@ func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, erro
 	if err != nil {
 		return nil, fmt.Errorf("list all triggers: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var result []service.Trigger
 	for rows.Next() {
@@ -111,7 +111,7 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 	if err != nil {
 		return nil, fmt.Errorf("list triggers: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var result []service.Trigger
 	for rows.Next() {
@@ -190,7 +190,7 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if err = p.triggerReferences(ctx, w, t); err != nil {
 		return nil, err
 	}
@@ -304,7 +304,7 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if err = p.triggerReferences(ctx, w, t); err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func (p *Postgres) DeleteTrigger(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableTriggers).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -443,7 +443,7 @@ func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigg
 	if err != nil {
 		return nil, fmt.Errorf("list enabled cron triggers: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var result []service.Trigger
 	for rows.Next() {

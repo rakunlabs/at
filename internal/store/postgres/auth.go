@@ -105,7 +105,7 @@ func (p *Postgres) updateAuthUserCredentials(ctx context.Context, id string, val
 	if err != nil {
 		return false, fmt.Errorf("begin auth credential update: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	where := goqu.Ex{"id": id}
 	if version != nil {
 		// Compare against the version whose current password was verified. The
@@ -142,7 +142,7 @@ func (p *Postgres) CreateAuthUser(ctx context.Context, u service.AuthUser, boots
 	if err != nil {
 		return nil, fmt.Errorf("begin auth user: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if bootstrap {
 		result, err := tx.Update(p.tableAuthBootstrap).Set(goqu.Record{"claimed": true}).Where(goqu.Ex{"singleton": true, "claimed": false}).Executor().ExecContext(ctx)
 		if err != nil {
@@ -179,7 +179,7 @@ func (p *Postgres) CreateAuthSession(ctx context.Context, s service.AuthSession)
 	if err != nil {
 		return fmt.Errorf("begin auth session: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var id string
 	found, err := tx.From(p.tableAuthUsers).Select("id").Where(goqu.Ex{"id": s.UserID, "disabled": false, "session_version": s.Version}).ForUpdate(goqu.Wait).ScanValContext(ctx, &id)
 	if err != nil {
@@ -283,7 +283,7 @@ func (p *Postgres) InvalidateAuthUser(ctx context.Context, id string, disable bo
 	if err != nil {
 		return false, fmt.Errorf("begin invalidate auth user: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	values := goqu.Record{"session_version": goqu.L("session_version + 1")}
 	if disable {
 		// Serialize administrator disables across replicas to prevent two

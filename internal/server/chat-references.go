@@ -288,7 +288,7 @@ func (s *Server) chatMediaDataURL(ctx context.Context, owner, id string, remaini
 	if err != nil {
 		return "", err
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	data, err := io.ReadAll(io.LimitReader(reader, *remaining+1))
 	if err != nil {
 		return "", err

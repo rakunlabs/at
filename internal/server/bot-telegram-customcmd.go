@@ -56,7 +56,7 @@ func (s *Server) formatTelegramCustomCommandsHelp(ctx context.Context, botID str
 		if desc == "" {
 			desc = "(custom command)"
 		}
-		sb.WriteString(fmt.Sprintf("/%s - %s\n", name, desc))
+		fmt.Fprintf(&sb, "/%s - %s\n", name, desc)
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }

@@ -74,15 +74,15 @@ type remoteMarketplaceFile struct {
 }
 
 type remoteMarketplaceEntry struct {
-	Name        string                     `json:"name"`
-	DisplayName string                     `json:"displayName"`
-	Description string                     `json:"description"`
-	Version     string                     `json:"version"`
-	Category    string                     `json:"category"`
-	Tags        []string                   `json:"tags"`
-	Keywords    []string                   `json:"keywords"`
-	Source      remotePluginSource         `json:"source"`
-	MCPServers  json.RawMessage            `json:"mcpServers"`
+	Name        string             `json:"name"`
+	DisplayName string             `json:"displayName"`
+	Description string             `json:"description"`
+	Version     string             `json:"version"`
+	Category    string             `json:"category"`
+	Tags        []string           `json:"tags"`
+	Keywords    []string           `json:"keywords"`
+	Source      remotePluginSource `json:"source"`
+	MCPServers  json.RawMessage    `json:"mcpServers"`
 }
 
 // RemotePlugin is one plugin listed by a remote marketplace.
@@ -186,7 +186,7 @@ func normalizeMarketplaceSource(src *service.MarketplaceSource) error {
 			return fmt.Errorf("a marketplace.json URL must be https")
 		}
 		if src.CredentialID != "" {
-			return fmt.Errorf("Git credentials apply to repository sources only")
+			return fmt.Errorf("credentials for Git apply to repository sources only")
 		}
 	case service.MarketplaceSourceGit:
 		if err := validateRemoteGitURL(src.URL); err != nil {
@@ -719,13 +719,13 @@ func extractPluginZip(data []byte) (string, func(), error) {
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			cleanup()
 			return "", nil, err
 		}
 		n, err := io.Copy(out, io.LimitReader(rc, remoteMarketplaceMaxArchive-total+1))
-		rc.Close()
-		out.Close()
+		_ = rc.Close()
+		_ = out.Close()
 		total += n
 		if err != nil {
 			cleanup()
@@ -761,7 +761,7 @@ func fetchPublicBytes(ctx context.Context, rawURL string, limit int64) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}

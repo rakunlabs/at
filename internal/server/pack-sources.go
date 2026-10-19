@@ -94,7 +94,7 @@ func (s *Server) DeletePackSourceAPI(w http.ResponseWriter, r *http.Request) {
 	// Remove cloned directory.
 	repoDir := s.repoDir(id)
 	if repoDir != "" {
-		os.RemoveAll(repoDir)
+		_ = os.RemoveAll(repoDir)
 	}
 
 	if err := s.packSourceStore.DeletePackSource(r.Context(), id); err != nil {
@@ -151,13 +151,13 @@ func (s *Server) syncPackSourceAsync(id string) {
 
 	// Update status to syncing.
 	ps.Status = "syncing"
-	s.packSourceStore.UpdatePackSource(ctx, id, *ps)
+	_, _ = s.packSourceStore.UpdatePackSource(ctx, id, *ps)
 
 	repoDir := s.repoDir(id)
 	if repoDir == "" {
 		ps.Status = "error"
 		ps.Error = "packs directory not configured"
-		s.packSourceStore.UpdatePackSource(ctx, id, *ps)
+		_, _ = s.packSourceStore.UpdatePackSource(ctx, id, *ps)
 		return
 	}
 
@@ -183,7 +183,7 @@ func (s *Server) syncPackSourceAsync(id string) {
 		slog.Info("pack source synced", "id", id, "name", ps.Name)
 	}
 
-	s.packSourceStore.UpdatePackSource(ctx, id, *ps)
+	_, _ = s.packSourceStore.UpdatePackSource(ctx, id, *ps)
 
 	// Reload all packs.
 	s.reloadPacks()

@@ -41,7 +41,7 @@ func TestAuthSecurityEncryptionAndRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := p.rotateAuthSecurityKey(t.Context(), tx, key, newKey); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -60,7 +60,7 @@ func TestAuthSecurityEncryptionAndRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if err := p.rotateAuthSecurityKey(t.Context(), tx, newKey, nil); err == nil {
 		t.Fatal("encryption disabled with active factor")
 	}

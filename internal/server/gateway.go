@@ -54,26 +54,28 @@ func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
 	}
 
 	// Check provider-level access (OR logic with model-level).
-	if providerMode == service.AccessModeList {
+	switch providerMode {
+	case service.AccessModeList:
 		for _, p := range a.token.AllowedProviders {
 			if p == providerKey {
 				return true
 			}
 		}
-	} else if providerMode == service.AccessModeAll {
+	case service.AccessModeAll:
 		// Provider is unrestricted — allowed by provider.
 		return true
 	}
 	// providerMode == "none" falls through to model check.
 
 	// Check model-level access.
-	if modelMode == service.AccessModeList {
+	switch modelMode {
+	case service.AccessModeList:
 		for _, m := range a.token.AllowedModels {
 			if m == fullModelID {
 				return true
 			}
 		}
-	} else if modelMode == service.AccessModeAll {
+	case service.AccessModeAll:
 		return true
 	}
 
@@ -999,7 +1001,7 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 				return nil, tokenPausedMessage
 			}
 			// Check expiry.
-			if token.ExpiresAt.Valid && token.ExpiresAt.V.Time.Before(time.Now().UTC()) {
+			if token.ExpiresAt.Valid && token.ExpiresAt.V.Before(time.Now().UTC()) {
 				return nil, "token has expired"
 			}
 
@@ -1247,7 +1249,7 @@ func (s *Server) handleStreamingChat(
 			case <-heartbeat.C:
 				// Already committed after a successful upstream open. Heartbeats
 				// cannot move the fallback boundary or race content writes.
-				fmt.Fprint(w, ": ping\n\n")
+				_, _ = fmt.Fprint(w, ": ping\n\n")
 				flusher.Flush()
 				continue
 			case next, open := <-chunks:
@@ -1533,7 +1535,7 @@ func (s *Server) handleStreamingChat(
 	}
 
 	// End the stream
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 
 	return true, nil
@@ -1588,7 +1590,7 @@ func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk wire.ChatC
 		chunk.Created = time.Now().Unix()
 	}
 	data, _ := json.Marshal(chunk)
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
 }
 
@@ -1608,9 +1610,9 @@ func writeSSEError(w http.ResponseWriter, flusher http.Flusher, chatID, model, e
 		"model":  model,
 		"object": "error",
 	})
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 

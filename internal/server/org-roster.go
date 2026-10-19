@@ -110,7 +110,7 @@ func orgContextPrompt(org *service.Organization, depth int) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n\n## Organization\n")
-	b.WriteString(fmt.Sprintf("You are an agent in **%s**.", org.Name))
+	fmt.Fprintf(&b, "You are an agent in **%s**.", org.Name)
 	if org.Description != "" {
 		b.WriteString(" " + strings.TrimSpace(org.Description))
 	}
@@ -162,12 +162,12 @@ func (s *Server) delegationContextPrompt(ctx context.Context, org *service.Organ
 	var b strings.Builder
 	b.WriteString("\n\n## Delegation Context\n")
 	if delegatorRole != "" {
-		b.WriteString(fmt.Sprintf("You were delegated this task by **%s** (%s) as part of a larger effort.\n", delegatorName, delegatorRole))
+		fmt.Fprintf(&b, "You were delegated this task by **%s** (%s) as part of a larger effort.\n", delegatorName, delegatorRole)
 	} else {
-		b.WriteString(fmt.Sprintf("You were delegated this task by **%s** as part of a larger effort.\n", delegatorName))
+		fmt.Fprintf(&b, "You were delegated this task by **%s** as part of a larger effort.\n", delegatorName)
 	}
-	b.WriteString(fmt.Sprintf("- Parent task %s: %q\n", parentLabel, parent.Title))
+	fmt.Fprintf(&b, "- Parent task %s: %q\n", parentLabel, parent.Title)
 	b.WriteString("- Your specific assignment is the instruction in the user message above. Stay focused on it; do not try to own the whole parent task.\n")
-	b.WriteString(fmt.Sprintf("- Report a clear, self-contained result: %s will review it and integrate it. If something is ambiguous and you cannot resolve it, state your assumptions explicitly in your result rather than stalling.\n", delegatorName))
+	fmt.Fprintf(&b, "- Report a clear, self-contained result: %s will review it and integrate it. If something is ambiguous and you cannot resolve it, state your assumptions explicitly in your result rather than stalling.\n", delegatorName)
 	return b.String()
 }

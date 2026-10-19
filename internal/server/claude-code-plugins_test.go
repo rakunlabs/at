@@ -232,7 +232,7 @@ func readZipEntries(t *testing.T, data []byte) map[string][]byte {
 		}
 		buf := new(bytes.Buffer)
 		if _, err := buf.ReadFrom(rc); err != nil {
-			rc.Close()
+			_ = rc.Close()
 			t.Fatalf("read zip file %s: %v", f.Name, err)
 		}
 		if err := rc.Close(); err != nil {

@@ -47,10 +47,10 @@ func TestChatStreamToolArguments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprintln(w, `data: {"type":"content_block_start","content_block":{"type":"tool_use","id":"call_1","name":"read_file","input":{}}}`)
+				_, _ = fmt.Fprintln(w, `data: {"type":"content_block_start","content_block":{"type":"tool_use","id":"call_1","name":"read_file","input":{}}}`)
 				// %q is sufficient for these ASCII JSON fixtures.
-				fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":%q}}\n", tt.args)
-				fmt.Fprintln(w, "data: {\"type\":\"content_block_stop\"}\n\ndata: {\"type\":\"message_stop\"}")
+				_, _ = fmt.Fprintf(w, "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":%q}}\n", tt.args)
+				_, _ = fmt.Fprintln(w, "data: {\"type\":\"content_block_stop\"}\n\ndata: {\"type\":\"message_stop\"}")
 			}))
 			defer srv.Close()
 			p, err := New("test-key", "claude-test", srv.URL, "", false)
@@ -91,7 +91,7 @@ func TestChatStreamToolArguments(t *testing.T) {
 func TestChatStreamAcceptsCleanEOFAfterText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintln(w, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}`)
+		_, _ = fmt.Fprintln(w, `data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}`)
 	}))
 	defer srv.Close()
 

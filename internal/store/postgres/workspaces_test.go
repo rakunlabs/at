@@ -454,7 +454,7 @@ func TestWorkspacePostgresVerifiedEmailInvitationAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := strings.Repeat("b", 64)
-	inv, err := p.CreateWorkspaceInvitation(ctx, service.WorkspaceInvitation{WorkspaceID: w.ID, Role: "viewer", Email: "same@example.test", TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)})
+	_, err := p.CreateWorkspaceInvitation(ctx, service.WorkspaceInvitation{WorkspaceID: w.ID, Role: "viewer", Email: "same@example.test", TokenHash: hash, ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestWorkspacePostgresVerifiedEmailInvitationAndExpiry(t *testing.T) {
 		t.Fatalf("verified membership merged: %+v %v", m, err)
 	}
 	expired := strings.Repeat("c", 64)
-	inv, err = p.CreateWorkspaceInvitation(ctx, service.WorkspaceInvitation{WorkspaceID: w.ID, Role: "viewer", UserID: local.ID, TokenHash: expired, ExpiresAt: time.Now().Add(time.Hour)})
+	inv, err := p.CreateWorkspaceInvitation(ctx, service.WorkspaceInvitation{WorkspaceID: w.ID, Role: "viewer", UserID: local.ID, TokenHash: expired, ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}

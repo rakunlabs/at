@@ -53,7 +53,7 @@ func createRunOutputDir(ctx context.Context, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := root.MkdirAll(name, 0o755); err != nil {
 		return "", fmt.Errorf("create output directory: %w", err)
 	}
@@ -72,7 +72,7 @@ func collectRunOutputFiles(ctx context.Context, rel string) ([]runFileRef, error
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	fsys, err := fs.Sub(root.FS(), filepath.ToSlash(name))
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func sniffHead(fsys fs.FS, name string) []byte {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	head := make([]byte, 512)
 	n, _ := io.ReadFull(f, head)
 	return head[:n]

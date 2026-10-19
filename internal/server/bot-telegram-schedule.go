@@ -168,7 +168,7 @@ func (s *Server) runTelegramScheduledCommand(ctx context.Context, bot *tgbotapi.
 		return
 	}
 	userID := strconv.FormatInt(chatID, 10)
-	if allowed, _ := s.checkBotAccess(ctx, tgCtx.botID, userID, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers); !allowed {
+	if allowed, _ := s.checkBotAccess(ctx, tgCtx.botID, userID, cfg.AccessMode, cfg.AllowedUsers); !allowed {
 		slog.Warn("telegram bot: scheduled command chat is not allowed, skipping", "bot_id", tgCtx.botID, "command", command)
 		return
 	}

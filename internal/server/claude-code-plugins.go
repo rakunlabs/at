@@ -138,7 +138,7 @@ func (s *Server) ClaudeCodeMarketplaceZipAPI(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="at-claude-marketplace.zip"`)
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) ClaudeCodeMarketplacePluginZipAPI(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +186,7 @@ func (s *Server) ClaudeCodeMarketplacePluginZipAPI(w http.ResponseWriter, r *htt
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, item.PluginSlug))
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) ClaudeCodePluginZipAPI(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +234,7 @@ func (s *Server) ClaudeCodePluginZipAPI(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, item.PluginSlug))
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 func (s *Server) claudePluginItems(ctx context.Context, r *http.Request, uniqueSlugs bool) ([]claudePluginItem, error) {

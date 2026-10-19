@@ -31,7 +31,7 @@ func (p *Postgres) WithClaudeOAuthTokens(ctx context.Context, workspace, key str
 	if err != nil {
 		return nil, fmt.Errorf("begin OAuth rotation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	row, err := p.lockOAuthProvider(ctx, tx, workspace, key)
 	if err != nil {
 		return nil, err

@@ -125,7 +125,7 @@ func (s *Server) UploadDeveloperHomeFileAPI(w http.ResponseWriter, r *http.Reque
 		httpResponse(w, "file is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 	target := strings.TrimSpace(r.FormValue("path"))
 	if target == "" {
 		target = path.Base(strings.ReplaceAll(header.Filename, "\\", "/"))

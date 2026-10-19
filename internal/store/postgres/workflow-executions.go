@@ -88,7 +88,7 @@ func (p *Postgres) CreateWorkflowExecution(ctx context.Context, value service.Wo
 	if err != nil {
 		return nil, err
 	}
-	defer bw.tx.Rollback()
+	defer bw.tx.Rollback() //nolint:errcheck
 	if bw.actor.WorkspaceID != value.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -155,7 +155,7 @@ func (p *Postgres) DecideWorkflowExecution(ctx context.Context, workflowID, id s
 	if err != nil {
 		return err
 	}
-	defer bw.tx.Rollback()
+	defer bw.tx.Rollback() //nolint:errcheck
 	if err := p.businessReference(ctx, bw, p.tableWorkflows, "id", workflowID); err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (p *Postgres) ClaimWorkflowExecution(ctx context.Context, worker string, so
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	old := tx.From(table).Select("id").Where(goqu.C("status").In("completed", "blocked", "cancelled", "expired"), goqu.L("updated_at < clock_timestamp() - interval '30 days'")).Limit(50).ForUpdate(goqu.SkipLocked)
 	if _, err := tx.Delete(table).Where(goqu.C("id").In(old)).Executor().ExecContext(ctx); err != nil {
 		return nil, fmt.Errorf("expire durable history: %w", err)

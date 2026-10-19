@@ -35,7 +35,7 @@ func pingTestPostgres(t *testing.T, dsn string) {
 	if err != nil {
 		t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 	if err := db.PingContext(ctx); err != nil {
 		t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
 	}
@@ -114,7 +114,7 @@ func dropTestTables(t *testing.T, store *Postgres, prefix string) {
 		t.Logf("cleanup: list tables: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var tables []string
 	for rows.Next() {

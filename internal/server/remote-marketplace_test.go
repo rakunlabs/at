@@ -289,16 +289,16 @@ func TestRemoteMarketplaceURLSourceWithArchivePlugin(t *testing.T) {
 		"plugin/skills/notes/SKILL.md":      "---\nname: notes\n---\nTake notes.\n",
 	} {
 		f, _ := zw.Create(name)
-		f.Write([]byte(body))
+		_, _ = f.Write([]byte(body))
 	}
-	zw.Close()
+	_ = zw.Close()
 	sum := sha256.Sum256(zipBuf.Bytes())
 
 	var srvURL string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/marketplace.json":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"name": "zips", "owner": map[string]string{"name": "x"},
 				"plugins": []any{
 					map[string]any{"name": "zipped", "source": map[string]any{"source": "archive", "url": srvURL + "/p.zip", "sha256": hex.EncodeToString(sum[:])}},
@@ -307,7 +307,7 @@ func TestRemoteMarketplaceURLSourceWithArchivePlugin(t *testing.T) {
 				},
 			})
 		case "/p.zip":
-			w.Write(zipBuf.Bytes())
+			_, _ = w.Write(zipBuf.Bytes())
 		default:
 			http.NotFound(w, r)
 		}
@@ -393,8 +393,8 @@ func TestExtractPluginZipRejectsTraversal(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	f, _ := zw.Create("../escape.txt")
-	f.Write([]byte("x"))
-	zw.Close()
+	_, _ = f.Write([]byte("x"))
+	_ = zw.Close()
 	if _, _, err := extractPluginZip(buf.Bytes()); err == nil {
 		t.Fatal("zip traversal admitted")
 	}

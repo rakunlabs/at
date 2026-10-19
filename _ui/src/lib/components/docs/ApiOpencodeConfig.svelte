@@ -113,7 +113,7 @@
       the Pricing page come along with each model.
     </p>
     <ul>
-      <li>The plugin is pinned to 1.10.0 and caches the catalog for 24 hours, so startup does not wait for the gateway.</li>
+      <li>The plugin is pinned to 2.0.0 and caches the catalog for 24 hours, so startup does not wait for the gateway.</li>
       <li>After changing providers or prices, run <code>/models-discovery-refresh</code> in opencode instead of waiting for the cache to expire.</li>
       <li><code>/models-discovery-console</code> browses the discovered models and inspects or clears the cache.</li>
       <li>After updating an existing config, run <code>opencode service restart</code> once.</li>

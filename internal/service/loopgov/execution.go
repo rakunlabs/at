@@ -37,7 +37,7 @@ func (g *Governor) dumpToolOutputRooted(runID, toolName, body string) (string, e
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	dir := filepath.Join(".at-tool-output", runID)
 	if err := service.MkdirExecutionAll(root, dir, 0700); err != nil {
 		return "", err

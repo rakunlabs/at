@@ -115,7 +115,7 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	if err != nil {
 		return fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, mediaJSONResponseMaxBytes+1))
 	if err != nil {
@@ -179,7 +179,7 @@ func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateR
 	}
 
 	if apiReq.Model == "" {
-		apiReq.Model = "dall-e-3"
+		apiReq.Model = DefaultImageModel
 	}
 	// GPT Image models always return base64 and reject response_format.
 	if strings.HasPrefix(apiReq.Model, "dall-e") {
@@ -215,7 +215,7 @@ func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateR
 func (p *Provider) editImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
 	model := req.Model
 	if model == "" {
-		model = "gpt-image-1"
+		model = DefaultImageModel
 	}
 	var buf bytes.Buffer
 	writer := newMultipartWriter(&buf)
@@ -278,7 +278,7 @@ func (p *Provider) editImage(ctx context.Context, req service.ImageGenerateReque
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, err := io.ReadAll(io.LimitReader(resp.Body, mediaJSONResponseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
@@ -363,7 +363,7 @@ func (p *Provider) GenerateAudio(ctx context.Context, req service.AudioGenerateR
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -483,7 +483,7 @@ func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscr
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

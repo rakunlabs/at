@@ -126,7 +126,7 @@ func (s *Server) MCPSetInspectUpstreamsAPI(w http.ResponseWriter, r *http.Reques
 		}
 		entry.DurationMS = time.Since(started).Milliseconds()
 		if lease.owned {
-			closeMCPClient(inspectCtx, lease.client) // best-effort diagnostic cleanup
+			_ = closeMCPClient(inspectCtx, lease.client) // best-effort diagnostic cleanup
 		}
 		cancel()
 		results = append(results, entry)

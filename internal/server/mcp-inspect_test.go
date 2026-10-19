@@ -19,7 +19,7 @@ func TestMCPSetInspectUpstreams(t *testing.T) {
 		switch req.Method {
 		case "initialize":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
 				"protocolVersion": "2025-03-26",
 				"serverInfo":      map[string]any{"name": "example", "version": "2.1"},
 			}})
@@ -32,9 +32,9 @@ func TestMCPSetInspectUpstreams(t *testing.T) {
 				{"name": "beta", "description": "second", "inputSchema": map[string]any{"type": "object"}},
 			}}}
 			payload, _ := json.Marshal(response)
-			w.Write([]byte("data: "))
-			w.Write(payload)
-			w.Write([]byte("\n\n"))
+			_, _ = w.Write([]byte("data: "))
+			_, _ = w.Write(payload)
+			_, _ = w.Write([]byte("\n\n"))
 		}
 	}))
 	defer working.Close()

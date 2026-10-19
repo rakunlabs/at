@@ -56,7 +56,7 @@ func (p *Postgres) GetTokenUsage(ctx context.Context, tokenID string) ([]service
 	if err != nil {
 		return nil, fmt.Errorf("get token usage: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.TokenUsage
 	for rows.Next() {

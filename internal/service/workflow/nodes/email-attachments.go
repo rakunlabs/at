@@ -168,13 +168,13 @@ func readWorkspaceFile(ctx context.Context, workspacePath string, limit int64) (
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 
 	f, err := root.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	info, err := f.Stat()
 	if err != nil {

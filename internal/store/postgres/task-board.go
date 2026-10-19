@@ -84,7 +84,7 @@ func (p *Postgres) SaveTaskBoard(ctx context.Context, columns []service.TaskBoar
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	workspaceID := w.actor.WorkspaceID
 	if workspaceID == "" {
@@ -155,7 +155,7 @@ func (p *Postgres) ResetTaskBoard(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	query, _, err := w.tx.Delete(p.tableTaskBoard).Where(w.predicate).ToSQL()
 	if err != nil {

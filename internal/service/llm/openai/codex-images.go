@@ -14,6 +14,10 @@ import (
 // CodexDefaultImageModel is the model the Codex CLI's image tool requests.
 const CodexDefaultImageModel = "gpt-image-2"
 
+// DefaultImageModel is used by API-key providers when a request names no
+// model. The previous defaults (dall-e-3, gpt-image-1) are retired upstream.
+const DefaultImageModel = "gpt-image-2.5-flare"
+
 // A single base64 image can reach tens of megabytes; Codex itself bounds a
 // decoded image at 32 MiB.
 const codexImageResponseMaxBytes = 128 << 20
@@ -103,21 +107,21 @@ func (p *CodexProvider) GenerateImage(ctx context.Context, req service.ImageGene
 	}
 	resp, err := send()
 	if err != nil {
-		return nil, fmt.Errorf("Codex image request failed: %w", err)
+		return nil, fmt.Errorf("image request to Codex failed: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp, err = p.recoverUnauthorized(ctx, resp, send)
 		if err != nil {
-			return nil, fmt.Errorf("Codex image request recovery failed: %w", err)
+			return nil, fmt.Errorf("image request recovery for Codex failed: %w", err)
 		}
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, codexImageResponseMaxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read Codex image response: %w", err)
 	}
 	if len(respBody) > codexImageResponseMaxBytes {
-		return nil, fmt.Errorf("Codex image response exceeds %d bytes", codexImageResponseMaxBytes)
+		return nil, fmt.Errorf("image response from Codex exceeds %d bytes", codexImageResponseMaxBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, codexHTTPError(resp, respBody)
@@ -135,7 +139,7 @@ func (p *CodexProvider) GenerateImage(ctx context.Context, req service.ImageGene
 		out.Images = append(out.Images, service.GeneratedImage{Base64: image.B64JSON, RevisedPrompt: image.RevisedPrompt})
 	}
 	if len(out.Images) == 0 {
-		return nil, fmt.Errorf("Codex image generation returned no image data")
+		return nil, fmt.Errorf("image generation with Codex returned no image data")
 	}
 	if parsed.Usage != nil {
 		out.Usage = service.Usage{

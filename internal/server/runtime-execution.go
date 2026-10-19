@@ -38,7 +38,7 @@ func (s *Server) BindRuntimeExecution(ctx context.Context, provenance service.Ex
 	if err != nil {
 		return nil, fmt.Errorf("open workspace base: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := root.MkdirAll(filepath.Join("workspaces", workspaceID), 0700); err != nil {
 		return nil, fmt.Errorf("create workspace root: %w", err)
 	}
@@ -46,7 +46,7 @@ func (s *Server) BindRuntimeExecution(ctx context.Context, provenance service.Ex
 	if err != nil {
 		return nil, fmt.Errorf("open workspace root: %w", err)
 	}
-	defer workspace.Close()
+	defer workspace.Close() //nolint:errcheck
 	for _, dir := range []string{"tasks", "assets/avatars", "assets/voices", "assets/uploads", "assets/series"} {
 		if err := workspace.MkdirAll(dir, 0700); err != nil {
 			return nil, fmt.Errorf("create workspace asset directory: %w", err)

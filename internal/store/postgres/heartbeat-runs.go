@@ -222,7 +222,7 @@ func (p *Postgres) ListHeartbeatRuns(ctx context.Context, agentID string, q *que
 	if err != nil {
 		return nil, fmt.Errorf("list heartbeat runs for agent %q: %w", agentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.HeartbeatRun
 	for rows.Next() {

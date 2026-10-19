@@ -27,7 +27,7 @@ func OpenExecutionFile(root *os.Root, name string, flags int, mode os.FileMode) 
 	if err != nil {
 		return nil, fmt.Errorf("open root descriptor: %w", err)
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	var creationMode uint64
 	if flags&os.O_CREATE != 0 {
 		creationMode = uint64(mode.Perm())
@@ -42,11 +42,11 @@ func OpenExecutionFile(root *os.Root, name string, flags int, mode os.FileMode) 
 	f := os.NewFile(uintptr(fd), name)
 	info, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("stat authorized file: %w", err)
 	}
 	if !info.Mode().IsRegular() && !info.IsDir() {
-		f.Close()
+		_ = f.Close()
 		return nil, ErrExecutionDenied
 	}
 	return f, nil
@@ -63,13 +63,13 @@ func ReplaceExecutionFile(root *os.Root, name string, src io.Reader) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	temp := ".at-upload-" + ulid.Make().String()
 	fd, err := unix.Openat(int(dir.Fd()), temp, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return 0, fmt.Errorf("create rooted upload: %w", err)
 	}
-	defer unix.Unlinkat(int(dir.Fd()), temp, 0)
+	defer unix.Unlinkat(int(dir.Fd()), temp, 0) //nolint:errcheck
 	f := os.NewFile(uintptr(fd), temp)
 	n, err := io.Copy(f, src)
 	closeErr := f.Close()
@@ -93,7 +93,7 @@ func MkdirExecutionAll(root *os.Root, name string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer func() { dir.Close() }()
+	defer func() { _ = dir.Close() }()
 	for _, part := range strings.Split(filepath.Clean(name), string(filepath.Separator)) {
 		if part == "." {
 			continue
@@ -106,7 +106,7 @@ func MkdirExecutionAll(root *os.Root, name string, mode os.FileMode) error {
 		if err != nil {
 			return fmt.Errorf("open rooted directory: %w", err)
 		}
-		dir.Close()
+		_ = dir.Close()
 		dir = os.NewFile(uintptr(fd), part)
 	}
 	return nil
@@ -120,7 +120,7 @@ func RemoveExecutionFile(root *os.Root, name string) error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	var info unix.Stat_t
 	if err := unix.Fstatat(int(dir.Fd()), filepath.Base(name), &info, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return fmt.Errorf("stat rooted deletion: %w", err)
@@ -143,7 +143,7 @@ func RemoveExecutionTree(ctx context.Context, root *os.Root, name string) error 
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	return removeExecutionTreeAt(ctx, int(dir.Fd()), filepath.Base(name))
 }
 func removeExecutionTreeAt(ctx context.Context, parent int, name string) error {
@@ -161,7 +161,7 @@ func removeExecutionTreeAt(ctx context.Context, parent int, name string) error {
 		return err
 	}
 	dir := os.NewFile(uintptr(fd), name)
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	for {
 		entries, err := dir.ReadDir(128)
 		if err != nil && err != io.EOF {

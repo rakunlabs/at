@@ -39,7 +39,7 @@ func uploadMCPBinary(t *testing.T, s *Server, name, content string, fields map[s
 	for k, v := range fields {
 		_ = mw.WriteField(k, v)
 	}
-	mw.Close()
+	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/binaries", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
@@ -182,8 +182,8 @@ func TestMCPBinariesArchiveExtraction(t *testing.T) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "foo-mcp-v1.2.tar.gz")
-	fw.Write(archive)
-	mw.Close()
+	_, _ = fw.Write(archive)
+	_ = mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/binaries", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()
@@ -262,8 +262,8 @@ func TestMCPBinariesArchiveTraversalRejected(t *testing.T) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "evil.tgz")
-	fw.Write(archive)
-	mw.Close()
+	_, _ = fw.Write(archive)
+	_ = mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/binaries", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()
@@ -312,7 +312,7 @@ func uploadMCPBinaryRaw(t *testing.T, s *Server, name string, content []byte, fi
 	for k, v := range fields {
 		_ = mw.WriteField(k, v)
 	}
-	mw.Close()
+	_ = mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/binaries", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rr := httptest.NewRecorder()

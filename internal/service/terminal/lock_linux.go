@@ -27,15 +27,15 @@ func lockSession(ctx context.Context, id string) (func(), error) {
 	for {
 		err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
-			return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); f.Close() }, nil
+			return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); _ = f.Close() }, nil
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) {
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("lock terminal: %w", err)
 		}
 		select {
 		case <-ctx.Done():
-			f.Close()
+			_ = f.Close()
 			return nil, ctx.Err()
 		case <-time.After(25 * time.Millisecond):
 		}

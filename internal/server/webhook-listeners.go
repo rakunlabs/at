@@ -206,7 +206,7 @@ func (m *webhookListenerManager) start(c service.WebhookServer) (*webhookListene
 	if c.TLSEnabled() {
 		cert, err := tls.X509KeyPair([]byte(c.TLSCert), []byte(c.TLSKey))
 		if err != nil {
-			ln.Close()
+			_ = ln.Close()
 			return nil, fmt.Errorf("load TLS certificate: %w", err)
 		}
 		ln = tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
@@ -237,7 +237,7 @@ func (l *webhookListener) shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := l.srv.Shutdown(ctx); err != nil {
-		l.srv.Close()
+		_ = l.srv.Close()
 	}
 	<-l.done
 }

@@ -236,7 +236,7 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	if err != nil {
 		return nil, fmt.Errorf("http_request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if n.commonRetry && workflow.RetryableHTTPStatus(resp.StatusCode) {
 		return nil, &httpExecutionError{

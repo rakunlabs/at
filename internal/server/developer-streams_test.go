@@ -194,9 +194,9 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 	if _, err := io.ReadFull(resp.Body, first); err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	duplicate := post()
-	duplicate.Body.Close()
+	_ = duplicate.Body.Close()
 	if duplicate.StatusCode != http.StatusConflict {
 		t.Fatal("duplicate run admitted")
 	}
@@ -210,7 +210,7 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 	if err := json.NewDecoder(active.Body).Decode(&state); err != nil {
 		t.Fatal(err)
 	}
-	active.Body.Close()
+	_ = active.Body.Close()
 	if state.StreamID != "developer-test-stream" {
 		t.Fatalf("discovery = %q", state.StreamID)
 	}
@@ -226,7 +226,7 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		foreign.Body.Close()
+		_ = foreign.Body.Close()
 		if foreign.StatusCode != http.StatusNotFound {
 			t.Fatalf("foreign replay = %d", foreign.StatusCode)
 		}
@@ -235,7 +235,7 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat.Body.Close()
+	_ = chat.Body.Close()
 	if chat.StatusCode != http.StatusNotFound {
 		t.Fatal("developer stream admitted through Sessions")
 	}
@@ -250,7 +250,7 @@ func TestDeveloperStreamDetachDiscoveryReplayAndStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, err := io.ReadAll(replay.Body)
-	replay.Body.Close()
+	_ = replay.Body.Close()
 	if err != nil {
 		t.Fatal(err)
 	}

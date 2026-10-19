@@ -62,7 +62,7 @@ func (p *Postgres) ListApprovals(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("list approvals: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Approval
 	for rows.Next() {
@@ -120,7 +120,7 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if approval.WorkspaceID != "" && approval.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -193,7 +193,7 @@ func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval servi
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if approval.WorkspaceID != "" && approval.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -274,7 +274,7 @@ func (p *Postgres) ListPendingApprovals(ctx context.Context, orgID string) ([]se
 	if err != nil {
 		return nil, fmt.Errorf("list pending approvals for org %q: %w", orgID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Approval
 	for rows.Next() {

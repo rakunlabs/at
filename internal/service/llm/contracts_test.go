@@ -94,7 +94,7 @@ func TestGeminiProxyUsesADCWithoutCallerCredentials(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer google-token" || r.Header.Get("X-Goog-Api-Key") != "" || r.Header.Get("Cookie") != "" {
 			t.Error("incorrect proxy credentials")
 		}
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 	p, err := gemini.New("stale-key", "model", srv.URL, "", false, gemini.WithGoogleTokenSource(googleToken{}))
@@ -124,7 +124,7 @@ func TestAzureProxyUsesConfiguredKeyAndAPIVersion(t *testing.T) {
 		if r.URL.Query().Get("api-version") != "2024-10-21" || r.URL.Query().Get("limit") != "1" {
 			t.Errorf("query parameters lost: %s", r.URL.RawQuery)
 		}
-		fmt.Fprint(w, "ok")
+		_, _ = fmt.Fprint(w, "ok")
 	}))
 	defer srv.Close()
 	p, err := openai.New("", "m", srv.URL+"/chat/completions?api-version=2024-10-21", "", false, map[string]string{"api-key": "azure-key"})
@@ -152,7 +152,7 @@ func TestAnthropicExtraHeadersDoNotOverrideOAuth(t *testing.T) {
 		if r.Header.Get("X-Custom") != "value" || r.Header.Get("At-Prompt-Caching") != "" {
 			t.Error("extra headers/internal controls handled incorrectly")
 		}
-		fmt.Fprint(w, `{"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
+		_, _ = fmt.Fprint(w, `{"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
 	}))
 	defer srv.Close()
 	p, err := antropic.New("", "m", srv.URL, "", false, antropic.WithTokenSource(antropic.NewStaticTokenSource("oauth-token")), antropic.WithExtraHeaders(map[string]string{
@@ -175,9 +175,9 @@ func TestMiniMaxExtraHeadersReachChatAndMedia(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/anthropic/v1/messages":
-			fmt.Fprint(w, `{"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
+			_, _ = fmt.Fprint(w, `{"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
 		case "/v1/image_generation":
-			fmt.Fprint(w, `{"base_resp":{"status_code":0},"data":{"image_urls":["https://example.com/image.png"]}}`)
+			_, _ = fmt.Fprint(w, `{"base_resp":{"status_code":0},"data":{"image_urls":["https://example.com/image.png"]}}`)
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}

@@ -199,12 +199,12 @@ func (p *Postgres) beginBusinessWrite(ctx context.Context, table interface{}, ca
 		a, err = p.workspaceActor(ctx, tx, "workspace.read")
 	}
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return nil, err
 	}
 	personalProfileWrite := table == p.tableRoutingProfiles && id != "" && a.Allows("personal_providers.manage", service.AccessResource{WorkspaceID: a.WorkspaceID})
 	if !personalProfileWrite && !a.Allows(capability, service.AccessResource{WorkspaceID: a.WorkspaceID, ID: id}) {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	predicate := exp.Expression(goqu.C("workspace_id").Eq(a.WorkspaceID))
@@ -222,7 +222,7 @@ func (p *Postgres) beginBusinessWrite(ctx context.Context, table interface{}, ca
 			var foundID string
 			found, err := tx.From(table).Select("id").Where(predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanValContext(ctx, &foundID)
 			if err != nil || !found {
-				tx.Rollback()
+				_ = tx.Rollback()
 				if err != nil {
 					return nil, fmt.Errorf("lock token ownership: %w", err)
 				}
@@ -275,15 +275,15 @@ func (p *Postgres) beginBusinessNamedWrite(ctx context.Context, table interface{
 	var id string
 	found, err := w.tx.From(table).Select("id").Where(w.predicate, goqu.C(column).Eq(key)).ForUpdate(goqu.Wait).ScanValContext(ctx, &id)
 	if err != nil {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, fmt.Errorf("lock named resource: %w", err)
 	}
 	if !found {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessResourceNotFound
 	}
 	if !w.actor.Allows(capability, service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
-		w.tx.Rollback()
+		_ = w.tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
 	return w, nil

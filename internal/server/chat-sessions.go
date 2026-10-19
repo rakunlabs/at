@@ -682,19 +682,19 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		var taskContext strings.Builder
 		taskContext.WriteString("\n\n## Current Task\n")
 		if taskLinked.Identifier != "" {
-			taskContext.WriteString(fmt.Sprintf("**ID**: %s\n", taskLinked.Identifier))
+			fmt.Fprintf(&taskContext, "**ID**: %s\n", taskLinked.Identifier)
 		}
-		taskContext.WriteString(fmt.Sprintf("**Title**: %s\n", taskLinked.Title))
-		taskContext.WriteString(fmt.Sprintf("**Status**: %s\n", taskLinked.Status))
+		fmt.Fprintf(&taskContext, "**Title**: %s\n", taskLinked.Title)
+		fmt.Fprintf(&taskContext, "**Status**: %s\n", taskLinked.Status)
 		if taskLinked.Description != "" {
-			taskContext.WriteString(fmt.Sprintf("\n**Description**:\n%s\n", taskLinked.Description))
+			fmt.Fprintf(&taskContext, "\n**Description**:\n%s\n", taskLinked.Description)
 		}
 		if taskLinked.Result != "" {
 			resultPreview := taskLinked.Result
 			if len(resultPreview) > 2000 {
 				resultPreview = resultPreview[:2000] + "\n...(truncated)"
 			}
-			taskContext.WriteString(fmt.Sprintf("\n**Previous Result**:\n%s\n", resultPreview))
+			fmt.Fprintf(&taskContext, "\n**Previous Result**:\n%s\n", resultPreview)
 		}
 		if session.Config.TaskDiscussionMode {
 			taskContext.WriteString("\nThis is an interactive discussion about the task. Answer the user's current message directly using the task context and recent task conversation. Do not repeat the task ID, title, status, assignee, description, or previous result unless the user asks for those details. Do not change task status or result unless the user explicitly asks you to perform an action.")
@@ -844,8 +844,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		}
 		return baseVarLookup(key)
 	}
-	var varLister workflow.VarLister
-	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
+	var varLister workflow.VarLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
 	// 9. Inject only the personal preferences exposed by the preference tools.
 	if s.userPrefStore != nil && sessionUserID != "" {
 		prefs, err := s.userPrefStore.ListUserPreferences(ctx, sessionUserID)
@@ -1103,7 +1102,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			// model answer with their results instead of ending the turn early.
 			if resp.Content != "" {
 				onEvent(AgenticEvent{Type: "content", Content: resp.Content})
-				s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
+				_ = s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
 				llmMessages = append(llmMessages, agentloop.AssistantMessage(resp))
 			}
 			onEvent(AgenticEvent{Type: "tool_progress", ToolName: "agent_run", Content: "waiting for background subagents to finish"})
@@ -1164,7 +1163,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		}
 
 		// Persist assistant message with tool calls.
-		s.persistAssistantMessage(ctx, sessionID, resp.Content, resp.ToolCalls)
+		_ = s.persistAssistantMessage(ctx, sessionID, resp.Content, resp.ToolCalls)
 
 		// Execute tool calls.
 		var toolResults []service.ContentBlock
@@ -1264,9 +1263,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					toolResults = append(toolResults, block)
 					continue
 				}
-				if hi.handlerType == "bash" {
+				switch hi.handlerType {
+				case "bash":
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
-				} else if hi.handlerType == "builtin" {
+				case "builtin":
 					var toolCtx context.Context
 					var cancel context.CancelFunc
 					if tc.Name == "agent_run" {
@@ -1282,7 +1282,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					if callErr == nil && (tc.Name == "task_complete" || tc.Name == "task_block") {
 						terminalToolCalled = true
 					}
-				} else if hi.handlerType == "delegate" {
+				case "delegate":
 					// Delegation tool for task-linked chat sessions.
 					// Creates a child task and runs org delegation synchronously.
 					targetAgentID := hi.handler
@@ -1320,7 +1320,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					} else {
 						result = "Error: delegation requires a task-linked session with an organization"
 					}
-				} else {
+				default:
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
 						Context:   ctx,
 						VarLookup: varLookup,
@@ -1446,9 +1446,9 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		if event != "" {
-			fmt.Fprintf(w, "event: %s\n", event)
+			_, _ = fmt.Fprintf(w, "event: %s\n", event)
 		}
-		fmt.Fprintf(w, "data: %s\n\n", jsonData)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", jsonData)
 		flusher.Flush()
 	}
 
@@ -1467,7 +1467,7 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-ticker.C:
 				writeMu.Lock()
-				fmt.Fprint(w, ": ping\n\n")
+				_, _ = fmt.Fprint(w, ": ping\n\n")
 				flusher.Flush()
 				writeMu.Unlock()
 			}

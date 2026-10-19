@@ -60,7 +60,7 @@ func supervise(id, file string, argv, env []string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer r.Close() //nolint:errcheck
 	if _, err := r.Stat("cancelled"); err == nil {
 		return fmt.Errorf("run cancelled before execution")
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -94,7 +94,7 @@ func supervise(id, file string, argv, env []string) error {
 			_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCSPGRP, uintptr(unsafe.Pointer(&foreground)))
 		}()
 	}
-	defer r.Remove("process")
+	defer r.Remove("process") //nolint:errcheck
 	start, err := processStart(cmd.Process.Pid)
 	if err == nil {
 		supervisorStart, identityErr := processStart(os.Getpid())
@@ -137,7 +137,7 @@ func cancelRun(id string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer r.Close() //nolint:errcheck
 	data, err := r.ReadFile("process")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

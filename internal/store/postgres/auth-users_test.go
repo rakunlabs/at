@@ -229,7 +229,7 @@ func TestNativeAuthConcurrentPasswordChanges(t *testing.T) {
 		}()
 	}
 	a, b := <-results, <-results
-	if !(a == nil && errors.Is(b, service.ErrAuthConflict) || b == nil && errors.Is(a, service.ErrAuthConflict)) {
+	if !(a == nil && errors.Is(b, service.ErrAuthConflict) || b == nil && errors.Is(a, service.ErrAuthConflict)) { //nolint:staticcheck // QF1001: keep the un-negated condition readable
 		t.Fatalf("expected one winner: %v %v", a, b)
 	}
 }

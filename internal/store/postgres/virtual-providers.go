@@ -160,7 +160,7 @@ func (p *Postgres) CreateVirtualProvider(ctx context.Context, v service.VirtualP
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	_, err = tx.Insert(p.tableVirtualProviders).Rows(goqu.Record{"id": v.ID, "workspace_id": a.WorkspaceID, "key": strings.TrimSpace(v.Key), "name": strings.TrimSpace(v.Name), "description": strings.TrimSpace(v.Description), "default_model": v.DefaultModel, "disabled": v.Disabled, "created_by": a.UserID, "updated_by": a.UserID}).Executor().ExecContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create virtual provider: %w", err)
@@ -198,7 +198,7 @@ func (p *Postgres) UpdateVirtualProvider(ctx context.Context, id string, v servi
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	result, err := tx.Update(p.tableVirtualProviders).Set(goqu.Record{"key": strings.TrimSpace(v.Key), "name": strings.TrimSpace(v.Name), "description": strings.TrimSpace(v.Description), "default_model": v.DefaultModel, "disabled": v.Disabled, "updated_at": goqu.L("NOW()"), "updated_by": a.UserID}).Where(goqu.Ex{"id": id, "workspace_id": a.WorkspaceID}).Executor().ExecContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("update virtual provider: %w", err)

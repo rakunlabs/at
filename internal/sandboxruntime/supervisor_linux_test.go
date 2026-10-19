@@ -107,7 +107,7 @@ func TestSupervisorInteractiveTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ptmx.Close()
+	defer ptmx.Close() //nolint:errcheck
 	// Interactive bash must own the foreground TTY and accept commands.
 	_, _ = ptmx.Write([]byte("echo at-terminal-ready\nexit\n"))
 	var out bytes.Buffer

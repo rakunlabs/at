@@ -235,7 +235,7 @@ func TestExternalPostgresFlowAdmissionAndRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = p.rotateAuthExternalSecrets(t.Context(), tx, oldKey, newKey); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -299,7 +299,7 @@ func TestExternalPostgresPostLockDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if err = p.lockExternalAdmission(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestExternalPostgresRecoveryRaceAndSessionProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if _, err = p.lockExternalAccount(ctx, tx, service.AuthExternalAccount{UserID: u.ID, Version: u.SessionVersion}); err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestExternalPostgresRecoveryRaceAndSessionProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	if _, err = p.lockExternalAccount(t.Context(), tx, service.AuthExternalAccount{UserID: u.ID, Version: u.SessionVersion}); err != nil {
 		t.Fatal(err)
 	}

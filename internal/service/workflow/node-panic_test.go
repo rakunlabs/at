@@ -19,7 +19,7 @@ func (panicNode) Validate(context.Context, *workflow.Registry) error { return ni
 func (n panicNode) Run(context.Context, *workflow.Registry, map[string]any) (workflow.NodeResult, error) {
 	n.calls.Add(1)
 	var m map[string]any
-	m["boom"] = true // nil-map write: a real runtime panic, not a panic(value) stub
+	m["boom"] = true //nolint:staticcheck // nil-map write: a real runtime panic, not a panic(value) stub
 	return nil, nil
 }
 

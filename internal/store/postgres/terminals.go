@@ -39,7 +39,7 @@ func (p *Postgres) CreateTerminal(ctx context.Context, item service.TerminalSess
 	if err != nil {
 		return fmt.Errorf("begin terminal create: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var owner string
 	found, err := tx.From(p.tableAuthUsers).Select("id").Where(goqu.Ex{"id": item.OwnerID, "admin": true, "disabled": false}).ForUpdate(goqu.Wait).ScanValContext(ctx, &owner)
 	if err != nil {
@@ -86,7 +86,7 @@ func (p *Postgres) OperateTerminal(ctx context.Context, owner, id string, remove
 	if err != nil {
 		return fmt.Errorf("begin terminal operation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var item service.TerminalSession
 	found, err := tx.From(p.authSecurityTable("terminal_sessions")).Where(goqu.Ex{"owner_id": owner, "id": id}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &item)
 	if err != nil {

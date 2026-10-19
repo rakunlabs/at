@@ -66,7 +66,7 @@ func (p *Postgres) WithMCPOAuthTokens(ctx context.Context, connectionID string, 
 	if err != nil {
 		return nil, fmt.Errorf("begin MCP OAuth token use: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var row connectionRow
 	found, err := tx.From(p.tableConnections).
 		Where(scope, connectionUsePredicate(a), goqu.C("id").Eq(connectionID)).

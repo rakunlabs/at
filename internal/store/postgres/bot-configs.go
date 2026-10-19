@@ -83,7 +83,7 @@ func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service
 	if err != nil {
 		return nil, fmt.Errorf("list bot configs: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.BotConfig
 	for rows.Next() {
@@ -151,7 +151,7 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if bot.WorkspaceID != "" && bot.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -236,7 +236,7 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if bot.WorkspaceID != "" && bot.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -347,7 +347,7 @@ func (p *Postgres) DeleteBotConfig(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableBotConfigs).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()

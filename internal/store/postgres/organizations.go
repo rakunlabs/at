@@ -59,7 +59,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 	if err != nil {
 		return nil, fmt.Errorf("list organizations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Organization
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if org.WorkspaceID != "" && org.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -234,7 +234,7 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if org.WorkspaceID != "" && org.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -306,7 +306,7 @@ func (p *Postgres) DeleteOrganization(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := w.tx.Delete(p.tableOrganizations).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -327,7 +327,7 @@ func (p *Postgres) IncrementIssueCounter(ctx context.Context, orgID string) (int
 	if err != nil {
 		return 0, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var counter int64
 	found, err := w.tx.Update(p.tableOrganizations).Set(goqu.Record{"issue_counter": goqu.L("issue_counter + 1"), "updated_at": time.Now().UTC()}).Where(w.predicate, goqu.C("id").Eq(orgID)).Returning("issue_counter").Executor().ScanValContext(ctx, &counter)
 	if err != nil {

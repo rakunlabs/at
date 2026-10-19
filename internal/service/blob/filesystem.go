@@ -62,7 +62,7 @@ func (f *filesystemStore) PutReader(ctx context.Context, key, _ string, reader i
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := rejectStorageSymlinks(root, key); err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (f *filesystemStore) Get(_ context.Context, key string) (io.ReadCloser, str
 	if err != nil {
 		return nil, "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := rejectStorageSymlinks(root, key); err != nil {
 		return nil, "", fmt.Errorf("check media object path: %w", err)
 	}
@@ -131,7 +131,7 @@ func (f *filesystemStore) Get(_ context.Context, key string) (io.ReadCloser, str
 	}
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		file.Close()
+		_ = file.Close()
 		if err != nil {
 			return nil, "", fmt.Errorf("stat media object: %w", err)
 		}
@@ -150,7 +150,7 @@ func (f *filesystemStore) Delete(_ context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := rejectStorageSymlinks(root, key); err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func (f *filesystemStore) Check(_ context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	name := filesystemProbePrefix + ulid.Make().String()
 	want := []byte("at-media-probe")
 	if err := filesystemWrite(root, name, want); err != nil {

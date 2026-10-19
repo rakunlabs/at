@@ -75,7 +75,13 @@ func retryableNodeError(err error) bool {
 		return RetryableHTTPStatus(upstream.StatusCode)
 	}
 	var network net.Error
-	if errors.As(err, &network) && (network.Timeout() || network.Temporary()) {
+	if errors.As(err, &network) && network.Timeout() {
+		return true
+	}
+	// net.Error.Temporary is deprecated; DNS is the one temporary class that
+	// is neither a timeout nor covered by the syscall checks below.
+	var dns *net.DNSError
+	if errors.As(err, &dns) && dns.IsTemporary {
 		return true
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, io.ErrUnexpectedEOF) ||

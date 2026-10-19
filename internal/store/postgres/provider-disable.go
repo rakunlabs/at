@@ -20,7 +20,7 @@ func (p *Postgres) SetProviderDisabled(ctx context.Context, key string, disabled
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 
 	if err := p.checkProviderSharingWrite(ctx, w, key, false); err != nil {
 		return err

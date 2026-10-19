@@ -297,7 +297,7 @@ func (s *Server) serveAudioSpeechToText(w http.ResponseWriter, r *http.Request, 
 		gatewayBadRequest(w, "file field is required", "file", "")
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	audioBytes, err := io.ReadAll(file)
 	if err != nil {

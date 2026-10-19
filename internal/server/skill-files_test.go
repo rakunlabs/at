@@ -47,7 +47,7 @@ func TestExportSkillPackageAPIWrapsFilesInNamedDirectory(t *testing.T) {
 			t.Fatalf("open %q: %v", file.Name, err)
 		}
 		data, err := io.ReadAll(r)
-		r.Close()
+		_ = r.Close()
 		if err != nil {
 			t.Fatalf("read %q: %v", file.Name, err)
 		}

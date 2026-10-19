@@ -171,7 +171,7 @@ func TestProviderQuotaWithoutLimitsDoesNotLockProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var id string
 	if _, err := tx.From(p.tableProviders).Select("id").Where(goqu.C("id").Eq(provider.ID)).ForUpdate(goqu.Wait).ScanValContext(ctx, &id); err != nil {
 		t.Fatal(err)

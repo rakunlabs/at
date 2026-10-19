@@ -88,7 +88,7 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 	if err != nil {
 		return nil, fmt.Errorf("list skills: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Skill
 	for rows.Next() {
@@ -180,7 +180,7 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if sk.WorkspaceID != "" && sk.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -299,7 +299,7 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	w.predicate = ownedResourceWritePredicate(w.actor, "skills.write")
 	if sk.WorkspaceID != "" && sk.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
@@ -389,7 +389,7 @@ func (p *Postgres) DeleteSkill(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	w.predicate = ownedResourceWritePredicate(w.actor, "skills.write")
 	query, _, err := p.goqu.Delete(p.tableSkills).
 		Where(w.predicate, goqu.I("id").Eq(id)).
@@ -419,7 +419,7 @@ func (p *Postgres) UpsertSkillToolPack(ctx context.Context, skillID string, tool
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var row struct {
 		WorkspaceID string `db:"workspace_id"`
 		OwnerUserID string `db:"owner_user_id"`
@@ -539,7 +539,7 @@ func (p *Postgres) PublishSkillToWorkspace(ctx context.Context, id, by string) (
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var row skillRow
 	found, err := w.tx.From(p.tableSkills).Select(skillColumns...).Where(
 		goqu.C("workspace_id").Eq(w.actor.WorkspaceID),

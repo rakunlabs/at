@@ -346,7 +346,7 @@ func (s *Scheduler) runLockLoop(ctx context.Context) {
 
 		logger.Info("scheduler: releasing leader lock")
 		s.Stop() // Stop the runner
-		s.cluster.UnlockScheduler()
+		_ = s.cluster.UnlockScheduler()
 		return
 	}
 }

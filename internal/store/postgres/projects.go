@@ -60,7 +60,7 @@ func (p *Postgres) ListProjects(ctx context.Context, q *query.Query) (*service.L
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Project
 	for rows.Next() {
@@ -114,7 +114,7 @@ func (p *Postgres) CreateProject(ctx context.Context, project service.Project) (
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if project.WorkspaceID != "" && project.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -177,7 +177,7 @@ func (p *Postgres) UpdateProject(ctx context.Context, id string, project service
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if project.WorkspaceID != "" && project.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -228,7 +228,7 @@ func (p *Postgres) DeleteProject(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := w.tx.Delete(p.tableProjects).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -261,7 +261,7 @@ func (p *Postgres) ListProjectsByGoal(ctx context.Context, goalID string) ([]ser
 	if err != nil {
 		return nil, fmt.Errorf("list projects by goal %q: %w", goalID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Project
 	for rows.Next() {
@@ -293,7 +293,7 @@ func (p *Postgres) ListProjectsByOrganization(ctx context.Context, orgID string)
 	if err != nil {
 		return nil, fmt.Errorf("list projects by organization %q: %w", orgID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Project
 	for rows.Next() {

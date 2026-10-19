@@ -40,7 +40,7 @@ func (p *Postgres) ListWorkflows(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("list workflows: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Workflow
 	for rows.Next() {
@@ -124,7 +124,7 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 	if err != nil {
 		return nil, err
 	}
-	defer bw.tx.Rollback()
+	defer bw.tx.Rollback() //nolint:errcheck
 	if w.WorkspaceID != "" && w.WorkspaceID != bw.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -181,7 +181,7 @@ func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Work
 	if err != nil {
 		return nil, err
 	}
-	defer bw.tx.Rollback()
+	defer bw.tx.Rollback() //nolint:errcheck
 	if w.WorkspaceID != "" && w.WorkspaceID != bw.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -232,7 +232,7 @@ func (p *Postgres) DeleteWorkflow(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer bw.tx.Rollback()
+	defer bw.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableWorkflows).
 		Where(bw.predicate, goqu.I("id").Eq(id)).
 		ToSQL()

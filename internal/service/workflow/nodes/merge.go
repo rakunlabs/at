@@ -101,7 +101,8 @@ func (n *mergeNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[st
 		result = append(result, value)
 		return nil
 	}
-	if n.Mode == "append" {
+	switch n.Mode {
+	case "append":
 		for _, items := range [][]any{left, right} {
 			for _, item := range items {
 				if err := add(item); err != nil {
@@ -109,7 +110,7 @@ func (n *mergeNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[st
 				}
 			}
 		}
-	} else if n.Mode == "zip" {
+	case "zip":
 		count := max(len(left), len(right))
 		for i := 0; i < count; i++ {
 			pair := map[string]any{"left": nil, "right": nil}
@@ -123,7 +124,7 @@ func (n *mergeNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[st
 				return nil, err
 			}
 		}
-	} else {
+	default:
 		index := make(map[string][]int)
 		used := make([]bool, len(right))
 		for i, item := range right {

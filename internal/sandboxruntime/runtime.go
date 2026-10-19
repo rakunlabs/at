@@ -31,7 +31,7 @@ func Install(root, relative string, mode fs.FileMode, src io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("open installation root: %w", err)
 	}
-	defer r.Close()
+	defer r.Close() //nolint:errcheck
 	parent := filepath.Dir(relative)
 	if err := r.MkdirAll(parent, 0o700); err != nil {
 		return fmt.Errorf("create installation directory: %w", err)
@@ -41,7 +41,7 @@ func Install(root, relative string, mode fs.FileMode, src io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("create installation file: %w", err)
 	}
-	defer r.Remove(tmp)
+	defer r.Remove(tmp) //nolint:errcheck
 	count, copyErr := io.Copy(f, io.LimitReader(src, MaxInstallBytes+1))
 	if copyErr == nil && count > MaxInstallBytes {
 		copyErr = fmt.Errorf("file exceeds the 64 MiB installation limit")

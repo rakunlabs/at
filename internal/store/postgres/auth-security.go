@@ -27,7 +27,7 @@ func (p *Postgres) AdmitAuthSecuritySource(ctx context.Context, hash string) (bo
 	if err != nil {
 		return false, fmt.Errorf("begin security admission: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var claimed bool
 	if _, err := tx.From(p.tableAuthBootstrap).Select("claimed").ForUpdate(goqu.Wait).ScanValContext(ctx, &claimed); err != nil {
 		return false, err
@@ -108,7 +108,7 @@ func (p *Postgres) UpdateAuthSecurity(ctx context.Context, userID, sessionID str
 	if err != nil {
 		return fmt.Errorf("begin account security: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var row authUserRow
 	if completion, ok := service.AuthExternalCompletionFromContext(ctx); ok {
 		if err := p.CheckAuthExternalAdmission(ctx, tx, completion, userID); err != nil {
@@ -269,12 +269,12 @@ func (p *Postgres) rotateAuthSecurityKey(ctx context.Context, tx *sql.Tx, oldKey
 	for rows.Next() {
 		var r record
 		if err := rows.Scan(&r.id, &r.data); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		records = append(records, r)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}

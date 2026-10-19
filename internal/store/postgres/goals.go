@@ -43,7 +43,7 @@ func (p *Postgres) ListGoals(ctx context.Context, q *query.Query) (*service.List
 	if err != nil {
 		return nil, fmt.Errorf("list goals: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Goal
 	for rows.Next() {
@@ -106,7 +106,7 @@ func (p *Postgres) CreateGoal(ctx context.Context, goal service.Goal) (*service.
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if goal.WorkspaceID != "" && goal.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -164,7 +164,7 @@ func (p *Postgres) UpdateGoal(ctx context.Context, id string, goal service.Goal)
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if goal.WorkspaceID != "" && goal.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -216,7 +216,7 @@ func (p *Postgres) DeleteGoal(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := w.tx.Delete(p.tableGoals).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -250,7 +250,7 @@ func (p *Postgres) ListGoalsByParent(ctx context.Context, parentID string) ([]se
 	if err != nil {
 		return nil, fmt.Errorf("list goals by parent %q: %w", parentID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Goal
 	for rows.Next() {

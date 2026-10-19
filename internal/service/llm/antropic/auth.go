@@ -249,7 +249,7 @@ func (ts *OAuthTokenSource) refreshLocked(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("refresh token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -361,7 +361,7 @@ func ExchangeAuthCode(ctx context.Context, code, expectedState, codeVerifier, re
 	if err != nil {
 		return nil, fmt.Errorf("token exchange request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

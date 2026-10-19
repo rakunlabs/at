@@ -219,7 +219,7 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Save session ID if provided (spec header first, then legacy).
 	if sessionID := resp.Header.Get("Mcp-Session-Id"); sessionID != "" {
@@ -399,7 +399,7 @@ func (c *HTTPMCPClient) initialize(ctx context.Context) error {
 		Jsonrpc: "2.0",
 		Method:  "notifications/initialized",
 	}
-	c.sendRequest(ctx, notifReq)
+	_, _ = c.sendRequest(ctx, notifReq)
 
 	return nil
 }

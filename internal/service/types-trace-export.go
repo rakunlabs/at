@@ -38,7 +38,7 @@ func (c TraceExportSettings) Validate() error {
 		return fmt.Errorf("protocol must be http or grpc")
 	}
 	if c.Target == "langfuse" && c.Protocol != "http" {
-		return fmt.Errorf("Langfuse requires OTLP HTTP/protobuf")
+		return fmt.Errorf("export to Langfuse requires OTLP HTTP/protobuf")
 	}
 	if c.Version < 0 {
 		return fmt.Errorf("invalid settings version")
@@ -66,7 +66,7 @@ func (c TraceExportSettings) Validate() error {
 			return fmt.Errorf("transport headers cannot be overridden")
 		}
 		if c.Target == "langfuse" && key == "authorization" {
-			return fmt.Errorf("Langfuse authorization is generated from its keys")
+			return fmt.Errorf("authorization for Langfuse is generated from its keys")
 		}
 		seen[key] = true
 	}
@@ -74,7 +74,7 @@ func (c TraceExportSettings) Validate() error {
 		return fmt.Errorf("invalid Langfuse keys")
 	}
 	if c.Enabled && c.Target == "langfuse" && (c.PublicKey == "" || c.SecretKey == "") {
-		return fmt.Errorf("Langfuse public and secret keys are required")
+		return fmt.Errorf("public and secret keys for Langfuse are required")
 	}
 	return nil
 }

@@ -407,7 +407,7 @@ func (p *Postgres) createWebhookServer(ctx context.Context, a service.AccessPrin
 	if err != nil {
 		return "", fmt.Errorf("begin webhook server create: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	s, raw, err := p.prepareWebhookServer(ctx, tx, s, "")
 	if err != nil {
 		return "", err
@@ -449,7 +449,7 @@ func (p *Postgres) updateWebhookServer(ctx context.Context, a service.AccessPrin
 	if err != nil {
 		return false, fmt.Errorf("begin webhook server update: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var row webhookServerRow
 	found, err := tx.From(p.workspaceTable("webhook_servers")).Select(webhookServerColumns...).Where(goqu.Ex{"id": id}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
 	if err != nil {
@@ -514,12 +514,12 @@ func (p *Postgres) rotateWebhookKeys(ctx context.Context, tx *sql.Tx, oldKey, ne
 		for rows.Next() {
 			var id, raw string
 			if err := rows.Scan(&id, &raw); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			items = append(items, item{src.table, src.key, id, src.column, raw})
 		}
-		rows.Close()
+		_ = rows.Close()
 		if err := rows.Err(); err != nil {
 			return err
 		}

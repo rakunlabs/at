@@ -39,7 +39,7 @@ func (p *Postgres) CreateExecutionTask(ctx context.Context, task service.Task) (
 	if err != nil {
 		return nil, fmt.Errorf("begin task execution: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	created, err := p.createExecutionTaskTx(ctx, tx, task)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func (p *Postgres) CreateOrganizationChatTask(ctx context.Context, sessionID str
 	if err != nil {
 		return nil, false, fmt.Errorf("begin organization chat task: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var session chatSessionRow
 	found, err := tx.From(p.tableChatSessions).Where(goqu.Ex{"id": sessionID, "workspace_id": initiator.WorkspaceID}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &session)
 	if err != nil {

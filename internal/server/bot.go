@@ -414,7 +414,7 @@ func (s *Server) restartBotAfterIdentityChange(botID string) {
 
 // checkBotAccess checks if a user is allowed to use the bot.
 // Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
-func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
+func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, allowedUsers []string) (bool, bool) {
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: botID}); err != nil {
 		slog.Warn("bot message denied by execution identity", "bot_id", botID, "error", err)
 		if p, _, ok := service.ExecutionFromContext(ctx); ok {
@@ -437,7 +437,7 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
 		if err == nil && dbCfg != nil {
 			accessMode = dbCfg.AccessMode
-			pendingApproval = dbCfg.PendingApproval
+			pendingApproval := dbCfg.PendingApproval
 			allowedUsers = dbCfg.AllowedUsers
 
 			if accessMode == "allowlist" || accessMode == "pending" {
@@ -522,14 +522,6 @@ func deriveBotTaskTitle(topic string) string {
 	return title
 }
 
-// createBotTask creates a background org task for the given agent and topic.
-// It finds the agent's organization, creates a task, and starts async delegation.
-// An optional callback is called when the task finishes.
-// Returns (taskID, identifier, error).
-func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDone ...TaskDoneCallback) (string, string, error) {
-	return s.createBotTaskWithOptions(ctx, agentID, topic, BotTaskOptions{}, onDone...)
-}
-
 // createBotTaskWithOptions is like createBotTask but lets callers pass per-task
 // overrides such as max_iterations. Kept as a separate function so existing
 // call sites (other bots, slash commands, etc.) don't need to change.
@@ -564,7 +556,7 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 	}
 
 	if org == nil {
-		return "", "", fmt.Errorf("agent is not a member or head of any organization. Add the agent to an organization first.")
+		return "", "", fmt.Errorf("agent is not a member or head of any organization; add the agent to an organization first")
 	}
 
 	// The head agent of the org handles task delegation

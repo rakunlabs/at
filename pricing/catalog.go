@@ -136,7 +136,7 @@ func LoadProviders(root fs.FS) (Catalog, error) {
 		}
 		var p Provider
 		err = decode(f, &p)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			return c, fmt.Errorf("%s: %w", name, err)
 		}

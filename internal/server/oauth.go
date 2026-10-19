@@ -278,7 +278,7 @@ func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if errMsg != "" {
-		fmt.Fprintf(w, `<!DOCTYPE html>
+		_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>Authorization Failed</title>
 <style>body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-align:center}
 .error{color:#dc2626;font-size:14px;margin-top:16px;padding:12px;background:#fef2f2;border-radius:8px}</style>
@@ -292,7 +292,7 @@ func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
 
 	if code == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprint(w, `<!DOCTYPE html>
+		_, _ = fmt.Fprint(w, `<!DOCTYPE html>
 <html><head><title>No Code</title></head><body>
 <h2>No authorization code received</h2>
 <p>Close this tab and try again.</p>
@@ -300,7 +300,7 @@ func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>Authorization Successful</title>
 <style>
 body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-align:center}
@@ -355,7 +355,7 @@ func exchangeOAuthCode(ctx context.Context, c *service.Connector, clientID, clie
 	if err != nil {
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 
@@ -416,7 +416,7 @@ func verifyConnectionOAuthTokens(ctx context.Context, c *service.Connector, clie
 	if err != nil {
 		return fmt.Errorf("refresh verification failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	var refreshed struct {
 		AccessToken  string `json:"access_token"`
@@ -884,7 +884,7 @@ func fetchConnectorAccountLabel(ctx context.Context, c *service.Connector, acces
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode >= 400 {
 		return ""
 	}
@@ -968,7 +968,7 @@ func renderOAuthResult(w http.ResponseWriter, success bool, errMsg string) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html>
 <html><head><title>OAuth</title></head>
 <body>
 <p>%s</p>

@@ -125,7 +125,7 @@ func connectDB(ctx context.Context, datasource, schema string) (*sql.DB, error) 
 	}
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
@@ -133,7 +133,7 @@ func connectDB(ctx context.Context, datasource, schema string) (*sql.DB, error) 
 	// Set schema search path if configured.
 	if schema != "" {
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema)); err != nil {
-			db.Close()
+			_ = db.Close()
 
 			return nil, fmt.Errorf("set search_path: %w", err)
 		}
@@ -323,7 +323,7 @@ func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -402,7 +402,7 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if record.WorkspaceID != "" && record.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -478,7 +478,7 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, record servic
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if err := p.checkProviderSharingWrite(ctx, w, key, record.Config.SharedWithAllWorkspaces); err != nil {
 		return nil, err
 	}
@@ -539,7 +539,7 @@ func (p *Postgres) DeleteProvider(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if err := p.checkProviderSharingWrite(ctx, w, key, false); err != nil {
 		return err
 	}
@@ -630,12 +630,12 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 	for rows.Next() {
 		var r rowData
 		if err := rows.Scan(&r.id, &r.key, &r.config); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return fmt.Errorf("scan provider row: %w", err)
 		}
 		allRows = append(allRows, r)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate provider rows: %w", err)

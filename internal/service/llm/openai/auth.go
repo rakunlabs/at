@@ -122,7 +122,7 @@ func RequestCodexDeviceCode(ctx context.Context, httpClient *http.Client, endpoi
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("Codex device-code request returned %d: %s", status, truncate(string(respBody), 300))
+		return nil, fmt.Errorf("device-code request to Codex returned %d: %s", status, truncate(string(respBody), 300))
 	}
 
 	var result codexDeviceCodeResponse
@@ -133,7 +133,7 @@ func RequestCodexDeviceCode(ctx context.Context, httpClient *http.Client, endpoi
 		result.UserCode = result.UserCodeAlt
 	}
 	if result.DeviceAuthID == "" || result.UserCode == "" {
-		return nil, fmt.Errorf("Codex device-code response is missing device_auth_id or user_code")
+		return nil, fmt.Errorf("device-code response from Codex is missing device_auth_id or user_code")
 	}
 	interval, err := parseCodexDeviceInterval(result.Interval)
 	if err != nil {
@@ -162,7 +162,7 @@ func parseCodexDeviceInterval(raw json.RawMessage) (time.Duration, error) {
 		}
 	}
 	if seconds < 0 {
-		return 0, fmt.Errorf("Codex device-code interval cannot be negative")
+		return 0, fmt.Errorf("device-code interval from Codex cannot be negative")
 	}
 	if seconds == 0 {
 		seconds = 1
@@ -174,7 +174,7 @@ func parseCodexDeviceInterval(raw json.RawMessage) (time.Duration, error) {
 // authorization code for access, refresh, and ID tokens.
 func CompleteCodexDeviceAuth(ctx context.Context, device *CodexDeviceCode, httpClient *http.Client, endpoints ...CodexAuthEndpoints) (*CodexTokens, error) {
 	if device == nil {
-		return nil, fmt.Errorf("Codex device code is required")
+		return nil, fmt.Errorf("device code for Codex is required")
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -210,19 +210,19 @@ func CompleteCodexDeviceAuth(ctx context.Context, device *CodexDeviceCode, httpC
 				return nil, fmt.Errorf("parse Codex device-token response: %w", err)
 			}
 			if code.AuthorizationCode == "" || code.CodeVerifier == "" {
-				return nil, fmt.Errorf("Codex device-token response is missing authorization_code or code_verifier")
+				return nil, fmt.Errorf("device-token response from Codex is missing authorization_code or code_verifier")
 			}
 			return ExchangeCodexAuthorizationCode(pollCtx, code.AuthorizationCode, code.CodeVerifier, httpClient, e)
 		}
 		if status != http.StatusForbidden && status != http.StatusNotFound {
-			return nil, fmt.Errorf("Codex device-token request returned %d: %s", status, truncate(string(respBody), 300))
+			return nil, fmt.Errorf("device-token request to Codex returned %d: %s", status, truncate(string(respBody), 300))
 		}
 
 		timer := time.NewTimer(device.Interval)
 		select {
 		case <-pollCtx.Done():
 			timer.Stop()
-			return nil, fmt.Errorf("Codex device authorization did not complete: %w", pollCtx.Err())
+			return nil, fmt.Errorf("device authorization for Codex did not complete: %w", pollCtx.Err())
 		case <-timer.C:
 		}
 	}
@@ -252,7 +252,7 @@ func ExchangeCodexAuthorizationCode(ctx context.Context, code, codeVerifier stri
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, fmt.Errorf("Codex token exchange returned %d: %s", status, truncate(string(respBody), 300))
+		return nil, fmt.Errorf("token exchange with Codex returned %d: %s", status, truncate(string(respBody), 300))
 	}
 	return parseCodexTokens(respBody)
 }
@@ -260,9 +260,9 @@ func ExchangeCodexAuthorizationCode(ctx context.Context, code, codeVerifier stri
 func doCodexAuthRequest(httpClient *http.Client, req *http.Request) ([]byte, int, error) {
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("Codex auth request failed: %w", err)
+		return nil, 0, fmt.Errorf("auth request to Codex failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("read Codex auth response: %w", err)
@@ -276,7 +276,7 @@ func parseCodexTokens(data []byte) (*CodexTokens, error) {
 		return nil, fmt.Errorf("parse Codex token response: %w", err)
 	}
 	if tokens.AccessToken == "" {
-		return nil, fmt.Errorf("Codex token response returned an empty access token")
+		return nil, fmt.Errorf("token response from Codex returned an empty access token")
 	}
 	tokens.AccountID, _ = ExtractCodexAccountID(tokens.IDToken)
 	if tokens.AccountID == "" {
@@ -483,7 +483,7 @@ func (ts *CodexTokenSource) Token(ctx context.Context) (string, error) {
 	}
 	if ts.refreshToken == "" {
 		ts.mu.Unlock()
-		return "", fmt.Errorf("Codex access token expired and no refresh token is available")
+		return "", fmt.Errorf("access token for Codex expired and no refresh token is available")
 	}
 
 	body, err := json.Marshal(map[string]string{
@@ -522,7 +522,7 @@ func (ts *CodexTokenSource) Token(ctx context.Context) (string, error) {
 				return "", fmt.Errorf("ChatGPT authorization must be renewed: the refresh token is expired, revoked or already used. Sign in again with ChatGPT in Providers")
 			}
 		}
-		return "", fmt.Errorf("Codex token refresh returned %d: %s", status, truncate(string(respBody), 300))
+		return "", fmt.Errorf("token refresh with Codex returned %d: %s", status, truncate(string(respBody), 300))
 	}
 	tokens, err := parseCodexRefreshTokens(respBody)
 	if err != nil {
@@ -713,7 +713,7 @@ func (ts *CopilotTokenSource) refreshLocked(ctx context.Context) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("token exchange request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

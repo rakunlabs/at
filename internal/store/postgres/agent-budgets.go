@@ -112,7 +112,7 @@ func (p *Postgres) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget,
 	if err != nil {
 		return nil, fmt.Errorf("list agent budgets: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var budgets []service.AgentBudget
 	for rows.Next() {
@@ -244,7 +244,7 @@ func (p *Postgres) GetAgentUsage(ctx context.Context, agentID string, q *query.Q
 	if err != nil {
 		return nil, fmt.Errorf("list agent usage: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.AgentUsageRecord
 	for rows.Next() {
@@ -299,7 +299,7 @@ func (p *Postgres) ListModelPricing(ctx context.Context) ([]service.ModelPricing
 	if err != nil {
 		return nil, fmt.Errorf("list model pricing: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.ModelPricing
 	for rows.Next() {

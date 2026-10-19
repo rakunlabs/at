@@ -49,7 +49,7 @@ func (p *Postgres) ListNodeConfigs(ctx context.Context, q *query.Query) (*servic
 	if err != nil {
 		return nil, fmt.Errorf("list node configs: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -106,7 +106,7 @@ func (p *Postgres) ListNodeConfigsByType(ctx context.Context, configType string)
 	if err != nil {
 		return nil, fmt.Errorf("list node configs by type %q: %w", configType, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey
@@ -173,7 +173,7 @@ func (p *Postgres) CreateNodeConfig(ctx context.Context, nc service.NodeConfig) 
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if nc.WorkspaceID != "" && nc.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -231,7 +231,7 @@ func (p *Postgres) UpdateNodeConfig(ctx context.Context, id string, nc service.N
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if nc.WorkspaceID != "" && nc.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -283,7 +283,7 @@ func (p *Postgres) DeleteNodeConfig(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableNodeConfigs).
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
@@ -382,29 +382,4 @@ func decryptNodeConfigData(configType, data string, encKey []byte) (string, erro
 		return "", fmt.Errorf("marshal decrypted node config data: %w", err)
 	}
 	return string(out), nil
-}
-
-// redactNodeConfigData replaces sensitive fields with "***" for list responses.
-func redactNodeConfigData(configType, data string) string {
-	fields, ok := sensitiveFields[configType]
-	if !ok || data == "" {
-		return data
-	}
-
-	var m map[string]any
-	if err := json.Unmarshal([]byte(data), &m); err != nil {
-		return data
-	}
-
-	for _, field := range fields {
-		if _, ok := m[field]; ok {
-			m[field] = "***"
-		}
-	}
-
-	out, err := json.Marshal(m)
-	if err != nil {
-		return data
-	}
-	return string(out)
 }

@@ -471,8 +471,7 @@ func TestCodexProviderRefreshesAndRetriesOnceOnUnauthorized(t *testing.T) {
 	oldAccessToken := codexTestJWT(t, "account", time.Now().Add(time.Hour))
 	newAccessToken := codexTestJWT(t, "account", time.Now().Add(2*time.Hour))
 	var inferenceCalls atomic.Int32
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oauth/token" {
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"access_token":  newAccessToken,

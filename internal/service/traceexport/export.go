@@ -90,7 +90,7 @@ func Request(workspace string, calls []service.LLMCall, content bool) *collector
 			stringAttr("langfuse.environment", c.Environment), stringAttr("langfuse.release", c.Release),
 			stringAttr("at.token_id", c.TokenID), stringAttr("at.agent_id", c.AgentID), stringAttr("at.task_id", c.TaskID), stringAttr("at.run_id", c.RunID), stringAttr("at.organization_id", c.OrganizationID),
 		}
-		kind := "span"
+		var kind string
 		input, output := c.Input, c.Output
 		switch c.ObservationType {
 		case service.ObservationTool:
@@ -204,7 +204,7 @@ func sendHTTP(ctx context.Context, endpoint string, headers map[string]string, d
 	if err != nil {
 		return nil, true, fmt.Errorf("OTLP HTTP connection failed; check DNS, network, TLS certificate and endpoint")
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode == 429 || resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504, fmt.Errorf("OTLP HTTP returned %d; check endpoint and authentication", resp.StatusCode)
 	}
@@ -225,7 +225,7 @@ func sendHTTP(ctx context.Context, endpoint string, headers map[string]string, d
 
 func sendGRPC(ctx context.Context, endpoint string, headers map[string]string, data *collector.ExportTraceServiceRequest) (*collector.ExportTraceServiceResponse, bool, error) {
 	u, _ := url.Parse(endpoint)
-	var creds credentials.TransportCredentials = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
+	creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
 	if u.Scheme == "http" {
 		creds = insecure.NewCredentials()
 	}
@@ -233,7 +233,7 @@ func sendGRPC(ctx context.Context, endpoint string, headers map[string]string, d
 	if err != nil {
 		return nil, false, fmt.Errorf("cannot initialize OTLP gRPC connection")
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	ctx = metadata.NewOutgoingContext(ctx, metadata.New(headers))
 	response, err := collector.NewTraceServiceClient(conn).Export(ctx, data)
 	if err != nil {

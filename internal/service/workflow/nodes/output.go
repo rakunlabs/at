@@ -213,7 +213,7 @@ func statWorkspaceFile(ctx context.Context, workspacePath string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	info, err := root.Stat(name)
 	if err != nil {
 		return err

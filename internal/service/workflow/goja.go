@@ -435,7 +435,7 @@ func doHTTPRequest(vm *goja.Runtime, method string, args []goja.Value) goja.Valu
 
 	// Read the full response body.
 	respBody, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		panic(vm.NewTypeError(fmt.Sprintf("http%s: read response: %v",
 			method[0:1]+lower(method[1:]), err)))

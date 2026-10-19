@@ -170,9 +170,9 @@ func TestRuntimeUploadAndSymlinkWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Write([]byte("image"))
-		form.WriteField("path", dir)
-		form.Close()
+		_, _ = f.Write([]byte("image"))
+		_ = form.WriteField("path", dir)
+		_ = form.Close()
 		req := httptest.NewRequest(http.MethodPost, "/files/upload", &body).WithContext(ctx)
 		req.Header.Set("Content-Type", form.FormDataContentType())
 		w := httptest.NewRecorder()

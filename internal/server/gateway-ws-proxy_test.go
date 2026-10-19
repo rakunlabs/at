@@ -40,13 +40,13 @@ func startEchoWSUpstream(t *testing.T, gotHeaders chan<- http.Header) *httptest.
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 
-		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
 			"Upgrade: websocket\r\n" +
 			"Connection: Upgrade\r\n" +
 			"Sec-WebSocket-Accept: dummy\r\n\r\n")
-		rw.Flush()
+		_ = rw.Flush()
 
 		// Echo loop: read a line, write it back prefixed.
 		for {
@@ -54,8 +54,8 @@ func startEchoWSUpstream(t *testing.T, gotHeaders chan<- http.Header) *httptest.
 			if err != nil {
 				return
 			}
-			rw.WriteString("echo:" + line)
-			rw.Flush()
+			_, _ = rw.WriteString("echo:" + line)
+			_ = rw.Flush()
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -89,13 +89,13 @@ func startInspectWSUpstream(t *testing.T, got chan<- wsUpstreamRequest) *httptes
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer conn.Close() //nolint:errcheck
 
-		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
+		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\n" +
 			"Upgrade: websocket\r\n" +
 			"Connection: Upgrade\r\n" +
 			"Sec-WebSocket-Accept: dummy\r\n\r\n")
-		rw.Flush()
+		_ = rw.Flush()
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -127,18 +127,18 @@ func dialWSWithHeaders(t *testing.T, proxyURL, path string, headers map[string]s
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 
-	fmt.Fprintf(conn, "GET %s HTTP/1.1\r\n"+
+	_, _ = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\n"+
 		"Host: %s\r\n"+
 		"Upgrade: websocket\r\n"+
 		"Connection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"+
 		"Sec-WebSocket-Version: 13\r\n", path, addr)
 	for k, v := range headers {
-		fmt.Fprintf(conn, "%s: %s\r\n", k, v)
+		_, _ = fmt.Fprintf(conn, "%s: %s\r\n", k, v)
 	}
-	fmt.Fprint(conn, "\r\n")
+	_, _ = fmt.Fprint(conn, "\r\n")
 
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, nil)
@@ -176,7 +176,7 @@ func TestGatewayMCPWSHandler_TunnelsFrames(t *testing.T) {
 	if _, err := conn.Write([]byte("hello\n")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	line, err := br.ReadString('\n')
 	if err != nil {
 		t.Fatalf("read echo: %v", err)

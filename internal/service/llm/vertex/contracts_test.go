@@ -27,9 +27,9 @@ func TestVertexStreamContracts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprintf(w, "data:{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"f\",\"arguments\":%q}}]},\"finish_reason\":null}]}\n\n", tt.args)
+				_, _ = fmt.Fprintf(w, "data:{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"f\",\"arguments\":%q}}]},\"finish_reason\":null}]}\n\n", tt.args)
 				if tt.finish != "" {
-					fmt.Fprintf(w, "data:{\"choices\":[{\"delta\":{},\"finish_reason\":%q}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"total_tokens\":110,\"prompt_tokens_details\":{\"cached_tokens\":80}}}\n\ndata:[DONE]\n\n", tt.finish)
+					_, _ = fmt.Fprintf(w, "data:{\"choices\":[{\"delta\":{},\"finish_reason\":%q}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"total_tokens\":110,\"prompt_tokens_details\":{\"cached_tokens\":80}}}\n\ndata:[DONE]\n\n", tt.finish)
 				}
 			}))
 			defer srv.Close()
@@ -67,7 +67,7 @@ func TestVertexStreamContracts(t *testing.T) {
 func TestVertexStreamAcceptsCleanEOFAfterText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
 	}))
 	defer srv.Close()
 

@@ -262,27 +262,6 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 	}
 }
 
-// renameToolUseBlocksInContent walks a content slice (string is a no-op)
-// and rewrites tool_use block names with the mcp_ prefix.
-func renameToolUseBlocksInContent(content any) {
-	blocks, ok := content.([]any)
-	if !ok {
-		return
-	}
-	for _, b := range blocks {
-		blk, bok := b.(map[string]any)
-		if !bok {
-			continue
-		}
-		if blk["type"] != "tool_use" {
-			continue
-		}
-		if name, nok := blk["name"].(string); nok && name != "" && !strings.HasPrefix(name, toolPrefix) {
-			blk["name"] = prefixToolName(name)
-		}
-	}
-}
-
 // repairToolPairsAny enforces Anthropic's tool-pairing invariants on
 // a wire-shape ([]any of map[string]any) message slice. Two rules are
 // applied:

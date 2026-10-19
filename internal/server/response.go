@@ -15,7 +15,3 @@ func httpResponse(w http.ResponseWriter, msg string, code int) {
 func httpResponseJSON(w http.ResponseWriter, msg any, code int) {
 	httpx.JSON(w, msg, code)
 }
-
-func httpResponseJSONByte(w http.ResponseWriter, msg []byte, code int) {
-	httpx.JSONBytes(w, msg, code)
-}

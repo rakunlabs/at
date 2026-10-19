@@ -20,12 +20,12 @@ func (s *Server) sweepExecutionWorkspaces(ctx context.Context, base string, now 
 	if err != nil {
 		return 0
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	dir, err := service.OpenExecutionFile(root, ".", os.O_RDONLY, 0)
 	if err != nil {
 		return 0
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	workspaces, err := dir.ReadDir(-1)
 	if err != nil {
 		return 0
@@ -41,7 +41,7 @@ func (s *Server) sweepExecutionWorkspaces(ctx context.Context, base string, now 
 			continue
 		}
 		entries, err := tasks.ReadDir(-1)
-		tasks.Close()
+		_ = tasks.Close()
 		if err != nil {
 			continue
 		}

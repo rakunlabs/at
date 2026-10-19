@@ -81,9 +81,9 @@ func writeRecoveryTicketFile(path string, issue func() (string, error)) error {
 	}
 	success := false
 	defer func() {
-		f.Close()
+		_ = f.Close()
 		if !success {
-			os.Remove(path)
+			_ = os.Remove(path)
 		}
 	}()
 	ticket, err := issue()

@@ -40,7 +40,7 @@ func (p *Postgres) ListUserPreferences(ctx context.Context, userID string) ([]se
 	if err != nil {
 		return nil, fmt.Errorf("list user preferences: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	p.encKeyMu.RLock()
 	encKey := p.encKey

@@ -142,7 +142,7 @@ function gatewayPath(baseUrl: string, endpoint: string): string {
  * `plugins` as `{package, options}` objects.
  */
 const opencodeProviderPackage = '@opencode/ai/providers/openai-compatible';
-const opencodeDiscoveryPlugin = 'opencode-models-discovery@1.10.0';
+const opencodeDiscoveryPlugin = 'opencode-models-discovery@2.0.0';
 
 function opencodeConfig(opts: {
   instanceName: string;
@@ -321,7 +321,7 @@ export function curlImageExample(url: string): string {
   -H "Authorization: Bearer at_your_token_here" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "openai/gpt-image-1",
+    "model": "openai/gpt-image-2.5-flare",
     "prompt": "A red fox in fresh snow, watercolor",
     "size": "1024x1024"
   }'`;

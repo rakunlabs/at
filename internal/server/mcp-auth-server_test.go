@@ -54,7 +54,7 @@ func TestMCPAuthServerEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { resp.Body.Close() })
+		t.Cleanup(func() { _ = resp.Body.Close() })
 		return resp
 	}
 	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`

@@ -331,14 +331,14 @@ func gitCredentialPublicResponse(connection service.Connection) gitCredentialRes
 
 func (s *Server) gitCredentialEnvironment(ctx context.Context, repositoryURL, credentialID string) ([]string, func(), error) {
 	if s.connectionStore == nil {
-		return nil, nil, fmt.Errorf("Git credential store not configured")
+		return nil, nil, fmt.Errorf("credential store for Git is not configured")
 	}
 	connection, err := s.connectionStore.GetConnection(ctx, credentialID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load Git credential: %w", err)
 	}
 	if connection == nil || connection.Provider != service.GitSSHCredentialProvider {
-		return nil, nil, fmt.Errorf("Git credential not found")
+		return nil, nil, fmt.Errorf("credential for Git not found")
 	}
 	repositoryHost, repositoryPort, err := gitRepositoryEndpoint(repositoryURL)
 	if err != nil {
@@ -347,12 +347,12 @@ func (s *Server) gitCredentialEnvironment(ctx context.Context, repositoryURL, cr
 	credentialHost := strings.ToLower(metadataString(connection.Metadata["host"]))
 	credentialPort := metadataInt(connection.Metadata["port"], 22)
 	if repositoryHost != credentialHost || repositoryPort != credentialPort {
-		return nil, nil, fmt.Errorf("Git credential for %s:%d cannot be used with repository endpoint %s:%d", credentialHost, credentialPort, repositoryHost, repositoryPort)
+		return nil, nil, fmt.Errorf("credential for %s:%d cannot be used with repository endpoint %s:%d", credentialHost, credentialPort, repositoryHost, repositoryPort)
 	}
 	privateKey := connection.Credentials.Extra["private_key"]
 	knownHosts := connection.Credentials.Extra["known_hosts"]
 	if privateKey == "" || knownHosts == "" {
-		return nil, nil, fmt.Errorf("Git credential is incomplete")
+		return nil, nil, fmt.Errorf("credential for Git is incomplete")
 	}
 	dir, err := os.MkdirTemp("", "at-git-credential-")
 	if err != nil {

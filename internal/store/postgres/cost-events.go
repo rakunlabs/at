@@ -130,7 +130,7 @@ func (p *Postgres) ListCostEvents(ctx context.Context, q *query.Query) (*service
 	if err != nil {
 		return nil, fmt.Errorf("list cost events: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.CostEvent
 	for rows.Next() {

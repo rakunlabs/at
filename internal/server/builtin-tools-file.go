@@ -19,115 +19,6 @@ import (
 // These executors implement OpenCode-style file manipulation tools.
 // They run server-side and are called via the builtin tool dispatch.
 
-// execFileRead reads a file with optional line range.
-// Parameters: file_path (string, required), offset (int, optional), limit (int, optional)
-func (s *Server) execFileRead(_ context.Context, args map[string]any) (string, error) {
-	filePath, _ := args["file_path"].(string)
-	if filePath == "" {
-		return "", fmt.Errorf("file_path is required")
-	}
-
-	info, err := os.Stat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("file not found: %s", filePath)
-		}
-		return "", fmt.Errorf("cannot access path: %w", err)
-	}
-
-	// If it's a directory, list contents.
-	if info.IsDir() {
-		return s.readDirectory(filePath)
-	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	lines := strings.Split(string(data), "\n")
-	totalLines := len(lines)
-
-	// Parse offset (1-indexed).
-	offset := 1
-	if o, ok := args["offset"].(float64); ok && int(o) > 0 {
-		offset = int(o)
-	}
-
-	// Parse limit.
-	limit := 2000
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-	}
-
-	// Clamp offset.
-	if offset > totalLines {
-		return fmt.Sprintf("File has %d lines, offset %d is beyond end of file.", totalLines, offset), nil
-	}
-
-	// Extract the requested range (offset is 1-indexed).
-	startIdx := offset - 1
-	endIdx := startIdx + limit
-	if endIdx > totalLines {
-		endIdx = totalLines
-	}
-
-	var sb strings.Builder
-	for i := startIdx; i < endIdx; i++ {
-		lineNum := i + 1
-		sb.WriteString(fmt.Sprintf("%d: %s\n", lineNum, lines[i]))
-	}
-
-	if endIdx < totalLines {
-		sb.WriteString(fmt.Sprintf("\n(Showing lines %d-%d of %d. Use offset=%d to continue.)", offset, endIdx, totalLines, endIdx+1))
-	}
-
-	return sb.String(), nil
-}
-
-// readDirectory lists directory contents.
-func (s *Server) readDirectory(dirPath string) (string, error) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	var sb strings.Builder
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			name += "/"
-		}
-		sb.WriteString(name + "\n")
-	}
-
-	return sb.String(), nil
-}
-
-// execFileWrite creates or overwrites a file.
-// Parameters: file_path (string, required), content (string, required)
-func (s *Server) execFileWrite(_ context.Context, args map[string]any) (string, error) {
-	filePath, _ := args["file_path"].(string)
-	if filePath == "" {
-		return "", fmt.Errorf("file_path is required")
-	}
-
-	content, _ := args["content"].(string)
-
-	// Create parent directories if they don't exist.
-	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
-	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-
-	lineCount := strings.Count(content, "\n") + 1
-	return fmt.Sprintf("Successfully wrote %d bytes (%d lines) to %s", len(content), lineCount, filePath), nil
-}
-
 // execFileEdit performs exact string replacement in a file.
 // Parameters: file_path (string, required), old_string (string, required),
 //
@@ -403,7 +294,7 @@ func (s *Server) execFileGlob(_ context.Context, args map[string]any) (string, e
 	}
 
 	if truncated {
-		sb.WriteString(fmt.Sprintf("\n(Results truncated: showing first %d results)", maxResults))
+		fmt.Fprintf(&sb, "\n(Results truncated: showing first %d results)", maxResults)
 	}
 
 	return sb.String(), nil
@@ -548,84 +439,12 @@ func (s *Server) execFileGrep(_ context.Context, args map[string]any) (string, e
 			sb.WriteString(m.file + ":\n")
 			currentFile = m.file
 		}
-		sb.WriteString(fmt.Sprintf("  Line %d: %s\n", m.line, m.text))
+		fmt.Fprintf(&sb, "  Line %d: %s\n", m.line, m.text)
 	}
 
 	if truncated {
-		sb.WriteString(fmt.Sprintf("\n(Results truncated: showing first %d matches)", maxMatches))
+		fmt.Fprintf(&sb, "\n(Results truncated: showing first %d matches)", maxMatches)
 	}
 
 	return sb.String(), nil
-}
-
-// execFileList lists files and directories in a given path.
-// Parameters: path (string, optional), pattern (string, optional)
-func (s *Server) execFileList(_ context.Context, args map[string]any) (string, error) {
-	dirPath, _ := args["path"].(string)
-	if dirPath == "" {
-		dirPath = "."
-	}
-
-	dirPath, err := filepath.Abs(dirPath)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
-	}
-
-	info, err := os.Stat(dirPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("path not found: %s", dirPath)
-		}
-		return "", fmt.Errorf("cannot access path: %w", err)
-	}
-
-	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory: %s", dirPath)
-	}
-
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	filterPattern, _ := args["pattern"].(string)
-
-	var sb strings.Builder
-	count := 0
-	for _, entry := range entries {
-		name := entry.Name()
-
-		// Apply filter pattern if provided.
-		if filterPattern != "" {
-			matched, _ := filepath.Match(filterPattern, name)
-			if !matched {
-				continue
-			}
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		typeStr := "file"
-		if entry.IsDir() {
-			typeStr = "dir"
-			name += "/"
-		} else if info.Mode()&os.ModeSymlink != 0 {
-			typeStr = "link"
-		}
-
-		sb.WriteString(fmt.Sprintf("%-6s %8d  %s  %s\n", typeStr, info.Size(), info.ModTime().Format("2006-01-02 15:04"), name))
-		count++
-	}
-
-	if count == 0 {
-		if filterPattern != "" {
-			return fmt.Sprintf("No entries matching '%s' in %s", filterPattern, dirPath), nil
-		}
-		return fmt.Sprintf("Empty directory: %s", dirPath), nil
-	}
-
-	return fmt.Sprintf("%s (%d entries)\n\n%s", dirPath, count, sb.String()), nil
 }

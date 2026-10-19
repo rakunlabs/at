@@ -53,7 +53,7 @@ func (p *Postgres) ListGuides(ctx context.Context, q *query.Query) (*service.Lis
 	if err != nil {
 		return nil, fmt.Errorf("list guides: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Guide
 	for rows.Next() {

@@ -778,18 +778,3 @@ func (p *Postgres) ResolveDeveloperPendingTool(ctx context.Context, sessionID st
 	}
 	return developerSessionMessageRecord(row)
 }
-
-func (p *Postgres) deleteDeveloperResource(ctx context.Context, table exp.IdentifierExpression, id, kind string) error {
-	actor, err := developerSpaceActor(ctx)
-	if err != nil {
-		return err
-	}
-	result, err := p.goqu.Delete(table).Where(developerOwned(actor, goqu.Ex{"id": id})).Executor().ExecContext(ctx)
-	if err != nil {
-		return fmt.Errorf("delete developer %s: %w", kind, err)
-	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return service.ErrDeveloperSpaceNotFound
-	}
-	return nil
-}

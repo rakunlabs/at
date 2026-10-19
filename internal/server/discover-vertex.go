@@ -78,12 +78,12 @@ func listVertexPublisherModels(ctx context.Context, cfg config.LLMConfig) ([]str
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Vertex AI model list returned %d: %s", resp.StatusCode, truncate(string(body), 300))
+			return nil, fmt.Errorf("model list from Vertex AI returned %d: %s", resp.StatusCode, truncate(string(body), 300))
 		}
 
 		var result struct {
@@ -148,7 +148,7 @@ func discoverVertexModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		}
 	}
 	if len(models) == 0 {
-		return nil, fmt.Errorf("Vertex AI returned no Gemini models; check that the Vertex AI API is enabled and the service account has the Vertex AI User role")
+		return nil, fmt.Errorf("no Gemini models were returned by Vertex AI; check that the Vertex AI API is enabled and the service account has the Vertex AI User role")
 	}
 
 	return models, nil

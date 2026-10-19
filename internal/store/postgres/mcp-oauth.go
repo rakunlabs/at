@@ -37,7 +37,7 @@ func (p *Postgres) SaveMCPOAuthPending(ctx context.Context, hash string, payload
 	if err != nil {
 		return fmt.Errorf("begin MCP OAuth state save: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "mcp.use")
 	if err != nil {
 		return err
@@ -89,7 +89,7 @@ func (p *Postgres) TakeMCPOAuthPending(ctx context.Context, hash string) (json.R
 	if err != nil {
 		return nil, fmt.Errorf("begin MCP OAuth state consume: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "mcp.use")
 	if err != nil {
 		return nil, err
@@ -144,12 +144,12 @@ func (p *Postgres) rotateMCPOAuthPendingKey(ctx context.Context, tx *sql.Tx, old
 	for rows.Next() {
 		var hash, raw string
 		if err := rows.Scan(&hash, &raw); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		values[hash] = raw
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}

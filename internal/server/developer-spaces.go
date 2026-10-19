@@ -360,7 +360,7 @@ func (s *Server) GetDeveloperSessionSnapshotAPI(w http.ResponseWriter, r *http.R
 		httpResponse(w, "could not read developer session snapshot", http.StatusBadGateway)
 		return
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	data, err := io.ReadAll(io.LimitReader(reader, developerSnapshotMaxBytes+(1<<20)))
 	if err != nil || int64(len(data)) != object.SizeBytes {
 		httpResponse(w, "developer session snapshot is incomplete", http.StatusBadGateway)

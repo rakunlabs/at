@@ -30,11 +30,11 @@ func TestChatToolArgumentValidation(t *testing.T) {
 					args, _ := json.Marshal(tt.args)
 					if backend == "codex" {
 						w.Header().Set("Content-Type", "text/event-stream")
-						fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":%s}}\n\n", args)
-						fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+						_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":%s}}\n\n", args)
+						_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
 					} else {
 						w.Header().Set("Content-Type", "application/json")
-						fmt.Fprintf(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"read","arguments":%s}}]},"finish_reason":"tool_calls"}]}`, args)
+						_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"read","arguments":%s}}]},"finish_reason":"tool_calls"}]}`, args)
 					}
 				}))
 				defer srv.Close()
@@ -66,7 +66,7 @@ func TestChatToolArgumentValidation(t *testing.T) {
 func TestOpenAIChatPreservesLengthWithoutPartialToolCall(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}`)
+		_, _ = fmt.Fprint(w, `{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"read","arguments":"{\"path\":"}}]},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}`)
 	}))
 	defer srv.Close()
 	p, err := New("token", "model", srv.URL, "", false, nil)
@@ -91,7 +91,7 @@ func TestOpenAIChatStopWithToolCallsStaysUnfinished(t *testing.T) {
 		t.Run("finish="+finish, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{}"}}]}}]}`, finish)
+				_, _ = fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{}"}}]}}]}`, finish)
 			}))
 			defer srv.Close()
 			p, err := New("token", "model", srv.URL, "", false, nil)
@@ -122,7 +122,7 @@ func TestOpenAIChatTruncationNotRewrittenToToolCalls(t *testing.T) {
 		t.Run(finish, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"partial","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{\"a\":"}}]}}]}`, finish)
+				_, _ = fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"partial","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{\"a\":"}}]}}]}`, finish)
 			}))
 			defer srv.Close()
 			p, err := New("token", "model", srv.URL, "", false, nil)
@@ -147,7 +147,7 @@ func TestOpenAIChatTruncationNotRewrittenToToolCalls(t *testing.T) {
 func TestOpenAIChatPlainStopUnchanged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"done"}}]}`)
+		_, _ = fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"done"}}]}`)
 	}))
 	defer srv.Close()
 	p, err := New("token", "model", srv.URL, "", false, nil)
@@ -168,7 +168,7 @@ func TestOpenAIChatPlainStopUnchanged(t *testing.T) {
 func TestOpenAIChatPreservesRefusal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":null,"refusal":"I cannot help with that."}}]}`)
+		_, _ = fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":null,"refusal":"I cannot help with that."}}]}`)
 	}))
 	defer srv.Close()
 	p, err := New("token", "model", srv.URL, "", false, nil)

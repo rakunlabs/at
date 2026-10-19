@@ -29,7 +29,7 @@ func TestNativeOAuthReturns(t *testing.T) {
 	exchanges := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		exchanges++
-		fmt.Fprint(w, `{"access_token":"token"}`)
+		_, _ = fmt.Fprint(w, `{"access_token":"token"}`)
 	}))
 	defer upstream.Close()
 	vars := newFakeVariableStore()

@@ -203,17 +203,17 @@ func storeWebhookMultipart(ctx context.Context, boundary string, body []byte) (m
 				if _, exists := form[field]; !exists {
 					value, err := io.ReadAll(io.LimitReader(part, 1<<20))
 					if err != nil {
-						part.Close()
+						_ = part.Close()
 						return nil, fmt.Errorf("read form field %q: %w", field, err)
 					}
 					form[field] = string(value)
 				}
 			}
-			part.Close()
+			_ = part.Close()
 			continue
 		}
 		if len(files) >= maxWebhookUploadFiles {
-			part.Close()
+			_ = part.Close()
 			return nil, fmt.Errorf("too many uploaded files (maximum %d)", maxWebhookUploadFiles)
 		}
 		name := workflow.SafeFileName(filename)
@@ -227,7 +227,7 @@ func storeWebhookMultipart(ctx context.Context, boundary string, body []byte) (m
 			target = fmt.Sprintf("%d-%s", used[name], name)
 		}
 		ref, err := workflow.WriteRunFile(ctx, "uploads/"+target, part, int64(len(body)), part.Header.Get("Content-Type"))
-		part.Close()
+		_ = part.Close()
 		if err != nil {
 			return nil, err
 		}

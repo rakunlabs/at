@@ -491,7 +491,7 @@ func (s *Server) handleStreamingResponses(
 
 	emitRaw := func(eventType string, data any) {
 		buf, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, buf)
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, buf)
 		flusher.Flush()
 	}
 

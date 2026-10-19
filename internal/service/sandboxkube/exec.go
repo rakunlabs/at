@@ -70,7 +70,7 @@ func (d *Driver) cancellationFailed(err error) {
 	if d.ownership != nil {
 		d.ownership.mu.Lock()
 		defer d.ownership.mu.Unlock()
-		d.ownership.refuse(fmt.Errorf("remote cancellation could not be confirmed: %w", err))
+		_ = d.ownership.refuse(fmt.Errorf("remote cancellation could not be confirmed: %w", err))
 	}
 }
 

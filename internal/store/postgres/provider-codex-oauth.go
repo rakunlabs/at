@@ -28,7 +28,7 @@ func (p *Postgres) WithCodexOAuthTokens(ctx context.Context, workspace, key stri
 	if err != nil {
 		return nil, fmt.Errorf("begin Codex credential rotation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	row, err := p.lockOAuthProvider(ctx, tx, workspace, key)
 	if err != nil {
 		return nil, err

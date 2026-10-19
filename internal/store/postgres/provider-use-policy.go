@@ -47,7 +47,7 @@ func (p *Postgres) SaveProviderUsePolicy(ctx context.Context, v service.Provider
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.write")
 	if err != nil {
 		return nil, err

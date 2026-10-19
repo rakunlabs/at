@@ -157,7 +157,7 @@ func chatRunWorkDir(ctx context.Context) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("open execution root: %w", err)
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := root.MkdirAll(rel, 0o700); err != nil {
 		return "", "", fmt.Errorf("create run directory: %w", err)
 	}
@@ -202,7 +202,7 @@ func newChatInlineImageSink(dir string) chatInlineImageSink {
 		if err != nil {
 			return nil, fmt.Errorf("open run directory: %w", err)
 		}
-		defer root.Close()
+		defer root.Close() //nolint:errcheck
 
 		var names []string
 		var failures []string
@@ -254,7 +254,7 @@ func (s *Server) collectChatArtifacts(ctx context.Context, dir string) chatArtif
 	if err != nil {
 		return out
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 
 	type found = pendingArtifact
 	var files []found
@@ -338,25 +338,25 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 		head := make([]byte, 512)
 		headN, readErr := io.ReadFull(file, head)
 		if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) {
-			file.Close()
+			_ = file.Close()
 			failed = append(failed, f.name)
 			continue
 		}
 		hash := sha256.New()
 		_, _ = hash.Write(head[:headN])
 		if _, readErr = io.Copy(hash, file); readErr != nil {
-			file.Close()
+			_ = file.Close()
 			failed = append(failed, f.name)
 			continue
 		}
 		info, statErr := file.Stat()
 		if statErr != nil || info.Size() == 0 {
-			file.Close()
+			_ = file.Close()
 			failed = append(failed, f.name)
 			continue
 		}
 		if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
-			file.Close()
+			_ = file.Close()
 			failed = append(failed, f.name)
 			continue
 		}
@@ -368,12 +368,12 @@ func (s *Server) storeChatArtifacts(ctx context.Context, root *os.Root, files []
 		key := mediaStorageKey(*settings, provenance.WorkspaceID, provenance.UserID, ext)
 		checksum := hex.EncodeToString(hash.Sum(nil))
 		if err := target.PutReader(ctx, key, contentType, file, info.Size(), checksum); err != nil {
-			file.Close()
+			_ = file.Close()
 			slog.Error("chat artifacts: upload failed", "key", key, "error", err)
 			failed = append(failed, f.name)
 			continue
 		}
-		file.Close()
+		_ = file.Close()
 		tokenID := ""
 		var downloadKey, downloadKeyHash string
 		var downloadExpires time.Time

@@ -46,7 +46,7 @@ func (p *Postgres) ListWorkflowVersions(ctx context.Context, workflowID string) 
 	if err != nil {
 		return nil, fmt.Errorf("list workflow versions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var result []service.WorkflowVersion
 	for rows.Next() {
@@ -99,7 +99,7 @@ func (p *Postgres) CreateWorkflowVersion(ctx context.Context, v service.Workflow
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if v.WorkspaceID != "" && v.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -177,7 +177,7 @@ func (p *Postgres) SetActiveVersion(ctx context.Context, workflowID string, vers
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var versionID string
 	found, err := w.tx.From(p.tableWorkflowVersions).Select("id").Where(w.predicate, goqu.Ex{"workflow_id": workflowID, "version": version}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &versionID)
 	if err != nil {

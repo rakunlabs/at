@@ -38,11 +38,6 @@ func (s *Server) ListWorkflowNodeTypesAPI(w http.ResponseWriter, r *http.Request
 
 // ─── Workflow CRUD API ───
 
-// workflowsResponse wraps a list of workflow records for JSON output.
-type workflowsResponse struct {
-	Workflows []service.Workflow `json:"workflows"`
-}
-
 // ListWorkflowsAPI handles GET /api/v1/workflows.
 func (s *Server) ListWorkflowsAPI(w http.ResponseWriter, r *http.Request) {
 	if s.workflowStore == nil {
@@ -677,7 +672,7 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		data, _ := json.Marshal(map[string]any{"event_type": "durable_started", "run_id": job.ID, "execution": durableSummary(job)})
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 		return
 	}
 
@@ -695,7 +690,7 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 
 	writeSSE := func(data any) {
 		jsonData, _ := json.Marshal(data)
-		fmt.Fprintf(w, "data: %s\n\n", jsonData)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", jsonData)
 		flusher.Flush()
 	}
 

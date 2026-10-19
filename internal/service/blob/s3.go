@@ -176,7 +176,7 @@ func (s *s3Store) Check(ctx context.Context) error {
 }
 
 func s3Drain(resp *http.Response) error {
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	_, err := io.Copy(io.Discard, io.LimitReader(resp.Body, s3ErrorBodyMaxBytes))
 	if err != nil {
 		return fmt.Errorf("drain s3 response: %w", err)
@@ -227,7 +227,7 @@ func (s *s3Store) doReader(ctx context.Context, method string, u *url.URL, reade
 		return nil, fmt.Errorf("s3 %s %s: %w", method, u.EscapedPath(), err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, s3ErrorBodyMaxBytes))
 		message := fmt.Sprintf("s3 %s %s: %s", method, u.EscapedPath(), resp.Status)
 		if trimmed := strings.TrimSpace(string(detail)); trimmed != "" {

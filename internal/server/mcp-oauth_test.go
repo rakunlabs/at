@@ -147,7 +147,7 @@ func testMCPOAuthEndToEnd(t *testing.T, useProxy, useTLS bool) {
 		paths := map[string]int{}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = nil
-		forward := &httputil.ReverseProxy{Director: func(r *http.Request) {}, Transport: transport}
+		forward := &httputil.ReverseProxy{Rewrite: func(*httputil.ProxyRequest) {}, Transport: transport}
 		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			paths[r.URL.Path]++

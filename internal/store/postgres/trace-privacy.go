@@ -370,12 +370,12 @@ WHERE x.workspace_id = m.workspace_id AND x.trace_id = m.trace_id`, calls, match
 		for rows.Next() {
 			var pair [2]string
 			if err := rows.Scan(&pair[0], &pair[1]); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			pairs = append(pairs, pair)
 		}
-		rows.Close()
+		_ = rows.Close()
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
@@ -399,7 +399,7 @@ func (p *Postgres) collectSpillRefs(ctx context.Context, query string, args []an
 	if err != nil {
 		return nil, fmt.Errorf("collect spill refs: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	var refs []string
 	for rows.Next() {
 		var a, b string
@@ -422,7 +422,7 @@ func (p *Postgres) deleteTrace(ctx context.Context, workspaceID, traceID string)
 	if err != nil {
 		return nil, fmt.Errorf("begin trace delete: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	calls := p.tableLLMCalls.GetTable()
 	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE workspace_id = $1 AND trace_id = $2 RETURNING request_ref, response_ref`, calls), workspaceID, traceID)
 	if err != nil {
@@ -432,7 +432,7 @@ func (p *Postgres) deleteTrace(ctx context.Context, workspaceID, traceID string)
 	for rows.Next() {
 		var a, b string
 		if err := rows.Scan(&a, &b); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		for _, v := range []string{a, b} {
@@ -441,7 +441,7 @@ func (p *Postgres) deleteTrace(ctx context.Context, workspaceID, traceID string)
 			}
 		}
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}

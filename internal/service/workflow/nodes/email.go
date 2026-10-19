@@ -496,18 +496,18 @@ func dialViaProxy(ctx context.Context, proxyURL *url.URL, targetAddr string) (ne
 	}
 
 	if err := connectReq.Write(conn); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("write connect req: %w", err)
 	}
 
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, connectReq)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("read connect resp: %w", err)
 	}
 	if resp.StatusCode != 200 {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("proxy connect failed: %s", resp.Status)
 	}
 

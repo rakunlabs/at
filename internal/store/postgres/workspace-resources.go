@@ -69,7 +69,7 @@ func (p *Postgres) GetWorkspaceAccessResource(ctx context.Context, kind, id stri
 	if err != nil {
 		return nil, fmt.Errorf("begin resource resolution: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.read")
 	if err != nil {
 		return nil, err

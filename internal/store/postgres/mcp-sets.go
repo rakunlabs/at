@@ -75,7 +75,7 @@ func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.Li
 	if err != nil {
 		return nil, fmt.Errorf("list mcp sets: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.MCPSet
 	for rows.Next() {
@@ -171,7 +171,7 @@ func (p *Postgres) CreateMCPSet(ctx context.Context, s service.MCPSet) (*service
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -258,7 +258,7 @@ func (p *Postgres) UpdateMCPSet(ctx context.Context, id string, s service.MCPSet
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	w.predicate = ownedResourceWritePredicate(w.actor, "mcp.write")
 	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
@@ -334,7 +334,7 @@ func (p *Postgres) DeleteMCPSet(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	w.predicate = ownedResourceWritePredicate(w.actor, "mcp.write")
 	query, _, err := p.goqu.Delete(p.tableMCPSets).
 		Where(w.predicate, goqu.I("id").Eq(id)).
@@ -411,7 +411,7 @@ func (p *Postgres) PublishMCPSetToWorkspace(ctx context.Context, id, by string) 
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	var row mcpSetRow
 	found, err := w.tx.From(p.tableMCPSets).Select(mcpSetColumns...).Where(
 		goqu.C("workspace_id").Eq(w.actor.WorkspaceID),

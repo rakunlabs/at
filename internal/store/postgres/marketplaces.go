@@ -40,7 +40,7 @@ func (p *Postgres) ListMarketplaces(ctx context.Context, q *query.Query) (*servi
 	if err != nil {
 		return nil, fmt.Errorf("list marketplaces: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Marketplace
 	for rows.Next() {

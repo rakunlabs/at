@@ -170,9 +170,9 @@ var builtinToolSchemas = []builtinToolDef{
 
 	// ─── Image Tools ───
 	{Name: "generate_image", Description: generateImageUsage, InputSchema: map[string]any{"type": "object", "properties": map[string]any{
-		"provider":           map[string]any{"type": "string", "description": "Key of the image-capable provider, optionally provider/model (e.g. openai or openai/gpt-image-1.5). May be omitted when only one image-capable provider exists; an error then lists the valid keys"},
+		"provider":           map[string]any{"type": "string", "description": "Key of the image-capable provider, optionally provider/model (e.g. openai or openai/gpt-image-2.5-flare). May be omitted when only one image-capable provider exists; an error then lists the valid keys"},
 		"prompt":             map[string]any{"type": "string", "description": "Detailed description of the image to create, or of the change to make when reference images are given"},
-		"model":              map[string]any{"type": "string", "description": "Image model. Defaults to gpt-image-2 (ChatGPT/Codex); use gpt-image-1.5 or dall-e-3 for API keys, image-01 for MiniMax"},
+		"model":              map[string]any{"type": "string", "description": "Image model. Defaults to gpt-image-2 (works with ChatGPT/Codex and API keys); API keys also accept gpt-image-2.5-flare or gpt-image-2.5-sunburst, MiniMax uses image-01"},
 		"size":               map[string]any{"type": "string", "description": "e.g. 1024x1024, 1536x1024 (landscape), 1024x1536 (portrait) or auto"},
 		"quality":            map[string]any{"type": "string", "description": "low, medium, high or auto"},
 		"background":         map[string]any{"type": "string", "enum": []string{"auto", "opaque", "transparent"}, "description": "transparent for cutouts, logos and stickers"},
@@ -969,7 +969,7 @@ func (s *Server) execHTTPRequest(ctx context.Context, args map[string]any) (stri
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read response body with 1MB size limit.
 	const maxBody = 1048576
@@ -1187,7 +1187,7 @@ func (s *Server) execURLFetch(ctx context.Context, args map[string]any) (string,
 	if err != nil {
 		return "", fmt.Errorf("fetch failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("URL returned HTTP %d", resp.StatusCode)

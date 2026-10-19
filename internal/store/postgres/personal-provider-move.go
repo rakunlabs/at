@@ -32,7 +32,7 @@ func (p *Postgres) MovePersonalProviderToWorkspace(ctx context.Context, id, upda
 	if err != nil {
 		return nil, fmt.Errorf("begin personal provider move: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "personal_providers.manage")
 	if err != nil {
 		return nil, err

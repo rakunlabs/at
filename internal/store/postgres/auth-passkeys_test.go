@@ -221,7 +221,7 @@ func TestNativePasskeyEnrollmentSessionExpiresDuringLockPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var id string
 	if _, err := tx.From(p.tableAuthUsers).Select("id").Where(goqu.Ex{"id": u.ID}).ForUpdate(goqu.Wait).ScanValContext(t.Context(), &id); err != nil {
 		t.Fatal(err)
@@ -286,7 +286,7 @@ func TestNativePasskeyLoginExpiresDuringAdmissionLocksPostgres(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer tx.Rollback()
+			defer tx.Rollback() //nolint:errcheck
 			table, id := p.tableAuthUsers, u.ID
 			if stage == "counter credential lock" {
 				table, id = p.tableAuthPasskeys, keys[0].ID

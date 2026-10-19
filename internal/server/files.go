@@ -43,13 +43,13 @@ func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 		fileAccessError(w, err)
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	dir, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
 	if err != nil {
 		fileAccessError(w, err)
 		return
 	}
-	defer dir.Close()
+	defer dir.Close() //nolint:errcheck
 	entries, err := dir.ReadDir(-1)
 	if err != nil {
 		fileAccessError(w, err)
@@ -67,7 +67,7 @@ func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		info, err := child.Stat()
-		child.Close()
+		_ = child.Close()
 		if err != nil || (!info.Mode().IsRegular() && !info.IsDir()) {
 			continue
 		}
@@ -97,13 +97,13 @@ func (s *Server) FileServeAPI(w http.ResponseWriter, r *http.Request) {
 		fileAccessError(w, err)
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	f, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
 	if err != nil {
 		fileAccessError(w, err)
 		return
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	info, err := f.Stat()
 	if err != nil {
 		fileAccessError(w, err)
@@ -139,7 +139,7 @@ func (s *Server) FileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 		fileAccessError(w, err)
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if name == "." {
 		http.Error(w, "cannot delete workspace root", http.StatusForbidden)
 		return
@@ -168,14 +168,14 @@ func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
+		defer r.MultipartForm.RemoveAll() //nolint:errcheck
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "file field is required", http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 	name := r.FormValue("name")
 	if name == "" {
 		name = header.Filename
@@ -199,7 +199,7 @@ func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
 		fileAccessError(w, err)
 		return
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := service.MkdirExecutionAll(root, filepath.Dir(path), 0700); err != nil {
 		fileAccessError(w, err)
 		return
@@ -211,5 +211,5 @@ func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{"path": path, "name": name, "size": n})
+	_ = json.NewEncoder(w).Encode(map[string]any{"path": path, "name": name, "size": n})
 }

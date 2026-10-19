@@ -80,11 +80,6 @@ type bundlePreviewItem struct {
 	ExistingID string `json:"existing_id,omitempty"`
 }
 
-// bundleImportRequest is the request body for confirming an import.
-type bundleImportRequest struct {
-	Actions map[string]string `json:"actions"` // entity key -> "create_new" | "skip" | "overwrite"
-}
-
 // ─── Export ───
 
 // ExportOrganizationBundleAPI handles GET /api/v1/organizations/{id}/export.
@@ -306,7 +301,7 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, org.Name))
 	w.WriteHeader(http.StatusOK)
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes())
 }
 
 // ─── Import Preview ───
@@ -722,7 +717,7 @@ func (s *Server) ImportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 			if org != nil {
 				org.HeadAgentID = headAgentID
 				org.UpdatedBy = userEmail
-				s.organizationStore.UpdateOrganization(ctx, orgID, *org)
+				_, _ = s.organizationStore.UpdateOrganization(ctx, orgID, *org)
 			}
 		}
 	}
@@ -765,7 +760,7 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 		if err != nil {
 			return nil, fmt.Errorf("file field is required: %w", err)
 		}
-		defer file.Close()
+		defer file.Close() //nolint:errcheck
 		zipData, err = io.ReadAll(io.LimitReader(file, 50<<20))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read file: %w", err)
@@ -955,7 +950,7 @@ func writeBytesToZip(zw *zip.Writer, name string, data []byte) {
 		slog.Error("create zip entry failed", "name", name, "error", err)
 		return
 	}
-	fw.Write(data)
+	_, _ = fw.Write(data)
 }
 
 // readZipFile reads the contents of a zip file entry.
@@ -964,7 +959,7 @@ func readZipFile(f *zip.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer rc.Close()                              //nolint:errcheck
 	return io.ReadAll(io.LimitReader(rc, 10<<20)) // 10 MB per file limit
 }
 

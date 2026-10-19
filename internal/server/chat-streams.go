@@ -203,7 +203,7 @@ func (s *Server) startReplayStream(w http.ResponseWriter, r *http.Request, handl
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				slog.Error("chat stream handler panicked", "panic", recovered)
-				stream.Write([]byte("event: error\ndata: {\"error\":\"Stream execution failed; check saved history\"}\n\n"))
+				_, _ = stream.Write([]byte("event: error\ndata: {\"error\":\"Stream execution failed; check saved history\"}\n\n"))
 			}
 			cancel()
 			stopShutdown()

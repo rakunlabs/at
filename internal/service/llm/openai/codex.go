@@ -23,7 +23,7 @@ const CodexDefaultResponsesURL = "https://chatgpt.com/backend-api/codex/response
 
 // The model catalog filters by Codex protocol client version, not AT's release
 // number. Keep this aligned with the supported upstream Codex contract.
-const CodexClientVersion = "0.162.1"
+const CodexClientVersion = "0.163.0"
 
 // Selecting ChatGPT auth on the ordinary OpenAI preset must not send Codex
 // credentials to the API-key /v1/chat/completions endpoint. Custom relays remain
@@ -160,14 +160,14 @@ func (p *CodexProvider) accountID() string {
 
 func (p *CodexProvider) authorize(ctx context.Context, req *http.Request) error {
 	if p.tokenSource == nil {
-		return fmt.Errorf("Codex token source is not configured")
+		return fmt.Errorf("token source for Codex is not configured")
 	}
 	token, err := p.tokenSource.Token(ctx)
 	if err != nil {
 		return fmt.Errorf("get Codex access token: %w", err)
 	}
 	if token == "" {
-		return fmt.Errorf("Codex token source returned an empty access token")
+		return fmt.Errorf("token source for Codex returned an empty access token")
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	accountID := p.accountID()
@@ -207,7 +207,7 @@ func (p *CodexProvider) Chat(ctx context.Context, model string, messages []servi
 		}
 	}
 	if response.FinishReason == "" {
-		return nil, fmt.Errorf("Codex stream closed without response.completed")
+		return nil, fmt.Errorf("stream from Codex closed without response.completed")
 	}
 	response.Finished = response.FinishReason != "tool_calls"
 	return response, nil
@@ -248,17 +248,17 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 	resp, err := send()
 	if err != nil {
 		releaseOnce()
-		return nil, nil, fmt.Errorf("Codex request failed: %w", err)
+		return nil, nil, fmt.Errorf("request to Codex failed: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp, err = p.recoverUnauthorized(ctx, resp, send)
 		if err != nil {
 			releaseOnce()
-			return nil, nil, fmt.Errorf("Codex request recovery failed: %w", err)
+			return nil, nil, fmt.Errorf("request recovery for Codex failed: %w", err)
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		defer releaseOnce()
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, nil, codexHTTPError(resp, respBody)
@@ -290,15 +290,15 @@ func (p *CodexProvider) Models(ctx context.Context) ([]string, error) {
 	}
 	resp, err := send()
 	if err != nil {
-		return nil, fmt.Errorf("Codex models request failed: %w", err)
+		return nil, fmt.Errorf("models request to Codex failed: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp, err = p.recoverUnauthorized(ctx, resp, send)
 		if err != nil {
-			return nil, fmt.Errorf("Codex models request recovery failed: %w", err)
+			return nil, fmt.Errorf("models request recovery for Codex failed: %w", err)
 		}
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read Codex models response: %w", err)
@@ -317,7 +317,7 @@ func (p *CodexProvider) Models(ctx context.Context) ([]string, error) {
 		}
 	}
 	if len(models) == 0 {
-		return nil, fmt.Errorf("Codex returned no available model slugs. Verify this ChatGPT account has Codex access and reconnect it in Providers; the existing model list was not changed")
+		return nil, fmt.Errorf("no available model slugs were returned by Codex; verify this ChatGPT account has Codex access and reconnect it in Providers; the existing model list was not changed")
 	}
 	return models, nil
 }
@@ -331,7 +331,7 @@ func (p *CodexProvider) recoverUnauthorized(ctx context.Context, resp *http.Resp
 	if resp.Request != nil {
 		rejected = strings.TrimPrefix(resp.Request.Header.Get("Authorization"), "Bearer ")
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	reloaded, err := source.Reload(ctx)
 	if err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func (p *CodexProvider) recoverUnauthorized(ctx context.Context, resp *http.Resp
 		if resp.Request != nil {
 			rejected = strings.TrimPrefix(resp.Request.Header.Get("Authorization"), "Bearer ")
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if rejected != "" {
 		source.InvalidateToken(rejected)
@@ -379,7 +379,7 @@ func codexErrorDetails(body []byte) (message, code, param string) {
 
 func codexHTTPError(resp *http.Response, body []byte) error {
 	message, code, param := codexErrorDetails(body)
-	underlying := fmt.Errorf("Codex API returned status %d: %s", resp.StatusCode, message)
+	underlying := fmt.Errorf("API for Codex returned status %d: %s", resp.StatusCode, message)
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return &service.RateLimitError{
 			StatusCode: resp.StatusCode,
@@ -444,10 +444,9 @@ type codexCompletedResponse struct {
 
 func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.StreamChunk, release func()) {
 	defer close(ch)
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	defer release()
 
-	var completed bool
 	// Done events repeat deltas, but only for their own output/content part.
 	// A response-wide flag drops later messages and summary parts.
 	type partKey struct{ output, part int }
@@ -559,7 +558,6 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 				chunk.Usage = &usage
 			}
 			ch <- chunk
-			completed = true
 			return
 		case "response.failed", "response.incomplete":
 			var response codexCompletedResponse
@@ -573,11 +571,11 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 					StatusCode: http.StatusTooManyRequests,
 					Provider:   "openai-codex",
 					Message:    message,
-					Underlying: fmt.Errorf("Codex %s: %s", event.Type, message),
+					Underlying: fmt.Errorf("codex event %s: %s", event.Type, message),
 				}}
 				return
 			}
-			ch <- service.StreamChunk{Error: fmt.Errorf("Codex %s: %s", event.Type, message)}
+			ch <- service.StreamChunk{Error: fmt.Errorf("codex event %s: %s", event.Type, message)}
 			return
 		}
 	}
@@ -585,10 +583,12 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 		ch <- service.StreamChunk{Error: fmt.Errorf("read Codex SSE stream: %w", err)}
 		return
 	}
-	if !completed && sawOutput && !sawToolCall {
+	// response.completed returns from the loop, so reaching here means the
+	// stream ended without it.
+	if sawOutput && !sawToolCall {
 		ch <- service.StreamChunk{FinishReason: "stop"}
-	} else if !completed {
-		ch <- service.StreamChunk{Error: fmt.Errorf("Codex stream closed before response.completed")}
+	} else {
+		ch <- service.StreamChunk{Error: fmt.Errorf("stream from Codex closed before response.completed")}
 	}
 }
 
@@ -640,7 +640,8 @@ func (p *CodexProvider) Proxy(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			req := pr.Out
 			req.URL = target
 			req.Host = target.Host
 		},

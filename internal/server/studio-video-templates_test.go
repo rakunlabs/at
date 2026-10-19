@@ -263,9 +263,10 @@ func TestStudioVideoInvalidLaunch(t *testing.T) {
 				}
 			case "symlink template", "symlink templates dir", "symlink videos dir":
 				target := t.TempDir()
-				if name == "symlink templates dir" {
+				switch name {
+				case "symlink templates dir":
 					path = filepath.Dir(path)
-				} else if name == "symlink videos dir" {
+				case "symlink videos dir":
 					path = filepath.Join(assets, "videos")
 				}
 				if err := os.RemoveAll(path); err != nil {

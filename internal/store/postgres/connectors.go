@@ -44,7 +44,7 @@ func (p *Postgres) ListConnectors(ctx context.Context, q *query.Query) (*service
 	if err != nil {
 		return nil, fmt.Errorf("list connectors: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Connector
 	for rows.Next() {
@@ -101,7 +101,7 @@ func (p *Postgres) CreateConnector(ctx context.Context, c service.Connector) (*s
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -147,7 +147,7 @@ func (p *Postgres) UpdateConnector(ctx context.Context, slug string, c service.C
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -198,7 +198,7 @@ func (p *Postgres) DeleteConnector(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	sqlStr, _, err := p.goqu.Delete(p.tableConnectors).
 		Where(w.predicate, goqu.I("slug").Eq(slug)).
 		ToSQL()

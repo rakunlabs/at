@@ -90,7 +90,7 @@ func (p *Postgres) ListHeartbeats(ctx context.Context) ([]service.AgentHeartbeat
 	if err != nil {
 		return nil, fmt.Errorf("list heartbeats: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.AgentHeartbeat
 	for rows.Next() {

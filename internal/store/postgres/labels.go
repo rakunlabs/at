@@ -56,7 +56,7 @@ func (p *Postgres) ListLabels(ctx context.Context, orgID string) ([]service.Labe
 	if err != nil {
 		return nil, fmt.Errorf("list labels for org %q: %w", orgID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Label
 	for rows.Next() {
@@ -101,7 +101,7 @@ func (p *Postgres) CreateLabel(ctx context.Context, label service.Label) (*servi
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if label.WorkspaceID != "" && label.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -149,7 +149,7 @@ func (p *Postgres) UpdateLabel(ctx context.Context, id string, label service.Lab
 	if err != nil {
 		return nil, err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if label.WorkspaceID != "" && label.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -190,7 +190,7 @@ func (p *Postgres) DeleteLabel(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	// Delete task-label associations first.
 	delAssocQuery, _, err := p.goqu.Delete(p.tableTaskLabels).
 		Where(w.predicate, goqu.I("label_id").Eq(id)).
@@ -223,7 +223,7 @@ func (p *Postgres) AddLabelToTask(ctx context.Context, taskID, labelID string) e
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	if taskID == "" || labelID == "" {
 		return service.ErrAccessResourceNotFound
 	}
@@ -259,7 +259,7 @@ func (p *Postgres) RemoveLabelFromTask(ctx context.Context, taskID, labelID stri
 	if err != nil {
 		return err
 	}
-	defer w.tx.Rollback()
+	defer w.tx.Rollback() //nolint:errcheck
 	query, _, err := p.goqu.Delete(p.tableTaskLabels).
 		Where(
 			w.predicate,
@@ -302,7 +302,7 @@ func (p *Postgres) ListLabelsForTask(ctx context.Context, taskID string) ([]serv
 	if err != nil {
 		return nil, fmt.Errorf("list labels for task %q: %w", taskID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.Label
 	for rows.Next() {
@@ -340,7 +340,7 @@ func (p *Postgres) ListTasksForLabel(ctx context.Context, labelID string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("list tasks for label %q: %w", labelID, err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var taskIDs []string
 	for rows.Next() {

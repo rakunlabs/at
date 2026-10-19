@@ -37,7 +37,7 @@ func (p *Postgres) DeleteWorkspace(ctx context.Context, confirmation string) (*s
 	if err != nil {
 		return nil, fmt.Errorf("begin workspace deletion: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.archive")
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (p *Postgres) SaveWorkspacePreferences(ctx context.Context, v service.Works
 	if err != nil {
 		return nil, fmt.Errorf("begin workspace preference: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspacePreferenceActor(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -141,7 +141,7 @@ func (p *Postgres) SelectWorkspace(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("begin workspace selection: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspacePreferenceActor(ctx, tx)
 	if err != nil {
 		return err

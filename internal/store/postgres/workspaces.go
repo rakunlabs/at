@@ -20,7 +20,7 @@ func (p *Postgres) GetWorkspace(ctx context.Context) (*service.Workspace, error)
 	if err != nil {
 		return nil, fmt.Errorf("begin workspace detail: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.read")
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (p *Postgres) CreateWorkspace(ctx context.Context, name, ownerID string) (*
 	if err != nil {
 		return nil, fmt.Errorf("begin create workspace: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	u, err := p.workspaceIdentity(ctx, tx, a.UserID, a.SessionID)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func (p *Postgres) UpdateWorkspace(ctx context.Context, w service.Workspace) (*s
 	if err != nil {
 		return nil, fmt.Errorf("begin update workspace: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "workspace.write")
 	if err != nil {
 		return nil, err
@@ -152,7 +152,7 @@ func (p *Postgres) ListWorkspaceMembers(ctx context.Context) ([]service.Workspac
 	if err != nil {
 		return nil, fmt.Errorf("begin list members: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "members.read")
 	if err != nil {
 		return nil, err
@@ -191,7 +191,7 @@ func (p *Postgres) SetWorkspaceMember(ctx context.Context, m service.WorkspaceMe
 	if err != nil {
 		return fmt.Errorf("begin membership change: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "members.manage")
 	if err != nil {
 		return err
@@ -241,7 +241,7 @@ func (p *Postgres) CreateWorkspaceInvitation(ctx context.Context, v service.Work
 	if err != nil {
 		return nil, fmt.Errorf("begin invitation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "members.manage")
 	if err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func (p *Postgres) ListWorkspaceInvitations(ctx context.Context) ([]service.Work
 	if err != nil {
 		return nil, fmt.Errorf("begin list invitations: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	a, err := p.workspaceActor(ctx, tx, "members.manage")
 	if err != nil {
 		return nil, err
@@ -292,7 +292,7 @@ func (p *Postgres) AcceptWorkspaceInvitation(ctx context.Context, hash string) (
 	if err != nil {
 		return nil, fmt.Errorf("begin accept invitation: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	var v service.WorkspaceInvitation
 	found, err := tx.From(p.workspaceTable("workspace_invitations")).Where(goqu.Ex{"token_hash": hash}).ScanStructContext(ctx, &v)
 	if err != nil {

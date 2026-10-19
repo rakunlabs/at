@@ -332,7 +332,7 @@ func (p *Postgres) ListLLMCalls(ctx context.Context, q *query.Query) (*service.L
 	if err != nil {
 		return nil, fmt.Errorf("list llm calls: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.LLMCall
 	for rows.Next() {
@@ -460,7 +460,7 @@ func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*serv
 	if err != nil {
 		return nil, fmt.Errorf("list llm call traces: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []service.LLMCallTrace
 	for rows.Next() {

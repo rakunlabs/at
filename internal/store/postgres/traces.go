@@ -304,7 +304,7 @@ func (p *Postgres) ListTraces(ctx context.Context, q service.TraceQuery) (*servi
 	if err != nil {
 		return nil, fmt.Errorf("list traces: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	items := make([]service.TraceSummary, 0)
 	type key struct{ ws, trace string }
@@ -368,7 +368,7 @@ FROM %s WHERE %s GROUP BY workspace_id, trace_id, name ORDER BY name`, p.tableTr
 	if err != nil {
 		return nil, fmt.Errorf("list trace score summaries: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	out := map[struct{ ws, trace string }][]service.TraceScoreSummary{}
 	for rows.Next() {
 		var ws, trace string
@@ -418,7 +418,7 @@ func (p *Postgres) GetTrace(ctx context.Context, traceID string) (*service.Trace
 	if err != nil {
 		return nil, fmt.Errorf("list trace observations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	for rows.Next() {
 		row, err := scanLLMCallRow(rows)
 		if err != nil {
@@ -468,7 +468,7 @@ FROM %s WHERE %s ORDER BY created_at, id`, p.tableTraceScores.GetTable(), string
 	if err != nil {
 		return nil, fmt.Errorf("list trace scores: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	out := make([]service.TraceScore, 0)
 	for rows.Next() {
 		s, err := scanTraceScore(rows)
@@ -545,7 +545,7 @@ func (p *Postgres) ListTraceSessions(ctx context.Context, q service.TraceSession
 	if err != nil {
 		return nil, fmt.Errorf("list trace sessions: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	items := make([]service.TraceSession, 0)
 	for rows.Next() {
 		s, err := scanTraceSession(rows)
@@ -613,12 +613,12 @@ func (p *Postgres) GetTraceSession(ctx context.Context, sessionID, tokenID strin
 	for rows.Next() {
 		var id, in, out string
 		if err := rows.Scan(&id, &in, &out); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, fmt.Errorf("scan session trace attributes: %w", err)
 		}
 		full[id] = [2]string{in, out}
 	}
-	rows.Close()
+	_ = rows.Close()
 	session := service.TraceSession{SessionID: sessionID, TokenID: tokenID, Sources: []string{}}
 	seenSource := map[string]bool{}
 	for i := range traces {
@@ -681,7 +681,7 @@ func (p *Postgres) GetTraceFacets(ctx context.Context, from time.Time) (*service
 		if err != nil {
 			return nil, fmt.Errorf("list trace facet %s: %w", column, err)
 		}
-		defer rows.Close()
+		defer rows.Close() //nolint:errcheck
 		out := make([]string, 0)
 		for rows.Next() {
 			var v string

@@ -112,7 +112,7 @@ func TestMobileHTTPContract(t *testing.T) {
 		w := call("POST", path, `{"request_id":"`+id+`"}`, "", a.cfg.Origin, web)
 		check(w, 200)
 		var response map[string]string
-		json.Unmarshal(w.Body.Bytes(), &response)
+		_ = json.Unmarshal(w.Body.Bytes(), &response)
 		uri, err := url.Parse(response["redirect_url"])
 		if err != nil {
 			t.Fatal(err)
@@ -181,7 +181,7 @@ func TestMobileHTTPContract(t *testing.T) {
 	oldRefresh, oldAccess, oldSession, oldDeadline := tokens.Refresh, tokens.Access, tokens.Session, tokens.Deadline
 	w = call("POST", "/at/auth/mobile/refresh", `{"refresh_token":"`+tokens.Refresh+`"}`, "", "", nil)
 	check(w, 200)
-	json.Unmarshal(w.Body.Bytes(), &tokens)
+	_ = json.Unmarshal(w.Body.Bytes(), &tokens)
 	if tokens.Session != oldSession || !tokens.Deadline.Equal(oldDeadline) || tokens.Refresh == oldRefresh || len(w.Result().Cookies()) != 0 {
 		t.Fatal("rotation mutated family")
 	}
@@ -214,7 +214,7 @@ func TestMobileHTTPContract(t *testing.T) {
 				return
 			}
 			check(w, 200)
-			json.Unmarshal(w.Body.Bytes(), &tokens)
+			_ = json.Unmarshal(w.Body.Bytes(), &tokens)
 			if mode == "logout-refresh" {
 				check(call("POST", "/at/auth/mobile/logout", `{"refresh_token":"`+tokens.Refresh+`"}`, "", "", nil), 204)
 			} else {

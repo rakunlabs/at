@@ -109,7 +109,7 @@ func TestRemoteImageDoesNotReceiveProviderCredentials(t *testing.T) {
 			t.Error("provider credentials sent to image host")
 		}
 		w.Header().Set("Content-Type", "image/png")
-		fmt.Fprint(w, "image")
+		_, _ = fmt.Fprint(w, "image")
 	}))
 	defer srv.Close()
 	p, err := New("private-api-key", "model", "", "", false)
@@ -124,8 +124,8 @@ func TestRemoteImageDoesNotReceiveProviderCredentials(t *testing.T) {
 func TestStreamingUsageAfterFinish(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n")
-		fmt.Fprint(w, "data: {\"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":80,\"candidatesTokenCount\":10,\"thoughtsTokenCount\":5,\"totalTokenCount\":115}}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"usageMetadata\":{\"promptTokenCount\":100,\"cachedContentTokenCount\":80,\"candidatesTokenCount\":10,\"thoughtsTokenCount\":5,\"totalTokenCount\":115}}\n\n")
 	}))
 	defer srv.Close()
 	p, err := New("key", "model", srv.URL, "", false)
@@ -153,7 +153,7 @@ func TestStreamingUsageAfterFinish(t *testing.T) {
 func TestStreamingAcceptsCleanEOFAfterText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]}}]}\n\n")
 	}))
 	defer srv.Close()
 

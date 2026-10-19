@@ -242,7 +242,7 @@ func TestNativeAuthAdminPasswordResetAndEnable(t *testing.T) {
 type conflictingPasswordStore struct{ service.AuthStorer }
 
 func (f conflictingPasswordStore) SetAuthUserPassword(ctx context.Context, id, hash string, version *int64) (bool, error) {
-	if _, err := f.AuthStorer.InvalidateAuthUser(ctx, id, false); err != nil {
+	if _, err := f.InvalidateAuthUser(ctx, id, false); err != nil {
 		return false, err
 	}
 	return f.AuthStorer.SetAuthUserPassword(ctx, id, hash, version)

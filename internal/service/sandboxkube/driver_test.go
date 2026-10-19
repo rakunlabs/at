@@ -470,7 +470,7 @@ func TestKubernetesTerminalCloseWaitsForRemoteCancellation(t *testing.T) {
 		t.Fatal("remote cancellation did not start")
 	}
 	select {
-	case <-closed:
+	case <-closed: //nolint:errcheck
 		t.Error("Close returned before cancellation finished")
 	default:
 	}

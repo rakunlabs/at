@@ -436,7 +436,7 @@ func (s *Server) saveMCPOAuthConnection(r *http.Request, pending mcpOAuthPending
 
 func mcpOAuthErrorCode(code string) string {
 	for _, r := range code {
-		if !(r >= 'a' && r <= 'z' || r == '_') {
+		if !(r >= 'a' && r <= 'z' || r == '_') { //nolint:staticcheck // QF1001: keep the un-negated condition readable
 			return "error"
 		}
 	}
@@ -472,7 +472,7 @@ func (s *Server) renderMCPOAuthResult(w http.ResponseWriter, ok bool, message, c
 		status = http.StatusBadRequest
 	}
 	w.WriteHeader(status)
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>MCP authorization</title></head><body><p>%s</p>
+	_, _ = fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>MCP authorization</title></head><body><p>%s</p>
 <script type="application/json" id="result">%s</script>
 <script nonce="%s">(function(){var r=JSON.parse(document.getElementById("result").textContent);var o=%s;var sent=false;try{if(r.state&&typeof BroadcastChannel!=="undefined"){var c=new BroadcastChannel("at-mcp-oauth:"+r.state);c.postMessage(r);setTimeout(function(){c.close();},1000);sent=true;}}catch(e){}try{if(window.opener&&o){window.opener.postMessage(r,o);sent=true;}}catch(e){}if(sent){setTimeout(function(){window.close();},%s);}})();</script>
 </body></html>`, html.EscapeString(message), safe.String(), n, originJSON, strconv.Itoa(map[bool]int{true: 300, false: 4000}[ok]))

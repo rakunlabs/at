@@ -29,7 +29,7 @@ func fakeSMTP(t *testing.T) (host string, port int, messages <-chan string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	out := make(chan string, 4)
 	go func() {
 		for {
@@ -45,7 +45,7 @@ func fakeSMTP(t *testing.T) (host string, port int, messages <-chan string) {
 }
 
 func serveSMTP(conn net.Conn, out chan<- string) {
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 	r := bufio.NewReader(conn)
 	reply := func(s string) { _, _ = io.WriteString(conn, s+"\r\n") }
 	reply("220 test ESMTP")

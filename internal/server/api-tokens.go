@@ -88,11 +88,6 @@ func generateAPITokenSecret() (string, string, string, error) {
 	return fullToken, hex.EncodeToString(hash[:]), fullToken[:8], nil
 }
 
-// apiTokensResponse wraps a list of tokens for JSON output.
-type apiTokensResponse struct {
-	Tokens []service.APIToken `json:"tokens"`
-}
-
 // ListAPITokensAPI handles GET /api/v1/api-tokens.
 func (s *Server) ListAPITokensAPI(w http.ResponseWriter, r *http.Request) {
 	if s.tokenStore == nil {

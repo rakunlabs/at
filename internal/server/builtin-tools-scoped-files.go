@@ -22,12 +22,12 @@ func (s *Server) execScopedFileRead(ctx context.Context, args map[string]any) (s
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	f, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
 	if err != nil {
 		return "", fmt.Errorf("open file: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	info, err := f.Stat()
 	if err != nil {
 		return "", err
@@ -73,7 +73,7 @@ func (s *Server) execScopedFileWrite(ctx context.Context, args map[string]any) (
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	if err := service.MkdirExecutionAll(root, filepath.Dir(name), 0700); err != nil {
 		return "", fmt.Errorf("create directory: %w", err)
 	}
@@ -90,12 +90,12 @@ func (s *Server) execScopedFileList(ctx context.Context, args map[string]any) (s
 	if err != nil {
 		return "", err
 	}
-	defer root.Close()
+	defer root.Close() //nolint:errcheck
 	f, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 	entries, err := f.ReadDir(2000)
 	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("list directory: %w", err)

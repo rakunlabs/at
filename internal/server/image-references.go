@@ -220,7 +220,7 @@ func (s *Server) readMediaObject(ctx context.Context, object *service.MediaObjec
 	if err != nil {
 		return nil, fmt.Errorf("read image: %w", err)
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck
 	return readBoundedImage(reader)
 }
 
@@ -284,7 +284,7 @@ func fetchPublicImage(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("download image: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download image: status %d", resp.StatusCode)
 	}

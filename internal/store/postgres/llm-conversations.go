@@ -54,7 +54,7 @@ func (p *Postgres) ListLLMCallConversations(ctx context.Context, q *query.Query)
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 	items := make([]service.LLMCallConversation, 0)
 	for rows.Next() {
 		var c service.LLMCallConversation

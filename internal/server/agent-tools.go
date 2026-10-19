@@ -209,7 +209,7 @@ func (m *agentMCPTools) Close() {
 		return
 	}
 	for _, client := range m.clients {
-		client.Close()
+		_ = client.Close()
 	}
 	m.clients = nil
 }
