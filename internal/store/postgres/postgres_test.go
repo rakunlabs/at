@@ -6,49 +6,32 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/store/postgres/pgtemplate"
+	"github.com/rakunlabs/at/internal/store/postgres/pgtestdb"
 )
 
-// testDSN returns the postgres DSN used by store tests. Override with
-// AT_TEST_POSTGRES_DSN; the default matches `make env` (env/compose.yaml).
-func testDSN() string {
-	if dsn := os.Getenv("AT_TEST_POSTGRES_DSN"); dsn != "" {
-		return dsn
-	}
-	return "postgres://postgres@localhost:5432/postgres?sslmode=disable"
-}
-
-// pingTestPostgres probes the test database with a short timeout and skips
-// the calling test when it is unreachable (run `make env` to start one).
-func pingTestPostgres(t *testing.T, dsn string) {
+// testDSN returns the postgres DSN used by store tests, resolved by pgtestdb
+// (AT_TEST_POSTGRES_DSN, `make env`, or a testcontainers postgres). The calling
+// test is skipped when no server is available.
+func testDSN(t *testing.T) string {
 	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	db, err := connectDB(ctx, dsn, "")
-	if err != nil {
-		t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
-	}
-	defer db.Close() //nolint:errcheck
-	if err := db.PingContext(ctx); err != nil {
-		t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
-	}
+	return pgtestdb.Require(t)
 }
 
 // templatePrefix is the table prefix inside a template-copied database. The
 // database is private to one test, so the prefix only has to be stable.
 const templatePrefix = "t_"
 
-// TestMain releases the process template database after the suite.
+// TestMain releases the process template database and the test container
+// after the suite.
 func TestMain(m *testing.M) {
 	code := m.Run()
 	pgtemplate.Release()
+	pgtestdb.Release()
 	os.Exit(code)
 }
 
@@ -70,8 +53,7 @@ func migrateTemplate(ctx context.Context, dsn string) error {
 func newTestStore(t *testing.T, encKey []byte) *Postgres {
 	t.Helper()
 
-	dsn := testDSN()
-	pingTestPostgres(t, dsn)
+	dsn := testDSN(t)
 
 	if copyDSN, release, ok := pgtemplate.Acquire(context.Background(), dsn, migrateTemplate); ok {
 		prefix := templatePrefix

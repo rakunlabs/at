@@ -1,16 +1,15 @@
 // Package postgrestest provides a shared test helper for spinning up an
-// isolated AT store against a real postgres database. Tests are skipped
-// when postgres is unreachable; `make env` starts a matching instance.
+// isolated AT store against a real postgres database. Without a configured or
+// local server a postgres container is started (see pgtestdb); tests are
+// skipped only when that is impossible too.
 package postgrestest
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/oklog/ulid/v2"
@@ -18,40 +17,16 @@ import (
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/store/postgres"
 	"github.com/rakunlabs/at/internal/store/postgres/pgtemplate"
+	"github.com/rakunlabs/at/internal/store/postgres/pgtestdb"
 )
 
-// DSN returns the postgres DSN used by tests. Override with
-// AT_TEST_POSTGRES_DSN; the default matches `make env` (env/compose.yaml).
-func DSN() string {
-	if dsn := os.Getenv("AT_TEST_POSTGRES_DSN"); dsn != "" {
-		return dsn
-	}
-	return "postgres://postgres@localhost:5432/postgres?sslmode=disable"
-}
-
-// New connects to the test postgres with a unique table prefix so tests are
-// isolated from each other and from any dev data. The calling test is
-// skipped when postgres is not reachable; tables created for the test are
-// dropped on cleanup.
+// New gives the test its own migrated store. The server is resolved by
+// pgtestdb (AT_TEST_POSTGRES_DSN, `make env`, or a testcontainers postgres);
+// the calling test is skipped when none is available.
 func New(t *testing.T, encKey []byte) *postgres.Postgres {
 	t.Helper()
 
-	dsn := DSN()
-
-	// Cheap reachability probe before running the full migration set.
-	{
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		db, err := sql.Open("pgx", dsn)
-		if err != nil {
-			t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
-		}
-		if err := db.PingContext(ctx); err != nil {
-			_ = db.Close()
-			t.Skipf("postgres not available at %s (run `make env`): %v", dsn, err)
-		}
-		_ = db.Close()
-	}
+	dsn := pgtestdb.Require(t)
 
 	// A copy of the process template is a private database created in about
 	// 40ms, against 360ms for the migration set plus 165ms to drop its tables.
@@ -97,10 +72,14 @@ func migrateTemplate(ctx context.Context, dsn string) error {
 	return nil
 }
 
-// Release drops the process template database. Call it from TestMain after
-// m.Run; packages that never call it leave one database per run behind until
-// the next run sweeps it by age.
-func Release() { pgtemplate.Release() }
+// Release drops the process template database and stops the test container,
+// if one was started. Call it from TestMain after m.Run; packages that never
+// call it leave one database per run behind until the next run sweeps it by
+// age.
+func Release() {
+	pgtemplate.Release()
+	pgtestdb.Release()
+}
 
 // dropTables removes every table created under the test's unique prefix.
 func dropTables(t *testing.T, dsn, prefix string) {

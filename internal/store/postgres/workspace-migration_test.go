@@ -18,8 +18,7 @@ import (
 )
 
 func TestWorkspacePostgresLegacyOwnershipMigration(t *testing.T) {
-	dsn := testDSN()
-	pingTestPostgres(t, dsn)
+	dsn := testDSN(t)
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		t.Fatal(err)

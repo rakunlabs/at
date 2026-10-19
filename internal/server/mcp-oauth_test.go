@@ -158,6 +158,9 @@ func testMCPOAuthEndToEnd(t *testing.T, useProxy, useTLS bool) {
 		defer transport.CloseIdleConnections()
 		proxyURL = proxy.URL
 		defer func() {
+			if t.Skipped() || t.Failed() {
+				return
+			}
 			mu.Lock()
 			defer mu.Unlock()
 			for _, path := range []string{"/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server", "/register", "/token", "/mcp"} {

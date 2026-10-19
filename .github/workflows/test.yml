@@ -32,9 +32,35 @@ jobs:
         with:
           args: --timeout 10m --new-from-rev=HEAD~1 --issues-exit-code=0
       - name: Run tests
+        env:
+          # Store-backed tests start a postgres container through
+          # testcontainers; fail instead of skipping them if that is impossible.
+          AT_TEST_POSTGRES_REQUIRED: "true"
         run: |
           golangci-lint run --timeout 10m --issues-exit-code=0 --output.checkstyle.path=golangci-lint-report.out ./...
-          go test -coverprofile=coverage.out -json ./... > test-report.out
+          if ! go test -coverprofile=coverage.out -json ./... > test-report.out; then
+            # The JSON report hides failures from the log; print the output
+            # of every failed test and package.
+            python3 - <<'EOF'
+          import json, collections
+          out, failed = collections.defaultdict(list), []
+          for line in open("test-report.out"):
+              try:
+                  e = json.loads(line)
+              except ValueError:
+                  continue
+              key = (e.get("Package"), e.get("Test"))
+              if e.get("Action") == "output":
+                  out[key].append(e.get("Output", ""))
+              elif e.get("Action") == "fail":
+                  failed.append(key)
+          for key in failed:
+              print("::group::FAIL %s %s" % (key[0], key[1] or ""))
+              print("".join(out[key]), end="")
+              print("::endgroup::")
+          EOF
+            exit 1
+          fi
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v8
         with:

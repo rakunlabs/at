@@ -3612,7 +3612,7 @@ Docker). Other regressions:
 - Private `fooRow` struct with `db:"..."` tags, converted via `fooRowToRecord(row)`
 - SQL built with `goqu` query builder
 - Updates re-fetch after write; `RowsAffected() == 0` → return `nil, nil`
-- Factory: `store.New(ctx, cfg)` requires `store.postgres.datasource`; startup fails with a descriptive error when unset. Store tests run against a real postgres (`make env`) via `internal/store/postgres/postgrestest` and skip when unreachable; each test gets a private database copied from a per-process template (see *Test suite cost* below)
+- Factory: `store.New(ctx, cfg)` requires `store.postgres.datasource`; startup fails with a descriptive error when unset. Store tests run against a real postgres resolved by `internal/store/postgres/pgtestdb`: `AT_TEST_POSTGRES_DSN`, else the `make env` instance on `localhost:5432`, else a `postgres:15-alpine` testcontainer started once per test process (`AT_TEST_POSTGRES_CONTAINER=1` forces the container). They skip only when none is available; `AT_TEST_POSTGRES_REQUIRED=1` (set in CI) turns that into a failure. Each test gets a private database copied from a per-process template via `internal/store/postgres/postgrestest` (see *Test suite cost* below)
 
 ### Tests
 - Standard `testing` package, table-driven with `t.Run`
