@@ -7,13 +7,23 @@ jobs:
     steps:
       - name: get repository name
         run: echo "REPOSITORY_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Disabling shallow clone is recommended for improving relevancy of reporting
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27" # The Go version to download (if necessary) and use.
+      # Prefetch modules with retries: proxy.golang.org occasionally drops an
+      # HTTP/2 stream (INTERNAL_ERROR), which otherwise fails lint typecheck.
+      - name: Download modules
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            echo "go mod download failed (attempt $i), retrying..."
+            sleep $((i * 5))
+          done
+          exit 1
       # - name: download golangci.yml
       #   run: |
       #     [[ ! -f ".golangci.yml" ]] && curl -kfsSL -O https://raw.githubusercontent.com/worldline-go/guide/main/lint/.golangci.yml || true
@@ -23,10 +33,10 @@ jobs:
           args: --timeout 10m --new-from-rev=HEAD~1 --issues-exit-code=0
       - name: Run tests
         run: |
-          GOPATH="$(dirname ${PWD})" golangci-lint run --issues-exit-code=0 --output.checkstyle.path=golangci-lint-report.out ./...
+          golangci-lint run --timeout 10m --issues-exit-code=0 --output.checkstyle.path=golangci-lint-report.out ./...
           go test -coverprofile=coverage.out -json ./... > test-report.out
       - name: SonarCloud Scan
-        uses: sonarsource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: >
             -Dsonar.organization=${{ github.repository_owner }}
@@ -39,5 +49,4 @@ jobs:
             -Dsonar.tests=.
             -Dsonar.test.inclusions=**/*_test.go
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
