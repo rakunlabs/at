@@ -95,7 +95,7 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 				// Native media elements and download/new-tab navigations cannot set
 				// custom headers. A nonsecret, explicit workspace selector is allowed
 				// only for blob reads; all live admission below remains mandatory.
-				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (nativeBlobReadPath(a.CookiePath(), r.URL.Path) || nativeWebSocketPath(a.CookiePath(), r.URL.Path)) {
+				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (nativeBlobReadPath(a.CookiePath(), r.URL.Path) || nativeWebSocketPath(a.CookiePath(), r.URL.Path) || connectionOAuthStartPath(a.CookiePath(), r.URL.Path)) {
 					q, parseErr := url.ParseQuery(r.URL.RawQuery)
 					if parseErr != nil {
 						nativeError(w, 400, "invalid file query")
@@ -114,6 +114,13 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 				// it was started in; the pending row is additionally bound to that
 				// workspace, account and session, so this only selects.
 				if r.Method == http.MethodGet && r.URL.Path == a.CookiePath()+"api/v1/mcp/oauth/callback" && len(values) == 0 {
+					if workspace := mcpOAuthStateWorkspace(r.URL.Query().Get("state")); workspace != "" {
+						values = []string{workspace}
+					}
+				}
+				// Connection OAuth returns the same way; only scoped states reach
+				// this middleware (see connectionOAuthReturnScoped).
+				if r.Method == http.MethodGet && connectionOAuthReturnPath(a.CookiePath(), r.URL.Path) && len(values) == 0 {
 					if workspace := mcpOAuthStateWorkspace(r.URL.Query().Get("state")); workspace != "" {
 						values = []string{workspace}
 					}

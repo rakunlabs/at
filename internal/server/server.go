@@ -1351,10 +1351,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Named connections (multi-instance OAuth / token credential sets).
 	apiGroup.GET("/v1/connections", s.ListConnectionsAPI)
 	apiGroup.POST("/v1/connections", s.CreateConnectionAPI)
+	apiGroup.GET("/v1/connections/overview", s.ConnectionOverviewAPI)
 	apiGroup.POST("/v1/connections/import-from-variables", s.ImportConnectionsFromVariablesAPI)
 	apiGroup.GET("/v1/connections/{id}", s.GetConnectionAPI)
 	apiGroup.PUT("/v1/connections/{id}", s.UpdateConnectionAPI)
 	apiGroup.DELETE("/v1/connections/{id}", s.DeleteConnectionAPI)
+	apiGroup.POST("/v1/connections/{id}/test", s.TestConnectionAPI)
+	apiGroup.POST("/v1/connections/{id}/agents", s.BindConnectionAgentsAPI)
 
 	apiGroup.GET("/v1/git-credentials", s.ListGitCredentialsAPI)
 	apiGroup.POST("/v1/git-credentials/scan-host", s.ScanGitHostAPI)

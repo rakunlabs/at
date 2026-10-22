@@ -898,7 +898,7 @@
                 </span>
                 <div class="space-y-2 bg-dark-base/30 p-3 border border-dark-border">
                   {#each providersWithConnections as provider (provider)}
-                    {@const options = connections.filter((c) => c.provider === provider)}
+                    {@const options = connections.filter((c) => c.provider === provider && (formScope === 'personal' || c.scope !== 'personal' || formConnections[provider] === c.id))}
                     <div class="flex items-center gap-2">
                       <label for="form-conn-{provider}" class="text-xs font-medium text-dark-text-secondary w-24 shrink-0 capitalize">
                         {provider}
@@ -927,6 +927,9 @@
                       </select>
                     </div>
                   {/each}
+                  {#if formScope !== 'personal'}
+                    <p class="text-[11px] text-dark-text-muted">Workspace agents run for everyone, so only workspace accounts are offered. Manage accounts under <a href="#/connections" class="text-accent hover:underline">Connections</a>.</p>
+                  {/if}
                 </div>
               </div>
             {/if}

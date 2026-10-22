@@ -349,9 +349,17 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// endpoints remain installation administration.
 		{"GET", "/connections", "connections.read", "", ""},
 		{"POST", "/connections", "connections.use", "", ""},
+		{"GET", "/connections/overview", "connections.read", "", ""},
 		{"GET", "/connections/{id}", "connections.read", "", ""},
 		{"PUT", "/connections/{id}", "connections.use", "", ""},
 		{"DELETE", "/connections/{id}", "connections.use", "", ""},
+		// Testing writes the refreshed token back, so it needs the same
+		// authority as editing; the store enforces ownership on save.
+		{"POST", "/connections/{id}/test", "connections.use", "", ""},
+		// Binding edits agents; the agent store applies the personal/workspace
+		// agent write rules per agent, and the reference check refuses a
+		// personal connection on a workspace agent.
+		{"POST", "/connections/{id}/agents", "agents.read", "", ""},
 		{"GET", "/connectors", "connections.read", "", ""},
 		// MCP OAuth: authorizing an account for an MCP upstream the caller may
 		// use. A shared (workspace) target is re-checked in the handler, and
@@ -509,6 +517,9 @@ func (s *Server) workspaceBusinessAuthentication() func(http.Handler) http.Handl
 					policy = &copy
 					break
 				}
+			}
+			if policy == nil {
+				policy = connectionOAuthPolicy(r, path)
 			}
 			if policy == nil {
 				s.requireWorkspacePlatform(!isSharedPlatformRoute(r.Method, path))(next).ServeHTTP(w, r)

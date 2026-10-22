@@ -780,6 +780,45 @@ var builtinToolSchemas = []builtinToolDef{
 		"required": []string{"id"},
 	}},
 	{Name: "connection_import_from_variables", Description: "Scan the variables table for known OAuth provider key triples (e.g. `youtube_client_id` + `youtube_client_secret` + `youtube_refresh_token`) and create a Connection named 'Imported' for each complete set. The original variables are left in place. Useful for migrating from variables-based credentials to the connections model.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "connector_list", Description: "List connection types (connectors): built-in and user-defined providers such as youtube, github, google, spotify. Each entry has slug, auth_kind (oauth2 | token | custom), OAuth endpoints/scopes and the credential fields its form asks for. No secrets.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "connector_save", Description: "Create or update a connection type (connector) so people can add accounts for a new service from the Connections page — e.g. a Twitch, Notion or Dropbox OAuth app. Saving a built-in slug creates a workspace override. Field keys must be `<slug>_client_id`, `<slug>_client_secret`, `<slug>_api_key` or another `<slug>_...` name: tools read credentials with getVar('<key>') and a bound connection answers those keys. The OAuth redirect URI to register at the provider is `<AT base URL>/api/v1/oauth/callback`. Holds no secrets; people enter their credentials on the Connections page.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"slug":        map[string]any{"type": "string", "description": "Lowercase identifier, also the provider key of connections and the variable prefix (e.g. 'twitch')"},
+			"name":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"icon":        map[string]any{"type": "string", "description": "Optional lucide icon name"},
+			"auth_kind":   map[string]any{"type": "string", "enum": []string{"oauth2", "token", "custom"}},
+			"oauth": map[string]any{"type": "object", "description": "Required for oauth2.", "properties": map[string]any{
+				"auth_url":           map[string]any{"type": "string"},
+				"token_url":          map[string]any{"type": "string"},
+				"scopes":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"access_type":        map[string]any{"type": "string", "description": "e.g. 'offline' for Google"},
+				"prompt":             map[string]any{"type": "string", "description": "e.g. 'consent' for Google"},
+				"use_pkce":           map[string]any{"type": "boolean"},
+				"userinfo_url":       map[string]any{"type": "string", "description": "Optional endpoint used to label the account"},
+				"account_label_path": map[string]any{"type": "string", "description": "Dot path into the userinfo JSON, e.g. 'email' or 'items.0.snippet.title'"},
+			}},
+			"fields": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{
+				"key":         map[string]any{"type": "string"},
+				"label":       map[string]any{"type": "string"},
+				"type":        map[string]any{"type": "string", "enum": []string{"text", "secret"}},
+				"required":    map[string]any{"type": "boolean"},
+				"placeholder": map[string]any{"type": "string"},
+				"help":        map[string]any{"type": "string"},
+			}, "required": []string{"key"}}},
+		},
+		"required": []string{"slug", "auth_kind"},
+	}},
+	{Name: "connection_bind_agents", Description: "Bind a connection to agents (or unbind it) for its provider, so those agents' tools use that account instead of the global fallback variables. Reports per agent. A workspace agent cannot use a personal connection.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"connection_id": map[string]any{"type": "string"},
+			"agent_ids":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Agent IDs (1-100)"},
+			"unbind":        map[string]any{"type": "boolean", "description": "Remove the binding instead of setting it"},
+		},
+		"required": []string{"connection_id", "agent_ids"},
+	}},
 
 	// ─── Node Config Tools (Phase 2) ───
 	// Node configs hold reusable per-node-type configuration (e.g. SMTP

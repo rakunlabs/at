@@ -2749,6 +2749,41 @@ Built-in skill templates may declare a connector, which is upserted into the
 registry on install. This is setup metadata only: loading the skill does not
 grant credential access or create an executable handler.
 
+**Which account a tool uses** (`inlineToolVariables`, `mcp-inline-tools.go`): a
+tool reading `getVar('<provider>_…')` resolves, in order, the skill's
+connection override, the agent's binding, then — new — the **run account's own
+personal connection** for that provider (`withPersonalConnectionBindings`;
+newest-updated row that actually holds a refresh token / API key, MCP OAuth
+rows excluded), and only then the installation's global variables. This is
+what makes "connect my own YouTube and use it from Chats" work: Chats has no
+agent, so it previously always fell through to the globals.
+
+**Members authorize their own connections.** The legacy `/oauth/*` endpoints
+stay installation administration when they carry no connection (they write
+global variables), but `connectionOAuthPolicy` (`connection-oauth.go`) admits
+`start`/`manual-url`/`exchange` with a `connection_id` and the callbacks with a
+workspace-scoped state on `connections.use`; the store still decides on save
+(owner for personal, `connections.write` + `credentials.manage` for workspace).
+Popups cannot send `X-AT-Workspace-ID`, so starts take `?workspace_id=` and
+`NewScopedOAuthState` prefixes the state with the workspace (session-bound,
+like MCP OAuth). Scoped requests without a connection, or with a `user_id`
+state, are refused.
+
+**Overview, test, bind.** `GET /connections/overview` joins agents, skills
+whose tool handlers read `<provider>_*` (`skillCredentialProviders`, from the
+documentation copy) and global-variable presence, so the page shows per
+provider which agents are bound to which account and which fall back.
+`POST /connections/{id}/test` does a real refresh-token grant, adopts a rotated
+refresh token, refreshes the account label and records
+`oauth_status`/`oauth_checked_at`/`oauth_error` (the access token is never
+returned or stored). `POST /connections/{id}/agents` (`{agent_ids, unbind?}`)
+sets or removes the agent-level binding per agent with per-agent results;
+personal connections cannot be bound to workspace agents (also enforced by
+`connectionReference`). Built-ins `connector_list`, `connector_save` (field
+keys must start with `<slug>_`, or tools never receive them) and
+`connection_bind_agents` let an agent add a new service type and wire it up.
+Regressions: `internal/server/connection-oauth_test.go`.
+
 ## MCP OAuth (per-account MCP credentials)
 
 HTTP MCP upstreams (GitHub, GitLab, any spec-compliant server) can authenticate

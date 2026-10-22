@@ -16,10 +16,16 @@
     exchangeCode,
     connectMCPAccount,
     listMCPOAuthAccounts,
+    getConnectionOverview,
+    testConnection,
+    bindConnectionAgents,
+    type ConnectionOverviewProvider,
     type MCPOAuthAccountTarget,
     type Connection,
     type ConnectionScope,
   } from '@/lib/api/connections';
+  import { workspaceTransport } from '@/lib/api/transport';
+  import { deploymentUrl } from '@/lib/helper/deployment-url';
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
   import { can } from '@/lib/store/workspace.svelte';
   import {
@@ -69,6 +75,11 @@
   let mcpTargets = $state<MCPOAuthAccountTarget[]>([]);
   let mcpGrants = $state<MCPAuthGrant[]>([]);
   let mcpConnecting = $state('');
+  let overview = $state<ConnectionOverviewProvider[]>([]);
+  let testing = $state<Record<string, boolean>>({});
+  let bindTarget = $state<Connection | null>(null);
+  let bindSelected = $state<string[]>([]);
+  let bindSaving = $state(false);
   let showProviderCatalog = $state(false);
   let providerSearch = $state('');
   let providerDialog = $state<HTMLDialogElement>();
@@ -121,6 +132,7 @@
       await Promise.all([
         pageLoad.load('Connector catalog', listConnectors, result => { connectors = result || []; }, 'external_connections'),
         pageLoad.load('Connections', listConnections, result => { connections = result || []; }, 'external_connections'),
+        pageLoad.load('Agent usage', getConnectionOverview, result => { overview = result || []; }, 'external_connections'),
         mayUseMCP
           ? pageLoad.load('MCP servers', listMCPOAuthAccounts, result => { mcpTargets = result || []; }, 'mcp_servers')
           : Promise.resolve(false),
@@ -370,7 +382,7 @@
 
   // ─── OAuth: popup flow ───
   function startPopupOAuth(c: Connection) {
-    const url = getOAuthStartURLForConnection(c.id, c.provider);
+    const url = getOAuthStartURLForConnection(c.id, c.provider, workspaceTransport.selected);
     const w = 500;
     const h = 650;
     const left = window.screenX + (window.outerWidth - w) / 2;
@@ -401,6 +413,74 @@
         setTimeout(() => load(), 1000);
       }
     }, 500);
+  }
+
+  // ─── Test, agent usage and binding ───
+  async function runTest(c: Connection) {
+    testing = { ...testing, [c.id]: true };
+    try {
+      const result = await testConnection(c.id);
+      addToast(`${c.name}: ${result.message}`, result.ok ? 'info' : 'alert');
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Test failed', 'alert');
+    } finally {
+      testing = { ...testing, [c.id]: false };
+    }
+  }
+
+  const overviewByProvider = $derived(new Map(overview.map((p) => [p.provider, p])));
+
+  // Agents that need this provider but run on no bound account.
+  function fallbackAgents(provider: string) {
+    return (overviewByProvider.get(provider)?.agents ?? []).filter((a) => !a.connection_id);
+  }
+
+  function boundAgents(provider: string, connectionID: string) {
+    return (overviewByProvider.get(provider)?.agents ?? []).filter((a) => a.connection_id === connectionID);
+  }
+
+  // A workspace agent runs for everyone, so it may only use a workspace account.
+  function bindableAgents(c: Connection) {
+    return (overviewByProvider.get(c.provider)?.agents ?? []).filter((a) => a.editable && (c.scope !== 'personal' || a.scope === 'personal'));
+  }
+
+  function openBind(c: Connection) {
+    bindTarget = c;
+    bindSelected = bindableAgents(c).filter((a) => a.connection_id === c.id).map((a) => a.id);
+  }
+
+  async function saveBind() {
+    if (!bindTarget) return;
+    const c = bindTarget;
+    const current = new Set(bindableAgents(c).filter((a) => a.connection_id === c.id).map((a) => a.id));
+    const wanted = new Set(bindSelected);
+    const add = [...wanted].filter((id) => !current.has(id));
+    const drop = [...current].filter((id) => !wanted.has(id));
+    bindSaving = true;
+    try {
+      const results = [
+        ...(add.length ? await bindConnectionAgents(c.id, add) : []),
+        ...(drop.length ? await bindConnectionAgents(c.id, drop, true) : []),
+      ];
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length) {
+        addToast(failed.map((r) => `${r.name || r.agent_id}: ${r.error}`).join('; '), 'alert');
+      } else if (results.length) {
+        addToast(`Updated ${results.length} agent${results.length === 1 ? '' : 's'}`);
+      }
+      bindTarget = null;
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update agents', 'alert');
+    } finally {
+      bindSaving = false;
+    }
+  }
+
+  function lastChecked(c: Connection): string {
+    const at = (c.metadata?.oauth_checked_at || c.metadata?.oauth_verified_at) as string | undefined;
+    return at ? new Date(at).toLocaleString() : '';
   }
 
   // ─── OAuth: manual paste-code flow ───
@@ -506,6 +586,24 @@
   function addConnectorField() {
     cFields = [...cFields, { key: '', label: '', type: 'text', required: false }];
   }
+
+  // Tools read credentials as getVar('<slug>_<field>'); a bound connection
+  // answers only keys with the connector's own prefix.
+  function addStandardConnectorFields() {
+    const slug = cSlug.trim().toLowerCase();
+    cFields = cAuthKind === 'oauth2'
+      ? [
+          { key: `${slug}_client_id`, label: 'Client ID', type: 'text', required: true },
+          { key: `${slug}_client_secret`, label: 'Client Secret', type: 'secret', required: true },
+        ]
+      : [{ key: `${slug}_api_key`, label: 'API Key', type: 'secret', required: true }];
+  }
+
+  const fieldPrefixProblem = $derived.by(() => {
+    const slug = cSlug.trim().toLowerCase();
+    const bad = cFields.filter((f) => f.key.trim() && slug && !f.key.trim().startsWith(`${slug}_`)).map((f) => f.key);
+    return bad.length ? `Field keys should start with "${slug}_" so tools reading getVar('${slug}_…') receive them: ${bad.join(', ')}` : '';
+  });
 
   function removeConnectorField(i: number) {
     cFields = cFields.filter((_, idx) => idx !== i);
@@ -834,6 +932,21 @@
         </div>
 
           <div class="divide-y divide-dark-border">
+            {#if fallbackAgents(section.provider).length > 0}
+              {@const fb = overviewByProvider.get(section.provider)?.global_fallback ?? []}
+              <div class="px-4 py-2.5 text-xs text-amber-400 bg-amber-900/10 flex items-start gap-1.5">
+                <SquareAlert size={12} class="mt-0.5 shrink-0" />
+                <span>
+                  Not bound to an account: {fallbackAgents(section.provider).map((a) => a.name).join(', ')}.
+                  {#if fb.some((v) => v.set)}
+                    They use the installation's global variables ({fb.filter((v) => v.set).map((v) => v.key).join(', ')}), or the signed-in person's own account when run from Chats.
+                  {:else}
+                    No global fallback is set, so they only work when the signed-in person has their own account here.
+                  {/if}
+                  Use <b>Agents</b> on an account to bind them.
+                </span>
+              </div>
+            {/if}
             {#each section.items as c (c.id)}
               {@const connectionVerified = isConnected(c, connector) && (!isOAuth(connector) || isOAuthVerified(c))}
               <div>
@@ -895,7 +1008,17 @@
                             {c.used_by_agents.length} agent{c.used_by_agents.length === 1 ? '' : 's'}
                           </span>
                         {/if}
+                        {#if lastChecked(c)}
+                          <span class="text-[11px] text-dark-text-muted" title={(c.metadata?.oauth_error as string) || ''}>
+                            {c.metadata?.oauth_status === 'failed' ? 'Last check failed' : 'Checked'} {lastChecked(c)}
+                          </span>
+                        {/if}
                       </div>
+                      {#if boundAgents(c.provider, c.id).length > 0}
+                        <p class="text-xs text-dark-text-muted mt-1.5">
+                          Used by: {boundAgents(c.provider, c.id).map((a) => a.name + (a.level === 'skill' ? ' (skill)' : '')).join(', ')}
+                        </p>
+                      {/if}
                     </div>
                   </div>
                   {#if ownsConnection(c)}
@@ -910,11 +1033,28 @@
                     {/if}
                     {#if isOAuth(connector) && isConnected(c, connector)}
                       <button
+                        onclick={() => runTest(c)}
+                        disabled={testing[c.id]}
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
+                        title="Refresh the token now to check the account still works"
+                      >
+                        <SquareCheck size={12} /> {testing[c.id] ? 'Testing…' : 'Test'}
+                      </button>
+                      <button
                         onclick={() => startPopupOAuth(c)}
                         class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated"
-                        title="Re-authorize"
+                        title="Authorize again (e.g. after the token was revoked)"
                       >
-                        <RefreshCw size={12} />
+                        <RefreshCw size={12} /> Reconnect
+                      </button>
+                    {/if}
+                    {#if bindableAgents(c).length > 0}
+                      <button
+                        onclick={() => openBind(c)}
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-dark-text-secondary hover:bg-dark-elevated"
+                        title="Choose which agents use this account"
+                      >
+                        <Users size={12} /> Agents
                       </button>
                     {/if}
                     <button
@@ -1056,6 +1196,48 @@
 </dialog>
 
 <!-- Connection editor modal -->
+{#if bindTarget}
+  {@const candidates = bindableAgents(bindTarget)}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+    <div class="bg-dark-surface shadow-xl border border-dark-border max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-dark-border">
+        <h2 class="text-sm font-medium text-dark-text">Agents using {bindTarget.name}</h2>
+        <button onclick={() => (bindTarget = null)} class="p-1 hover:bg-dark-elevated text-dark-text-muted hover:text-dark-text-secondary" aria-label="Close">
+          <X size={16} />
+        </button>
+      </div>
+      <div class="p-4 space-y-2">
+        <p class="text-xs text-dark-text-muted">
+          Checked agents use this account for {providerLabel(bindTarget.provider)}. Unchecked agents fall back to the global variables
+          (or, from Chats, the signed-in person's own account).
+          {#if bindTarget.scope === 'personal'}Personal accounts can only be bound to personal agents.{/if}
+        </p>
+        <div class="border border-dark-border divide-y divide-dark-border">
+          {#each candidates as a (a.id)}
+            {@const other = a.connection_id && a.connection_id !== bindTarget.id ? connections.find((c) => c.id === a.connection_id) : undefined}
+            <label class="flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-dark-elevated">
+              <input type="checkbox" bind:group={bindSelected} value={a.id} class="mt-0.5 text-accent bg-dark-elevated border-dark-border-subtle" />
+              <span class="min-w-0">
+                <span class="text-sm text-dark-text">{a.name}</span>
+                <span class="ml-1 text-[11px] text-dark-text-muted">{a.scope}</span>
+                {#if a.skills?.length}<span class="block text-[11px] text-dark-text-muted">needs it for {a.skills.join(', ')}</span>{/if}
+                {#if other}<span class="block text-[11px] text-amber-400">currently uses {other.name}; checking switches it</span>{/if}
+                {#if a.level === 'skill'}<span class="block text-[11px] text-dark-text-muted">a skill override also sets this account</span>{/if}
+              </span>
+            </label>
+          {/each}
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 px-4 py-3 border-t border-dark-border">
+        <button onclick={() => (bindTarget = null)} class="px-3 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
+        <button onclick={saveBind} disabled={bindSaving} class="px-3 py-1.5 text-xs font-medium bg-accent text-dark-base hover:bg-accent-hover disabled:opacity-50">
+          {bindSaving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if editor}
   {@const fields = editorFields()}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
@@ -1245,18 +1427,32 @@
             <label class="flex items-center gap-2 text-xs text-dark-text-secondary">
               <input type="checkbox" bind:checked={cUsePKCE} /> Use PKCE (for public clients / X / Twitter)
             </label>
+            <p class="text-[11px] text-dark-text-muted">
+              Register this redirect URI in the provider's OAuth app:
+              <span class="font-mono select-all text-dark-text-secondary">{deploymentUrl('api/v1/oauth/callback')}</span>
+            </p>
           </div>
         {/if}
 
         <div class="pt-2 border-t border-dark-border">
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-xs font-medium text-dark-text-secondary">Credential fields</h3>
-            <button onclick={addConnectorField} class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text-secondary">
-              <Plus size={12} /> Add field
-            </button>
+            <div class="flex items-center gap-3">
+              {#if cSlug.trim() && cFields.length === 0}
+                <button onclick={addStandardConnectorFields} class="text-xs text-dark-text-muted hover:text-dark-text-secondary">
+                  Add {cAuthKind === 'oauth2' ? 'client ID + secret' : 'API key'}
+                </button>
+              {/if}
+              <button onclick={addConnectorField} class="flex items-center gap-1 text-xs text-dark-text-muted hover:text-dark-text-secondary">
+                <Plus size={12} /> Add field
+              </button>
+            </div>
           </div>
           {#if cFields.length === 0}
             <p class="text-[11px] text-dark-text-muted italic">No fields yet. For OAuth2, add client_id and client_secret.</p>
+          {/if}
+          {#if fieldPrefixProblem}
+            <p class="text-[11px] text-amber-400 mb-2">{fieldPrefixProblem}</p>
           {/if}
           <div class="space-y-2">
             {#each cFields as f, i (i)}

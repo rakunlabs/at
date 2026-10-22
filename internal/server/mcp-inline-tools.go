@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -51,6 +53,10 @@ func (s *Server) inlineToolVariables(ctx context.Context, tool service.MCPInline
 
 	agentConnections, skillConnections := workflow.AgentConnectionsFromContext(ctx, tool.SourceSkillID)
 	bindings := workflow.ResolveAgentConnectionBindings(ctx, s.connectionLookupFunc(), agentConnections, skillConnections)
+	bindings, err := s.withPersonalConnectionBindings(ctx, keys, bindings)
+	if err != nil {
+		return nil, nil, err
+	}
 	resolvedLookup := workflow.WrapVarLookupWithConnectionsContext(ctx, baseLookup, bindings)
 	lookup := func(key string) (string, error) {
 		if !declared[key] {
@@ -72,6 +78,114 @@ func (s *Server) inlineToolVariables(ctx context.Context, tool service.MCPInline
 		return values, nil
 	}
 	return lookup, lister, nil
+}
+
+// withPersonalConnectionBindings fills providers the handler references but
+// no agent or skill binding names with the run account's own connection, so a
+// person who connected their own account (for example YouTube) uses it from
+// Chats instead of the installation's global variables. An explicit binding
+// always wins; without a personal connection the global variables remain the
+// fallback, exactly as before.
+func (s *Server) withPersonalConnectionBindings(ctx context.Context, keys []string, bindings workflow.ConnectionBindings) (workflow.ConnectionBindings, error) {
+	if s.connectionStore == nil {
+		return bindings, nil
+	}
+	var providers []string
+	for _, key := range keys {
+		provider, _, ok := workflow.ResolveConnectionKey(key)
+		if !ok || slices.Contains(providers, provider) {
+			continue
+		}
+		if _, bound := bindings[provider]; bound {
+			continue
+		}
+		providers = append(providers, provider)
+	}
+	if len(providers) == 0 {
+		return bindings, nil
+	}
+	identity, err := s.mcpUserIdentity(ctx)
+	if err != nil || identity == nil {
+		return bindings, nil
+	}
+	userCtx, err := identity(ctx)
+	if err != nil {
+		return bindings, nil
+	}
+	for _, provider := range providers {
+		conn, err := s.personalConnectionForUse(userCtx, provider)
+		if err != nil {
+			return nil, fmt.Errorf("resolve personal %s connection: %w", provider, err)
+		}
+		if conn == nil {
+			continue
+		}
+		if bindings == nil {
+			bindings = workflow.ConnectionBindings{}
+		}
+		bindings[provider] = conn
+	}
+	return bindings, nil
+}
+
+// personalConnectionForUse returns the caller's most recently updated
+// personal connection for provider that actually holds a credential. A
+// half-configured row (client ID only, never authorized) is skipped so it
+// cannot shadow the global fallback with empty values.
+func (s *Server) personalConnectionForUse(ctx context.Context, provider string) (*service.Connection, error) {
+	userID := ""
+	if p, _, ok := service.ExecutionFromContext(ctx); ok {
+		userID = p.UserID
+	}
+	if userID == "" {
+		if p, ok := service.AccessPrincipalFromContext(ctx); ok {
+			userID = p.UserID
+		}
+	}
+	if userID == "" {
+		return nil, nil
+	}
+	list, err := s.connectionStore.ListConnectionsByProvider(ctx, provider)
+	if err != nil {
+		if errors.Is(err, service.ErrAccessDenied) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var chosen *service.Connection
+	for i := range list {
+		c := &list[i]
+		if c.OwnerUserID != userID || c.Credentials.MCPOAuth != nil || !connectionHasCredential(c.Credentials) {
+			continue
+		}
+		if chosen == nil || c.UpdatedAt > chosen.UpdatedAt {
+			chosen = c
+		}
+	}
+	if chosen == nil {
+		return nil, nil
+	}
+	if _, _, bound := service.ExecutionFromContext(ctx); bound {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "connections.use", ResourceID: chosen.ID}); err != nil {
+			return nil, nil
+		}
+	}
+	if resolver, ok := s.store.(service.WorkspaceCredentialStorer); ok {
+		return resolver.ResolveConnectionForUse(ctx, chosen.ID)
+	}
+	return chosen, nil
+}
+
+func connectionHasCredential(c service.ConnectionCredentials) bool {
+	if c.RefreshToken != "" || c.APIKey != "" {
+		return true
+	}
+	for key, value := range c.Extra {
+		if value != "" && strings.HasSuffix(key, "_access_token") {
+			return true
+		}
+	}
+	return false
 }
 
 func inlineToolVariableKeys(handler string) []string {

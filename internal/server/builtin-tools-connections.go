@@ -401,3 +401,118 @@ func (s *Server) execConnectionImportFromVariables(ctx context.Context, _ map[st
 	}
 	return string(out), nil
 }
+
+func (s *Server) execConnectorList(ctx context.Context, _ map[string]any) (string, error) {
+	connectors, err := s.listConnectors(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list connectors: %w", err)
+	}
+	out, err := json.MarshalIndent(map[string]any{"connectors": connectors}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal connectors: %w", err)
+	}
+	return string(out), nil
+}
+
+// execConnectorSave creates a connector or updates the stored row for its
+// slug; saving a built-in slug for the first time creates an override, the
+// same as the HTTP editor.
+func (s *Server) execConnectorSave(ctx context.Context, args map[string]any) (string, error) {
+	if s.connectorStore == nil {
+		return "", fmt.Errorf("connector store not configured")
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return "", fmt.Errorf("encode connector: %w", err)
+	}
+	var req connectorRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		return "", fmt.Errorf("invalid connector: %w", err)
+	}
+	c, problem := normalizeConnectorRequest(req)
+	if problem != "" {
+		return "", fmt.Errorf("%s", problem)
+	}
+	if problem := connectorFieldPrefixProblem(c); problem != "" {
+		return "", fmt.Errorf("%s", problem)
+	}
+	c.CreatedBy, c.UpdatedBy = "mcp", "mcp"
+	existing, err := s.connectorStore.GetConnector(ctx, c.Slug)
+	if err != nil {
+		return "", fmt.Errorf("load connector: %w", err)
+	}
+	var rec *service.Connector
+	action := "created"
+	if existing == nil {
+		if s.isBuiltinConnector(c.Slug) {
+			action = "overridden"
+		}
+		rec, err = s.connectorStore.CreateConnector(ctx, c)
+	} else {
+		action = "updated"
+		rec, err = s.connectorStore.UpdateConnector(ctx, c.Slug, c)
+	}
+	if err != nil {
+		return "", fmt.Errorf("save connector %q: %w", c.Slug, err)
+	}
+	out, err := json.MarshalIndent(map[string]any{"status": action, "connector": rec, "oauth_redirect_uri_path": "/api/v1/oauth/callback"}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal connector: %w", err)
+	}
+	return string(out), nil
+}
+
+// connectorFieldPrefixProblem enforces the "<slug>_..." key convention. A key
+// with another prefix would be stored but never answered for the tools that
+// read it, which looks like a connected account that does not work.
+func connectorFieldPrefixProblem(c service.Connector) string {
+	for _, f := range c.Fields {
+		if !strings.HasPrefix(f.Key, c.Slug+"_") {
+			return fmt.Sprintf("field %q must start with %q so tools reading getVar(%q) receive it", f.Key, c.Slug+"_", f.Key)
+		}
+	}
+	return ""
+}
+
+func (s *Server) execConnectionBindAgents(ctx context.Context, args map[string]any) (string, error) {
+	if s.connectionStore == nil || s.agentStore == nil {
+		return "", fmt.Errorf("store not configured")
+	}
+	id := strings.TrimSpace(stringArg(args, "connection_id"))
+	if id == "" {
+		return "", fmt.Errorf("connection_id is required")
+	}
+	conn, err := s.connectionStore.GetConnection(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("get connection %q: %w", id, err)
+	}
+	if conn == nil {
+		return "", fmt.Errorf("connection %q not found", id)
+	}
+	var ids []string
+	if raw, ok := args["agent_ids"].([]any); ok {
+		for _, v := range raw {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				ids = append(ids, strings.TrimSpace(s))
+			}
+		}
+	}
+	if len(ids) == 0 || len(ids) > 100 {
+		return "", fmt.Errorf("agent_ids must list 1 to 100 agents")
+	}
+	unbind, _ := args["unbind"].(bool)
+	results := make([]connectionBindResult, 0, len(ids))
+	for _, agentID := range ids {
+		name, err := s.setAgentConnectionBinding(ctx, agentID, conn, unbind, "mcp")
+		r := connectionBindResult{AgentID: agentID, Name: name, OK: err == nil}
+		if err != nil {
+			r.Error = connectionBindError(err)
+		}
+		results = append(results, r)
+	}
+	out, err := json.MarshalIndent(map[string]any{"provider": conn.Provider, "connection_id": conn.ID, "results": results}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal result: %w", err)
+	}
+	return string(out), nil
+}

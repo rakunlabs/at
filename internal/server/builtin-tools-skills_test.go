@@ -514,6 +514,7 @@ func TestDispatch_NewToolsHaveDefinitions(t *testing.T) {
 		"variable_list", "variable_get", "variable_create", "variable_update", "variable_delete",
 		"connection_list", "connection_get", "connection_create", "connection_update",
 		"connection_delete", "connection_import_from_variables",
+		"connection_bind_agents", "connector_list", "connector_save",
 		"node_config_list", "node_config_get", "node_config_create",
 		"node_config_update", "node_config_delete",
 		"guide_list", "guide_get", "guide_create", "guide_update", "guide_delete",

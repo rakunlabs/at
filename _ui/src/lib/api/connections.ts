@@ -241,13 +241,16 @@ export function connectMCPAccount(input: MCPOAuthStartInput): Promise<MCPOAuthRe
 
 // ─── OAuth helpers ───
 
-/** Returns the URL used to start an OAuth flow for a named connection. */
-export function getOAuthStartURLForConnection(connectionID: string, provider: string): string {
+/** Returns the URL used to start an OAuth flow for a named connection. The
+ *  popup is a navigation that cannot send the workspace header, so the
+ *  selected workspace rides the query. */
+export function getOAuthStartURLForConnection(connectionID: string, provider: string, workspaceID = ''): string {
   const params = new URLSearchParams({
     provider,
     connection_id: connectionID,
     redirect: 'true',
   });
+  if (workspaceID) params.set('workspace_id', workspaceID);
   return `api/v1/oauth/start?${params.toString()}`;
 }
 
@@ -279,8 +282,59 @@ export async function exchangeCode(
       redirect_uri: redirectUri,
       connection_id: connectionID,
     },
+    // Members are admitted per connection; the server matches this to the body.
+    connectionID ? { params: { connection_id: connectionID } } : undefined,
   );
   return res.data;
+}
+
+// ─── Overview, test and agent binding ───
+
+export interface ConnectionOverviewAgent {
+  id: string;
+  name: string;
+  scope: 'workspace' | 'personal' | 'global';
+  /** Bound account for this provider; empty means the agent falls back to global variables. */
+  connection_id?: string;
+  level?: 'agent' | 'skill';
+  /** Attached skills whose tools need this provider. */
+  skills?: string[];
+  editable: boolean;
+}
+
+export interface ConnectionOverviewProvider {
+  provider: string;
+  agents: ConnectionOverviewAgent[];
+  skills?: string[];
+  global_fallback?: { key: string; set: boolean }[];
+}
+
+export async function getConnectionOverview(): Promise<ConnectionOverviewProvider[]> {
+  const res = await api.get<{ providers: ConnectionOverviewProvider[] }>('/connections/overview');
+  return res.data?.providers ?? [];
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
+  account_label?: string;
+}
+
+export async function testConnection(id: string): Promise<ConnectionTestResult> {
+  const res = await api.post<ConnectionTestResult>(`/connections/${encodeURIComponent(id)}/test`);
+  return res.data;
+}
+
+export interface ConnectionBindResult {
+  agent_id: string;
+  name?: string;
+  ok: boolean;
+  error?: string;
+}
+
+export async function bindConnectionAgents(id: string, agentIDs: string[], unbind = false): Promise<ConnectionBindResult[]> {
+  const res = await api.post<{ results: ConnectionBindResult[] }>(`/connections/${encodeURIComponent(id)}/agents`, { agent_ids: agentIDs, unbind });
+  return res.data?.results ?? [];
 }
 
 // ─── Legacy (flat per-provider view) ───

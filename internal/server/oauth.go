@@ -124,6 +124,11 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connectionID := r.URL.Query().Get("connection_id")
+	principal, scoped := connectionOAuthScoped(r)
+	if scoped && (connectionID == "" || r.URL.Query().Get("user_id") != "") {
+		httpResponse(w, "authorizing without a connection requires an administrator", http.StatusForbidden)
+		return
+	}
 	clientID, err := s.resolveOAuthClientID(r.Context(), connector, connectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
@@ -141,7 +146,11 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	// Encode provider + optional scope (user_id OR connection_id) in state.
 	state := buildOAuthState(providerName, r.URL.Query().Get("user_id"), connectionID)
 	if s.nativeAuth != nil {
-		state, err = s.nativeAuth.NewOAuthState(r, state, "callback")
+		if scoped {
+			state, err = s.nativeAuth.NewScopedOAuthState(r, principal.WorkspaceID, state, "callback")
+		} else {
+			state, err = s.nativeAuth.NewOAuthState(r, state, "callback")
+		}
 		if err != nil {
 			nativeError(w, http.StatusServiceUnavailable, err.Error())
 			return
@@ -185,6 +194,11 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connectionID := r.URL.Query().Get("connection_id")
+	principal, scoped := connectionOAuthScoped(r)
+	if scoped && connectionID == "" {
+		httpResponse(w, "authorizing without a connection requires an administrator", http.StatusForbidden)
+		return
+	}
 	clientID, err := s.resolveOAuthClientID(r.Context(), connector, connectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
@@ -198,7 +212,11 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 
 	state := buildOAuthState(providerName, "", connectionID)
 	if s.nativeAuth != nil {
-		state, err = s.nativeAuth.NewOAuthState(r, state, "code-display")
+		if scoped {
+			state, err = s.nativeAuth.NewScopedOAuthState(r, principal.WorkspaceID, state, "code-display")
+		} else {
+			state, err = s.nativeAuth.NewOAuthState(r, state, "code-display")
+		}
 		if err != nil {
 			nativeError(w, http.StatusServiceUnavailable, err.Error())
 			return
@@ -467,6 +485,10 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	if _, scoped := connectionOAuthScoped(r); scoped && (req.ConnectionID == "" || req.ConnectionID != r.URL.Query().Get("connection_id")) {
+		httpResponse(w, "authorizing without a connection requires an administrator", http.StatusForbidden)
+		return
+	}
 
 	connector, err := s.resolveConnector(r.Context(), req.Provider)
 	if err != nil {
@@ -565,6 +587,10 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerName, oauthUserID, connectionID := parseOAuthState(payload)
+	if _, scoped := connectionOAuthScoped(r); scoped && (connectionID == "" || oauthUserID != "") {
+		renderOAuthResult(w, false, "this authorization is not bound to a connection")
+		return
+	}
 	connector, err := s.resolveConnector(r.Context(), providerName)
 	if err != nil {
 		renderOAuthResult(w, false, "failed to resolve connector: "+err.Error())
