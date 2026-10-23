@@ -120,15 +120,16 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 		policies[p.Method+" "+p.Pattern] = p.Capability
 	}
 	for pattern, want := range map[string]string{
-		"GET /mcp/builtin-tools":          "models.use",
-		"POST /mcp/call-builtin-tool":     "models.use",
-		"GET /mcp/set-tools/{name}":       "mcp.use",
-		"POST /mcp/set-tools/{name}/call": "mcp.use",
-		"GET /skills":                     "skills.read",
-		"GET /mcp/sets":                   "mcp.read",
-		"GET /connections":                "connections.read",
-		"GET /chats/defaults":             "models.use",
-		"PUT /chats/defaults":             "models.use",
+		"GET /mcp/builtin-tools":            "models.use",
+		"POST /mcp/call-builtin-tool":       "models.use",
+		"GET /mcp/set-tools/{name}":         "mcp.use",
+		"POST /mcp/set-tools/{name}/call":   "mcp.use",
+		"POST /mcp/set-tools/{name}/prompt": "mcp.use",
+		"GET /skills":                       "skills.read",
+		"GET /mcp/sets":                     "mcp.read",
+		"GET /connections":                  "connections.read",
+		"GET /chats/defaults":               "models.use",
+		"PUT /chats/defaults":               "models.use",
 	} {
 		if got := policies[pattern]; got != want {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -49,6 +50,8 @@ type mcpRuntime struct {
 	children    []*mcpRuntime
 	nextOrder   int
 	nextRouteID int
+	// features collects upstream servers' instructions and resources.
+	features mcpFeatureSet
 }
 
 func newMCPRuntime() *mcpRuntime {
@@ -121,6 +124,7 @@ func (r *mcpRuntime) discoverClient(ctx context.Context, lease mcpClientLease, s
 	if lease.owned {
 		r.owned = append(r.owned, lease.client)
 	}
+	r.features.add(lease.client, mcpServerLabel(strings.Trim(strings.TrimPrefix(source, "MCP upstream "), `"`)))
 
 	tools, err := lease.client.ListTools(ctx)
 	if err != nil {
@@ -170,6 +174,11 @@ func (r *mcpRuntime) Tools() []service.Tool {
 		seen[route.tool.Name] = true
 		tools = append(tools, route.tool)
 	}
+	for _, tool := range r.features.Tools() {
+		if !seen[tool.Name] {
+			tools = append(tools, tool)
+		}
+	}
 	return tools
 }
 
@@ -214,6 +223,9 @@ func (r *mcpRuntime) CallTool(ctx context.Context, name string, args map[string]
 
 	if len(callErrs) == 0 && ctx.Err() != nil {
 		return "", ctx.Err()
+	}
+	if len(callErrs) == 0 && r.features.Owns(name) {
+		return r.features.Call(ctx, name, args)
 	}
 	if len(callErrs) > 0 {
 		return "", fmt.Errorf("all MCP routes for tool %q failed: %w", name, errors.Join(callErrs...))

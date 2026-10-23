@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -59,6 +62,8 @@ type agentMCPTools struct {
 	setTools    map[string]string // tool name -> MCP set name
 	clientTools map[string]bool
 	clients     []service.MCPClient
+	// features carries the connected servers' instructions and resources.
+	features mcpFeatureSet
 }
 
 func (s *Server) newAgentMCPTools(logPrefix string, accept func(service.Tool) bool) *agentMCPTools {
@@ -156,6 +161,7 @@ func (m *agentMCPTools) add(tool service.Tool) bool {
 
 func (m *agentMCPTools) addClient(ctx context.Context, client service.MCPClient, label string) {
 	m.clients = append(m.clients, client)
+	m.features.add(client, mcpServerLabel(label))
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		slog.Warn(m.logPrefix+": failed to list MCP tools, skipping", "server", label, "error", err)
@@ -168,8 +174,44 @@ func (m *agentMCPTools) addClient(ctx context.Context, client service.MCPClient,
 	}
 }
 
-// Tools returns the advertised tool definitions in discovery order.
-func (m *agentMCPTools) Tools() []service.Tool { return m.tools }
+// Tools returns the advertised tool definitions in discovery order, followed
+// by the resource tools when a connected server exposes resources. Resource
+// tools bypass accept (which may record names as a side effect); callers
+// with their own name table add ResourceTools explicitly.
+func (m *agentMCPTools) Tools() []service.Tool {
+	if m == nil {
+		return nil
+	}
+	resourceTools := m.features.Tools()
+	if len(resourceTools) == 0 {
+		return m.tools
+	}
+	out := append([]service.Tool(nil), m.tools...)
+	for _, tool := range resourceTools {
+		if m.setTools[tool.Name] == "" && !m.clientTools[tool.Name] {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+// ResourceTools returns list_mcp_resources / read_mcp_resource when a
+// connected server exposes resources.
+func (m *agentMCPTools) ResourceTools() []service.Tool {
+	if m == nil {
+		return nil
+	}
+	return m.features.Tools()
+}
+
+// InstructionsPrompt returns the connected servers' usage instructions as a
+// system-prompt section, or "".
+func (m *agentMCPTools) InstructionsPrompt() string {
+	if m == nil {
+		return ""
+	}
+	return m.features.Prompt()
+}
 
 // SetName reports the MCP set serving name in process, if any.
 func (m *agentMCPTools) SetName(name string) (string, bool) {
@@ -182,7 +224,7 @@ func (m *agentMCPTools) Owns(name string) bool {
 	if m == nil {
 		return false
 	}
-	return m.setTools[name] != "" || m.clientTools[name]
+	return m.setTools[name] != "" || m.clientTools[name] || m.features.Owns(name)
 }
 
 // Call dispatches an owned tool. MCP-set tools are bounded by timeout (zero
@@ -199,6 +241,9 @@ func (m *agentMCPTools) Call(ctx context.Context, name string, args map[string]a
 	}
 	if m.clientTools[name] {
 		return agentloop.CallMCPTool(ctx, m.clients, name, args)
+	}
+	if m.features.Owns(name) {
+		return m.features.Call(ctx, name, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
@@ -250,4 +295,16 @@ func forkStatusBuiltinTools(ctx context.Context, present func(string) bool) []se
 		}
 	}
 	return tools
+}
+
+// mcpServerLabel names a server that reports no name: the host of its URL,
+// or the command for stdio.
+func mcpServerLabel(label string) string {
+	if u, err := url.Parse(label); err == nil && u.Host != "" {
+		return u.Host
+	}
+	if fields := strings.Fields(label); len(fields) > 0 {
+		return path.Base(fields[0])
+	}
+	return "mcp"
 }

@@ -694,6 +694,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		}
 		systemPrompt += mcpCodeModePrompt(mcpTools.Tools())
 	}
+	if instructions := mcpTools.InstructionsPrompt(); instructions != "" {
+		if systemPrompt != "" {
+			systemPrompt += "\n\n"
+		}
+		systemPrompt += instructions
+	}
 
 	// Inject task context into system prompt if this session is task-linked.
 	if taskLinked != nil {

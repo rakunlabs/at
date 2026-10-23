@@ -163,6 +163,16 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 	// The agent's connection bindings must be on the context while
 	// connecting, for OAuth MCP upstreams that use the agent's account.
 	kit.mcp.Connect(kit.agentContext(ctx, session), append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...), agent.Config.MCPs)
+	for _, tool := range kit.mcp.ResourceTools() {
+		if mcpCodeMode {
+			if !taken[tool.Name] {
+				taken[tool.Name] = true
+				mcpAccepted = append(mcpAccepted, tool)
+			}
+		} else {
+			add(tool)
+		}
+	}
 	mcpCodeMode = mcpCodeMode && len(mcpAccepted) > 0
 
 	// Built-in tools run on the AT host, not in the space container; the
@@ -196,6 +206,9 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 	}
 	if mcpCodeMode {
 		prompt = append(prompt, mcpCodeModePrompt(mcpAccepted))
+	}
+	if instructions := kit.mcp.InstructionsPrompt(); instructions != "" {
+		prompt = append(prompt, instructions)
 	}
 	if len(kit.builtins) > 0 {
 		names := make([]string, 0, len(kit.builtins))

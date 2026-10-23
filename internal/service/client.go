@@ -102,6 +102,8 @@ type HTTPMCPClient struct {
 	protocolVersion      string // negotiated during initialize
 	serverName           string
 	serverVersion        string
+	instructions         string
+	capabilities         MCPServerCapabilities
 	responseMode         string
 	nextID               int32
 	headers              map[string]string
@@ -372,14 +374,7 @@ func (c *HTTPMCPClient) initialize(ctx context.Context) error {
 	}
 
 	// Parse initialization response
-	var initResult struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		ServerInfo      struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
-
+	var initResult mcpInitResult
 	if err := json.Unmarshal(resp.Result, &initResult); err != nil {
 		return fmt.Errorf("failed to parse init response: %w", err)
 	}
@@ -391,6 +386,8 @@ func (c *HTTPMCPClient) initialize(ctx context.Context) error {
 	}
 	c.serverName = initResult.ServerInfo.Name
 	c.serverVersion = initResult.ServerInfo.Version
+	c.instructions = initResult.Instructions
+	c.capabilities = initResult.capabilities()
 
 	slog.Info("MCP initialized", "server_name", initResult.ServerInfo.Name, "server_version", initResult.ServerInfo.Version, "protocol_version", c.protocolVersion)
 

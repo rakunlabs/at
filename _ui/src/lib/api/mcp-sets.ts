@@ -105,6 +105,10 @@ export interface MCPSetTool {
 export interface MCPSetToolsResult {
   tools: MCPSetTool[];
   warnings?: string[];
+  /** Upstream servers' usage instructions, as a system-prompt section. */
+  instructions?: string;
+  /** Upstream prompts, offered as /server:name commands. */
+  prompts?: Array<{ server: string; name: string; title?: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>;
 }
 
 export interface MCPSetToolCallResult {
@@ -151,4 +155,10 @@ export async function callMCPSetTool(
     media_refs: true,
   }, signal ? { signal } : undefined);
   return res.data;
+}
+
+/** Render an upstream MCP prompt (prompts/get) of a set as text. */
+export async function getMCPSetPrompt(set: string, server: string, prompt: string, args: Record<string, string>): Promise<string> {
+  const res = await api.post<{ text: string }>(`/mcp/set-tools/${set}/prompt`, { server, prompt, arguments: args });
+  return res.data.text;
 }

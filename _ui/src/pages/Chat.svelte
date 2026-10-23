@@ -33,7 +33,7 @@
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listMCPSets, listMCPSetTools, callMCPSetTool, getMCPSetPrompt, type MCPSet } from '@/lib/api/mcp-sets';
   import {
     listLocalMCPServers,
     saveLocalMCPServers,
@@ -135,7 +135,7 @@
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import ChatCommandsEditor from '@/lib/components/playground/ChatCommandsEditor.svelte';
   import { listChatCommands, listWorkspaceChatCommands, type ChatCommand } from '@/lib/api/chat-commands';
-  import { AUTO_COMPACTION_NOTE, COMPACTION_FLAG, clipForCompaction, compactionMessageText, compactionRequest, compactionStart, expandCommandTemplate, isContextOverflowMessage, parseSlashInput, slashQuery } from '@/lib/helper/chat-commands';
+  import { AUTO_COMPACTION_NOTE, COMPACTION_FLAG, clipForCompaction, compactionMessageText, compactionRequest, compactionStart, expandCommandTemplate, isContextOverflowMessage, mcpPromptArguments, mcpPromptCommandName, parseSlashInput, slashQuery, type MCPPromptCommand } from '@/lib/helper/chat-commands';
   import { createChatMediaCache } from '@/lib/helper/chat-media-cache';
 
   storeNavbar.title = 'Chats';
@@ -447,6 +447,8 @@
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
   let mcpCodeMode = $state(false);
+  /** Prompts of the selected MCP sets, offered as /server:name commands. */
+  let mcpPromptCommands = $state<MCPPromptCommand[]>([]);
   let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
   let skills = $state<Skill[]>([]);
   let selectedSkillNames = $state<string[]>([]);
@@ -2062,6 +2064,7 @@
     // In MCP code mode the sets' tools are collected here and offered through
     // code_execute instead of being listed one by one.
     const hiddenMCPTools: ToolDefinition[] = [];
+    const newPromptCommands: MCPPromptCommand[] = [];
     const frontendTools = [...enabledFrontendTools];
     const newTools: ToolDefinition[] = [];
     const newSourceMap: Record<string, ToolSource> = {};
@@ -2087,6 +2090,8 @@
               busy: false,
             },
           };
+          if (res.instructions) newSkillPrompts.push(res.instructions);
+          for (const p of res.prompts ?? []) newPromptCommands.push({ set: setName, server: p.server, name: p.name, description: p.title || p.description, arguments: p.arguments });
           for (const t of res.tools ?? []) {
             if (newSourceMap[t.name]) continue;
             if (selections.mcp_code_mode) {
@@ -2275,6 +2280,7 @@
       discoveredTools = newTools;
       toolSourceMap = newSourceMap;
       skillSystemPrompts = newSkillPrompts;
+      mcpPromptCommands = newPromptCommands;
       loadingTools = false;
     }
   }
@@ -2697,7 +2703,7 @@
     { name: 'commands', description: 'Create and edit your own commands', run: () => openWorkbench('commands') },
   ]);
 
-  interface CommandSuggestion { name: string; args?: string; description: string; scope: 'built-in' | 'personal' | 'workspace'; disabled?: boolean }
+  interface CommandSuggestion { name: string; args?: string; description: string; scope: 'built-in' | 'personal' | 'workspace' | 'mcp'; disabled?: boolean }
 
   let commandIndex = $state(0);
   let commandMenuDismissed = $state('');
@@ -2707,6 +2713,12 @@
     const all: CommandSuggestion[] = [
       ...builtinCommands.map(c => ({ name: c.name, args: c.args, description: c.description, scope: 'built-in' as const, disabled: c.disabled })),
       ...customCommands.map(c => ({ name: c.name, args: /\$(ARGUMENTS|[1-9])/.test(c.template) ? '[args]' : undefined, description: c.description || c.template.split('\n')[0], scope: c.scope })),
+      ...mcpPromptCommands.map(p => ({
+        name: mcpPromptCommandName(p),
+        args: p.arguments?.length ? p.arguments.map(a => a.required ? `<${a.name}>` : `[${a.name}]`).join(' ') : undefined,
+        description: p.description || `MCP prompt from ${p.server}`,
+        scope: 'mcp' as const,
+      })),
     ];
     const q = commandQuery;
     return all
@@ -2740,7 +2752,12 @@
       return true;
     }
     const custom = customCommands.find(c => c.name === name);
-    if (!custom) return false;
+    if (!custom) {
+      const prompt = mcpPromptCommands.find(p => mcpPromptCommandName(p) === name);
+      if (!prompt) return false;
+      void runMCPPromptCommand(prompt, args);
+      return true;
+    }
     if (!setupReady()) return true;
     const text = expandCommandTemplate(custom.template, args).trim();
     if (!text) { addToast(`/${name} expanded to an empty message.`, 'warn'); return true; }
@@ -2756,6 +2773,31 @@
     queuedMessages = [];
     void runUserTurn(items).finally(() => { if (custom.model) selectedModel = previousModel; });
     return true;
+  }
+
+  /**
+   * /server:prompt: fetch the MCP prompt from its set and send the rendered
+   * text as an ordinary user message, like a custom command template.
+   */
+  async function runMCPPromptCommand(prompt: MCPPromptCommand, args: string) {
+    if (!setupReady()) return;
+    const { values, missing } = mcpPromptArguments(prompt.arguments, args);
+    if (missing.length > 0) {
+      addToast(`/${mcpPromptCommandName(prompt)} needs: ${missing.join(', ')}`, 'warn');
+      return;
+    }
+    const typed = userInput;
+    userInput = '';
+    try {
+      const text = (await getMCPSetPrompt(prompt.set, prompt.server, prompt.name, values)).trim();
+      if (!text) { addToast(`The MCP prompt "${prompt.name}" is empty.`, 'warn'); userInput = typed; return; }
+      const items = [...queuedMessages, queuedMessage(text, [])];
+      queuedMessages = [];
+      void runUserTurn(items);
+    } catch (e: any) {
+      userInput = typed;
+      addToast(e?.response?.data?.message || e?.message || 'Failed to load the MCP prompt', 'alert');
+    }
   }
 
   // ─── Compaction ───

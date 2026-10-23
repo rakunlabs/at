@@ -26,6 +26,10 @@ type StdioMCPClient struct {
 	startedAt time.Time
 	pid       int
 
+	serverName   string
+	instructions string
+	capabilities MCPServerCapabilities
+
 	// done is closed by the reaper goroutine once the subprocess has exited
 	// and been waited on. This is what makes Alive() detect crashes: the
 	// previous ProcessState check only flipped after an explicit Close(),
@@ -159,16 +163,13 @@ func (c *StdioMCPClient) initialize(ctx context.Context) error {
 		return fmt.Errorf("initialization failed: %w", err)
 	}
 
-	var initResult struct {
-		ProtocolVersion string `json:"protocolVersion"`
-		ServerInfo      struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
+	var initResult mcpInitResult
 	if err := json.Unmarshal(resp.Result, &initResult); err != nil {
 		return fmt.Errorf("parse init response: %w", err)
 	}
+	c.serverName = initResult.ServerInfo.Name
+	c.instructions = initResult.Instructions
+	c.capabilities = initResult.capabilities()
 
 	slog.Info("MCP stdio initialized", "server_name", initResult.ServerInfo.Name, "server_version", initResult.ServerInfo.Version)
 

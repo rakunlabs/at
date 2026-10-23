@@ -1423,6 +1423,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// MCP set tool resolution (for Chat UI)
 	apiGroup.GET("/v1/mcp/set-tools/{name}", s.ListMCPSetToolsAPI)
 	apiGroup.POST("/v1/mcp/set-tools/{name}/call", s.CallMCPSetToolAPI)
+	apiGroup.POST("/v1/mcp/set-tools/{name}/prompt", s.GetMCPSetPromptAPI)
 
 	// MCP templates (store)
 	apiGroup.GET("/v1/mcp-templates", s.ListMCPTemplatesAPI)

@@ -660,6 +660,9 @@ func (c *chatRun) discoverTools(ctx context.Context, setup chatRunSetup) []strin
 
 	c.mcp.Connect(ctx, setup.MCPSets, nil)
 	var prompts []string
+	if instructions := c.mcp.InstructionsPrompt(); instructions != "" {
+		prompts = append(prompts, instructions)
+	}
 	_, codeModeAllowed := s.mcpCodeModeTool(ctx)
 	mcpCodeMode := setup.MCPCodeMode && codeModeAllowed && len(c.mcp.Tools()) > 0
 	if mcpCodeMode {

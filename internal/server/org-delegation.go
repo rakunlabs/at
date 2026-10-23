@@ -397,6 +397,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if mcpCodeMode {
 		systemPrompt += "\n\n" + mcpCodeModePrompt(mcpTools.Tools())
 	}
+	if instructions := mcpTools.InstructionsPrompt(); instructions != "" {
+		systemPrompt += "\n\n" + instructions
+	}
 	// Org mission context: every agent shares a common frame (org name +
 	// mission); the head agent additionally gets outcome-ownership framing.
 	systemPrompt += orgContextPrompt(org, depth)

@@ -110,7 +110,55 @@ func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 	defer closeMCPRuntime(ctx, runtime)
 	tools := runtime.ListTools(ctx)
 
-	httpResponseJSON(w, map[string]any{"tools": tools, "warnings": runtime.Diagnostics()}, http.StatusOK)
+	httpResponseJSON(w, map[string]any{
+		"tools":        tools,
+		"warnings":     runtime.Diagnostics(),
+		"instructions": runtime.features.Prompt(),
+		"prompts":      runtime.features.Prompts(ctx),
+	}, http.StatusOK)
+}
+
+// GetMCPSetPromptAPI handles POST /api/v1/mcp/set-tools/{name}/prompt: render
+// one upstream prompt (prompts/get) of an MCP set as text, for Chats slash
+// commands. Admission matches tool discovery: the caller's runtime identity
+// and mcp.use on the set.
+func (s *Server) GetMCPSetPromptAPI(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var req struct {
+		Server    string            `json:"server"`
+		Prompt    string            `json:"prompt"`
+		Arguments map[string]string `json:"arguments"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	if name == "" || req.Server == "" || req.Prompt == "" {
+		httpResponse(w, "set name, server and prompt are required", http.StatusBadRequest)
+		return
+	}
+	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "tool")
+	if bindErr != nil {
+		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
+		return
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: name}); err != nil {
+		httpResponse(w, "mcp set execution denied", http.StatusForbidden)
+		return
+	}
+	runtime, err := s.newMCPRuntimeBuilder().buildSet(ctx, name)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to load MCP set: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer closeMCPRuntime(ctx, runtime)
+	runtime.ListTools(ctx) // connects the upstreams
+	text, err := runtime.features.GetPrompt(ctx, req.Server, req.Prompt, req.Arguments)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("get prompt: %v", err), http.StatusBadGateway)
+		return
+	}
+	httpResponseJSON(w, map[string]any{"text": text}, http.StatusOK)
 }
 
 // CallMCPSetToolAPI handles POST /api/v1/mcp/sets/{name}/call-tool.

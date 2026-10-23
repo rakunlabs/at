@@ -3327,6 +3327,36 @@ Spaces, Chats background runs and the Chats page. If `code_execute` itself is
 not admitted (`mcpCodeModeTool`), the tools are listed normally rather than
 hidden out of reach. Regression: `internal/server/mcp-code-mode_test.go`.
 
+## MCP server instructions, resources and prompts
+
+Both MCP clients (`HTTPMCPClient`, `StdioMCPClient`) keep the initialize
+result's `instructions` and `resources` / `prompts` capabilities and implement
+`service.MCPServerFeatures` (`internal/service/mcp-features.go`: paginated
+`resources/list`, `resources/templates/list`, `resources/read`,
+`prompts/list`, `prompts/get`); the execution-bound client re-checks
+`mcp.use` on each call. `mcpFeatureSet` (`internal/server/mcp-resources.go`)
+collects them per tool surface — `agentMCPTools` (Sessions, org delegation,
+Developer Spaces, Chats background runs) and `mcpRuntime` (Chats, gateway MCP
+servers):
+
+- **Instructions** are appended to the system prompt as
+  `<mcp_instructions server="…">` blocks (≤8 KiB each); for Chats the set
+  tool listing returns them as `instructions`.
+- **Resources**: when any connected server declares the capability, two tools
+  appear — `list_mcp_resources` (`server?`) and `read_mcp_resource`
+  (`server?`, `uri`). Text is returned (≤256 KiB), blobs are described, not
+  inlined. Servers are named by their reported name (deduplicated), else URL
+  host / command.
+- **Prompts** become Chats slash commands `/server:prompt [args]`
+  (`GET /mcp/set-tools/{name}` returns `prompts`;
+  `POST /mcp/set-tools/{name}/prompt` with `{server, prompt, arguments}`
+  renders one, `mcp.use`). Typed words map onto declared arguments in order,
+  the last taking the rest; missing required ones are reported. The rendered
+  text is sent as a normal user message.
+
+Elicitation is not supported. Regression: `internal/server/mcp-resources_test.go`,
+the MCP prompt case in `_ui/tests/chat-commands.test.mjs`.
+
 ## Collapsed pastes in composers
 
 Chats, Sessions and Developer Spaces composers show a multi-line (≥3 lines)

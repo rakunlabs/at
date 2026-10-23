@@ -16,7 +16,8 @@ export interface SlashInput {
  * and a second slash in the name means a path (`/usr/bin`), not a command.
  */
 export function parseSlashInput(text: string): SlashInput | null {
-  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,31})(?:\s+([\s\S]*))?$/.exec(text.trim());
+  // `server:prompt` names MCP prompts (OpenCode's /<server>:<prompt>).
+  const match = /^\/([a-zA-Z0-9][a-zA-Z0-9._-]{0,63}(?::[a-zA-Z0-9][a-zA-Z0-9._-]{0,63})?)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (!match) return null;
   return { name: match[1].toLowerCase(), args: (match[2] ?? '').trim() };
 }
@@ -27,7 +28,7 @@ export function parseSlashInput(text: string): SlashInput | null {
  * follows, because then the reader is writing arguments.
  */
 export function slashQuery(text: string): string | null {
-  const match = /^\/([a-zA-Z0-9._-]{0,32})$/.exec(text);
+  const match = /^\/([a-zA-Z0-9._:-]{0,129})$/.exec(text);
   return match ? match[1].toLowerCase() : null;
 }
 
@@ -125,4 +126,34 @@ export function clipForCompaction(text: string, limit: number): string {
   const head = Math.floor(limit * 2 / 3);
   const tail = limit - head;
   return `${text.slice(0, head)}\n…[${text.length - limit} characters omitted]…\n${text.slice(text.length - tail)}`;
+}
+
+/** An MCP prompt offered as `/server:name`. */
+export interface MCPPromptCommand {
+  set: string;
+  server: string;
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
+export function mcpPromptCommandName(p: { server: string; name: string }): string {
+  const clean = (v: string) => v.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^[-._]+/, '').slice(0, 64) || 'x';
+  return `${clean(p.server)}:${clean(p.name)}`.toLowerCase();
+}
+
+/**
+ * Maps typed arguments onto a prompt's declared arguments: words in order
+ * (quotes group), the last argument taking the rest, like custom commands.
+ * Missing required arguments are reported by name.
+ */
+export function mcpPromptArguments(spec: MCPPromptCommand['arguments'], args: string): { values: Record<string, string>; missing: string[] } {
+  const declared = spec ?? [];
+  const words = splitArgs(args);
+  const values: Record<string, string> = {};
+  declared.forEach((arg, i) => {
+    const value = i === declared.length - 1 ? words.slice(i).join(' ') : words[i];
+    if (value) values[arg.name] = value;
+  });
+  return { values, missing: declared.filter(a => a.required && !values[a.name]).map(a => a.name) };
 }

@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/lib/helper/chat-commands.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseSlashInput, slashQuery, splitArgs, expandCommandTemplate, compactionStart, compactionMessageText, compactionRequest, isContextOverflowMessage, clipForCompaction } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { parseSlashInput, slashQuery, splitArgs, expandCommandTemplate, compactionStart, compactionMessageText, compactionRequest, isContextOverflowMessage, clipForCompaction, mcpPromptCommandName, mcpPromptArguments } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
 test('parses a command and its arguments; paths and prose are not commands', () => {
   assert.deepEqual(parseSlashInput('/Compact keep the API decisions'), { name: 'compact', args: 'keep the API decisions' });
@@ -47,4 +47,15 @@ test('context overflow messages are recognised across providers', () => {
   for (const msg of ['rate limit exceeded', 'request entity too large', '']) assert.equal(isContextOverflowMessage(msg), false, msg);
   const clipped = clipForCompaction('a'.repeat(100) + 'b'.repeat(100), 60);
   assert.ok(clipped.startsWith('a'.repeat(40)) && clipped.endsWith('b'.repeat(20)) && clipped.includes('140 characters omitted'));
+});
+
+test('MCP prompts are /server:prompt commands with mapped arguments', () => {
+  assert.deepEqual(parseSlashInput('/github:review-pr 42 please be strict'), { name: 'github:review-pr', args: '42 please be strict' });
+  assert.equal(slashQuery('/github:re'), 'github:re');
+  assert.equal(parseSlashInput('/a:b:c'), null);
+  assert.equal(mcpPromptCommandName({ server: 'My Server', name: 'Review PR' }), 'my-server:review-pr');
+  const spec = [{ name: 'pr', required: true }, { name: 'focus' }];
+  assert.deepEqual(mcpPromptArguments(spec, '42 security and tests'), { values: { pr: '42', focus: 'security and tests' }, missing: [] });
+  assert.deepEqual(mcpPromptArguments(spec, ''), { values: {}, missing: ['pr'] });
+  assert.deepEqual(mcpPromptArguments(undefined, 'ignored'), { values: {}, missing: [] });
 });
