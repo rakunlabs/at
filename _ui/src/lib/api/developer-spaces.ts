@@ -157,6 +157,8 @@ export interface DeveloperRun {
 }
 export async function getDeveloperActiveStream(id: string) { return (await api.get<{ stream_id: string; session: DeveloperSession; run?: DeveloperRun | null }>(`/developer-sessions/${encodeURIComponent(id)}/active-stream`)).data; }
 export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }
+/** Add a message to the session's running turn; 409 when nothing is running here. */
+export async function steerDeveloperSession(id: string, prompt: string) { await api.post(`/developer-sessions/${encodeURIComponent(id)}/steer`, { prompt }); }
 export async function cancelDeveloperSession(id: string) { return (await api.post<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}/cancel`)).data; }
 
 export type DeveloperStreamEvent =

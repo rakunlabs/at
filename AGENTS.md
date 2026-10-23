@@ -2094,6 +2094,21 @@ and persists final/interruption text before sending `done`. A persistence failur
 emits an error so the UI retains the received answer. Task-chat imports expose the
 task result as an assistant message, including task_complete-only delegation runs.
 
+**Steering a running turn.** While a Sessions or Developer Spaces turn runs,
+the composer stays open: sending calls `POST /api/v1/chat/sessions/{id}/steer`
+(`{content}`) or `POST /api/v1/developer-sessions/{id}/steer` (`{prompt}`),
+both `agents.execute` with the usual ownership check. `runSteering`
+(`run-steering.go`) queues the text in memory for the run registered on that
+replica (≤20 messages, 64 KiB each); 409 means no run of that session is
+active here (finished, or another replica), and the page asks to resend. The
+loop drains the queue at every step boundary — before each model call, and
+when the model has answered, in which case the turn continues — and stores
+each message as a user message (Sessions also emit `user_message`).
+Messages that arrive after the last step are stored when the run ends, so
+nothing is dropped. Subagent runs are not steerable. Chats already delivers
+queued messages at step boundaries in the browser. Regression:
+`run-steering_test.go`.
+
 Subagents launched from a Sessions turn (`agent_run`, or `load_skill` on a
 `context: fork` skill) report back within that turn. Foreground `agent_run` is a
 whole agentic loop, so it is exempt from the per-tool deadline (default 60s),

@@ -24,6 +24,7 @@
     type ChatSession,
     type ChatMessage,
     type ChatAttachment,
+    steerChatSession,
   } from '@/lib/api/chat-sessions';
   import { Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, X, FileText, Download, Pencil, PanelLeft } from 'lucide-svelte';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -629,7 +630,26 @@
     }
   }
 
+  /**
+   * While a turn runs, a typed message joins it at the agent's next step
+   * (OpenCode's steer); it appears in the transcript once the server stores it.
+   */
+  async function steerTurn() {
+    const content = pasted.expand(inputText).trim();
+    if (!content || attachments.length || !selectedSessionId || turnState.phase !== 'running') return;
+    try {
+      await steerChatSession(selectedSessionId, content);
+      inputText = '';
+      pasted.clear();
+      messages = [...messages, { id: 'steer-' + Date.now(), session_id: selectedSessionId, role: 'user', data: { content }, created_at: new Date().toISOString() }];
+      scrollToBottom();
+    } catch (e: any) {
+      addToast(e?.response?.status === 409 ? 'The turn already finished; send the message again.' : (e?.response?.data?.message || 'Could not add the message'), 'warn');
+    }
+  }
+
   async function handleSend() {
+    if (sending && turnState.phase === 'running' && inputText.trim() && !attachments.length && !inputText.startsWith('/')) { await steerTurn(); return; }
     if ((!inputText.trim() && !attachments.length) || sending || loadingMessages || readingAttachments || recording || transcribing) return;
 
     // Handle slash commands.
@@ -1592,9 +1612,9 @@
             onpaste={pasteAttachments}
             aria-label="Message to agent"
             aria-describedby="session-composer-help"
-            placeholder={attachments.length ? 'Add a message about these files…' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
+            placeholder={attachments.length ? 'Add a message about these files…' : turnState.phase === 'running' ? 'Add to the running turn… (Enter; read at the next step)' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
             rows={1}
-            disabled={sending || loadingMessages}
+            disabled={(sending && turnState.phase !== 'running') || loadingMessages}
             class="block min-h-[1.65em] max-h-[min(16rem,35dvh)] w-full min-w-0 resize-none overflow-y-auto bg-transparent text-base leading-relaxed text-dark-text placeholder:text-dark-text-muted caret-accent focus:outline-none disabled:opacity-50 sm:text-sm"
           ></textarea>
         </div>
@@ -1620,6 +1640,9 @@
         <button onclick={() => fileInput?.click()} disabled={sending || loadingMessages || readingAttachments || attachments.length >= CHAT_ATTACHMENT_COUNT} class="shrink-0 text-dark-text-muted hover:text-dark-text hover:underline underline-offset-4 disabled:opacity-40 focus-visible:outline-1 focus-visible:outline-accent" title="Attach files" aria-label="Attach photos or files">+ attach</button>
         <VoiceInput compact contextKey={voiceContext} disabled={sending || loadingMessages} bind:recording bind:transcribing ontext={text => { inputText = (inputText ? inputText + ' ' : '') + text; inputEl?.focus(); }} />
 
+        {#if sending && turnState.phase === 'running' && inputText.trim()}
+          <button onclick={steerTurn} class="shrink-0 text-accent hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent" title="Add to the running turn (Enter)" aria-label="Add to the running turn">add ↵</button>
+        {/if}
         {#if sending}
           <button onclick={stopGeneration} class="shrink-0 text-oc-red hover:underline underline-offset-4 focus-visible:outline-1 focus-visible:outline-accent" title="Stop generation" aria-label="Stop response">
             ■ stop

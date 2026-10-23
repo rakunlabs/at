@@ -220,3 +220,8 @@ export async function confirmToolCall(
     approved,
   });
 }
+
+/** Add a message to the session's running turn; 409 when nothing runs on this server. */
+export async function steerChatSession(sessionId: string, content: string): Promise<void> {
+  await api.post(`/chat/sessions/${sessionId}/steer`, { content });
+}

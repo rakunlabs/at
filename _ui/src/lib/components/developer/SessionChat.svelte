@@ -15,6 +15,7 @@
     getDeveloperGitStatus, getDeveloperSessionPendingTool, getDeveloperActiveStream, resumeDeveloperStream, listDeveloperSessionMessages, streamDeveloperSession, cancelDeveloperSession, updateDeveloperSession,
     listDeveloperProjectFiles, revertDeveloperSession, unrevertDeveloperSession,
     type DeveloperMode, type DeveloperPendingTool, type DeveloperRun, type DeveloperSession, type DeveloperSessionMessage, type DeveloperStreamEvent,
+    steerDeveloperSession,
   } from '@/lib/api/developer-spaces';
   import type { ChatAttachment } from '@/lib/api/chat-sessions';
   import {
@@ -378,8 +379,27 @@
     }
   }
 
+  /**
+   * While the agent works, a typed message joins the running turn at its next
+   * step (OpenCode's steer) instead of waiting for the run to end.
+   */
+  async function steer() {
+    const text = pasted.expand(prompt).trim();
+    if (!text || attachments.length || pending) return;
+    try {
+      await steerDeveloperSession(session.id, text);
+      prompt = '';
+      pasted.clear();
+      addToast('Added to the running turn; the agent reads it at its next step.', 'info');
+    } catch (e: any) {
+      if (e?.response?.status === 409) addToast('The run already finished or runs on another server; send the message again.', 'warn');
+      else addToast(e?.response?.data?.message || 'Could not add the message', 'alert');
+    }
+  }
+
   async function send() {
     const text = pasted.expand(prompt).trim();
+    if (working && busy && text && !attachments.length && !parseSlashInput(text)) { await steer(); return; }
     if ((!text && !attachments.length) || working || recording || transcribing || reading) return;
     if (!session.provider) { error = 'Choose a model first.'; return; }
     const command = attachments.length ? null : parseSlashInput(text);
@@ -817,7 +837,7 @@
           onblur={() => { mention = null; }}
           rows={expandedComposer ? 8 : 2}
           aria-label="Message the agent"
-          placeholder={pending ? 'Answer the prompt above first' : 'Ask the agent to change, explain or review code…  (@ for files, / for commands, Enter to send)'}
+          placeholder={pending ? 'Answer the prompt above first' : busy ? 'Add to the running turn…  (Enter; the agent reads it at its next step)' : 'Ask the agent to change, explain or review code…  (@ for files, / for commands, Enter to send)'}
           disabled={!!pending && !busy}
           class="block w-full resize-none border-0 bg-transparent px-3 pb-1 pt-2.5 text-sm leading-[22px] focus:outline-none focus:ring-0 disabled:opacity-60 text-dark-text placeholder:text-dark-text-muted"
         ></textarea>
@@ -888,6 +908,9 @@
           />
 
           {#if working}
+            {#if busy && prompt.trim() && !attachments.length}
+              <button type="button" onclick={steer} class="ml-1 inline-flex size-8 items-center justify-center text-dark-base bg-accent hover:bg-accent-hover" title="Add to the running turn (Enter)" aria-label="Add to the running turn"><ArrowUp size={16} /></button>
+            {/if}
             <button type="button" onclick={stop} class="ml-1 inline-flex size-8 items-center justify-center bg-red-600 text-white hover:bg-red-700" title="Stop" aria-label="Stop the agent"><Square size={14} /></button>
           {:else}
             <button type="button" onclick={send} disabled={(!prompt.trim() && !attachments.length) || !!pending || !session.provider || recording || transcribing || reading} class="ml-1 inline-flex size-8 items-center justify-center text-dark-base bg-accent hover:bg-accent-hover disabled:bg-dark-elevated disabled:text-dark-text-muted" title="Send (Enter)" aria-label="Send"><ArrowUp size={16} /></button>

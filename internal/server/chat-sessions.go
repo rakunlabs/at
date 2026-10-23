@@ -400,7 +400,7 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 
 // AgenticEvent represents an event emitted by the agentic loop.
 type AgenticEvent struct {
-	Type      string `json:"type"`                // "content", "tool_call", "tool_progress", "tool_result", "tool_confirm", "done", "error"
+	Type      string `json:"type"`                // "content", "user_message", "tool_call", "tool_progress", "tool_result", "tool_confirm", "done", "error"
 	Content   string `json:"content,omitempty"`   // for "content" events
 	Final     bool   `json:"final,omitempty"`     // for terminal "content" events
 	ToolName  string `json:"tool_name,omitempty"` // for "tool_call", "tool_result", and "tool_confirm"
@@ -961,7 +961,35 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	terminalToolCalled := false
 	answerOnly := false
 	emptyReplyRetried := false
+	// Messages the person adds while this turn runs ("steer") join it at the
+	// next step boundary. Subagent runs have no person to steer them.
+	steerKey := "session:" + sessionID
+	deliverSteering := func() bool { return false }
+	if !transient {
+		endSteering := s.steering.Register(steerKey)
+		defer func() {
+			// Anything that arrived after the last step is saved, so the next
+			// turn sees it instead of it being dropped.
+			for _, text := range endSteering() {
+				_, _ = s.chatSessionStore.CreateChatMessage(context.WithoutCancel(ctx), service.ChatMessage{SessionID: sessionID, Role: "user", Data: service.ChatMessageData{Content: text}})
+			}
+		}()
+		deliverSteering = func() bool {
+			texts := s.steering.Drain(steerKey)
+			for _, text := range texts {
+				if _, err := s.chatSessionStore.CreateChatMessage(ctx, service.ChatMessage{SessionID: sessionID, Role: "user", Data: service.ChatMessageData{Content: text}}); err != nil {
+					slog.Warn("agentic loop: persist steering message", "error", err)
+				}
+				llmMessages = append(llmMessages, service.Message{Role: "user", Content: text})
+				onEvent(AgenticEvent{Type: "user_message", Content: text})
+			}
+			return len(texts) > 0
+		}
+	}
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		if !answerOnly {
+			deliverSteering()
+		}
 		// Skills provide instructions only; executable capabilities are
 		// configured independently on the agent or MCP sets.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
@@ -1162,6 +1190,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			if err := s.persistAssistantMessage(ctx, sessionID, resp.Content, nil); err != nil {
 				onEvent(AgenticEvent{Type: "error", Error: "The answer was received but could not be saved to the session. Keep a copy before leaving this page."})
 				return err
+			}
+			// A message arrived while the model was answering: the turn goes on.
+			if !answerOnly && iteration < maxIterations-1 && deliverSteering() {
+				continue
 			}
 
 			// Auto-sync: if this session is linked to a task, update the task result.

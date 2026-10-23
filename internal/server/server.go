@@ -255,6 +255,8 @@ type Server struct {
 	activeChatTurns sync.Map
 	// Active native coding-session requests, keyed by session ID.
 	activeDeveloperSessions sync.Map
+	// Messages added to running Sessions / Developer Spaces turns ("steer").
+	steering *runSteering
 
 	// Ephemeral background subagents are process-local by design. They create
 	// no durable organization task and disappear after a short terminal TTL.
@@ -610,6 +612,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		// loopgov.fillDefaults; per-deployment tuning of those will
 		// move to the database in a follow-up change.
 		loopGov:          loopgov.New(loopgovConfigFromYAML(cfg.Workspace), nil),
+		steering:         newRunSteering(),
 		cluster:          cl,
 		version:          version,
 		commit:           commit,
@@ -1198,6 +1201,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/developer-sessions/{id}/confirm", s.ConfirmDeveloperSessionToolAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/answer", s.AnswerDeveloperSessionQuestionAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/cancel", s.CancelDeveloperSessionAPI)
+	apiGroup.POST("/v1/developer-sessions/{id}/steer", s.SteerDeveloperSessionAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/revert", s.RevertDeveloperSessionAPI)
 	apiGroup.POST("/v1/developer-sessions/{id}/unrevert", s.UnrevertDeveloperSessionAPI)
 	apiGroup.GET("/v1/developer-space/glob", s.GlobDeveloperFilesAPI)

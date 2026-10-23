@@ -411,7 +411,37 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *runEventStream, h 
 	}
 	provider := service.ScopedExecutionProvider(info.provider, session.Provider)
 	emptyRepairs := 0
+	steerKey := "developer:" + session.ID
+	endSteering := s.steering.Register(steerKey)
+	defer func() {
+		// Messages that arrived after the last step stay in the transcript, so
+		// the next run sees them; they are never silently dropped.
+		if left := endSteering(); len(left) > 0 {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+			defer cancel()
+			for _, text := range left {
+				// ctx keeps the run ID, so the write is fenced by this run's receipt.
+				if saved, err := store.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: text}); err == nil {
+					stream.send(map[string]any{"type": "message", "message": saved})
+				}
+			}
+		}
+	}()
+	// deliverSteering stores queued messages as user messages before the next
+	// model call. It reports whether there were any.
+	deliverSteering := func() bool {
+		texts := s.steering.Drain(steerKey)
+		for _, text := range texts {
+			saved, err := store.AppendDeveloperSessionMessage(r.Context(), service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: text})
+			if err != nil {
+				continue
+			}
+			stream.send(map[string]any{"type": "message", "message": saved})
+		}
+		return len(texts) > 0
+	}
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		deliverSteering()
 		records, err := store.ListDeveloperSessionMessages(r.Context(), session.ID)
 		if err != nil {
 			finish(service.DeveloperSessionFailed, err.Error())
@@ -514,6 +544,10 @@ func (s *Server) runDeveloperSession(r *http.Request, stream *runEventStream, h 
 		stream.send(map[string]any{"type": "message", "message": saved})
 		if len(resp.ToolCalls) == 0 {
 			s.captureDeveloperSnapshot(r, session, h, step, "after")
+			if resp.Refusal == "" && resp.FinishReason != "length" && resp.FinishReason != "content_filter" && deliverSteering() {
+				// A message arrived while the model was answering: continue.
+				continue
+			}
 			if resp.FinishReason == "length" || resp.FinishReason == "content_filter" || resp.Refusal != "" {
 				message := "model response stopped with finish reason " + resp.FinishReason
 				if resp.Refusal != "" {

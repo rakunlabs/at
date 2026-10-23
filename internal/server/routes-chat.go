@@ -16,6 +16,7 @@ func (s *Server) registerChatSessionRoutes(api *ada.Mux) {
 	api.GET("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
 	api.DELETE("/v1/chat/sessions/{id}/streams/{stream}", s.ChatStreamAPI)
 	api.POST("/v1/chat/sessions/{id}/confirm", s.ConfirmToolCallAPI)
+	api.POST("/v1/chat/sessions/{id}/steer", s.SteerChatSessionAPI)
 }
 
 func (s *Server) registerChatWorkbenchRoutes(api *ada.Mux) {
