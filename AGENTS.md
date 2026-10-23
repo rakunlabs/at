@@ -2127,6 +2127,14 @@ read via `agent_run_status` is not reported twice. Progress streams as
 proxies do not drop a quiet connection. Regression:
 `internal/server/chat-subagent-wait_test.go`.
 
+`agent_run` results carry a `session_id`; passing it back (`session_id`
+argument) continues that subagent's conversation instead of starting fresh
+(OpenCode's subagent `sessionID`). Transcripts (without the system prompt)
+are kept in memory on the replica for an hour (≤512, LRU), bound to the
+account, workspace and agent; another agent's or account's session reads as
+not found / belongs to another agent. Background runs report it once
+completed. Regression: `TestExecAgentRunContinuesSession`.
+
 The Sessions composer has aligned 40px controls, agent grouping by `config.group`,
 and file picker / drag-and-drop / paste attachments. All file types are accepted
 within 4 files, 5 MiB each and 8 MiB total; the message JSON is capped at 12 MiB.

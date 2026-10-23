@@ -290,3 +290,56 @@ func TestBackgroundAgentRunOwnerCancellationCascades(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// agent_run with session_id continues the earlier subagent conversation; a
+// session of another agent or account cannot be continued.
+func TestExecAgentRunContinuesSession(t *testing.T) {
+	provider := &fakeObsProvider{responses: []*service.LLMResponse{
+		{Content: "found 3 issues", Finished: true},
+		{Content: "fixed the first one", Finished: true},
+	}}
+	agents := map[string]*service.Agent{
+		"parent": {ID: "parent", Name: "Parent", Config: service.AgentConfig{Subagents: []string{"child", "other"}}},
+		"child":  {ID: "child", Name: "Reviewer", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 2}},
+		"other":  {ID: "other", Name: "Other", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 2}},
+	}
+	s, _ := newObsTestServer(t, provider, &fakeLLMCallStore{}, agents, nil)
+	ctx := contextWithAgentID(s.ctx, "parent")
+
+	first, err := s.execAgentRun(ctx, map[string]any{"agent": "child", "task": "Review the patch."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(first), &payload); err != nil || !strings.HasPrefix(payload.SessionID, "subagent_") {
+		t.Fatalf("first result %s: %v", first, err)
+	}
+
+	if _, err := s.execAgentRun(ctx, map[string]any{"agent": "other", "task": "x", "session_id": payload.SessionID}); err == nil || !strings.Contains(err.Error(), "another agent") {
+		t.Fatalf("other agent continued the session: %v", err)
+	}
+	if _, err := s.execAgentRun(ctx, map[string]any{"agent": "child", "task": "x", "session_id": "subagent_unknown"}); err == nil {
+		t.Fatal("unknown session must fail")
+	}
+
+	second, err := s.execAgentRun(ctx, map[string]any{"agent": "child", "task": "Fix the first issue.", "session_id": payload.SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(second, "fixed the first one") || !strings.Contains(second, payload.SessionID) {
+		t.Fatalf("second result %s", second)
+	}
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if len(provider.requests) != 2 {
+		t.Fatalf("calls = %d", len(provider.requests))
+	}
+	request, _ := json.Marshal(provider.requests[1])
+	for _, want := range []string{"Review the patch.", "found 3 issues", "Fix the first issue."} {
+		if !strings.Contains(string(request), want) {
+			t.Fatalf("continued request lacks %q: %s", want, request)
+		}
+	}
+}

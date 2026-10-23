@@ -801,6 +801,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 	flushToolResults()
 
+	// A continued subagent session starts from its earlier run.
+	if transient && len(transientRuntime.History) > 0 {
+		llmMessages = append(llmMessages, agentloop.SanitizeMessages(transientRuntime.History)...)
+	}
+
 	// Add current user message.
 	llmMessages = append(llmMessages, service.Message{
 		Role:    "user",
@@ -883,6 +888,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			Role:    "system",
 			Content: systemPrompt,
 		}}, llmMessages...)
+	}
+	if transient && transientRuntime.Save != nil {
+		defer func() {
+			history := llmMessages
+			if len(history) > 0 && history[0].Role == "system" {
+				history = history[1:]
+			}
+			transientRuntime.Save(append([]service.Message(nil), history...))
+		}()
 	}
 
 	// Trace identity: one agentic-loop turn is one trace; the chat

@@ -23,6 +23,68 @@ type subagentRuntimeContext struct {
 	ParentTraceID string
 	Session       service.ChatSession
 	SkillID       string
+	// History is an earlier run of the same subagent session, continued
+	// through agent_run's session_id. Save receives the run's messages
+	// (without the system prompt) when it ends.
+	History []service.Message
+	Save    func([]service.Message)
+}
+
+// subagentSession is the transcript of a finished subagent run, kept in
+// memory so the parent can continue it (agent_run session_id). Bound to the
+// account, workspace and agent that produced it.
+type subagentSession struct {
+	WorkspaceID string
+	UserID      string
+	AgentID     string
+	Messages    []service.Message
+	Used        time.Time
+}
+
+const (
+	subagentSessionTTL = time.Hour
+	subagentSessionMax = 512
+)
+
+func (s *Server) storeSubagentSession(id string, session subagentSession) {
+	session.Used = time.Now()
+	s.subagentMu.Lock()
+	defer s.subagentMu.Unlock()
+	if s.subagentSessions == nil {
+		s.subagentSessions = map[string]*subagentSession{}
+	}
+	now := time.Now()
+	oldestID, oldest := "", now
+	for key, value := range s.subagentSessions {
+		if now.Sub(value.Used) > subagentSessionTTL {
+			delete(s.subagentSessions, key)
+			continue
+		}
+		if value.Used.Before(oldest) {
+			oldestID, oldest = key, value.Used
+		}
+	}
+	if len(s.subagentSessions) >= subagentSessionMax && oldestID != "" {
+		delete(s.subagentSessions, oldestID)
+	}
+	s.subagentSessions[id] = &session
+}
+
+// subagentSessionFor returns a stored transcript the caller may continue.
+// A session of another account, workspace or agent reads as not found.
+func (s *Server) subagentSessionFor(ctx context.Context, id string, child *service.Agent) ([]service.Message, error) {
+	provenance, _, _ := service.ExecutionFromContext(ctx)
+	s.subagentMu.Lock()
+	defer s.subagentMu.Unlock()
+	stored := s.subagentSessions[id]
+	if stored == nil || time.Since(stored.Used) > subagentSessionTTL || stored.WorkspaceID != provenance.WorkspaceID || stored.UserID != provenance.UserID {
+		return nil, fmt.Errorf("subagent session %q not found (sessions are kept for an hour on the server that ran them)", id)
+	}
+	if stored.AgentID != child.ID {
+		return nil, fmt.Errorf("subagent session %q belongs to another agent", id)
+	}
+	stored.Used = time.Now()
+	return append([]service.Message(nil), stored.Messages...), nil
 }
 
 type subagentRuntimeContextKey struct{}
@@ -55,7 +117,9 @@ type backgroundSubagentRun struct {
 	// was started from Chats.
 	Artifacts     []chatArtifact
 	ArtifactsNote string
-	done          chan struct{}
+	// SessionID continues this run's conversation through agent_run.
+	SessionID string
+	done      chan struct{}
 }
 
 // subagentProgressFunc receives a one-line summary of what a running subagent
@@ -301,10 +365,28 @@ func (s *Server) execAgentRun(ctx context.Context, args map[string]any) (string,
 	if extra := strings.TrimSpace(stringArg(args, "context")); extra != "" {
 		task += "\n\nContext and constraints:\n" + extra
 	}
+	if sessionID := strings.TrimSpace(stringArg(args, "session_id")); sessionID != "" {
+		history, err := s.subagentSessionFor(ctx, sessionID, child)
+		if err != nil {
+			return "", err
+		}
+		ctx = contextWithSubagentContinuation(ctx, sessionID, history)
+	}
 	if background, _ := args["background"].(bool); background {
 		return s.startBackgroundSubagent(ctx, child, task, depth)
 	}
 	return s.runSubagentForeground(ctx, child, task, depth, "")
+}
+
+type subagentContinuationKey struct{}
+
+type subagentContinuation struct {
+	sessionID string
+	history   []service.Message
+}
+
+func contextWithSubagentContinuation(ctx context.Context, sessionID string, history []service.Message) context.Context {
+	return context.WithValue(ctx, subagentContinuationKey{}, subagentContinuation{sessionID: sessionID, history: history})
 }
 
 func (s *Server) workflowAgentRunner(ctx context.Context, parentAgentID, name string, args map[string]any) (string, error) {
@@ -324,19 +406,30 @@ func (s *Server) runSubagentForeground(ctx context.Context, child *service.Agent
 	if childTraceID == "" {
 		childTraceID = ulid.Make().String()
 	}
+	sessionID := "subagent_" + ulid.Make().String()
+	continuation, _ := ctx.Value(subagentContinuationKey{}).(subagentContinuation)
+	if continuation.sessionID != "" {
+		sessionID = continuation.sessionID
+	}
 	runtime := subagentRuntimeContext{
 		Depth:         depth + 1,
 		TraceID:       childTraceID,
 		ParentTraceID: chatTraceIDFromContext(ctx),
 		SkillID:       subagentSkillFromContext(ctx),
 		Session: service.ChatSession{
-			ID:          "subagent_" + ulid.Make().String(),
+			ID:          sessionID,
 			WorkspaceID: provenance.WorkspaceID,
 			OwnerUserID: provenance.UserID,
 			AgentID:     child.ID,
 			Name:        "Subagent: " + child.Name,
 		},
+		History: continuation.history,
+		Save: func(messages []service.Message) {
+			s.storeSubagentSession(sessionID, subagentSession{WorkspaceID: provenance.WorkspaceID, UserID: provenance.UserID, AgentID: child.ID, Messages: messages})
+		},
 	}
+	// A nested agent_run must not inherit this continuation.
+	ctx = context.WithValue(ctx, subagentContinuationKey{}, subagentContinuation{})
 	childCtx := contextWithSubagentRuntime(ctx, runtime)
 	childCtx = contextWithChatTraceID(childCtx, childTraceID)
 
@@ -367,6 +460,7 @@ func (s *Server) runSubagentForeground(ctx context.Context, child *service.Agent
 	payload, err := json.Marshal(map[string]any{
 		"agent_id":        child.ID,
 		"agent_name":      child.Name,
+		"session_id":      sessionID,
 		"result":          final,
 		"trace_id":        childTraceID,
 		"parent_trace_id": runtime.ParentTraceID,
@@ -478,6 +572,12 @@ func (s *Server) startBackgroundSubagent(ctx context.Context, child *service.Age
 			var result struct {
 				Result string `json:"result"`
 			}
+			var session struct {
+				SessionID string `json:"session_id"`
+			}
+			if json.Unmarshal([]byte(payload), &session) == nil {
+				run.SessionID = session.SessionID
+			}
 			if json.Unmarshal([]byte(payload), &result) == nil {
 				run.Result = result.Result
 			} else {
@@ -558,6 +658,9 @@ func marshalBackgroundSubagent(run *backgroundSubagentRun) (string, error) {
 	}
 	if run.Result != "" {
 		payload["result"] = run.Result
+	}
+	if run.SessionID != "" {
+		payload["session_id"] = run.SessionID
 	}
 	if run.Error != "" {
 		payload["error"] = run.Error

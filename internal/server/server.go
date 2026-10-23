@@ -262,6 +262,8 @@ type Server struct {
 	// no durable organization task and disappear after a short terminal TTL.
 	activeSubagents           sync.Map
 	subagentMu                sync.Mutex
+	// subagentSessions keeps finished subagent transcripts for continuation.
+	subagentSessions map[string]*subagentSession
 	agentRuntimeSettingsStore service.AgentRuntimeSettingsStorer
 
 	version   string
