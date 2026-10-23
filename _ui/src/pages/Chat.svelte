@@ -995,6 +995,8 @@
   let parentTitle = $state('');
   let meta = $state<MessageMeta[]>([]);
   let showShareDialog = $state(false);
+  /** /btw: a side question answered from the current context, never saved. */
+  let sideQuestion = $state<{ question: string; answer: string; busy: boolean; error: string; controller: AbortController } | null>(null);
   let conversations = $state<PlaygroundConversation[]>([]);
   let conversationsLoading = $state(false);
   let conversationsCursor = $state('');
@@ -2692,6 +2694,7 @@
   interface BuiltinCommand { name: string; description: string; args?: string; disabled?: boolean; run: (args: string) => void }
 
   let builtinCommands = $derived<BuiltinCommand[]>([
+    { name: 'btw', args: '<question>', description: 'Ask a side question about this chat; the answer is not added to the conversation', disabled: !selectedModel || isLocalModelRef(selectedModel), run: args => void askSideQuestion(args) },
     { name: 'compact', args: '[focus]', description: 'Summarize the conversation so far and continue from the summary', disabled: !canCompact, run: args => void compactConversation(args) },
     { name: 'new', description: 'Start a new chat', run: () => newConversation() },
     { name: 'clear', description: 'Clear the transcript (asks to confirm)', disabled: streaming || saving || messages.length === 0, run: () => { showSessionPanel = true; requestClear(); } },
@@ -2798,6 +2801,52 @@
       userInput = typed;
       addToast(e?.response?.data?.message || e?.message || 'Failed to load the MCP prompt', 'alert');
     }
+  }
+
+  /**
+   * /btw <question>: one tools-off call to the selected model with the context
+   * the model currently sees plus the question. The answer opens in a dialog
+   * and is neither stored nor sent with later messages (OpenCode's /btw).
+   * It runs beside a turn without disturbing it.
+   */
+  async function askSideQuestion(question: string) {
+    question = question.trim();
+    if (!question) { addToast('Usage: /btw <question>', 'warn'); return; }
+    if (!selectedModel || isLocalModelRef(selectedModel)) return;
+    sideQuestion?.controller.abort();
+    const controller = new AbortController();
+    const state = { question, answer: '', busy: true, error: '', controller };
+    sideQuestion = state;
+    const pair = { model: selectedModel, sessionId: conversationId || scratchSessionId || '' };
+    try {
+      // The saved transcript goes by reference; unsaved messages stay inline.
+      const context = { systemPrompt: [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n') };
+      const settled = messages.filter((m, i) => !(i === messages.length - 1 && m.role === 'assistant' && streaming));
+      const { reqMessages, needsPrefix } = await buildRequestMessages(context, settled, false, () => controller.signal.throwIfAborted());
+      reqMessages.push({ role: 'user', content: `Side question (answer briefly; do not continue the task, do not call tools): ${question}` });
+      await streamChatCompletion('api/v1/chats/completions', {
+        model: pair.model,
+        messages: reqMessages,
+        tool_choice: 'none',
+        stream: true,
+        at_conversation_id: conversationId || undefined,
+        at_history_before: historyTruncated && needsPrefix ? (meta[0]?.id || historyCursor) : undefined,
+        metadata: pair.sessionId ? { session_id: pair.sessionId } : undefined,
+      }, {
+        requireComplete: true,
+        onDelta: delta => { if (sideQuestion === state) sideQuestion = { ...state, answer: (state.answer = mergeDeltaContent(state.answer, delta) as string) }; },
+        onToolCalls: () => {},
+        onError: () => {},
+      }, controller.signal, { 'x-at-trace-name': 'chats side question' });
+      if (sideQuestion?.controller === controller) sideQuestion = { ...state, busy: false };
+    } catch (e: any) {
+      if (sideQuestion?.controller === controller && e?.name !== 'AbortError') sideQuestion = { ...state, busy: false, error: e?.message || 'The side question failed' };
+    }
+  }
+
+  function closeSideQuestion() {
+    sideQuestion?.controller.abort();
+    sideQuestion = null;
   }
 
   // ─── Compaction ───
@@ -3246,7 +3295,7 @@
    * no longer reach the model. Saved rows go by reference unless the call is
    * made by this browser (a local provider), which needs them inline.
    */
-  async function buildRequestMessages(turn: TurnContext, history: ChatMessage[], inline: boolean) {
+  async function buildRequestMessages(turn: Pick<TurnContext, 'systemPrompt'> & Partial<TurnContext>, history: ChatMessage[], inline: boolean, assertCurrent: () => void = () => turnLifecycle.assert(turn as TurnContext)) {
     const reqMessages: RequestMessage[] = [];
     if (turn.systemPrompt) reqMessages.push({ role: 'system', content: turn.systemPrompt });
     const boundary = compactionStart(meta.slice(0, history.length).map(m => m?.compaction));
@@ -3258,7 +3307,7 @@
         continue;
       }
       const msg: any = { role: m.role, content: await outgoingContent(m.content, m.role) };
-      turnLifecycle.assert(turn);
+      assertCurrent();
       if (m.tool_calls) msg.tool_calls = m.tool_calls;
       if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
       reqMessages.push(msg);
@@ -4106,6 +4155,33 @@
   {#if dragging}
     <div class="absolute inset-0 z-50 bg-dark-base/70 border border-dashed border-accent flex items-center justify-center pointer-events-none">
       <div class="bg-dark-surface px-4 py-2 text-dark-text">drop files to attach — saved to history when media storage is configured</div>
+    </div>
+  {/if}
+
+  {#if sideQuestion}
+    {@const sq = sideQuestion}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-[10vh]" onclick={e => { if (e.target === e.currentTarget) closeSideQuestion(); }} onkeydown={e => { if (e.key === 'Escape') closeSideQuestion(); }}>
+      <div role="dialog" aria-modal="true" aria-label="Side question" tabindex="-1" class="flex max-h-[75vh] w-full max-w-2xl flex-col border border-dark-border bg-dark-surface">
+        <div class="flex items-center gap-2 border-b border-dark-border px-4 py-3">
+          <span class="text-xs text-[var(--oc-violet)]">/btw</span>
+          <span class="min-w-0 flex-1 truncate text-sm text-dark-text">{sq.question}</span>
+          {#if !sq.busy && sq.answer}
+            <button type="button" class="px-2 py-1 text-xs text-dark-text-secondary hover:bg-dark-elevated" onclick={() => { void navigator.clipboard?.writeText(sq.answer); addToast('Copied', 'info'); }}>copy</button>
+          {/if}
+          <button type="button" class="px-2 py-1 text-xs text-dark-text-secondary hover:bg-dark-elevated" onclick={closeSideQuestion} aria-label="Close">esc</button>
+        </div>
+        <div class="min-h-0 overflow-y-auto px-4 py-3 text-sm">
+          {#if sq.error}
+            <p class="text-oc-red">{sq.error}</p>
+          {:else if sq.answer}
+            <MessageContent message={{ role: 'assistant', content: sq.answer }} workspace={workspaceTransport.selected} formatSize={formatFileSize} />
+          {:else}
+            <p class="text-dark-text-muted">thinking…</p>
+          {/if}
+        </div>
+        <p class="border-t border-dark-border px-4 py-2 text-[11px] text-dark-text-muted">Not added to the conversation.</p>
+      </div>
     </div>
   {/if}
 

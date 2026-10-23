@@ -1432,6 +1432,11 @@ workspace commands are rows in `workspace_chat_commands` (migration 94,
 `/api/v1/chats/workspace-commands`), listed and run by every Chats member and
 changed only by their creator — the preset model. All are `models.use`.
 
+`/btw <question>` asks the selected model a side question with the context
+it currently sees (same request building as a turn, tools off) and shows the
+answer in a dialog; nothing is stored or sent with later messages, and it can
+run beside a turn (`askSideQuestion`; not offered for local providers).
+
 `/compact` asks the current model (tools off) to summarise what the model
 currently sees, stores the answer as an assistant message with
 `data.compaction: true`, and every later model call starts at the latest such

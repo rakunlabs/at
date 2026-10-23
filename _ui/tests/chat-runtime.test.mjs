@@ -7,7 +7,7 @@ import { moduleURL } from './typescript-module.mjs';
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
 const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail', 'buildRequestMessages', 'storeCompaction', 'autoCompactAfterOverflow'];
+const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail', 'buildRequestMessages', 'storeCompaction', 'autoCompactAfterOverflow', 'askSideQuestion'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast));
 assert.equal(functions.length, names.length);
 const writer = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'transcriptWriter')).getText(ast);
@@ -31,7 +31,7 @@ export function fixture() {
   let streaming = false, saving = false, disposed = false, abortController = null, loadingTools = false;
   let queuedMessages = [], activeTurn = null;
   let conversationId = '', scratchSessionId = '', routedId = '', conversation = null, savedSettings = null;
-  let historyTruncated = false, historyCursor = '';
+  let historyTruncated = false, historyCursor = '', sideQuestion = null;
   const callUsage = u => u;
   let messages = [], meta = [], conversations = [], rawMessages = {}, pendingImages = [], pendingRefusals = [];
   let turnSkillRuns = [], skillRunProgress = {}, turnArtifacts = [], skillSystemPrompts = [], turnTraceId = '';
@@ -84,7 +84,7 @@ export function fixture() {
   ${writer}
   ${functions.join('\n')}
   return {
-    sendMessage, persistPending, sendQueuedNow, interruptAndSend,
+    sendMessage, persistPending, sendQueuedNow, interruptAndSend, askSideQuestion, side: () => sideQuestion,
     stop() { abortController?.abort(); },
     setCreate(value) { createImpl = value; }, setStream(value) { streamImpl = value; }, setTool(value) { toolImpl = value; }, setUpload(value) { uploadImpl = value; },
     type(text) { userInput = text; },
@@ -418,4 +418,22 @@ test('other errors do not trigger automatic compaction', async () => {
   chat.setStream(async () => { throw new Error('rate limit exceeded'); });
   await chat.sendMessage();
   assert.equal(chat.snapshot().streams.length, 1);
+});
+
+test('/btw answers from the current context without touching the transcript', async () => {
+  const chat = fixture();
+  await chat.sendMessage();
+  const before = chat.snapshot();
+  const transcript = JSON.stringify(before.messages), appends = before.appends.length;
+  chat.setStream(async (callbacks) => { callbacks.onDelta('It is a greeting.'); });
+  await chat.askSideQuestion('what did I ask?');
+  const s = chat.snapshot();
+  const call = s.streams.at(-1).body;
+  assert.equal(call.tool_choice, 'none');
+  assert.match(call.messages.at(-1).content, /Side question.*what did I ask\?/);
+  assert.ok(call.messages.some(m => m.at_message_id), 'saved history goes by reference');
+  assert.equal(chat.side().answer, 'It is a greeting.');
+  assert.equal(chat.side().busy, false);
+  assert.equal(JSON.stringify(s.messages), transcript);
+  assert.equal(s.appends.length, appends);
 });
