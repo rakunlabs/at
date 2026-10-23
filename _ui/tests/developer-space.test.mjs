@@ -160,6 +160,8 @@ test('tool summaries describe the call', () => {
   assert.equal(helper.toolSummary({ name: 'run_command', input: { command: 'go', args: ['test', './...'] } }), 'go test ./...');
   assert.equal(helper.toolSummary({ name: 'edit_file', input: { path: 'x.ts' } }), 'x.ts');
   assert.equal(helper.toolSummary({ name: 'search', input: { pattern: 'TODO', path: 'src' } }), 'TODO in src');
+  assert.equal(helper.toolSummary({ name: 'bash', input: { command: 'npm run dev', background: true } }), '[background] npm run dev');
+  assert.equal(helper.toolSummary({ name: 'patch', input: { patch: '*** Begin Patch\n*** Add File: a.go\n+x\n*** Update File: b.go\n*** Delete File: c.go\n*** End Patch' } }), 'a.go, b.go +1');
 });
 
 function stream(text, chunk = 3) {

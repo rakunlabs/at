@@ -45,11 +45,22 @@ var developerAgentTools = []service.Tool{
 		"new_text":    map[string]any{"type": "string"},
 		"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence"},
 	}, "required": []string{"path", "old_text", "new_text"}}},
+	{Name: "patch", Description: developerPatchDescription, InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"patch": map[string]any{"type": "string", "description": "The full patch text, from *** Begin Patch to *** End Patch"},
+	}, "required": []string{"patch"}}},
 	{Name: "bash", Description: developerBashDescription, InputSchema: map[string]any{"type": "object", "properties": map[string]any{
 		"command":     map[string]any{"type": "string", "description": "The command to run"},
-		"timeout":     map[string]any{"type": "integer", "description": "Optional timeout in milliseconds (default 120000, max 600000)"},
+		"timeout":     map[string]any{"type": "integer", "description": "Optional timeout in milliseconds (default 120000, max 600000); ignored with background"},
+		"background":  map[string]any{"type": "boolean", "description": "Start the command detached and return a job_id at once (for servers, watchers, long builds)"},
 		"description": map[string]any{"type": "string", "description": "Five to ten words saying what the command does"},
 	}, "required": []string{"command"}}},
+	{Name: "bash_output", Description: "Read the output of a background bash job and whether it is still running. Without job_id, list the jobs.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"job_id": map[string]any{"type": "string"},
+		"offset": map[string]any{"type": "integer", "description": "Byte offset to read from; pass the value the previous call reported to read only new output"},
+	}}},
+	{Name: "bash_kill", Description: "Stop a background bash job.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+		"job_id": map[string]any{"type": "string"},
+	}, "required": []string{"job_id"}}},
 	{Name: "todo_write", Description: "Create or replace your task list for this session. Use it for work with several steps: add the steps, mark one in_progress while you work on it and completed as soon as it is done. Send the whole list every time.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{
 		"todos": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{
 			"id":       map[string]any{"type": "string"},
@@ -93,8 +104,14 @@ func developerToolAction(call service.ToolCall) (string, string) {
 		return "git", "diff"
 	case "write_file", "edit_file":
 		return "edit", stringArg(call.Arguments, "path")
+	case "patch":
+		return "edit", "*"
 	case "bash", "run_command":
 		return "shell", stringArg(call.Arguments, "command")
+	case "bash_output":
+		return "read", "*"
+	case "bash_kill":
+		return "shell", "kill"
 	case "ask_user":
 		return "question", "user"
 	default:
@@ -569,8 +586,13 @@ func (s *Server) runDeveloperToolCall(r *http.Request, stream *runEventStream, h
 			}
 		}
 	}
+	var patched []string
 	if execute {
-		if isDeveloperContainerTool(call.Name) {
+		if call.Name == "patch" {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+			output, patched, toolErr = s.applyDeveloperPatch(ctx, h, session.ProjectPath, stringArg(call.Arguments, "patch"))
+			cancel()
+		} else if isDeveloperContainerTool(call.Name) {
 			output, toolErr = s.executeDeveloperTool(r, h, session, call, kit.toolTimeout)
 		} else {
 			timeout := kit.toolTimeout
@@ -589,13 +611,42 @@ func (s *Server) runDeveloperToolCall(r *http.Request, stream *runEventStream, h
 			output = "tool error: " + toolErr.Error() + developerOutputSuffix(output)
 		}
 	}
+	// Files this call changed, project-relative.
+	var edited []string
+	if execute && toolErr == nil {
+		switch call.Name {
+		case "write_file", "edit_file":
+			if rel, err := developerProjectFilePath(stringArg(call.Arguments, "path")); err == nil {
+				edited = []string{rel}
+			}
+		case "patch":
+			edited = patched
+		}
+	}
+	if len(edited) > 0 && developerFormatterEnabled(h.space) {
+		if formatted := s.formatDeveloperFiles(r.Context(), h, session.ProjectPath, edited); len(formatted) > 0 {
+			output += "\n(formatted: " + strings.Join(formatted, ", ") + "; read the file again before editing it further)"
+		}
+	}
+	if execute && toolErr == nil && (call.Name == "read_file" || call.Name == "list_files" || call.Name == "glob" || call.Name == "search") {
+		if target := stringArg(call.Arguments, "path"); target != "" {
+			if rel, err := service.CleanDeveloperPath(target); err == nil && rel != "" {
+				output += s.nestedDeveloperInstructions(r.Context(), h, session.ProjectPath, rel, &kit.nested, call.Name != "read_file")
+			}
+		}
+	}
 	output, block := agentloop.ToolResult(s.loopGov, session.ID, call, output)
 	s.recordDeveloperToolObservation(r, session, traceID, parentID, call, output, time.Since(started).Milliseconds(), toolErr)
 	event := map[string]any{"type": "tool_result", "tool_id": call.ID, "tool_name": call.Name, "error": toolErr != nil}
-	if execute && toolErr == nil && (call.Name == "write_file" || call.Name == "edit_file") {
-		if rel, err := developerProjectFilePath(stringArg(call.Arguments, "path")); err == nil {
-			event["changed"] = []string{developerJoin(session.ProjectPath, rel)}
+	if len(edited) > 0 {
+		changed := make([]string, 0, len(edited))
+		for _, rel := range edited {
+			changed = append(changed, developerJoin(session.ProjectPath, rel))
 		}
+		event["changed"] = changed
+	}
+	if execute && call.Name == "patch" {
+		event["changed_tree"] = true
 	}
 	if execute && (call.Name == "run_command" || call.Name == "bash") {
 		// A command may have touched anything; the page refreshes its tree.
@@ -890,7 +941,18 @@ func (s *Server) executeDeveloperTool(r *http.Request, h *developerRuntimeHandle
 	project := session.ProjectPath
 	switch call.Name {
 	case "bash":
+		if boolArg(call.Arguments, "background") {
+			command := stringArg(call.Arguments, "command")
+			if strings.TrimSpace(command) == "" {
+				return "", fmt.Errorf("command is required")
+			}
+			return s.startDeveloperBackgroundJob(r.Context(), h, project, command)
+		}
 		return s.runDeveloperBash(r.Context(), h, project, call.Arguments)
+	case "bash_output":
+		return s.developerJobOutput(r.Context(), h, call.Arguments)
+	case "bash_kill":
+		return s.killDeveloperJob(r.Context(), h, call.Arguments)
 	case "todo_write":
 		return s.writeDeveloperTodos(r.Context(), h, session, call.Arguments)
 	case "todo_read":

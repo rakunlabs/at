@@ -28,7 +28,8 @@ const (
 const developerBashDescription = "Run a shell command in the project folder with `bash -c` (falls back to `sh` when bash is missing). " +
 	"Pipes, redirection, `&&`, environment variables and globbing work. Each call is a fresh shell: `cd` and exported variables do not carry over, so chain them in one command. " +
 	"The default timeout is 2 minutes (pass timeout in milliseconds, up to 10 minutes); a command that runs longer is killed. stdout and stderr are combined, and long output is truncated in the middle. " +
-	"Do not use it for reading, searching or editing files: use read_file, glob, search and edit_file instead. Do not start servers or watchers that never exit."
+	"Do not use it for reading, searching or editing files: use read_file, glob, search and edit_file instead. " +
+	"For servers, watchers or anything that runs long, pass background: true: the command keeps running after the call, and bash_output / bash_kill read and stop it."
 
 // developerNumberedLines renders content like `cat -n`: a right-aligned line
 // number, a tab, then the line. offset is 1-based.

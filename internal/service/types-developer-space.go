@@ -71,6 +71,8 @@ type DeveloperSpaceConfig struct {
 	Plan   DeveloperAgentProfile `json:"plan,omitempty"`
 	Build  DeveloperAgentProfile `json:"build,omitempty"`
 	Review DeveloperAgentProfile `json:"review,omitempty"`
+	// DisableFormatter turns off formatting files after agent edits.
+	DisableFormatter bool `json:"disable_formatter,omitempty"`
 }
 
 // DefaultDeveloperSpaceConfig is deliberately conservative. Plan and Review

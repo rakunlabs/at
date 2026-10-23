@@ -240,7 +240,12 @@ export function toolSummary(call: { name: string; input: Record<string, unknown>
     case 'list_files': return str('path') || '.';
     case 'glob': return str('pattern') + (str('path') ? ` in ${str('path')}` : '');
     case 'search': return str('pattern') + (str('include') ? ` (${str('include')})` : '') + (str('path') ? ` in ${str('path')}` : '');
-    case 'bash': return str('command');
+    case 'bash': return (input.background ? '[background] ' : '') + str('command');
+    case 'bash_output': case 'bash_kill': return str('job_id');
+    case 'patch': {
+      const files = str('patch').split('\n').filter(l => /^\*\*\* (Add|Update|Delete) File: /.test(l)).map(l => l.replace(/^\*\*\* \w+ File: /, ''));
+      return files.length <= 2 ? files.join(', ') : `${files.slice(0, 2).join(', ')} +${files.length - 2}`;
+    }
     case 'run_command': {
       const args = Array.isArray(input.args) ? (input.args as unknown[]).map(String) : [];
       return [str('command'), ...args].join(' ');

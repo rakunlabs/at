@@ -86,7 +86,7 @@
   let runtimeConnected = $state(false);
   let settingsOpen = $state(false);
   let settingsSaving = $state(false);
-  let settingsForm = $state({ image: '', cpu: '', memory: '', diskGiB: '' });
+  let settingsForm = $state({ image: '', cpu: '', memory: '', diskGiB: '', format: true });
   let uploadInput: HTMLInputElement;
   let uploadFolder = '';
 
@@ -214,6 +214,7 @@
       cpu: space.cpu_limit || '',
       memory: space.memory_limit || '',
       diskGiB: space.disk_limit_bytes ? String(+(space.disk_limit_bytes / 2 ** 30).toFixed(2)) : '',
+      format: !space.config?.disable_formatter,
     };
     settingsOpen = true;
   }
@@ -226,22 +227,27 @@
       addToast('Disk limit must be a positive number of GiB', 'alert');
       return;
     }
-    const running = space.status === 'ready';
+    // Only container settings need a restart; the formatter switch does not.
+    const containerChanged = settingsForm.image.trim() !== (space.image || '') || settingsForm.cpu.trim() !== (space.cpu_limit || '')
+      || settingsForm.memory.trim() !== (space.memory_limit || '') || diskBytes !== (space.disk_limit_bytes || 0);
+    const running = space.status === 'ready' && containerChanged;
     if (running && dirty.size && !confirm('Applying these settings restarts the container. You have unsaved files; continue? Unsaved edits stay in the editor.')) return;
     settingsSaving = true;
     try {
       // PUT replaces the record, so the stored profiles are sent back unchanged.
       space = await updateDeveloperSpace({
         image: settingsForm.image.trim(), cpu_limit: settingsForm.cpu.trim(), memory_limit: settingsForm.memory.trim(),
-        disk_limit_bytes: diskBytes, config: space.config,
+        disk_limit_bytes: diskBytes, config: { ...space.config, disable_formatter: !settingsForm.format },
       });
       settingsOpen = false;
       if (running) {
         addToast('Settings saved. Restarting the container; packages installed in the old one are not carried over.', 'info');
         terminals = [];
         await start();
-      } else {
+      } else if (containerChanged) {
         addToast('Settings saved. They apply the next time the space starts.', 'info');
+      } else {
+        addToast('Settings saved.', 'info');
       }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not save the settings', 'alert');
@@ -843,6 +849,7 @@
         <label class="w-24">CPU cores<input bind:value={settingsForm.cpu} placeholder="2" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
         <label class="w-24">Memory<input bind:value={settingsForm.memory} placeholder="4g" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
         <label class="w-24">Disk (GiB)<input bind:value={settingsForm.diskGiB} placeholder="20" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
+        <label class="flex items-center gap-1.5 py-1.5" title="After the agent edits a file, run gofmt, prettier, ruff, rustfmt, shfmt… when installed in the space"><input type="checkbox" bind:checked={settingsForm.format} />Format after edits</label>
         <button type="submit" disabled={settingsSaving || starting} class="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-dark-base disabled:opacity-50 bg-accent">{#if settingsSaving}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{space.status === 'ready' ? 'Save & restart' : 'Save'}</button>
         <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
       </div>

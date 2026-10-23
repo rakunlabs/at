@@ -6,7 +6,7 @@ const api = axios.create({ baseURL: 'api/v1' });
 
 export interface DeveloperToolRule { action: string; resource: string; effect: 'allow' | 'ask' | 'deny' }
 export interface DeveloperAgentProfile { system_prompt?: string; max_iterations?: number; tool_timeout_seconds?: number; rules?: DeveloperToolRule[] }
-export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: DeveloperAgentProfile; review?: DeveloperAgentProfile }
+export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: DeveloperAgentProfile; review?: DeveloperAgentProfile; disable_formatter?: boolean }
 
 export const DEFAULT_DEVELOPER_IMAGE = 'debian:13.7-slim';
 

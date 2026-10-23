@@ -3596,6 +3596,28 @@ mapping) and `@path` mentions, whose numbered contents are added as text
 blocks. Slash commands in the composer: `/compact [focus]`, `/undo`, `/redo`,
 `/new`, `/model`, `/agent`, `/effort [level]`, `/todos`.
 
+**More container tools.** `patch` applies a multi-file `*** Begin Patch`
+document (Add/Update/Move/Delete; hunks located by context and removed lines,
+tolerant of trailing/surrounding whitespace, `@@ line` anchors and
+`*** End of File`; `developer-patch.go`). Every operation is read and checked
+before anything is written, so a hunk that does not apply changes nothing.
+It is an `edit` action for profiles. `bash` with `background: true` starts the
+command detached (`setsid`/`nohup`) with combined output in
+`/tmp/at-jobs/<ulid>.log` and returns a job ID; `bash_output` (`job_id`,
+`offset`; no ID lists jobs) reads it and reports running/finished (the
+`[exit N]` line written on completion, zombies count as finished), and
+`bash_kill` stops the process group. Jobs live as long as the container.
+After `write_file` / `edit_file` / `patch` the changed files are formatted by
+the first installed formatter for their extension (gofmt, rustfmt, ruff,
+project-local prettier or biome, shfmt, terraform, clang-format with a
+`.clang-format`); a missing or failing formatter is skipped, and a rewrite is
+reported in the tool result. `DeveloperSpaceConfig.disable_formatter`
+(settings → *Format after edits*) turns it off without a restart. A
+sub-folder `AGENTS.md` (else `CLAUDE.md`) is appended as a `<system-reminder>`
+to the result of the first `read_file`/`list_files`/`glob`/`search` inside
+that folder, once per run, nearest first. Regressions:
+`developer-patch_test.go`, `TestDeveloperPatchJobsAndFormatInDocker`.
+
 `/compact` is `run` with `compact: true`: the model (tools off, tool blocks
 flattened to text) summarizes, and the result is stored as an assistant
 message with `kind = 'compaction'`. `developerMessages` starts at the latest

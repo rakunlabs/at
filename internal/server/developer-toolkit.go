@@ -33,6 +33,9 @@ type developerToolkit struct {
 	builtins map[string]bool
 	mcp      *agentMCPTools
 	confirm  map[string]bool
+
+	// nested tracks sub-folder AGENTS.md files already added this run.
+	nested developerNestedInstructions
 }
 
 func (k *developerToolkit) Close() {
@@ -97,6 +100,7 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		return &developerToolkit{
 			profile: profile, systemPrompt: profile.SystemPrompt, tools: developerAgentTools,
 			maxIterations: profile.MaxIterations, toolTimeout: profile.ToolTimeoutSeconds,
+			nested: developerNestedInstructions{seen: map[string]bool{}},
 		}, nil
 	}
 	if s.agentStore == nil {
@@ -117,6 +121,7 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		agent: agent, maxIterations: agent.Config.MaxIterations, toolTimeout: agent.Config.ToolTimeout,
 		reasoningEffort: agent.Config.ReasoningEffort,
 		builtins:        map[string]bool{}, confirm: map[string]bool{},
+		nested: developerNestedInstructions{seen: map[string]bool{}},
 	}
 	for _, name := range agent.Config.ConfirmationRequiredTools {
 		kit.confirm[name] = true
