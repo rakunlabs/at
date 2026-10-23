@@ -11,7 +11,7 @@ export function builtinFamily(tool: BuiltinToolDef): string {
   if (tool.family) return tool.family;
   if (tool.name === 'bash_execute') return 'builtin_shell';
   if (tool.name === 'js_execute') return 'builtin_script';
-  if (['http_request', 'url_fetch'].includes(tool.name)) return 'builtin_http';
+  if (['http_request', 'url_fetch', 'search_web'].includes(tool.name)) return 'builtin_http';
   return 'builtin_other';
 }
 

@@ -100,6 +100,7 @@ var builtinToolBindings = []builtinToolBinding{
 	{Name: "bash_execute", Execute: (*Server).execBash, Class: builtinHost},
 	{Name: "js_execute", Execute: (*Server).execJS, Class: builtinHost},
 	{Name: "url_fetch", Execute: (*Server).execURLFetch, Class: builtinHost},
+	{Name: "search_web", Execute: (*Server).execWebSearch, Class: builtinHost},
 	{Name: "file_read", Execute: (*Server).execScopedFileRead, Class: builtinNonHost},
 	{Name: "file_write", Execute: (*Server).execScopedFileWrite, Class: builtinNonHost},
 	{Name: "file_edit", Execute: (*Server).execFileEdit, Class: builtinHostFiles},

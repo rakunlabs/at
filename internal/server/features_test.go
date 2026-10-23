@@ -487,6 +487,7 @@ func TestBuiltinToolFeatureKey(t *testing.T) {
 		"js_execute":      service.FeatureBuiltinScript,
 		"http_request":    service.FeatureBuiltinHTTP,
 		"url_fetch":       service.FeatureBuiltinHTTP,
+		"search_web":      service.FeatureBuiltinHTTP,
 		"file_read":       service.FeatureFiles,
 		"workflow_run":    service.FeatureWorkflowBuilder,
 		"trigger_create":  service.FeatureWorkflowBuilder,

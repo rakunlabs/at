@@ -3245,6 +3245,19 @@ redirects are reported, `timeout` is seconds (default 30, max 120) and
 up to 5 MiB before conversion). It still reaches any address the server can,
 like `http_request`. Regression: `internal/server/url-fetch_test.go`.
 
+## `search_web`: hosted web search for any model
+
+`search_web` (host tool, `builtin_http`; named so it never collides with the
+`web_search` name provider adapters turn into native search) queries Tavily,
+Exa, Brave or Firecrawl with a key read from the workspace variables
+`tavily_api_key`, `exa_api_key`, `brave_api_key`, `firecrawl_api_key`
+(through `variables.use` when a run is bound). Every provider with a key is
+tried in that order; `web_search_provider` names one to try first or `random`.
+A 429 puts the provider in an in-memory cooldown (`Retry-After`, default 60s,
+1s–15m, per replica) and the next one is tried; all cooling down is an error.
+Results are title, URL and a ≤1200-char snippet; reading a result is
+`url_fetch`. Regression: `internal/server/builtin-tools-web-search_test.go`.
+
 ## Built-in "get" tools take one identifier or a list
 
 Every record-fetching built-in (`agent_get`, `task_get`, `org_get`,

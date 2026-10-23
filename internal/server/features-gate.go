@@ -424,7 +424,7 @@ func builtinToolFamily(name string) string {
 		return service.FeatureBuiltinShell
 	case "js_execute":
 		return service.FeatureBuiltinScript
-	case "http_request", "url_fetch":
+	case "http_request", "url_fetch", "search_web":
 		return service.FeatureBuiltinHTTP
 	default:
 		return service.FeatureBuiltinOther
@@ -452,7 +452,7 @@ func builtinToolFeatureKey(name string) string {
 		return service.FeatureBuiltinShell
 	case "js_execute":
 		return service.FeatureBuiltinScript
-	case "http_request", "url_fetch":
+	case "http_request", "url_fetch", "search_web":
 		return service.FeatureBuiltinHTTP
 	case "active_delegation_list":
 		return service.FeatureTasks
