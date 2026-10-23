@@ -460,9 +460,9 @@
     await changeSettings({ reasoning_effort: level });
   }
 
-  async function decide(approved: boolean) {
+  async function decide(approved: boolean, always = false) {
     if (busy) return;
-    await stream('confirm', { approved });
+    await stream('confirm', { approved, always });
   }
 
   async function reply() {
@@ -691,6 +691,7 @@
             </ul>
             <div class="mt-3 flex gap-2">
               <button type="button" onclick={() => decide(true)} class="inline-flex items-center gap-1.5 bg-accent px-3 py-1.5 text-xs font-medium text-dark-base hover:bg-accent-hover"><Check size={13} /> Allow</button>
+              <button type="button" onclick={() => decide(true, true)} class="inline-flex items-center gap-1.5 border border-dark-border-subtle px-3 py-1.5 text-xs text-dark-text hover:bg-dark-elevated" title="Allow and stop asking in this session for the same command (its first word) or tool"><Check size={13} /> Always allow</button>
               <button type="button" onclick={() => decide(false)} class="inline-flex items-center gap-1.5 border border-dark-border-subtle px-3 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated"><X size={13} /> Reject</button>
             </div>
           </div>

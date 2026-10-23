@@ -175,6 +175,18 @@ func TestDeveloperSessionWorkbench(t *testing.T) {
 		t.Fatalf("todos: %+v %v", todos, err)
 	}
 
+	approved, err := p.AddDeveloperSessionApprovals(ctx, session.ID, []service.DeveloperApproval{{Action: "shell", Resource: "go *"}, {Action: "shell", Resource: "go *"}, {Action: "", Resource: "x"}})
+	if err != nil || len(service.DeveloperSessionApprovals(approved)) != 1 {
+		t.Fatalf("approvals: %+v %v", approved, err)
+	}
+	approved, err = p.AddDeveloperSessionApprovals(ctx, session.ID, []service.DeveloperApproval{{Action: "edit", Resource: "*"}})
+	if err != nil || len(service.DeveloperSessionApprovals(approved)) != 2 {
+		t.Fatalf("approvals append: %+v %v", approved, err)
+	}
+	if reread, _ := p.GetDeveloperSession(ctx, session.ID); len(service.DeveloperSessionApprovals(reread)) != 2 {
+		t.Fatalf("approvals not persisted: %+v", reread.Config)
+	}
+
 	first, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: "first", Snapshot: "tree-1"})
 	if err != nil || first.Snapshot != "tree-1" {
 		t.Fatalf("first: %+v %v", first, err)

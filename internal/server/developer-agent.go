@@ -807,12 +807,29 @@ func (s *Server) captureDeveloperSnapshot(r *http.Request, session *service.Deve
 func (s *Server) ConfirmDeveloperSessionToolAPI(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Approved bool `json:"approved"`
+		// Always also records a grant so similar calls in this session run
+		// without asking (OpenCode's "always").
+		Always bool `json:"always"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	s.resumeDeveloperSession(w, r, "permission", func(r *http.Request, stream *runEventStream, h *developerRuntimeHandle, session *service.DeveloperSession, kit *developerToolkit, pending *service.DeveloperPendingTool) []service.ContentBlock {
+		if req.Approved && req.Always {
+			var grants []service.DeveloperApproval
+			for _, call := range pending.ToolCalls {
+				if kit.effect(call) == "ask" && call.Name != "ask_user" {
+					grants = append(grants, developerApprovalFor(call))
+				}
+			}
+			if approver, ok := h.store.(service.DeveloperSessionApprover); ok && len(grants) > 0 {
+				if updated, err := approver.AddDeveloperSessionApprovals(r.Context(), session.ID, grants); err == nil {
+					kit.approvals = service.DeveloperSessionApprovals(updated)
+					stream.send(map[string]any{"type": "status", "session": updated})
+				}
+			}
+		}
 		blocks := make([]service.ContentBlock, 0, len(pending.ToolCalls))
 		for _, call := range pending.ToolCalls {
 			effect := kit.effect(call)

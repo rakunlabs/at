@@ -778,3 +778,70 @@ func (p *Postgres) ResolveDeveloperPendingTool(ctx context.Context, sessionID st
 	}
 	return developerSessionMessageRecord(row)
 }
+
+// AddDeveloperSessionApprovals appends "always allow" grants to the session's
+// config (deduplicated, at most 100), under the caller's run receipt.
+func (p *Postgres) AddDeveloperSessionApprovals(ctx context.Context, id string, approvals []service.DeveloperApproval) (*service.DeveloperSession, error) {
+	actor, err := developerSpaceActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin developer approvals: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := p.lockDeveloperRunWrite(ctx, tx, actor, id); err != nil {
+		return nil, err
+	}
+	var row developerSessionRow
+	found, err := tx.From(p.tableDeveloperSessions).Select(developerSessionColumns...).Where(developerOwned(actor, goqu.Ex{"id": id})).ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("load developer session: %w", err)
+	}
+	if !found {
+		return nil, service.ErrDeveloperSpaceNotFound
+	}
+	session, err := developerSessionRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	existing := service.DeveloperSessionApprovals(session)
+	seen := map[service.DeveloperApproval]bool{}
+	for _, a := range existing {
+		seen[a] = true
+	}
+	for _, a := range approvals {
+		a.Action, a.Resource = strings.TrimSpace(a.Action), strings.TrimSpace(a.Resource)
+		if a.Action == "" || a.Resource == "" || len(a.Resource) > 2048 || seen[a] {
+			continue
+		}
+		seen[a] = true
+		existing = append(existing, a)
+	}
+	if len(existing) > 100 {
+		existing = existing[len(existing)-100:]
+	}
+	config := session.Config
+	if config == nil {
+		config = map[string]any{}
+	}
+	config[service.DeveloperSessionAlwaysAllowKey] = existing
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("encode developer session config: %w", err)
+	}
+	found, err = tx.Update(p.tableDeveloperSessions).Set(goqu.Record{
+		"config": string(encoded), "updated_at": goqu.L("clock_timestamp()"),
+	}).Where(developerOwned(actor, goqu.Ex{"id": id})).Returning(developerSessionColumns...).Executor().ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("save developer approvals: %w", err)
+	}
+	if !found {
+		return nil, service.ErrDeveloperSessionBusy
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit developer approvals: %w", err)
+	}
+	return developerSessionRecord(row)
+}

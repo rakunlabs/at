@@ -441,3 +441,41 @@ func ValidDeveloperBranch(branch string) bool {
 	}
 	return true
 }
+
+// DeveloperSessionAlwaysAllowKey is the session config key holding the
+// approvals a person granted with "always allow" for that session.
+const DeveloperSessionAlwaysAllowKey = "always_allow"
+
+// DeveloperApproval is one "always allow" grant: an action and resource as
+// produced by the tool-action mapping (e.g. shell "go test ./...", edit "*").
+type DeveloperApproval struct {
+	Action   string `json:"action"`
+	Resource string `json:"resource"`
+}
+
+// DeveloperSessionApprovals reads the session's always-allow grants.
+func DeveloperSessionApprovals(session *DeveloperSession) []DeveloperApproval {
+	if session == nil || session.Config == nil {
+		return nil
+	}
+	raw, ok := session.Config[DeveloperSessionAlwaysAllowKey].([]any)
+	if !ok {
+		return nil
+	}
+	var out []DeveloperApproval
+	for _, item := range raw {
+		m, _ := item.(map[string]any)
+		action, _ := m["action"].(string)
+		resource, _ := m["resource"].(string)
+		if action != "" && resource != "" {
+			out = append(out, DeveloperApproval{Action: action, Resource: resource})
+		}
+	}
+	return out
+}
+
+// DeveloperSessionApprover adds always-allow grants to a session. It is an
+// optional store capability; the write is fenced by the caller's run receipt.
+type DeveloperSessionApprover interface {
+	AddDeveloperSessionApprovals(ctx context.Context, id string, approvals []DeveloperApproval) (*DeveloperSession, error)
+}

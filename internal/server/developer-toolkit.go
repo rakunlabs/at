@@ -36,6 +36,9 @@ type developerToolkit struct {
 
 	// nested tracks sub-folder AGENTS.md files already added this run.
 	nested developerNestedInstructions
+
+	// approvals are the session's "always allow" grants.
+	approvals []service.DeveloperApproval
 }
 
 func (k *developerToolkit) Close() {
@@ -67,13 +70,64 @@ func (k *developerToolkit) effect(call service.ToolCall) string {
 	if developerAlwaysAllowed(call.Name) {
 		return "allow"
 	}
+	effect := "allow"
 	if k.agent == nil {
-		return developerToolEffect(k.profile, call)
+		effect = developerToolEffect(k.profile, call)
+	} else if k.confirm[call.Name] {
+		effect = "ask"
 	}
-	if k.confirm[call.Name] {
-		return "ask"
+	// "Always allow" only lifts an ask; a configured deny stays final.
+	if effect == "ask" && developerApproved(k.approvals, call) {
+		return "allow"
 	}
-	return "allow"
+	return effect
+}
+
+// developerApprovalFor is the grant "always allow" records for a call: the
+// tool name for agent tools, otherwise the profile action with a pattern —
+// a shell command's first word plus " *", or "*" for the other actions.
+func developerApprovalFor(call service.ToolCall) service.DeveloperApproval {
+	if !isDeveloperContainerTool(call.Name) && call.Name != "patch" {
+		return service.DeveloperApproval{Action: "tool", Resource: call.Name}
+	}
+	action, resource := developerToolAction(call)
+	if action == "shell" {
+		fields := strings.Fields(resource)
+		if len(fields) > 0 && !strings.ContainsAny(fields[0], "|;&$`()<>") {
+			return service.DeveloperApproval{Action: action, Resource: fields[0] + " *"}
+		}
+		return service.DeveloperApproval{Action: action, Resource: resource}
+	}
+	return service.DeveloperApproval{Action: action, Resource: "*"}
+}
+
+// developerApproved reports whether a grant covers call. Shell grants of the
+// form "cmd *" match "cmd" and "cmd ..." but never a command chained or
+// piped into another (so "go *" does not allow "go test && rm -rf /").
+func developerApproved(approvals []service.DeveloperApproval, call service.ToolCall) bool {
+	want := developerApprovalFor(call)
+	action, resource := developerToolAction(call)
+	for _, a := range approvals {
+		if a.Action != want.Action {
+			continue
+		}
+		if a.Resource == want.Resource && (a.Action != "shell" || !strings.HasSuffix(a.Resource, " *")) {
+			return true
+		}
+		if action == "shell" && strings.HasSuffix(a.Resource, " *") {
+			prefix := strings.TrimSuffix(a.Resource, " *")
+			if strings.ContainsAny(resource, "|;&$`()<>\n") {
+				continue
+			}
+			if resource == prefix || strings.HasPrefix(resource, prefix+" ") {
+				return true
+			}
+		}
+		if a.Resource == "*" && a.Action != "shell" {
+			return true
+		}
+	}
+	return false
 }
 
 // agentContext carries the identity and connection bindings the agent's own
@@ -100,7 +154,8 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		return &developerToolkit{
 			profile: profile, systemPrompt: profile.SystemPrompt, tools: developerAgentTools,
 			maxIterations: profile.MaxIterations, toolTimeout: profile.ToolTimeoutSeconds,
-			nested: developerNestedInstructions{seen: map[string]bool{}},
+			nested:    developerNestedInstructions{seen: map[string]bool{}},
+			approvals: service.DeveloperSessionApprovals(session),
 		}, nil
 	}
 	if s.agentStore == nil {
@@ -121,7 +176,8 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		agent: agent, maxIterations: agent.Config.MaxIterations, toolTimeout: agent.Config.ToolTimeout,
 		reasoningEffort: agent.Config.ReasoningEffort,
 		builtins:        map[string]bool{}, confirm: map[string]bool{},
-		nested: developerNestedInstructions{seen: map[string]bool{}},
+		nested:    developerNestedInstructions{seen: map[string]bool{}},
+		approvals: service.DeveloperSessionApprovals(session),
 	}
 	for _, name := range agent.Config.ConfirmationRequiredTools {
 		kit.confirm[name] = true

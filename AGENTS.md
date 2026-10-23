@@ -3670,6 +3670,18 @@ to the result of the first `read_file`/`list_files`/`glob`/`search` inside
 that folder, once per run, nearest first. Regressions:
 `developer-patch_test.go`, `TestDeveloperPatchJobsAndFormatInDocker`.
 
+**Always allow.** The permission prompt offers *Always allow* next to Allow
+(`POST .../confirm` with `always: true`). It approves the call and records a
+grant in the session's `config.always_allow` (`AddDeveloperSessionApprovals`,
+under the run receipt, ≤100 deduplicated; an optional store interface, no
+migration): `shell "<first word> *"` for a bash command, the action with `*`
+for file tools, `tool <name>` for agent tools. Later calls a grant covers run
+without asking. A shell grant never matches a command containing `| ; & $ \`
+( ) < >` or a newline, so `go *` does not allow `go test && rm -rf /`. Grants
+only lift an *ask*; a profile *deny* stays final. They belong to the session
+and cannot be set by the browser directly. Regression:
+`TestDeveloperAlwaysAllowGrants`, `TestDeveloperSessionWorkbench`.
+
 `/compact` is `run` with `compact: true`: the model (tools off, tool blocks
 flattened to text) summarizes, and the result is stored as an assistant
 message with `kind = 'compaction'`. `developerMessages` starts at the latest

