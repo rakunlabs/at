@@ -136,6 +136,27 @@ the model is told to retrieve smaller targeted results when necessary. Summary
 space is reserved only when a summarizer is actually configured. Regression:
 `internal/service/loopgov/conversation_test.go`.
 
+**Automatic compaction.** `agentloop.CallProvider` / `CallProviderStream`
+use `Governor.LimitCompacting` (`loopgov/compaction.go`) instead of plain
+windowing: when the window overflows, the evicted prefix is summarised by the
+loop's own provider and model (`LLMCompactor`, sections objective →
+identifiers, ≤ `CompactionSummaryTokens` 4000, 2 min timeout) and replaced by
+one `[CONVERSATION_SUMMARY]` message; about half the remaining room is kept as
+a verbatim tail, cut so tool results keep their calls. Summaries are cached
+per agent+task/run (several per key, LRU 2048, 6h) and matched by per-message
+hashes, so a sliding chat-history reload still reuses them and later
+overflows update the existing summary incrementally. Compaction tokens are
+added to the call's usage, so budgets and cost events include them. Failure
+falls back to the old dropping behaviour. A provider error recognised by
+`IsContextOverflowError` ("prompt is too long", `context_length_exceeded`, …)
+is retried once compacted to `OverflowBudget` (half of what was sent). Chats
+in the browser does the same: on such an error `autoCompactAfterOverflow`
+summarises a clipped transcript, stores it as a compaction message, and the
+turn continues once; a second overflow is reported. Chats background runs
+pass no governor and are unchanged. Regressions:
+`loopgov/compaction_test.go`, `agentloop/compaction_test.go`, the overflow
+cases in `_ui/tests/chat-runtime.test.mjs`.
+
 To override, edit the constants in `internal/service/loopgov/config.go` or add UI-driven configuration in a follow-up change. The `Disabled` field exists in `loopgov.Config` as an in-code rollback switch but is not exposed via YAML.
 
 **Breaking change**: workflow `agent_call` nodes no longer accept `max_iterations: 0` (legacy "unlimited" mode). Existing graphs are migrated to the platform ceiling on server startup.

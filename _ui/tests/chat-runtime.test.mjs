@@ -7,7 +7,7 @@ import { moduleURL } from './typescript-module.mjs';
 const source = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
 const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'));
 const ast = ts.createSourceFile('Chat.ts', script, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail', 'buildRequestMessages'];
+const names = ['sendMessage', 'beginTurn', 'finishTurn', 'runCompletion', 'runCompletionStep', 'executeToolCall', 'ensureConversation', 'persistPending', 'resetBuffer', 'appendUserMessages', 'drainQueue', 'continueWithQueue', 'runUserTurn', 'sendQueuedNow', 'interruptAndSend', 'repairInterruptedTail', 'buildRequestMessages', 'storeCompaction', 'autoCompactAfterOverflow'];
 const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node) && names.includes(node.name?.text)).map(node => node.getText(ast));
 assert.equal(functions.length, names.length);
 const writer = ast.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'transcriptWriter')).getText(ast);
@@ -23,7 +23,7 @@ import { codeModeSelection, dispatchChatTool } from '${toolsURL}';
 import { PastedText } from '${pasteURL}';
 import { createTranscriptWriter } from '${persistenceURL}';
 import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, unansweredToolCalls, userMessageContent } from '${queueURL}';
-import { COMPACTION_FLAG, compactionStart, parseSlashInput } from '${commandsURL}';
+import { AUTO_COMPACTION_NOTE, COMPACTION_FLAG, clipForCompaction, compactionMessageText, compactionRequest, compactionStart, isContextOverflowMessage, parseSlashInput } from '${commandsURL}';
 export function fixture() {
   const turnLifecycle = createChatTurnLifecycle();
   const pasted = new PastedText();
@@ -31,7 +31,8 @@ export function fixture() {
   let streaming = false, saving = false, disposed = false, abortController = null, loadingTools = false;
   let queuedMessages = [], activeTurn = null;
   let conversationId = '', scratchSessionId = '', routedId = '', conversation = null, savedSettings = null;
-  let historyTruncated = false;
+  let historyTruncated = false, historyCursor = '';
+  const callUsage = u => u;
   let messages = [], meta = [], conversations = [], rawMessages = {}, pendingImages = [], pendingRefusals = [];
   let turnSkillRuns = [], skillRunProgress = {}, turnArtifacts = [], skillSystemPrompts = [], turnTraceId = '';
   let discoveredTools = [{ type: 'function', function: { name: 'test', parameters: {} } }], toolSourceMap = { test: { type: 'frontend' } };
@@ -376,4 +377,45 @@ test('a compaction summary stays the context boundary even when older history is
   chat.type('Continue');
   await chat.sendMessage();
   assert.equal(chat.snapshot().streams[0].body.at_history_before, undefined);
+});
+
+test('a context-window overflow compacts the conversation once and continues the turn', async () => {
+  const chat = fixture();
+  chat.setStream(async (callbacks, _signal, count) => {
+    if (count === 1) throw new Error('anthropic: 400 prompt is too long: 210000 tokens > 200000 maximum');
+    if (count === 2) { callbacks.onDelta('Goal: say hello.'); return; }
+    callbacks.onDelta('Continued answer');
+  });
+  await chat.sendMessage();
+  const s = chat.snapshot();
+  assert.equal(s.streams.length, 3);
+  // The summary request carries the clipped transcript and no tools.
+  assert.equal(s.streams[1].body.tool_choice, 'none');
+  assert.match(s.streams[1].body.messages.at(-1).content, /Conversation so far:[\s\S]*\[user\] Hello/);
+  assert.deepEqual(s.messages.map(m => m.role), ['user', 'assistant', 'user', 'assistant']);
+  assert.equal(s.meta[1].compaction, true);
+  assert.match(s.messages[1].content, /Goal: say hello\./);
+  assert.equal(s.messages[3].content, 'Continued answer');
+  // The continuation starts at the summary, not at the overflowing history.
+  assert.equal(s.streams[2].body.messages.some(m => m.content === 'Hello'), false);
+  assert.equal(s.streams[2].headers['x-at-trace-id'], s.streams[0].headers['x-at-trace-id']);
+});
+
+test('a second overflow in the same turn is reported, not retried', async () => {
+  const chat = fixture();
+  chat.setStream(async (callbacks, _signal, count) => {
+    if (count === 2) { callbacks.onDelta('summary'); return; }
+    throw new Error('context_length_exceeded');
+  });
+  await chat.sendMessage();
+  const s = chat.snapshot();
+  assert.equal(s.streams.length, 3);
+  assert.ok(s.toasts.some(t => /context_length_exceeded/.test(t)));
+});
+
+test('other errors do not trigger automatic compaction', async () => {
+  const chat = fixture();
+  chat.setStream(async () => { throw new Error('rate limit exceeded'); });
+  await chat.sendMessage();
+  assert.equal(chat.snapshot().streams.length, 1);
 });

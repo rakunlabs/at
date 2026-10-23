@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/lib/helper/chat-commands.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { parseSlashInput, slashQuery, splitArgs, expandCommandTemplate, compactionStart, compactionMessageText, compactionRequest } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { parseSlashInput, slashQuery, splitArgs, expandCommandTemplate, compactionStart, compactionMessageText, compactionRequest, isContextOverflowMessage, clipForCompaction } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 
 test('parses a command and its arguments; paths and prose are not commands', () => {
   assert.deepEqual(parseSlashInput('/Compact keep the API decisions'), { name: 'compact', args: 'keep the API decisions' });
@@ -38,4 +38,13 @@ test('the model context starts at the latest compaction summary', () => {
   assert.equal(compactionStart([false, true, false, true, false]), 3);
   assert.match(compactionMessageText(' notes ', 'auth'), /focus on: auth\]\n\nnotes$/);
   assert.match(compactionRequest('auth'), /Focus the summary on: auth$/);
+});
+
+test('context overflow messages are recognised across providers', () => {
+  for (const msg of ["This model's maximum context length is 128000 tokens", 'prompt is too long: 210000 tokens', 'context_length_exceeded']) {
+    assert.equal(isContextOverflowMessage(msg), true, msg);
+  }
+  for (const msg of ['rate limit exceeded', 'request entity too large', '']) assert.equal(isContextOverflowMessage(msg), false, msg);
+  const clipped = clipForCompaction('a'.repeat(100) + 'b'.repeat(100), 60);
+  assert.ok(clipped.startsWith('a'.repeat(40)) && clipped.endsWith('b'.repeat(20)) && clipped.includes('140 characters omitted'));
 });

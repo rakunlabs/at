@@ -37,6 +37,11 @@ type Governor struct {
 	// rare relative to reads so a single mutex is fine.
 	dumpSeqMu sync.Mutex
 	dumpSeq   map[string]*atomic.Int64
+
+	// compactions caches each run's compaction summary so later calls reuse
+	// it and only summarise newly evicted messages.
+	compactMu   sync.Mutex
+	compactions map[string][]*compactionState
 }
 
 // New constructs a Governor. summarizer may be nil; when nil and the
@@ -135,29 +140,29 @@ func (g *Governor) ClampIterations(agentMax, taskMax int) int {
 // Returns an error only on context cancellation; summarisation failures
 // are logged and degrade gracefully to dropping.
 func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages []service.Message) ([]service.Message, error) {
-	return g.limit(ctx, agentID, taskID, messages, 0)
+	return g.limit(ctx, agentID, taskID, messages, 0, g.cfg.WindowTokens, g.summarizer)
 }
 
 // LimitWithTools applies the message window while reserving input budget for
 // tool definitions, which providers count on every request.
 func (g *Governor) LimitWithTools(ctx context.Context, agentID, taskID string, messages []service.Message, tools []service.Tool) ([]service.Message, error) {
-	return g.limit(ctx, agentID, taskID, messages, estimateTools(tools))
+	return g.limit(ctx, agentID, taskID, messages, estimateTools(tools), g.cfg.WindowTokens, g.summarizer)
 }
 
-func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages []service.Message, toolEst int) ([]service.Message, error) {
+func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages []service.Message, toolEst, window int, summarizer Summarizer) ([]service.Message, error) {
 	if g.cfg.Disabled || len(messages) == 0 {
 		return messages, nil
 	}
 
 	totalEst := estimateMessages(messages)
-	if totalEst+toolEst > g.cfg.WindowTokens {
+	if totalEst+toolEst > window {
 		// Large tool exchanges must not evict the user's request. Cutting a
 		// suffix inside an exchange leaves only orphan results, which repair
 		// then removes (potentially leaving just the system prompt).
-		messages = omitToolExchanges(messages, g.cfg.WindowTokens-toolEst)
+		messages = omitToolExchanges(messages, window-toolEst)
 		totalEst = estimateMessages(messages)
 	}
-	if totalEst+toolEst <= g.cfg.WindowTokens {
+	if totalEst+toolEst <= window {
 		// Even when no windowing is needed, the caller's slice may
 		// already contain orphan tool_use / tool_result blocks (e.g.
 		// from an interrupted previous run, manual edit, or a bug
@@ -179,7 +184,7 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 	// don't know the exact size until summarisation runs; budget the
 	// upper bound (SummaryTokens worth of chars).
 	reserved := systemEst + toolEst
-	if g.summarizer != nil {
+	if summarizer != nil {
 		reserved += g.cfg.SummaryTokens
 	}
 
@@ -197,7 +202,7 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 			used = est
 			continue
 		}
-		if reserved+used+est > g.cfg.WindowTokens {
+		if reserved+used+est > window {
 			break
 		}
 		used += est
@@ -219,13 +224,13 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 	// Build the summary message. Try the configured summarizer first;
 	// on any failure or timeout, fall back to "drop without summary".
 	var summary string
-	if g.summarizer != nil {
+	if summarizer != nil {
 		sumCtx, cancel := context.WithTimeout(ctx, g.cfg.SummaryTimeout)
 		var systemPrompt string
 		if systemIdx == 0 {
 			systemPrompt = stringContent(messages[systemIdx])
 		}
-		s, err := g.summarizer.Summarize(sumCtx, systemPrompt, dropped, g.cfg.SummaryTokens)
+		s, err := summarizer.Summarize(sumCtx, systemPrompt, dropped, g.cfg.SummaryTokens)
 		cancel()
 		if err != nil {
 			slog.Warn("loopgov.summarize_failed",

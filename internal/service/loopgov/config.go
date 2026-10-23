@@ -49,6 +49,14 @@ type Config struct {
 	// 0 = use default.
 	SummaryTimeout time.Duration
 
+	// CompactionSummaryTokens caps the summary written when an agent loop
+	// compacts evicted history. 0 = use default.
+	CompactionSummaryTokens int
+
+	// CompactionTimeout bounds one compaction call. On failure the loop
+	// drops oldest messages as before. 0 = use default.
+	CompactionTimeout time.Duration
+
 	// MaxIterCeiling is the platform's hard ceiling on agentic loop
 	// iterations. 0 = use default. Per-agent / per-task max_iterations
 	// are clamped to this value.
@@ -97,6 +105,10 @@ const (
 	DefaultWindowTokens   = 32 * 1024
 	DefaultSummaryTokens  = 2000
 	DefaultSummaryTimeout = 10 * time.Second
+	// Compaction runs rarely (once per window overflow) and must preserve
+	// task state, so it gets a larger summary and a longer bound.
+	DefaultCompactionSummaryTokens = 4000
+	DefaultCompactionTimeout       = 2 * time.Minute
 	// Long-form production can opt into larger budgets without raising
 	// individual agents' defaults or removing the finite platform bound.
 	DefaultMaxIterCeiling     = 240
@@ -117,6 +129,12 @@ func (c *Config) fillDefaults() {
 	}
 	if c.SummaryTimeout <= 0 {
 		c.SummaryTimeout = DefaultSummaryTimeout
+	}
+	if c.CompactionSummaryTokens <= 0 {
+		c.CompactionSummaryTokens = DefaultCompactionSummaryTokens
+	}
+	if c.CompactionTimeout <= 0 {
+		c.CompactionTimeout = DefaultCompactionTimeout
 	}
 	if c.MaxIterCeiling <= 0 {
 		c.MaxIterCeiling = DefaultMaxIterCeiling

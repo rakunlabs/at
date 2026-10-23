@@ -88,3 +88,41 @@ export function compactionStart(flags: ReadonlyArray<boolean | undefined>): numb
   for (let i = flags.length - 1; i >= 0; i--) if (flags[i]) return i;
   return -1;
 }
+
+/**
+ * Whether a provider error means the request exceeded the model's context
+ * window. Matches the same provider wordings as the server's
+ * loopgov.IsContextOverflowError; HTTP body-size limits are not matched.
+ */
+export function isContextOverflowMessage(message: string): boolean {
+  const text = (message || '').toLowerCase();
+  return [
+    'context_length_exceeded',
+    'maximum context length',
+    'context length exceeded',
+    'exceeds the context window',
+    "exceeds the model's context",
+    'context window exceeded',
+    'prompt is too long',
+    'input is too long',
+    'too many input tokens',
+    'input token count',
+    'maximum number of tokens',
+    'reduce the length of the messages',
+    'model_context_window_exceeded',
+  ].some(needle => text.includes(needle));
+}
+
+/** Text the automatic compaction is stored with (no user focus). */
+export const AUTO_COMPACTION_NOTE = 'The conversation reached the model\'s context limit and was compacted automatically.';
+
+/**
+ * Shortens long text to `limit` characters, keeping its start and end, for
+ * a compaction request that has to fit a context the full transcript did not.
+ */
+export function clipForCompaction(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const head = Math.floor(limit * 2 / 3);
+  const tail = limit - head;
+  return `${text.slice(0, head)}\n…[${text.length - limit} characters omitted]…\n${text.slice(text.length - tail)}`;
+}

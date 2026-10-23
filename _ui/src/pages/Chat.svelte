@@ -135,7 +135,7 @@
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import ChatCommandsEditor from '@/lib/components/playground/ChatCommandsEditor.svelte';
   import { listChatCommands, listWorkspaceChatCommands, type ChatCommand } from '@/lib/api/chat-commands';
-  import { COMPACTION_FLAG, compactionMessageText, compactionRequest, compactionStart, expandCommandTemplate, parseSlashInput, slashQuery } from '@/lib/helper/chat-commands';
+  import { AUTO_COMPACTION_NOTE, COMPACTION_FLAG, clipForCompaction, compactionMessageText, compactionRequest, compactionStart, expandCommandTemplate, isContextOverflowMessage, parseSlashInput, slashQuery } from '@/lib/helper/chat-commands';
   import { createChatMediaCache } from '@/lib/helper/chat-media-cache';
 
   storeNavbar.title = 'Chats';
@@ -179,6 +179,8 @@
     failed?: boolean;
     /** Stopped by "interrupt & send": the queue starts the next turn at once. */
     interrupted?: boolean;
+    /** The turn already compacted after a context overflow; it does not retry again. */
+    autoCompacted?: boolean;
   }
 
   const turnLifecycle = createChatTurnLifecycle();
@@ -2739,7 +2741,6 @@
     const turn = beginTurn();
     if (!turn) return;
     compacting = true;
-    const pair = splitModel(turn.model);
     const localTarget = isLocalModelRef(turn.model) ? localProviderFor(turn.model) : null;
     try {
       repairInterruptedTail(turn.model);
@@ -2751,37 +2752,7 @@
       const { reqMessages, needsPrefix } = await buildRequestMessages(turn, messages.slice(), !!localTarget);
       reqMessages.push({ role: 'user', content: compactionRequest(instructions) });
       const before = contextTokens;
-      let summary = '';
-      let usage: ChatUsage | null = null;
-      const callbacks: StreamCallbacks = {
-        requireComplete: true,
-        onDelta: delta => { summary = mergeDeltaContent(summary, delta) as string; },
-        onToolCalls: () => {},
-        onError: error => addToast(error, 'alert'),
-        onUsage: u => { usage = u; },
-      };
-      const request = { messages: reqMessages, tool_choice: 'none' as const, reasoning_effort: turn.reasoning || undefined, stream: true, stream_options: { include_usage: true } };
-      if (localTarget) {
-        await runLocalProviderCompletion({ ...turn, tools: [] }, localTarget, reqMessages, callbacks);
-      } else {
-        await streamChatCompletion('api/v1/chats/completions', {
-          ...request,
-          model: turn.model,
-          at_conversation_id: conversationId || undefined,
-          at_history_before: historyTruncated && needsPrefix ? (meta[0]?.id || historyCursor) : undefined,
-          metadata: { session_id: turn.sessionId },
-        }, callbacks, turn.controller.signal, { 'x-at-trace-id': turn.traceId, 'x-at-trace-name': 'chats compaction' });
-      }
-      turnLifecycle.assert(turn);
-      const text = getTextContent(summary).trim();
-      if (!text) throw new Error('The model returned an empty summary; nothing was compacted.');
-      messages = [...messages, { role: 'assistant', content: compactionMessageText(text, instructions) }];
-      meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [], compaction: true, ...(usage ? { usage: callUsage(usage) } : {}) }];
-      const after = (usage as ChatUsage | null)?.completion_tokens ?? 0;
-      contextTokens = after;
-      completionTokens = 0;
-      totalTokens = after;
-      scrollToBottom();
+      const after = await storeCompaction(turn, reqMessages, needsPrefix, instructions);
       await persistPending();
       addToast(before > 0 ? `Compacted ${before.toLocaleString()} tokens of context into a ${after.toLocaleString()}-token summary.` : 'Conversation compacted.', 'info');
     } catch (e) {
@@ -2794,6 +2765,92 @@
       finishTurn(turn);
       continueWithQueue(turn);
     }
+  }
+
+  /**
+   * Ask the turn's model for a compaction summary of reqMessages and append it
+   * as a compaction message. Returns the summary's size in tokens. withPrefix
+   * lets the server add unloaded history (the /compact path); the automatic
+   * path sends its own clipped transcript instead.
+   */
+  async function storeCompaction(turn: TurnContext, reqMessages: RequestMessage[], withPrefix: boolean, instructions: string): Promise<number> {
+    const pair = splitModel(turn.model);
+    const localTarget = isLocalModelRef(turn.model) ? localProviderFor(turn.model) : null;
+    let summary = '';
+    let usage: ChatUsage | null = null;
+    const callbacks: StreamCallbacks = {
+      requireComplete: true,
+      onDelta: delta => { summary = mergeDeltaContent(summary, delta) as string; },
+      onToolCalls: () => {},
+      onError: error => addToast(error, 'alert'),
+      onUsage: u => { usage = u; },
+    };
+    if (localTarget) {
+      await runLocalProviderCompletion({ ...turn, tools: [] }, localTarget, reqMessages, callbacks);
+    } else {
+      await streamChatCompletion('api/v1/chats/completions', {
+        messages: reqMessages,
+        tool_choice: 'none',
+        reasoning_effort: turn.reasoning || undefined,
+        stream: true,
+        stream_options: { include_usage: true },
+        model: turn.model,
+        at_conversation_id: conversationId || undefined,
+        at_history_before: withPrefix && historyTruncated ? (meta[0]?.id || historyCursor) : undefined,
+        metadata: { session_id: turn.sessionId },
+      }, callbacks, turn.controller.signal, { 'x-at-trace-id': turn.traceId, 'x-at-trace-name': 'chats compaction' });
+    }
+    turnLifecycle.assert(turn);
+    const text = getTextContent(summary).trim();
+    if (!text) throw new Error('The model returned an empty summary; nothing was compacted.');
+    messages = [...messages, { role: 'assistant', content: compactionMessageText(text, instructions) }];
+    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [], compaction: true, ...(usage ? { usage: callUsage(usage) } : {}) }];
+    const after = (usage as ChatUsage | null)?.completion_tokens ?? 0;
+    contextTokens = after;
+    completionTokens = 0;
+    totalTokens = after;
+    scrollToBottom();
+    return after;
+  }
+
+  /**
+   * The model rejected the turn's request as longer than its context window.
+   * Summarize what the model would have seen from a transcript clipped to fit,
+   * store it as a compaction, and ask the model to carry on. Runs once per
+   * turn; a second overflow is reported as an error.
+   */
+  async function autoCompactAfterOverflow(turn: TurnContext): Promise<void> {
+    turn.autoCompacted = true;
+    const start = Math.max(0, compactionStart(meta.map(m => m?.compaction)));
+    // The last prompt size the provider reported, or a conservative guess,
+    // bounds the transcript: about two thirds of what overflowed.
+    const limit = Math.max(24_000, contextTokens > 0 ? contextTokens * 2 : 120_000);
+    const perMessage = Math.max(2_000, Math.floor(limit / 8));
+    const lines: string[] = [];
+    for (const m of messages.slice(start)) {
+      let text = getTextContent(m.content);
+      if (Array.isArray(m.content) && m.content.some(p => p.type !== 'text')) text += ' [attachments omitted]';
+      for (const call of m.tool_calls ?? []) text += `\n[tool call ${call.function.name} ${call.function.arguments}]`;
+      text = text.trim();
+      if (!text) continue;
+      lines.push(`[${m.role === 'tool' ? 'tool result' : m.role}] ${clipForCompaction(text, perMessage)}`);
+    }
+    let used = 0;
+    let first = lines.length;
+    while (first > 0 && used + lines[first - 1].length <= limit) used += lines[--first].length;
+    let transcript = lines.slice(first).join('\n\n');
+    if (first > 0) transcript = `[${first} older messages omitted]\n\n${transcript}`;
+    if (historyTruncated && start === 0) transcript = `[Earlier messages were not loaded in this page]\n\n${transcript}`;
+    const reqMessages: RequestMessage[] = [];
+    if (turn.systemPrompt) reqMessages.push({ role: 'system', content: clipForCompaction(turn.systemPrompt, perMessage) });
+    reqMessages.push({ role: 'user', content: `Conversation so far:\n\n${transcript}\n\n${compactionRequest('')}` });
+    const after = await storeCompaction(turn, reqMessages, false, AUTO_COMPACTION_NOTE);
+    const pair = splitModel(turn.model);
+    messages = [...messages, { role: 'user', content: 'Continue from the summary above. My latest request is still pending; finish it.' }];
+    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: [] }];
+    await persistPending();
+    turnLifecycle.assert(turn);
+    addToast(`The conversation exceeded the model's context window and was compacted into a ${after.toLocaleString()}-token summary.`, 'info');
   }
 
   /** Append queued entries as user messages, in the order they were written. */
@@ -3294,14 +3351,24 @@
       if (controller.signal.aborted || e.name === 'AbortError') {
         // User cancelled — don't show error
       } else {
-        turn.failed = true;
-        addToast(e.message || 'Chat request failed', 'alert');
         // Remove empty assistant message on error
         const lastIdx = messages.length - 1;
         if (messages[lastIdx]?.role === 'assistant' && !getTextContent(messages[lastIdx].content)) {
           messages = messages.slice(0, -1);
           meta = meta.slice(0, -1);
         }
+        if (!turn.autoCompacted && isContextOverflowMessage(e.message || '')) {
+          try {
+            await autoCompactAfterOverflow(turn);
+            return true;
+          } catch (compactErr: any) {
+            if (!turnLifecycle.current(turn)) throw compactErr;
+            if (controller.signal.aborted || compactErr?.name === 'AbortError') return false;
+            e = new Error(`${e.message} (automatic compaction failed: ${compactErr?.message || 'unknown error'})`);
+          }
+        }
+        turn.failed = true;
+        addToast(e.message || 'Chat request failed', 'alert');
       }
     } finally {
       // An interrupted or failed response that kept its partial text is still

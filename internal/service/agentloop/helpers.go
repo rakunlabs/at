@@ -14,6 +14,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/loopgov"
 )
 
 // CallGovernor is the subset of loop governance needed for one provider call.
@@ -23,14 +24,68 @@ type CallGovernor interface {
 	ChatOptions() *service.ChatOptions
 }
 
+// CompactingGovernor is implemented by governors that can fold evicted
+// history into a summary instead of dropping it (loopgov.Governor).
+type CompactingGovernor interface {
+	LimitCompacting(ctx context.Context, agentID, taskID string, messages []service.Message, tools []service.Tool, compactor loopgov.Compactor, budget int) ([]service.Message, loopgov.CompactionResult, error)
+	OverflowBudget(sent []service.Message, tools []service.Tool) int
+	CompactionInputTokens() int
+}
+
+// windowMessages applies the governor to one call. Compacting governors
+// summarise evicted history with the call's own provider and model; the
+// tokens that costs are returned so they can be charged with the call.
+func windowMessages(ctx context.Context, governor CallGovernor, provider service.LLMProvider, model, agentID, taskID string, messages []service.Message, tools []service.Tool, budget int) ([]service.Message, service.Usage) {
+	if governor == nil {
+		return messages, service.Usage{}
+	}
+	if cg, ok := governor.(CompactingGovernor); ok {
+		compactor := &loopgov.LLMCompactor{Provider: provider, Model: model, MaxInputTokens: cg.CompactionInputTokens()}
+		out, _, err := cg.LimitCompacting(ctx, agentID, taskID, messages, tools, compactor, budget)
+		if err == nil {
+			return out, compactor.Usage
+		}
+		return messages, compactor.Usage
+	}
+	// Governors recover from summarization failures by dropping old context;
+	// callers historically treat that fallback as best-effort.
+	out, _ := governor.LimitWithTools(ctx, agentID, taskID, messages, tools)
+	return out, service.Usage{}
+}
+
+// overflowRetryBudget reports the smaller budget to retry with when the
+// provider rejected the request as exceeding the model's context window.
+func overflowRetryBudget(governor CallGovernor, err error, sent []service.Message, tools []service.Tool) (int, bool) {
+	cg, ok := governor.(CompactingGovernor)
+	if !ok || !loopgov.IsContextOverflowError(err) {
+		return 0, false
+	}
+	return cg.OverflowBudget(sent, tools), true
+}
+
+func addUsage(resp *service.LLMResponse, extra service.Usage) {
+	if resp == nil {
+		return
+	}
+	resp.Usage.PromptTokens += extra.PromptTokens
+	resp.Usage.CompletionTokens += extra.CompletionTokens
+	resp.Usage.CacheReadTokens += extra.CacheReadTokens
+	resp.Usage.CacheWriteTokens += extra.CacheWriteTokens
+	resp.Usage.ReasoningTokens += extra.ReasoningTokens
+	resp.Usage.TotalTokens += extra.TotalTokens
+}
+
 // ToolResultTruncater is the independent governance boundary needed before a
 // tool result enters message history.
 type ToolResultTruncater interface {
 	TruncateToolResult(runID, toolName, body string) (string, bool)
 }
 
-// CallProvider applies context governance and performs exactly one provider
-// call. Retry policy deliberately remains with the caller.
+// CallProvider applies context governance and performs one provider call.
+// Retry policy remains with the caller, with one exception: a request the
+// provider rejects as exceeding the context window is compacted to a smaller
+// budget and sent once more. Tokens spent on compaction are added to the
+// returned usage so they are charged with the call.
 func CallProvider(
 	ctx context.Context,
 	governor CallGovernor,
@@ -49,11 +104,24 @@ func CallProvider(
 			return nil, callMessages, 0, fmt.Errorf("agent provider reasoning effort: %w", err)
 		}
 	}
+	opts := callOptions(governor, reasoningEffort)
+	callMessages, extra := windowMessages(ctx, governor, provider, model, agentID, taskID, messages, tools, 0)
+
+	started := time.Now()
+	resp, err = provider.Chat(ctx, model, callMessages, tools, opts)
+	if budget, retry := overflowRetryBudget(governor, err, callMessages, tools); retry {
+		var more service.Usage
+		callMessages, more = windowMessages(ctx, governor, provider, model, agentID, taskID, messages, tools, budget)
+		extra = sumUsage(extra, more)
+		resp, err = provider.Chat(ctx, model, callMessages, tools, opts)
+	}
+	addUsage(resp, extra)
+	return resp, callMessages, time.Since(started).Milliseconds(), err
+}
+
+func callOptions(governor CallGovernor, reasoningEffort string) *service.ChatOptions {
 	var opts *service.ChatOptions
 	if governor != nil {
-		// Governors recover from summarization failures by dropping old context;
-		// callers historically treat that fallback as best-effort.
-		callMessages, _ = governor.LimitWithTools(ctx, agentID, taskID, messages, tools)
 		opts = governor.ChatOptions()
 	}
 	if reasoningEffort != "" {
@@ -64,10 +132,13 @@ func CallProvider(
 		merged.ReasoningEffort = reasoningEffort
 		opts = &merged
 	}
+	return opts
+}
 
-	started := time.Now()
-	resp, err = provider.Chat(ctx, model, callMessages, tools, opts)
-	return resp, callMessages, time.Since(started).Milliseconds(), err
+func sumUsage(a, b service.Usage) service.Usage {
+	resp := &service.LLMResponse{Usage: a}
+	addUsage(resp, b)
+	return resp.Usage
 }
 
 // AssistantMessage converts a normalized provider response into the canonical
@@ -424,32 +495,30 @@ func CallProviderStream(
 			return nil, callMessages, 0, fmt.Errorf("agent provider reasoning effort: %w", err)
 		}
 	}
-	var opts *service.ChatOptions
-	if governor != nil {
-		callMessages, _ = governor.LimitWithTools(ctx, agentID, taskID, messages, tools)
-		opts = governor.ChatOptions()
-	}
-	if reasoningEffort != "" {
-		merged := service.ChatOptions{}
-		if opts != nil {
-			merged = *opts
-		}
-		merged.ReasoningEffort = reasoningEffort
-		opts = &merged
-	}
+	opts := callOptions(governor, reasoningEffort)
+	callMessages, extra := windowMessages(ctx, governor, provider, model, agentID, taskID, messages, tools, 0)
 	started := time.Now()
 	chunks, err := streamer.StreamChat(ctx, model, callMessages, tools, opts)
+	if budget, retry := overflowRetryBudget(governor, err, callMessages, tools); retry {
+		// Overflow is reported when the stream opens, before any delta.
+		var more service.Usage
+		callMessages, more = windowMessages(ctx, governor, provider, model, agentID, taskID, messages, tools, budget)
+		extra = sumUsage(extra, more)
+		chunks, err = streamer.StreamChat(ctx, model, callMessages, tools, opts)
+	}
 	if errors.Is(err, service.ErrUnsupportedOperation) {
 		resp, err = provider.Chat(ctx, model, callMessages, tools, opts)
 		if err == nil && onDelta != nil && (resp.Content != "" || resp.ReasoningContent != "") {
 			onDelta(StreamDelta{Content: resp.Content, Reasoning: resp.ReasoningContent})
 		}
+		addUsage(resp, extra)
 		return resp, callMessages, time.Since(started).Milliseconds(), err
 	}
 	if err != nil {
 		return nil, callMessages, time.Since(started).Milliseconds(), err
 	}
 	resp, err = CollectStream(ctx, chunks, onDelta)
+	addUsage(resp, extra)
 	return resp, callMessages, time.Since(started).Milliseconds(), err
 }
 
