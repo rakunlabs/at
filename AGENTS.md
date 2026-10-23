@@ -3231,6 +3231,20 @@ lives in the config JSON, so no migration. Regressions:
 `internal/service/tool-content_test.go`, `TestGatewayMediaObjectTokenScoping`,
 `TestGatewayMediaObjectDownloadKey`.
 
+## `url_fetch` returns readable text
+
+`url_fetch` (host tool, `builtin_http`) converts HTML to Markdown by default
+(`html-markdown.go`, stdlib + `x/net/html`: prefers `<main>`/`<article>`,
+drops scripts, styles, nav, footer, forms, media and hidden elements, resolves
+relative links against the final URL), or to plain text / raw HTML with
+`format`. Other text types (JSON, XML, plain) pass through; binary responses
+are refused with their type instead of returning mojibake. Charsets are
+decoded, non-2xx answers become errors carrying a 500-byte body snippet,
+redirects are reported, `timeout` is seconds (default 30, max 120) and
+`max_size` caps the returned text (default 100 KB, max 1 MB; the body is read
+up to 5 MiB before conversion). It still reaches any address the server can,
+like `http_request`. Regression: `internal/server/url-fetch_test.go`.
+
 ## Built-in "get" tools take one identifier or a list
 
 Every record-fetching built-in (`agent_get`, `task_get`, `org_get`,

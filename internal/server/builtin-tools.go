@@ -124,17 +124,26 @@ var builtinToolSchemas = []builtinToolDef{
 	},
 	{
 		Name:        "url_fetch",
-		Description: "Fetch the content of a URL and return it as text. Simpler than http_request — just provide a URL and get the content back. Good for reading web pages, documentation, or API responses.",
+		Description: "Fetch a URL and return its content. HTML pages are converted to Markdown by default (scripts, styles and navigation removed); use format \"text\" for plain text or \"html\" for the raw page. JSON, plain text and other text responses are returned as-is. Binary responses (images, PDFs, archives) are refused. Simpler than http_request for reading web pages, documentation or API responses.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
 					"type":        "string",
-					"description": "The URL to fetch content from",
+					"description": "The http(s) URL to fetch",
+				},
+				"format": map[string]any{
+					"type":        "string",
+					"enum":        []string{"markdown", "text", "html"},
+					"description": "How to return HTML pages (default markdown). Ignored for non-HTML responses.",
+				},
+				"timeout": map[string]any{
+					"type":        "integer",
+					"description": "Timeout in seconds (default 30, max 120)",
 				},
 				"max_size": map[string]any{
 					"type":        "integer",
-					"description": "Maximum content size in bytes (default 102400 = 100KB, max 1048576 = 1MB)",
+					"description": "Maximum returned content in bytes (default 102400 = 100KB, max 1048576 = 1MB). Longer content is cut with a notice.",
 				},
 			},
 			"required": []string{"url"},
@@ -1198,59 +1207,7 @@ func (s *Server) execJS(ctx context.Context, args map[string]any) (string, error
 
 // execURLFetch executes the url_fetch built-in tool.
 func (s *Server) execURLFetch(ctx context.Context, args map[string]any) (string, error) {
-	url, _ := args["url"].(string)
-	if url == "" {
-		return "", fmt.Errorf("url is required")
-	}
-
-	// Only allow HTTP/HTTPS.
-	urlLower := strings.ToLower(url)
-	if !strings.HasPrefix(urlLower, "http://") && !strings.HasPrefix(urlLower, "https://") {
-		return "", fmt.Errorf("only HTTP/HTTPS URLs are supported, got: %s", url)
-	}
-
-	// Max size: default 100KB, max 1MB.
-	maxSize := 102400
-	if n, ok := args["max_size"].(float64); ok && int(n) > 0 {
-		maxSize = int(n)
-	}
-	if maxSize > 1048576 {
-		maxSize = 1048576
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("fetch failed: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("URL returned HTTP %d", resp.StatusCode)
-	}
-
-	limitReader := io.LimitReader(resp.Body, int64(maxSize+1))
-	body, err := io.ReadAll(limitReader)
-	if err != nil {
-		return "", fmt.Errorf("failed to read content: %w", err)
-	}
-
-	truncated := false
-	if len(body) > maxSize {
-		body = body[:maxSize]
-		truncated = true
-	}
-
-	text := string(body)
-	if truncated {
-		text += fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSize)
-	}
-
-	return text, nil
+	return fetchURLContent(ctx, urlFetchClient, args)
 }
 
 // execSetUserPreference saves a per-user preference.
