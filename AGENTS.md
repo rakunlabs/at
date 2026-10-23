@@ -3248,6 +3248,48 @@ Bounded at `multiGetLimit` (25, the ceiling `batch_execute` already uses) and
 cancellation-checked between entries. Regression:
 `internal/server/builtin-tools-multiget_test.go`.
 
+## Code mode (`code_execute`)
+
+`code_execute` (non-host, "Other" family, enabled per agent/MCP server/Chats
+setup like any built-in) runs an async JavaScript body in goja whose only
+host bindings are `tools["name"](args)`, `searchTools(query)` and `console`,
+so a model can chain or fan out several tool calls (built-ins and MCP tools)
+and return one composed result instead of routing every intermediate result
+through its context. Modelled on OpenCode V2's `execute`.
+
+The toolset is the calling surface's own (`service.ContextWithCodeModeTools`,
+built by `codeModeProvider` in `builtin-tools-code-mode.go`): Sessions, org
+delegation, Developer Spaces agent sessions and Chats background runs pass
+their built-ins and `agentMCPTools`; the Chats page sends its selected
+built-ins and MCP sets (`code_mode` on `/mcp/call-builtin-tool`), and
+browser-side tools (local MCP, extensions, Chat tools) are not reachable.
+Without a recorded toolset only built-ins in `BuiltinToolInScope` are offered.
+Nested calls use the same dispatch as direct calls (`dispatchBuiltinTool`,
+`AuthorizeMCPSetTool`), so execution policy and features still apply.
+Excluded: `code_execute`, `batch_execute`, `question`, `ask_user`,
+`task_complete`, `task_block`, tools the agent marks as needing confirmation,
+and Developer container tools. Tool results that are JSON reach the script as
+data, others as strings; failures reject with `Error(message)`. Limits: 256
+calls per script, 16 concurrent, 256 KiB code, 256 KiB console output. The
+script's deadline is the surface's per-tool deadline but at least 15 minutes
+(`codeModeTimeout`, applied where each loop creates the tool context, since a
+child context cannot extend it); each nested call keeps the per-tool deadline,
+and the result still passes the loopgov 64 KiB cap with spill. The VM is single-threaded: calls run on goroutines
+and are settled back on the script goroutine. Nested calls are traced as
+`tool` observations under the `code_execute` call when a trace parent exists.
+Regression: `internal/server/builtin-tools-code-mode_test.go`.
+
+## Collapsed pastes in composers
+
+Chats, Sessions and Developer Spaces composers show a multi-line (≥3 lines)
+or long (≥400 chars) text paste as `[Pasted ~N lines]`
+(`_ui/src/lib/helper/paste-collapse.ts`, `PastedText`). One Backspace after
+it (or Delete before it) removes the whole placeholder; the stored text is
+substituted when the message is sent or queued. Placeholders are matched only
+against the composer's own stored entries, so typing the same text literally
+sends it unchanged. File pastes still become attachments. Regression:
+`_ui/tests/paste-collapse.test.mjs`.
+
 ## Remote marketplaces (install skills and MCP servers)
 
 Migration 106. Marketplaces → *Install from remote* (the default tab; *Published*

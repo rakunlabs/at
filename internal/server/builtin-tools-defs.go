@@ -176,6 +176,9 @@ type builtinCallRequest struct {
 	// MediaRefs is sent by the Chats page, which renders `media:<id>`
 	// Markdown references in answers.
 	MediaRefs bool `json:"media_refs,omitempty"`
+	// CodeMode names the tools a code_execute call may reach: the Chats
+	// page's selected built-ins and MCP sets. Ignored for other tools.
+	CodeMode *codeModeSelection `json:"code_mode,omitempty"`
 }
 
 // builtinCallResponse is the response body for BuiltinToolCallAPI.
@@ -222,6 +225,14 @@ func (s *Server) BuiltinToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MediaRefs {
 		ctx = contextWithChatMediaRefs(ctx)
+	}
+	if req.Name == codeModeToolName && req.CodeMode != nil {
+		builtins := map[string]bool{}
+		for _, name := range req.CodeMode.BuiltinTools {
+			builtins[name] = true
+		}
+		ctx = service.ContextWithBuiltinToolScope(ctx, func(name string) bool { return builtins[name] })
+		ctx = service.ContextWithCodeModeTools(ctx, s.codeModeSelectionProvider(*req.CodeMode))
 	}
 	result, execErr = s.dispatchBuiltinTool(ctx, req.Name, req.Arguments)
 

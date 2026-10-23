@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PastedText } from '@/lib/helper/paste-collapse';
   import { formatMessageTime, formatUTCDateTime } from '@/lib/helper/format';
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import { createSessionTurnController, emptySessionTurn, sessionTurnBusy } from '@/lib/helper/session-turn';
@@ -104,7 +105,11 @@
 
   function pasteAttachments(event: ClipboardEvent) {
     const files = Array.from(event.clipboardData?.files || []);
-    if (!files.length) return;
+    if (!files.length) {
+      const value = inputEl ? pasted.paste(event, inputEl) : null;
+      if (value !== null) inputText = value;
+      return;
+    }
     event.preventDefault();
     void addAttachments(files);
   }
@@ -118,6 +123,7 @@
     attachmentError = '';
     draggingFiles = false;
     inputText = '';
+    pasted.clear();
     recording = false;
     transcribing = false;
   }
@@ -127,6 +133,8 @@
   let recording = $state(false);
   let transcribing = $state(false);
   let inputText = $state('');
+  // Large pastes appear as `[Pasted ~N lines]` and expand when sent.
+  const pasted = new PastedText();
   let loading = $state(false);
   let preparingTurn = $state(false);
   let sending = $derived(preparingTurn || sessionTurnBusy(turnState));
@@ -633,7 +641,7 @@
       }
     }
 
-    const content = inputText.trim();
+    const content = pasted.expand(inputText).trim();
     const sentAttachments = attachments.slice();
     // Lock submission before awaiting session creation.
     preparingTurn = true;
@@ -647,6 +655,7 @@
     }
 
     inputText = '';
+    pasted.clear();
     attachments = [];
     attachmentError = '';
     showSlashMenu = false;
@@ -680,6 +689,10 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (inputEl && (e.key === 'Backspace' || e.key === 'Delete')) {
+      const value = pasted.keydown(e, inputEl);
+      if (value !== null) { inputText = value; handleInput(); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       // If slash menu is open and there's an exact or single match, select it.

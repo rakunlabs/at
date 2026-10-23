@@ -1274,8 +1274,13 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 						// the per-tool deadline would cut it off mid-run. It is
 						// still bounded by the turn and its own iteration budget.
 						toolCtx, cancel = context.WithCancel(contextWithSubagentProgress(ctx, subagentProgress(tc.ID)))
+					} else if tc.Name == codeModeToolName {
+						toolCtx, cancel = context.WithTimeout(ctx, codeModeTimeout(toolTimeout))
 					} else {
 						toolCtx, cancel = context.WithTimeout(ctx, toolTimeout)
+					}
+					if tc.Name == codeModeToolName {
+						toolCtx = service.ContextWithCodeModeTools(toolCtx, s.codeModeProvider(mcpTools, codeModeBuiltins(allTools, func(name string) bool { return toolHandlers[name].handlerType == "builtin" }), codeModeExcludedByName(agent.Config.ConfirmationRequiredTools), toolTimeout))
 					}
 					result, callErr = s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return toolHandlers[name].handlerType == "builtin" }), tc.Name, tc.Arguments)
 					cancel()

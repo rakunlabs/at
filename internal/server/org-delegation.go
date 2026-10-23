@@ -1087,7 +1087,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				var callErr error
 
 				spanCtx, toolObsID := toolSpan()
-				toolCtx, cancel := context.WithTimeout(spanCtx, toolTimeout)
+				builtinTimeout := toolTimeout
+				if tc.Name == codeModeToolName {
+					builtinTimeout = codeModeTimeout(toolTimeout)
+				}
+				toolCtx, cancel := context.WithTimeout(spanCtx, builtinTimeout)
+				if tc.Name == codeModeToolName {
+					toolCtx = service.ContextWithCodeModeTools(toolCtx, s.codeModeProvider(mcpTools, builtinToolDefs, codeModeExcludedByName(), toolTimeout))
+				}
 				result, callErr = s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return builtinToolMap[name] }), tc.Name, tc.Arguments)
 				cancel()
 

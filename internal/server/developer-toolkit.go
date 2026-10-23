@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -206,6 +207,11 @@ func (s *Server) executeDeveloperAgentTool(ctx context.Context, kit *developerTo
 	case kit.builtins[call.Name]:
 		if err := workflow.AuthorizeToolHandler(ctx, call.Name, "builtin", "", call.Name); err != nil {
 			return "", err
+		}
+		if call.Name == codeModeToolName {
+			ctx = service.ContextWithCodeModeTools(ctx, s.codeModeProvider(kit.mcp, codeModeBuiltins(kit.tools, func(name string) bool { return kit.builtins[name] }), func(name string) bool {
+				return codeModeExcludedTools[name] || kit.confirm[name] || isDeveloperContainerTool(name)
+			}, time.Duration(kit.toolTimeout)*time.Second))
 		}
 		return s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(ctx, func(name string) bool { return kit.builtins[name] }), call.Name, call.Arguments)
 	}

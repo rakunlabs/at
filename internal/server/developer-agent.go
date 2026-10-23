@@ -577,7 +577,11 @@ func (s *Server) runDeveloperToolCall(r *http.Request, stream *runEventStream, h
 			if timeout <= 0 {
 				timeout = 60
 			}
-			ctx, cancel := context.WithTimeout(kit.agentContext(r.Context(), session), time.Duration(timeout)*time.Second)
+			deadline := time.Duration(timeout) * time.Second
+			if call.Name == codeModeToolName {
+				deadline = codeModeTimeout(deadline)
+			}
+			ctx, cancel := context.WithTimeout(kit.agentContext(r.Context(), session), deadline)
 			output, toolErr = s.executeDeveloperAgentTool(ctx, kit, call)
 			cancel()
 		}

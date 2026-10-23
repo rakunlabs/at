@@ -16,14 +16,17 @@ const toolsURL = await moduleURL(new URL('../src/lib/helper/chat-tools.ts', impo
 const persistenceURL = await moduleURL(new URL('../src/lib/helper/chat-persistence.ts', import.meta.url));
 const queueURL = await moduleURL(new URL('../src/lib/helper/chat-queue.ts', import.meta.url));
 const commandsURL = await moduleURL(new URL('../src/lib/helper/chat-commands.ts', import.meta.url));
+const pasteURL = await moduleURL(new URL('../src/lib/helper/paste-collapse.ts', import.meta.url));
 const harness = `
 import { createChatTurnLifecycle, runChatIterations } from '${turnURL}';
-import { dispatchChatTool } from '${toolsURL}';
+import { codeModeSelection, dispatchChatTool } from '${toolsURL}';
+import { PastedText } from '${pasteURL}';
 import { createTranscriptWriter } from '${persistenceURL}';
 import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, unansweredToolCalls, userMessageContent } from '${queueURL}';
 import { COMPACTION_FLAG, compactionStart, parseSlashInput } from '${commandsURL}';
 export function fixture() {
   const turnLifecycle = createChatTurnLifecycle();
+  const pasted = new PastedText();
   let userInput = 'Hello', selectedModel = 'p/m', systemPrompt = 'Prompt', effectiveReasoningEffort = 'high';
   let streaming = false, saving = false, disposed = false, abortController = null, loadingTools = false;
   let queuedMessages = [], activeTurn = null;

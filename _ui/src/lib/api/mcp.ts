@@ -84,6 +84,12 @@ export async function listBuiltinTools(includeDisabled = false): Promise<Builtin
   return res.data;
 }
 
+/** The tools a `code_execute` script may call: the turn's server-side tools. */
+export interface CodeModeSelection {
+  builtin_tools: string[];
+  mcp_sets: string[];
+}
+
 /**
  * Call a server-side built-in tool by name.
  */
@@ -94,12 +100,14 @@ export async function callBuiltinTool(
   traceId = '',
   sessionId = '',
   signal?: AbortSignal,
+  codeMode?: CodeModeSelection,
 ): Promise<BuiltinCallToolResponse> {
   const res = await api.post<BuiltinCallToolResponse>('/mcp/call-builtin-tool', {
     name,
     arguments: args,
     agent_id: agentId || undefined,
     trace_id: traceId || undefined,
+    code_mode: codeMode,
     // Chats renders `media:<id>` references, so artifacts carry them.
     media_refs: true,
   }, { ...(sessionId ? { headers: { 'X-Session-ID': sessionId } } : {}), ...(signal ? { signal } : {}) });

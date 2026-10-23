@@ -19,3 +19,18 @@ export async function dispatchChatTool<Source extends { type: string }>(
     return `Error: ${e?.response?.data?.message || e?.response?.data?.error?.message || e?.message || 'tool execution failed'}`;
   }
 }
+
+/**
+ * What a `code_execute` script may call from Chats: the turn's server-side
+ * built-ins and MCP sets. Browser-side tools (local MCP, extensions, Chat
+ * tools) cannot run inside a server script, so they are left out.
+ */
+export function codeModeSelection(sources: Record<string, { type: string; mcpSetName?: string }>): { builtin_tools: string[]; mcp_sets: string[] } {
+  const builtins = new Set<string>();
+  const sets = new Set<string>();
+  for (const [name, source] of Object.entries(sources)) {
+    if (source.type === 'builtin' && name !== 'code_execute') builtins.add(name);
+    if (source.type === 'mcpset' && source.mcpSetName) sets.add(source.mcpSetName);
+  }
+  return { builtin_tools: [...builtins].sort(), mcp_sets: [...sets].sort() };
+}

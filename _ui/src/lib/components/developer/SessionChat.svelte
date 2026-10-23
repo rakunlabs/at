@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PastedText } from '@/lib/helper/paste-collapse';
   import { onMount, tick } from 'svelte';
   import {
     ArrowUp, Bot, Brain, Check, ChevronDown, Cpu, Eye, FileDiff, FileText, FolderGit2, Gauge, Hammer, ListChecks, LoaderCircle,
@@ -90,6 +91,8 @@
   let transcribing = $state(false);
   let palette = $state<'model' | 'agent' | 'effort' | ''>('');
   let textarea = $state<HTMLTextAreaElement>();
+  // Large pastes appear as `[Pasted ~N lines]` and expand when sent.
+  const pasted = new PastedText();
   let fileInput = $state<HTMLInputElement>();
   const totals = $derived(changes.reduce((sum, c) => ({ add: sum.add + c.additions, del: sum.del + c.deletions }), { add: 0, del: 0 }));
 
@@ -114,7 +117,11 @@
 
   function pasteFiles(event: ClipboardEvent) {
     const files = Array.from(event.clipboardData?.files ?? []);
-    if (!files.length) return;
+    if (!files.length) {
+      const value = textarea ? pasted.paste(event, textarea) : null;
+      if (value !== null) prompt = value;
+      return;
+    }
     event.preventDefault();
     void addAttachments(files);
   }
@@ -372,7 +379,7 @@
   }
 
   async function send() {
-    const text = prompt.trim();
+    const text = pasted.expand(prompt).trim();
     if ((!text && !attachments.length) || working || recording || transcribing || reading) return;
     if (!session.provider) { error = 'Choose a model first.'; return; }
     const command = attachments.length ? null : parseSlashInput(text);
@@ -382,6 +389,7 @@
     const files = promptMentions(text, fileSet);
     const sent = attachments;
     prompt = '';
+    pasted.clear();
     attachments = [];
     attachmentError = '';
     mention = null;
@@ -473,6 +481,10 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if (textarea && (event.key === 'Backspace' || event.key === 'Delete')) {
+      const value = pasted.keydown(event, textarea);
+      if (value !== null) { prompt = value; return; }
+    }
     const list = mention && mentionMatches.length ? mentionMatches : slashMatches.length ? slashMatches.map(c => c.name) : null;
     if (list) {
       const isMention = !!(mention && mentionMatches.length);

@@ -111,6 +111,7 @@ var builtinToolBindings = []builtinToolBinding{
 	{Name: "todo_write", Execute: (*Server).execTodoWrite, Class: builtinNonHost},
 	{Name: "todo_read", Execute: (*Server).execTodoRead, Class: builtinNonHost},
 	{Name: "batch_execute", Execute: (*Server).execBatchExecute, Class: builtinNonHost},
+	{Name: "code_execute", Execute: (*Server).execCodeExecute, Class: builtinNonHost},
 	{Name: "lsp_query", Execute: (*Server).execLSPQuery, Class: builtinHost},
 	{Name: "workflow_list", Execute: (*Server).execWorkflowList, Class: builtinHost},
 	{Name: "workflow_get", Execute: (*Server).execWorkflowGet, Class: builtinHost},

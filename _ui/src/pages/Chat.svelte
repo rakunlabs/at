@@ -27,7 +27,8 @@
   import { createDebouncedSave } from '@/lib/helper/debounced-save';
   import { createChatTurnLifecycle, runChatIterations, type ChatTurn } from '@/lib/helper/chat-turn';
   import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, queuedPreview, takeQueued, unansweredToolCalls, userMessageContent, type QueuedChatMessage } from '@/lib/helper/chat-queue';
-  import { dispatchChatTool } from '@/lib/helper/chat-tools';
+  import { codeModeSelection, dispatchChatTool } from '@/lib/helper/chat-tools';
+  import { PastedText } from '@/lib/helper/paste-collapse';
   import { createTranscriptWriter } from '@/lib/helper/chat-persistence';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
@@ -315,6 +316,8 @@
   let providerReasoning = $state<Record<string, { type: string; efforts?: Record<string, string[]>; capabilities?: Record<string, { input_modalities?: string[] }> }>>({});
   let systemPrompt = $state('');
   let userInput = $state('');
+  // Large pastes appear as `[Pasted ~N lines]` and expand when sent.
+  const pasted = new PastedText();
   let activeTool = $state<{ messageIndex: number; callID: string } | null>(null);
   /** Live status line per running agent-skill tool call, keyed by tool call ID. */
   let skillRunProgress = $state<Record<string, string>>({});
@@ -1920,6 +1923,11 @@
     if (imageFiles.length > 0) {
       e.preventDefault();
       addImageFiles(imageFiles);
+      return;
+    }
+    if (composerInput) {
+      const value = pasted.paste(e, composerInput);
+      if (value !== null) userInput = value;
     }
   }
 
@@ -2253,7 +2261,8 @@
         return text || 'Tool executed successfully (no output)';
       },
       builtin: async (_, args) => {
-        const res = await callBuiltinTool(tc.function.name, args, '', turn.traceId, turn.sessionId, turn.controller.signal);
+        const codeMode = tc.function.name === 'code_execute' ? codeModeSelection(turn.sources) : undefined;
+        const res = await callBuiltinTool(tc.function.name, args, '', turn.traceId, turn.sessionId, turn.controller.signal, codeMode);
         turnLifecycle.assert(turn);
         if (res.error) return `Error: ${res.error}`;
         noteTurnArtifacts(res.result);
@@ -2581,12 +2590,12 @@
 
   async function sendMessage() {
     if (chatRecording || chatTranscribing) return;
-    const text = userInput.trim();
+    const text = pasted.expand(userInput).trim();
     // `/name args` runs a command instead of sending the text. An unknown name
     // is sent as ordinary text, so a message that merely starts with a slash
     // is never swallowed.
     const slash = pendingImages.length === 0 && !streaming ? parseSlashInput(text) : null;
-    if (slash && runSlashCommand(slash.name, slash.args)) return;
+    if (slash && runSlashCommand(slash.name, slash.args)) { if (!userInput) pasted.clear(); return; }
     if ((!text && pendingImages.length === 0) || !selectedModel) return;
     if (pendingRefusals.length > 0) {
       addToast(pendingRefusals[0], 'alert');
@@ -2598,11 +2607,13 @@
     if (streaming) {
       queuedMessages = [...queuedMessages, item];
       userInput = '';
+      pasted.clear();
       pendingImages = [];
       return;
     }
     if (!setupReady()) return;
     userInput = '';
+    pasted.clear();
     pendingImages = [];
     // Messages left waiting by a stopped turn go first, in the order written.
     const items = [...queuedMessages, item];
@@ -2830,8 +2841,9 @@
     if (chatRecording || chatTranscribing) return;
     if (userInput.trim() || pendingImages.length > 0) {
       if (pendingRefusals.length > 0) { addToast(pendingRefusals[0], 'alert'); return; }
-      queuedMessages = [...queuedMessages, queuedMessage(userInput.trim(), pendingImages)];
+      queuedMessages = [...queuedMessages, queuedMessage(pasted.expand(userInput).trim(), pendingImages)];
       userInput = '';
+      pasted.clear();
       pendingImages = [];
     }
     if (queuedMessages.length === 0) return;
@@ -3632,6 +3644,10 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (composerInput && (e.key === 'Backspace' || e.key === 'Delete')) {
+      const value = pasted.keydown(e, composerInput);
+      if (value !== null) { userInput = value; return; }
+    }
     if (commandSuggestions.length > 0 && !e.isComposing) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();

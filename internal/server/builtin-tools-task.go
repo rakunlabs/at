@@ -220,6 +220,7 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 	// Disallowed tools (prevent recursion).
 	disallowed := map[string]bool{
 		"batch_execute": true,
+		"code_execute":  true,
 	}
 
 	type batchResult struct {

@@ -887,10 +887,15 @@ func (c *chatRun) callTool(ctx context.Context, call service.ToolCall) (string, 
 		return c.mcp.Call(toolCtx, call.Name, args, 0)
 	case "builtin":
 		toolCtx, cancel := ctx, context.CancelFunc(func() {})
-		if call.Name != "agent_run" {
+		if call.Name == codeModeToolName {
+			toolCtx, cancel = context.WithTimeout(ctx, codeModeTimeout(chatRunToolTimeout))
+		} else if call.Name != "agent_run" {
 			toolCtx, cancel = context.WithTimeout(ctx, chatRunToolTimeout)
 		}
 		defer cancel()
+		if call.Name == codeModeToolName {
+			toolCtx = service.ContextWithCodeModeTools(toolCtx, s.codeModeProvider(c.mcp, codeModeBuiltins(c.tools, func(name string) bool { return c.sources[name].kind == "builtin" }), codeModeExcludedByName(), chatRunToolTimeout))
+		}
 		return s.dispatchBuiltinTool(service.ContextWithBuiltinToolScope(toolCtx, func(name string) bool { return c.sources[name].kind == "builtin" }), call.Name, args)
 	case "skill":
 		if call.Name == chatRunStatus {
