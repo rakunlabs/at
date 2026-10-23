@@ -25,7 +25,8 @@ export function fixture() {
   const FRONTEND_TOOL_NAMES = ['question', 'todo_read'];
   let models = ['p/first', 'p/saved'];
   let selectedModel = 'p/first', systemPrompt = '', reasoningEffort = '';
-  let selectedMCPSetNames = [], selectedSkillNames = [], enabledBuiltinTools = ['whoami'], enabledFrontendTools = [...FRONTEND_TOOL_NAMES], mcpCodeMode = false;
+  let selectedMCPSetNames = [], selectedSkillNames = [], enabledBuiltinTools = ['whoami'], enabledFrontendTools = [...FRONTEND_TOOL_NAMES], mcpCodeMode = false, warmCache = false, warmController = null;
+  const cacheWarmer = { activity() {}, reset() {}, destroy() {} };
   let showTodoPanel = false, legacyMcpUrls = [], legacyMcpHeaders = {};
   let accountDefaults = initialWorkbenchSetup(FRONTEND_TOOL_NAMES), setupRevision = 0, defaultsLoaded = false, disposed = false;
   let conversationId = '', params = {}, conversation = null, scratchSessionId = '', parentTitle = '';

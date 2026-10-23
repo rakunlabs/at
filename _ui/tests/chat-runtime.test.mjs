@@ -31,7 +31,8 @@ export function fixture() {
   let streaming = false, saving = false, disposed = false, abortController = null, loadingTools = false;
   let queuedMessages = [], activeTurn = null;
   let conversationId = '', scratchSessionId = '', routedId = '', conversation = null, savedSettings = null;
-  let historyTruncated = false, historyCursor = '', sideQuestion = null;
+  let historyTruncated = false, historyCursor = '', sideQuestion = null, warmCache = false;
+  const cacheWarmer = { activity() {}, reset() {}, destroy() {} };
   const callUsage = u => u;
   let messages = [], meta = [], conversations = [], rawMessages = {}, pendingImages = [], pendingRefusals = [];
   let turnSkillRuns = [], skillRunProgress = {}, turnArtifacts = [], skillSystemPrompts = [], turnTraceId = '';

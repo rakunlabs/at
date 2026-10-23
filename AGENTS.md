@@ -1458,6 +1458,19 @@ running cost survives reloads; calls without a price are counted as
 "unpriced" rather than as zero. The total covers the loaded messages.
 Regression: `TestChatsStreamUsageCarriesCost`.
 
+**Prompt cache warming** (OpenCode's `warming`; workbench → Chat tools →
+*Keep the prompt cache warm while I am idle*, stored as `config.warm_cache`,
+off by default, never carried by presets or account defaults). After a turn
+finishes, `createCacheWarmer` (`_ui/src/lib/helper/cache-warmer.ts`) sends a
+warm request every 4 minutes without a real request, for up to 30 minutes
+after the last one; warm requests do not extend the window and real activity
+resets it. A warm request is the turn's prefix (system prompt, tools with
+`tool_choice: none`, saved transcript by reference) plus a one-line prompt and
+`max_tokens: 1`; nothing is stored, and it is billed and traced like any
+request (`x-at-trace-name: chats cache warming`). It runs only for a saved
+conversation on a server model, while idle, not in a background run, and
+while the tab is visible. Regression: `_ui/tests/cache-warmer.test.mjs`.
+
 **Background runs.** A conversation can opt in (workbench → Chat tools →
 *Keep running when I leave this page*, stored as `config.background`, off by
 default, never carried by presets or account defaults). The page then saves

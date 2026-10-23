@@ -20,6 +20,7 @@
   } from '@/lib/helper/chat';
   import { modelReasoningEfforts } from '@/lib/helper/reasoning';
   import { attachableFile } from '@/lib/helper/image-resize';
+  import { createCacheWarmer, WARM_PROMPT } from '@/lib/helper/cache-warmer';
   import { acceptAttribute, attachmentModality, attachmentPart, attachmentRefusal, contentModalities, type InputModality, type PendingAttachment } from '@/lib/helper/attachments';
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
@@ -597,6 +598,15 @@
   // this browser can reach are unavailable to it.
   let backgroundAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_BACKGROUND_RUNS));
   let backgroundMode = $state(false);
+  /** Per conversation: keep the provider prompt cache warm while idle. */
+  let warmCache = $state(false);
+  let warmController: AbortController | null = null;
+  const cacheWarmer = createCacheWarmer({
+    warm: () => sendWarmRequest(),
+    // Only a saved, idle conversation on a server model, with the tab visible.
+    allowed: () => warmCache && !!conversationId && !streaming && !backgroundRunActive && !!selectedModel && !isLocalModelRef(selectedModel)
+      && (typeof document === 'undefined' || document.visibilityState === 'visible'),
+  });
   /** A server run holds this conversation (this page may or may not follow it). */
   let backgroundRunActive = $state(false);
   /** Live text of the step the run is streaming, shown until it is saved. */
@@ -1115,6 +1125,7 @@
       ...(mcp_code_mode ? { mcp_code_mode } : {}),
       // Per conversation: presets and account defaults never carry it.
       ...(backgroundMode ? { background: true } : {}),
+      ...(warmCache ? { warm_cache: true } : {}),
     };
   }
 
@@ -1123,6 +1134,8 @@
     const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
     legacyMcpUrls = names(c.mcp_urls);
     backgroundMode = isBackgroundConfig(c);
+    warmCache = c.warm_cache === true;
+    cacheWarmer.reset();
     applySetup(normalizeWorkbenchSetup({ ...c, model: selectedModel, system_prompt: systemPrompt }));
     const headers = c.mcp_headers;
     legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
@@ -1513,6 +1526,8 @@
     extensionUnsubscribe?.();
     extensionBridge?.dispose();
     extensionBridge = null;
+    cacheWarmer.destroy();
+    warmController?.abort();
   });
 
   // ─── Load providers/models ───
@@ -3205,6 +3220,36 @@
     activeTool = null;
     activeTurn = null;
     turnLifecycle.finish(turn);
+    if (warmCache && !turn.failed) cacheWarmer.activity();
+  }
+
+  /**
+   * One warm request: the same prefix a real turn sends (system prompt,
+   * tools, transcript by reference), a one-line prompt and a one-token
+   * answer. Nothing is stored; usage is accounted like any request.
+   */
+  async function sendWarmRequest() {
+    const turnModel = selectedModel;
+    const controller = new AbortController();
+    warmController = controller;
+    try {
+      const context = { systemPrompt: [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n') };
+      const { reqMessages, needsPrefix } = await buildRequestMessages(context, messages.slice(), false, () => controller.signal.throwIfAborted());
+      reqMessages.push({ role: 'user', content: WARM_PROMPT });
+      await streamChatCompletion('api/v1/chats/completions', {
+        model: turnModel,
+        messages: reqMessages,
+        tools: discoveredTools.length > 0 ? discoveredTools : undefined,
+        tool_choice: discoveredTools.length > 0 ? 'none' : undefined,
+        max_tokens: 1,
+        stream: true,
+        at_conversation_id: conversationId || undefined,
+        at_history_before: historyTruncated && needsPrefix ? (meta[0]?.id || historyCursor) : undefined,
+        metadata: { session_id: conversationId },
+      }, { onDelta: () => {}, onToolCalls: () => {}, onError: () => {} }, controller.signal, { 'x-at-trace-name': 'chats cache warming' });
+    } finally {
+      if (warmController === controller) warmController = null;
+    }
   }
 
   async function runCompletion(turn: TurnContext) {
@@ -4529,6 +4574,16 @@
               {/each}
             </div>
             <p class="mt-2 max-w-2xl text-xs text-dark-text-muted">These tools run in this chat interface and help the model manage the conversation while you are here.</p>
+          </div>
+
+          <div role="group" aria-label="Prompt cache warming" class="block max-w-2xl">
+            <label class="flex items-center gap-2 text-xs text-dark-text">
+              <input type="checkbox" checked={warmCache} onchange={(e) => { warmCache = e.currentTarget.checked; if (!warmCache) { cacheWarmer.reset(); warmController?.abort(); } scheduleSettingsSave(); }} />
+              Keep the prompt cache warm while I am idle
+            </label>
+            <p class="mt-1 text-xs text-dark-text-muted">
+              For this conversation only, while this tab is open and visible. Every 4 minutes without a message, for up to 30 minutes after the last answer, a one-token request renews the provider's cached prefix so the next message is cheaper and faster. These are real, billed requests (about seven per idle half hour).
+            </p>
           </div>
 
           {#if backgroundAvailable}

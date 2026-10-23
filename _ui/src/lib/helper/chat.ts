@@ -167,6 +167,7 @@ export async function streamChatCompletion(
     tools?: ToolDefinition[];
     tool_choice?: 'auto' | 'none' | 'required';
     reasoning_effort?: string;
+    max_tokens?: number;
     stream: boolean;
     stream_options?: { include_usage: boolean };
     metadata?: Record<string, string>;
