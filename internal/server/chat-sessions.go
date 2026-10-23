@@ -593,7 +593,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	if s.mcpSetStore != nil {
 		mcpTools.AddSetTools(ctx, skillRuntime.ToolSetNames())
 	}
-	allTools = append(allTools, mcpTools.Tools()...)
+	// In MCP code mode the MCP tools stay out of the tool list; the model
+	// reaches them through code_execute (added with the built-ins below).
+	mcpCodeMode := false
+	if agent.Config.MCPCodeMode && len(mcpTools.Tools()) > 0 {
+		_, mcpCodeMode = s.mcpCodeModeTool(ctx)
+	}
+	if !mcpCodeMode {
+		allTools = append(allTools, mcpTools.Tools()...)
+	}
 	forkedSkillPrompt := ""
 	if transient && transientRuntime.SkillID != "" {
 		loaded, loadErr := skillRuntime.HandleLoadSkill(map[string]any{"skill_name": transientRuntime.SkillID})
@@ -609,6 +617,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		builtinTools = append(builtinTools, forkStatusBuiltinTools(ctx, func(name string) bool {
 			return slices.ContainsFunc(builtinTools, func(t service.Tool) bool { return t.Name == name })
 		})...)
+	}
+	if mcpCodeMode && !slices.ContainsFunc(builtinTools, func(t service.Tool) bool { return t.Name == codeModeToolName }) {
+		tool, _ := s.mcpCodeModeTool(ctx)
+		builtinTools = append(builtinTools, tool)
 	}
 	for _, bt := range builtinTools {
 		allTools = append(allTools, bt)
@@ -675,6 +687,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			systemPrompt += "\n\n"
 		}
 		systemPrompt += catalog
+	}
+	if mcpCodeMode {
+		if systemPrompt != "" {
+			systemPrompt += "\n\n"
+		}
+		systemPrompt += mcpCodeModePrompt(mcpTools.Tools())
 	}
 
 	// Inject task context into system prompt if this session is task-linked.

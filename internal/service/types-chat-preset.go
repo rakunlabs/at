@@ -30,6 +30,9 @@ type ChatWorkbenchSetup struct {
 	MCPSets         []string `json:"mcp_sets,omitempty"`
 	Skills          []string `json:"skills,omitempty"`
 	BuiltinTools    []string `json:"builtin_tools,omitempty"`
+	// MCPCodeMode offers the selected MCP sets' tools through code_execute
+	// instead of listing each one (AgentConfig.MCPCodeMode).
+	MCPCodeMode bool `json:"mcp_code_mode,omitempty"`
 	// FrontendTools are browser-only helpers (todo bookkeeping, the question
 	// prompt). They have no server-side equivalent and are stored purely so a
 	// restored setup keeps the same switches.

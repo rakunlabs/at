@@ -522,3 +522,56 @@ func (s *Server) codeModeSelectionProvider(selection codeModeSelection) service.
 		return toolset, mcp.Close, err
 	}
 }
+
+// mcpCodeModeCatalogLimit bounds the tool list written into the system prompt;
+// searchTools still finds every tool.
+const mcpCodeModeCatalogLimit = 200
+
+// mcpCodeModeTool returns the code_execute definition when an MCP code-mode
+// surface may use it: the tool must pass execution and feature admission.
+func (s *Server) mcpCodeModeTool(ctx context.Context) (service.Tool, bool) {
+	if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: codeModeToolName}) != nil || s.checkBuiltinToolFeatures(ctx, codeModeToolName) != nil {
+		return service.Tool{}, false
+	}
+	return service.Tool{Name: codeModeToolDef.Name, Description: codeModeToolDef.Description, InputSchema: codeModeToolDef.InputSchema}, true
+}
+
+// mcpCodeModePrompt tells the model which MCP tools sit behind code_execute.
+// Only names and the first sentence of each description are listed, which is
+// what keeps a large catalog cheap; schemas come from searchTools.
+func mcpCodeModePrompt(tools []service.Tool) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## MCP tools (through code_execute)\n")
+	b.WriteString("These tools are not in your tool list. Call them from `code_execute`: `await tools[\"name\"]({...})`. ")
+	b.WriteString("Use `searchTools(\"query\")` inside the script to get a tool's input schema before calling it, and return only what you need.\n")
+	for i, tool := range tools {
+		if i == mcpCodeModeCatalogLimit {
+			fmt.Fprintf(&b, "- … %d more; find them with searchTools\n", len(tools)-i)
+			break
+		}
+		fmt.Fprintf(&b, "- %s", tool.Name)
+		if summary := firstSentence(tool.Description, 120); summary != "" {
+			b.WriteString(": " + summary)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func firstSentence(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if i := strings.Index(text, ". "); i >= 0 {
+		text = text[:i+1]
+	}
+	if len(text) > limit {
+		cut := limit
+		for cut > 0 && (text[cut]&0xC0) == 0x80 {
+			cut--
+		}
+		text = strings.TrimSpace(text[:cut]) + "…"
+	}
+	return text
+}

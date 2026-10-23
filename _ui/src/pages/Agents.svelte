@@ -103,6 +103,7 @@
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
   let formMCPSets = $state<string[]>([]);
+  let formMCPCodeMode = $state(false);
   let formWorkflows = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formSubagents = $state<string[]>([]);
@@ -216,6 +217,7 @@
       formSystemPrompt = cfg.system_prompt || '';
       formSkills = (cfg.skills || []).map((s: any) => (typeof s === 'string' ? s : s?.id ?? ''));
       formMCPSets = cfg.mcp_sets || [];
+      formMCPCodeMode = cfg.mcp_code_mode === true;
       formWorkflows = cfg.workflows || [];
       formConnections = cfg.connections || {};
       formBuiltinTools = cfg.builtin_tools || [];
@@ -362,6 +364,7 @@
     formSystemPrompt = '';
     formSkills = [];
     formMCPSets = [];
+    formMCPCodeMode = false;
     formWorkflows = [];
     formBuiltinTools = [];
     formSubagents = [];
@@ -400,6 +403,7 @@
     formSystemPrompt = agent.config.system_prompt;
     formSkills = (agent.config.skills || []).map((s) => (typeof s === 'string' ? s : s.id));
     formMCPSets = [...(agent.config.mcp_sets || [])];
+    formMCPCodeMode = agent.config.mcp_code_mode === true;
     formWorkflows = [...(agent.config.workflows || [])];
     formBuiltinTools = [...(agent.config.builtin_tools || [])];
     formSubagents = [...(agent.config.subagents || [])];
@@ -458,6 +462,7 @@
           system_prompt: formSystemPrompt,
           skills: formSkills,
           mcp_sets: formMCPSets,
+          mcp_code_mode: formMCPCodeMode || undefined,
           workflows: formWorkflows,
           builtin_tools: formBuiltinTools,
           subagents: formSubagents,
@@ -948,6 +953,12 @@
                   <div class="col-span-full text-xs text-dark-text-muted italic text-center">No MCP servers available</div>
                 {/if}
               </div>
+              {#if formMCPSets.length > 0 || formMCPCodeMode}
+                <label class="mt-2 flex items-start gap-2 text-xs text-dark-text-secondary">
+                  <input type="checkbox" bind:checked={formMCPCodeMode} class="mt-0.5 text-accent focus:ring-accent/20 bg-dark-elevated border-dark-border-subtle" />
+                  <span>Use MCP tools through code <span class="text-dark-text-muted">— the agent gets <code>code_execute</code> and a list of MCP tool names instead of every tool schema. Saves context with large MCP servers; needs the <code>code_execute</code> tool to be allowed.</span></span>
+                </label>
+              {/if}
             </div>
 
             <!-- Workflows -->

@@ -4,7 +4,7 @@ import { moduleURL } from './typescript-module.mjs';
 
 const load = async path => import(await moduleURL(new URL(path, import.meta.url)));
 const { shouldCollapsePaste, insertPaste, deletePaste, expandPastes, prunePastes } = await load('../src/lib/helper/paste-collapse.ts');
-const { codeModeSelection } = await load('../src/lib/helper/chat-tools.ts');
+const { codeModeSelection, mcpCodeModePrompt } = await load('../src/lib/helper/chat-tools.ts');
 
 const block = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
 
@@ -66,4 +66,13 @@ test('code_execute in Chats reaches only server-side tools', () => {
     todo: { type: 'frontend' },
   });
   assert.deepEqual(selection, { builtin_tools: ['current_time'], mcp_sets: ['web'] });
+});
+
+test('MCP code mode lists tool names and first sentences, bounded', () => {
+  assert.equal(mcpCodeModePrompt([]), '');
+  const prompt = mcpCodeModePrompt([{ name: 'gitlab_list', description: 'List issues. With filters.' }, { name: 'bare' }]);
+  assert.match(prompt, /code_execute/);
+  assert.match(prompt, /- gitlab_list: List issues\.\n- bare$/);
+  const many = Array.from({ length: 5 }, (_, i) => ({ name: `t${i}` }));
+  assert.match(mcpCodeModePrompt(many, 3), /… 2 more; find them with searchTools$/);
 });

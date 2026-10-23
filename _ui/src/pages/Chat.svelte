@@ -27,7 +27,7 @@
   import { createDebouncedSave } from '@/lib/helper/debounced-save';
   import { createChatTurnLifecycle, runChatIterations, type ChatTurn } from '@/lib/helper/chat-turn';
   import { INTERRUPTED_TOOL_RESULT, isEmptyAssistant, queuedMessage, queuedPreview, takeQueued, unansweredToolCalls, userMessageContent, type QueuedChatMessage } from '@/lib/helper/chat-queue';
-  import { codeModeSelection, dispatchChatTool } from '@/lib/helper/chat-tools';
+  import { CODE_EXECUTE_TOOL, codeModeSelection, dispatchChatTool, mcpCodeModePrompt } from '@/lib/helper/chat-tools';
   import { PastedText } from '@/lib/helper/paste-collapse';
   import { createTranscriptWriter } from '@/lib/helper/chat-persistence';
   import { isFeatureEnabled } from '@/lib/store/features.svelte';
@@ -446,6 +446,7 @@
   let legacyMcpHeaders = $state<Record<string, string>>({});
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
+  let mcpCodeMode = $state(false);
   let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
   let skills = $state<Skill[]>([]);
   let selectedSkillNames = $state<string[]>([]);
@@ -1098,7 +1099,7 @@
   // ─── Workbench config round-trip ───
 
   function currentConfig(): Record<string, unknown> {
-    const { model, system_prompt, reasoning_effort, ...setup } = currentSetup();
+    const { model, system_prompt, reasoning_effort, mcp_code_mode, ...setup } = currentSetup();
     return {
       // Preserved, not offered: a conversation saved before direct MCP URLs
       // were removed keeps its record instead of having it rewritten away.
@@ -1106,6 +1107,7 @@
       mcp_headers: { ...legacyMcpHeaders },
       ...setup,
       ...(reasoning_effort ? { reasoning_effort } : {}),
+      ...(mcp_code_mode ? { mcp_code_mode } : {}),
       // Per conversation: presets and account defaults never carry it.
       ...(backgroundMode ? { background: true } : {}),
     };
@@ -1128,6 +1130,7 @@
     systemPrompt = setup.system_prompt;
     reasoningEffort = setup.reasoning_effort;
     selectedMCPSetNames = [...setup.mcp_sets];
+    mcpCodeMode = setup.mcp_code_mode;
     selectedSkillNames = [...setup.skills];
     enabledBuiltinTools = [...setup.builtin_tools];
     enabledFrontendTools = [...setup.frontend_tools];
@@ -1654,6 +1657,7 @@
       skills: [...selectedSkillNames],
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
+      mcp_code_mode: mcpCodeMode,
     });
   }
 
@@ -1970,6 +1974,7 @@
 
   function clearAllToolSelections() {
     selectedMCPSetNames = [];
+    mcpCodeMode = false;
     selectedSkillNames = [];
     enabledBuiltinTools = [];
     enabledFrontendTools = [];
@@ -2052,7 +2057,11 @@
       mcp_sets: selectedMCPSetNames,
       skills: selectedSkillNames,
       builtin_tools: enabledBuiltinTools,
+      mcp_code_mode: mcpCodeMode,
     };
+    // In MCP code mode the sets' tools are collected here and offered through
+    // code_execute instead of being listed one by one.
+    const hiddenMCPTools: ToolDefinition[] = [];
     const frontendTools = [...enabledFrontendTools];
     const newTools: ToolDefinition[] = [];
     const newSourceMap: Record<string, ToolSource> = {};
@@ -2080,6 +2089,11 @@
           };
           for (const t of res.tools ?? []) {
             if (newSourceMap[t.name]) continue;
+            if (selections.mcp_code_mode) {
+              hiddenMCPTools.push({ type: 'function', function: { name: t.name, description: t.description, parameters: t.inputSchema || { type: 'object', properties: {} } } });
+              newSourceMap[t.name] = { type: 'mcpset', mcpSetName: setName };
+              continue;
+            }
             newTools.push({
               type: 'function',
               function: {
@@ -2166,6 +2180,24 @@
           },
         });
         newSourceMap[def.name] = { type: 'builtin' };
+      }
+
+      // 4b. MCP code mode: one code_execute tool plus a catalog of names.
+      // The hidden tools keep their sources, so code_execute can reach their
+      // sets (codeModeSelection) while the model's tool list stays short.
+      if (hiddenMCPTools.length > 0) {
+        const def = builtinTools.find(t => t.name === CODE_EXECUTE_TOOL);
+        if (def && !builtinDisabledBy(def, isFeatureEnabled)) {
+          if (!newSourceMap[CODE_EXECUTE_TOOL]) {
+            newTools.push({ type: 'function', function: { name: def.name, description: def.description, parameters: def.input_schema || { type: 'object', properties: {} } } });
+            newSourceMap[def.name] = { type: 'builtin' };
+          }
+          newSkillPrompts.push(mcpCodeModePrompt(hiddenMCPTools.map(t => ({ name: t.function.name, description: t.function.description }))));
+        } else {
+          // Without code_execute the tools would be unreachable; list them.
+          newTools.push(...hiddenMCPTools);
+          addToast('MCP code mode needs the code_execute tool, which is not available here; MCP tools are listed directly.', 'alert');
+        }
       }
 
       // 5. Add enabled frontend tools
@@ -4295,6 +4327,12 @@
                   {/if}
                 {/each}
               </div>
+              {#if selectedMCPSetNames.length > 0}
+                <label class="mt-2 flex items-start gap-2 text-xs text-dark-text-secondary">
+                  <input type="checkbox" class="mt-0.5" checked={mcpCodeMode} onchange={e => { mcpCodeMode = (e.currentTarget as HTMLInputElement).checked; refreshTools(); }} />
+                  <span>Use MCP tools through code <span class="text-dark-text-muted">— the model gets one <code>code_execute</code> tool and a list of MCP tool names instead of every schema. Saves context with large MCP sets.</span></span>
+                </label>
+              {/if}
             </div>
           {/if}
 

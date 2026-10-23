@@ -23,7 +23,7 @@ test('shipped setup enables whoami and copies browser defaults', () => {
 test('normalization preserves explicit none, migrates todos and copies selections', () => {
   const input = { model: 'p/m', reasoning_effort: 'high', system_prompt: 'Prompt', mcp_sets: ['ops', 'ops'], skills: ['docs'], builtin_tools: ['todo_read', 'whoami', 'whoami'], frontend_tools: [] };
   const setup = normalizeWorkbenchSetup(input, ['question']);
-  assert.deepEqual(setup, { ...input, mcp_sets: ['ops'], builtin_tools: ['whoami'], frontend_tools: ['todo_read'] });
+  assert.deepEqual(setup, { ...input, mcp_sets: ['ops'], builtin_tools: ['whoami'], frontend_tools: ['todo_read'], mcp_code_mode: false });
   assert.deepEqual(normalizeWorkbenchSetup({ builtin_tools: [], frontend_tools: [] }, ['question']).frontend_tools, []);
   assert.deepEqual(normalizeWorkbenchSetup({}, ['question']).builtin_tools, []);
   assert.deepEqual(normalizeWorkbenchSetup({}, ['question']).frontend_tools, ['question']);
@@ -34,7 +34,7 @@ test('normalization preserves explicit none, migrates todos and copies selection
 
 test('foreign config values cannot become prompts or tool selections', () => {
   const setup = normalizeWorkbenchSetup({ model: false, reasoning_effort: 3, system_prompt: {}, skills: 'docs', mcp_sets: [null, 'ops', 3], builtin_tools: ['whoami', false], frontend_tools: {} });
-  assert.deepEqual(setup, { model: '', reasoning_effort: '', system_prompt: '', skills: [], mcp_sets: ['ops'], builtin_tools: ['whoami'], frontend_tools: [] });
+  assert.deepEqual(setup, { model: '', reasoning_effort: '', system_prompt: '', skills: [], mcp_sets: ['ops'], builtin_tools: ['whoami'], frontend_tools: [], mcp_code_mode: false });
 });
 
 test('new chat restores the entire account setup without re-enabling disabled tools', () => {

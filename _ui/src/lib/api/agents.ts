@@ -26,6 +26,8 @@ export interface AgentConfig {
   /** Accepts either plain skill names/IDs (legacy) or SkillRef objects. */
   skills: Array<string | SkillRef>;
   mcp_sets: string[];
+  /** Offer MCP tools through code_execute instead of listing each one. */
+  mcp_code_mode?: boolean;
   mcp_urls: string[];
   /** Workflow NAMES exposed to the agent as callable wf_<name> tools. */
   workflows?: string[];

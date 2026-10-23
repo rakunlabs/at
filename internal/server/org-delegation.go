@@ -373,6 +373,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		mcpTools.Connect(ctx, mcpSetNames, agent.Config.MCPs)
 	}
 
+	mcpCodeMode := false
+	if agent.Config.MCPCodeMode && len(mcpTools.Tools()) > 0 {
+		var tool service.Tool
+		if tool, mcpCodeMode = s.mcpCodeModeTool(ctx); mcpCodeMode && !builtinToolMap[codeModeToolName] {
+			builtinToolDefs = append(builtinToolDefs, tool)
+			builtinToolMap[codeModeToolName] = true
+		}
+	}
+
 	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
 	if toolTimeout <= 0 {
 		toolTimeout = 60 * time.Second
@@ -384,6 +393,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// Append documentation skill instructions.
 	if len(skillPromptFragments) > 0 {
 		systemPrompt += "\n\n" + strings.Join(skillPromptFragments, "\n\n")
+	}
+	if mcpCodeMode {
+		systemPrompt += "\n\n" + mcpCodeModePrompt(mcpTools.Tools())
 	}
 	// Org mission context: every agent shares a common frame (org name +
 	// mission); the head agent additionally gets outcome-ownership framing.
@@ -697,6 +709,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// MCP-set tools (workflows, upstreams, server-side skill/builtin/HTTP).
 	// Stripped to name/description/schema so tool handlers never reach the LLM.
 	for _, t := range mcpTools.Tools() {
+		if mcpCodeMode {
+			break
+		}
 		llmTools = append(llmTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,

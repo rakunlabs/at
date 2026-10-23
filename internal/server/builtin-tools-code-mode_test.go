@@ -158,3 +158,59 @@ func TestCodeModeFallbackToolsetFollowsScope(t *testing.T) {
 		t.Fatalf("tools = %v", names)
 	}
 }
+
+func TestMCPCodeModePrompt(t *testing.T) {
+	if mcpCodeModePrompt(nil) != "" {
+		t.Fatal("no tools must produce no prompt")
+	}
+	tools := []service.Tool{
+		{Name: "gitlab_list_issues", Description: "List issues in a project. Supports filters and pagination."},
+		{Name: "gitlab_get_issue", Description: strings.Repeat("x", 300)},
+		{Name: "bare"},
+	}
+	got := mcpCodeModePrompt(tools)
+	for _, want := range []string{
+		"code_execute",
+		"searchTools",
+		"- gitlab_list_issues: List issues in a project.\n",
+		"- gitlab_get_issue: " + strings.Repeat("x", 120) + "…\n",
+		"- bare\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "pagination") {
+		t.Fatal("only the first sentence of a description is listed")
+	}
+
+	many := make([]service.Tool, mcpCodeModeCatalogLimit+5)
+	for i := range many {
+		many[i] = service.Tool{Name: "t" + strings.Repeat("a", i%3)}
+	}
+	if !strings.Contains(mcpCodeModePrompt(many), "… 5 more; find them with searchTools") {
+		t.Fatal("long catalogs must be bounded")
+	}
+}
+
+// MCP code mode needs code_execute itself to pass admission; otherwise the
+// loops list MCP tools directly rather than hiding them out of reach.
+func TestMCPCodeModeToolRequiresAdmission(t *testing.T) {
+	s := &Server{}
+	bind := func(allowed []string) context.Context {
+		ctx, err := service.BindExecution(t.Context(), service.ExecutionProvenance{RunID: "r", UserID: "u", WorkspaceID: "w", Source: "test"}, t.TempDir(), func(context.Context, service.ExecutionProvenance, service.ExecutionAction) (service.ExecutionValidation, error) {
+			return service.ExecutionValidation{Allowed: true, Policy: service.ExecutionPolicy{WorkspaceID: "w", Mode: service.ExecutionRestricted, AllowedTools: allowed}}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ctx
+	}
+	if _, ok := s.mcpCodeModeTool(bind([]string{"file_read"})); ok {
+		t.Fatal("code_execute must not be offered when the policy does not allow it")
+	}
+	tool, ok := s.mcpCodeModeTool(bind([]string{codeModeToolName}))
+	if !ok || tool.Name != codeModeToolName {
+		t.Fatalf("code_execute should be offered when allowed: %v %v", tool.Name, ok)
+	}
+}

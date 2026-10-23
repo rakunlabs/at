@@ -251,6 +251,8 @@ export interface PlaygroundDefaults {
   skills?: string[];
   builtin_tools?: string[];
   frontend_tools?: string[];
+  /** Offer MCP-set tools through code_execute instead of listing each one. */
+  mcp_code_mode?: boolean;
 }
 
 /** An account that never saved a preset reads the shipped defaults, not a 404. */

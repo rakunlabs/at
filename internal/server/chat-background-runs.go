@@ -50,6 +50,7 @@ type chatRunSetup struct {
 	MCPSets         []string `json:"mcp_sets"`
 	Skills          []string `json:"skills"`
 	BuiltinTools    []string `json:"builtin_tools"`
+	MCPCodeMode     bool     `json:"mcp_code_mode"`
 	FrontendTools   []string `json:"frontend_tools"`
 	ReasoningEffort string   `json:"reasoning_effort"`
 }
@@ -658,12 +659,21 @@ func (c *chatRun) discoverTools(ctx context.Context, setup chatRunSetup) []strin
 	}
 
 	c.mcp.Connect(ctx, setup.MCPSets, nil)
-	for _, tool := range c.mcp.Tools() {
-		setName, _ := c.mcp.SetName(tool.Name)
-		add(tool, chatRunTool{kind: "mcp", setName: setName})
+	var prompts []string
+	_, codeModeAllowed := s.mcpCodeModeTool(ctx)
+	mcpCodeMode := setup.MCPCodeMode && codeModeAllowed && len(c.mcp.Tools()) > 0
+	if mcpCodeMode {
+		// MCP tools stay callable from code_execute but out of the tool list.
+		prompts = append(prompts, mcpCodeModePrompt(c.mcp.Tools()))
+		tool, _ := s.mcpCodeModeTool(ctx)
+		add(tool, chatRunTool{kind: "builtin"})
+	} else {
+		for _, tool := range c.mcp.Tools() {
+			setName, _ := c.mcp.SetName(tool.Name)
+			add(tool, chatRunTool{kind: "mcp", setName: setName})
+		}
 	}
 
-	var prompts []string
 	var forkSkills []*service.Skill
 	if lookup := s.executionSkillLookup(ctx); lookup != nil {
 		for _, name := range setup.Skills {

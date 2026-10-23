@@ -3314,6 +3314,19 @@ and are settled back on the script goroutine. Nested calls are traced as
 `tool` observations under the `code_execute` call when a trace parent exists.
 Regression: `internal/server/builtin-tools-code-mode_test.go`.
 
+**MCP code mode** (`mcp_code_mode`, OpenCode's default for MCP): an agent
+(`AgentConfig.MCPCodeMode`, Agents → MCP Servers checkbox) or a Chats setup
+(`ChatWorkbenchSetup.MCPCodeMode`, workbench → MCP checkbox; stored with the
+conversation, presets and defaults; also honoured by background runs) can keep
+its MCP tools out of the model's tool list. The loop then adds `code_execute`
+and appends `mcpCodeModePrompt` to the system prompt: tool names plus the first
+sentence of each description (≤200 entries), with schemas available through
+`searchTools`. The MCP tools stay dispatchable, so scripts reach them with the
+same admission as direct calls. Applied in Sessions, org delegation, Developer
+Spaces, Chats background runs and the Chats page. If `code_execute` itself is
+not admitted (`mcpCodeModeTool`), the tools are listed normally rather than
+hidden out of reach. Regression: `internal/server/mcp-code-mode_test.go`.
+
 ## Collapsed pastes in composers
 
 Chats, Sessions and Developer Spaces composers show a multi-line (≥3 lines)

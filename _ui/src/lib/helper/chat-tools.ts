@@ -34,3 +34,25 @@ export function codeModeSelection(sources: Record<string, { type: string; mcpSet
   }
   return { builtin_tools: [...builtins].sort(), mcp_sets: [...sets].sort() };
 }
+
+/** The code_execute definition offered when MCP tools sit behind it. */
+export const CODE_EXECUTE_TOOL = 'code_execute';
+
+/**
+ * System-prompt section naming the MCP tools reachable only through
+ * code_execute: names and the first sentence of each description, so a large
+ * catalog costs a few lines instead of every schema.
+ */
+export function mcpCodeModePrompt(tools: Array<{ name: string; description?: string }>, limit = 200): string {
+  if (tools.length === 0) return '';
+  const lines = ['## MCP tools (through code_execute)', 'These tools are not in your tool list. Call them from `code_execute`: `await tools["name"]({...})`. Use `searchTools("query")` inside the script to get a tool\'s input schema before calling it, and return only what you need.'];
+  for (const [index, tool] of tools.entries()) {
+    if (index === limit) { lines.push(`- … ${tools.length - index} more; find them with searchTools`); break; }
+    let summary = (tool.description ?? '').split(/\s+/).join(' ').trim();
+    const stop = summary.indexOf('. ');
+    if (stop >= 0) summary = summary.slice(0, stop + 1);
+    if (summary.length > 120) summary = summary.slice(0, 120).trim() + '…';
+    lines.push(summary ? `- ${tool.name}: ${summary}` : `- ${tool.name}`);
+  }
+  return lines.join('\n');
+}

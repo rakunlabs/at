@@ -144,16 +144,36 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 		return nil, fmt.Errorf("skill runtime: %w", err)
 	}
 
-	kit.mcp = s.newAgentMCPTools("developer session", add)
+	// In MCP code mode MCP tools are dispatchable but not advertised; the
+	// model reaches them through code_execute.
+	_, codeModeAllowed := s.mcpCodeModeTool(ctx)
+	mcpCodeMode := agent.Config.MCPCodeMode && codeModeAllowed
+	var mcpAccepted []service.Tool
+	kit.mcp = s.newAgentMCPTools("developer session", func(tool service.Tool) bool {
+		if !mcpCodeMode {
+			return add(tool)
+		}
+		if taken[tool.Name] {
+			return false
+		}
+		taken[tool.Name] = true
+		mcpAccepted = append(mcpAccepted, tool)
+		return true
+	})
 	// The agent's connection bindings must be on the context while
 	// connecting, for OAuth MCP upstreams that use the agent's account.
 	kit.mcp.Connect(kit.agentContext(ctx, session), append(append([]string{}, agent.Config.MCPSets...), kit.skills.ToolSetNames()...), agent.Config.MCPs)
+	mcpCodeMode = mcpCodeMode && len(mcpAccepted) > 0
 
 	// Built-in tools run on the AT host, not in the space container; the
 	// system prompt says so, so the agent does not look for project files there.
 	builtins := agentBuiltinTools(ctx, agent.Config.BuiltinTools, "developer session")
 	if kit.skills.HasFork() {
 		builtins = append(builtins, forkStatusBuiltinTools(ctx, func(name string) bool { return kit.builtins[name] || taken[name] })...)
+	}
+	if mcpCodeMode && !slices.ContainsFunc(builtins, func(t service.Tool) bool { return t.Name == codeModeToolName }) {
+		tool, _ := s.mcpCodeModeTool(ctx)
+		builtins = append(builtins, tool)
 	}
 	for _, tool := range builtins {
 		if add(tool) {
@@ -173,6 +193,9 @@ func (s *Server) buildDeveloperToolkit(ctx context.Context, space *service.Devel
 	}
 	if catalog := kit.skills.CatalogSystemPrompt(); catalog != "" {
 		prompt = append(prompt, catalog)
+	}
+	if mcpCodeMode {
+		prompt = append(prompt, mcpCodeModePrompt(mcpAccepted))
 	}
 	if len(kit.builtins) > 0 {
 		names := make([]string, 0, len(kit.builtins))

@@ -124,6 +124,10 @@ type AgentConfig struct {
 	Skills          []SkillRef `json:"skills,omitempty"`           // Skill attachments (bare string or {id, connections})
 	MCPs            []string   `json:"mcp_urls,omitempty"`         // List of MCP server URLs (legacy)
 	MCPSets         []string   `json:"mcp_sets,omitempty"`         // List of MCP Set names (internal MCPs)
+	// MCPCodeMode hides MCP tools from the model's tool list and offers them
+	// through code_execute instead (names listed in the system prompt, schemas
+	// via searchTools), which keeps large MCP catalogs out of every request.
+	MCPCodeMode bool `json:"mcp_code_mode,omitempty"`
 	// Workflows lists workflow NAMES exposed to the agent as callable tools.
 	// Each workflow becomes one tool named `workflow_<name>` in the agentic
 	// loop. Agents can also reach workflows indirectly via MCP sets; this
