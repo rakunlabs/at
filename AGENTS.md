@@ -3398,6 +3398,17 @@ servers):
 Elicitation is not supported. Regression: `internal/server/mcp-resources_test.go`,
 the MCP prompt case in `_ui/tests/chat-commands.test.mjs`.
 
+## Large images are shrunk before attaching
+
+Chats, Sessions and Developer Spaces composers pass PNG/JPEG/WebP attachments
+through `attachableFile` (`_ui/src/lib/helper/image-resize.ts`): an image
+whose longest edge exceeds 2000 px or that is over ~3.75 MiB (~5 MiB base64)
+is redrawn on a canvas at the largest size that fits (aspect ratio kept) and
+encoded as JPEG, or PNG when it has transparency, lowering quality and then
+size until it fits. GIF (animation) and anything the browser cannot decode
+are attached unchanged, so this can only make an attachment smaller.
+Regression: `_ui/tests/image-resize.test.mjs`.
+
 ## Collapsed pastes in composers
 
 Chats, Sessions and Developer Spaces composers show a multi-line (≥3 lines)

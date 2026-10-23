@@ -1,4 +1,5 @@
 import type { ChatAttachment } from '@/lib/api/chat-sessions';
+import { attachableFile } from './image-resize';
 
 export const CHAT_ATTACHMENT_COUNT = 4;
 export const CHAT_ATTACHMENT_TOTAL = 8 * 1024 * 1024;
@@ -20,8 +21,10 @@ export function attachmentImageURL(file: ChatAttachment): string {
   return attachmentIsImage(file) ? `data:${file.media_type};base64,${file.data}` : '';
 }
 
-export async function readChatAttachment(file: File): Promise<ChatAttachment> {
-  if (!file.size) throw new Error(`${file.name} is empty.`);
+export async function readChatAttachment(original: File): Promise<ChatAttachment> {
+  if (!original.size) throw new Error(`${original.name} is empty.`);
+  // Large photos are shrunk first, so they fit the 5 MB limit and the model.
+  const file = await attachableFile(original);
   if (file.size > 5 * 1024 * 1024) throw new Error(`${file.name} exceeds 5 MB.`);
   if (new TextEncoder().encode(file.name).length > 255 || /[\u0000-\u001f\u007f]/.test(file.name)) throw new Error('Use a shorter filename without control characters.');
   const data = await new Promise<string>((resolve, reject) => {

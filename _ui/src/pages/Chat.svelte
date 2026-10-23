@@ -19,6 +19,7 @@
     streamChatCompletion,
   } from '@/lib/helper/chat';
   import { modelReasoningEfforts } from '@/lib/helper/reasoning';
+  import { attachableFile } from '@/lib/helper/image-resize';
   import { acceptAttribute, attachmentModality, attachmentPart, attachmentRefusal, contentModalities, type InputModality, type PendingAttachment } from '@/lib/helper/attachments';
   import { listBuiltinTools, callBuiltinTool, runSkill, waitSkillRun, type BuiltinToolDef, type SkillRunStatus, type SkillRunArtifact } from '@/lib/api/mcp';
   import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
@@ -1893,7 +1894,9 @@
   const TEXT_ATTACHMENT_MAX_BYTES = 512 * 1024;
 
   async function addImageFiles(files: FileList | File[]) {
-    for (const file of files) {
+    for (const original of files) {
+      // Large photos are shrunk before attaching (2000px, ~5 MiB base64).
+      const file = attachmentModality(original.name, original.type) === 'image' ? await attachableFile(original) : original;
       const modality = attachmentModality(file.name, file.type);
       const refusal = attachmentRefusal({ name: file.name, modality }, acceptedInputs);
       if (modality === null) {
