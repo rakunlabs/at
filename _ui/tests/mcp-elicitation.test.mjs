@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { moduleURL } from './typescript-module.mjs';
 
-const { elicitFields, elicitDefaults, elicitContent, watchElicitations } = await import(await moduleURL(new URL('../src/lib/helper/mcp-elicitation.ts', import.meta.url)));
+const { elicitFields, elicitDefaults, elicitContent, watchElicitations, urlParts } = await import(await moduleURL(new URL('../src/lib/helper/mcp-elicitation.ts', import.meta.url)));
 
 const schema = {
   type: 'object',
@@ -51,4 +51,11 @@ test('the watcher long-polls while started and clears on stop', async () => {
   assert.ok(calls >= 1);
   assert.equal(seen[0], 1);
   assert.equal(seen.at(-1), 0);
+});
+
+test('URL elicitations show the host separately and only http(s) is openable', () => {
+  assert.deepEqual(urlParts('https://pay.example.com/connect?e=1'), { before: 'https://', host: 'pay.example.com', after: '/connect?e=1' });
+  assert.deepEqual(urlParts('http://localhost:3000/x'), { before: 'http://', host: 'localhost:3000', after: '/x' });
+  assert.equal(urlParts('javascript:alert(1)'), null);
+  assert.equal(urlParts('not a url'), null);
 });

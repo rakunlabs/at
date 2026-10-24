@@ -3411,18 +3411,33 @@ servers):
 Regression: `internal/server/mcp-resources_test.go`, the MCP prompt case in
 `_ui/tests/chat-commands.test.mjs`.
 
-**Elicitation** (protocol `2025-06-18`, now the clients' requested version).
-Both clients declare `capabilities.elicitation` and handle server-initiated
-requests that arrive while one of their requests is open
+**Elicitation** (protocol `2025-11-25`, now the clients' requested version).
+Both clients declare `capabilities.elicitation: {form, url}` and handle
+server-initiated messages that arrive while one of their requests is open
 (`internal/service/mcp-elicitation.go`): over Streamable HTTP a request on
 the response's SSE stream is answered with a separate POST (same session
 headers), over stdio by writing to stdin before reading on. `ping` is
-answered; other methods get -32601. `elicitation/create` validates the
-restricted schema (an object of string/number/integer/boolean/string-enum
-properties) and calls the `service.Elicitor` on the call's context. With none
-installed the answer is `cancel`, so a server never waits on nobody; an answer
-that does not fit the schema, a 10-minute timeout or a stopped run also become
-`cancel`.
+answered; other methods get -32601. JSON-RPC errors from servers are now
+`*service.MCPError` values (code, message, data) inspectable with
+`errors.As`; the message text is unchanged.
+
+- **Form mode** validates the restricted schema (an object of string /
+  number / integer / boolean / string-enum properties) and the answer against
+  it.
+- **URL mode** (`mode: url`, `url`, `elicitationId`) accepts absolute
+  http(s) URLs without credentials; AT never fetches them. Accept means the
+  person opened the page. `notifications/elicitation/complete` is passed to
+  the listener on the context (`ContextWithElicitationComplete`).
+- **-32042 URLElicitationRequiredError** on `tools/call`: the client asks
+  the person to open every listed URL (`Required`) and, when all are
+  confirmed finished, retries the call once (`callToolWithURLElicitation`);
+  a decline returns the original error. A completion notification for a
+  waiting required URL counts as confirmation.
+
+Every elicitation goes through the `service.Elicitor` on the call's
+context. With none installed the answer is `cancel`, so a server never
+waits on nobody; an answer that does not fit, a 10-minute timeout or a
+stopped run also become `cancel`.
 
 People are reached through `elicitationBroker` (`internal/server/
 mcp-elicitation.go`): questions wait in memory on the replica running the
@@ -3435,11 +3450,31 @@ schedules and background runs never have one. `GET /api/v1/mcp/elicitations
 /api/v1/mcp/elicitations/{id}` answers `{action, content?}`; both
 `models.use`, owner-checked, foreign IDs read as 404, content is validated
 against the schema. `McpElicitation.svelte` polls while a turn runs and
-renders the form (`helper/mcp-elicitation.ts`) above the composer in Chats,
-Sessions and Developer Spaces, with Send / Decline / Cancel and a warning not
-to type secrets. URL-mode elicitation is not implemented. Regressions:
-`internal/service/mcp-elicitation_test.go` (HTTP SSE and stdio),
-`internal/server/mcp-elicitation_test.go`, `_ui/tests/mcp-elicitation.test.mjs`.
+renders above the composer in Chats, Sessions and Developer Spaces: a form
+(`helper/mcp-elicitation.ts`) with Send / Decline / Cancel and a warning not
+to type secrets, or for URL mode the full URL with the host highlighted, a
+Punycode warning, and an explicit *Open <host>* button that opens a
+`noopener,noreferrer` tab (nothing is opened or prefetched without the
+click; required URLs then offer *I finished, continue*).
+
+**Relay through the gateway MCP endpoint** (`gateway-mcp-elicitation.go`).
+`initialize` on `/gateway/v1/mcp/{name}` now returns an `Mcp-Session-Id`
+and records the client's elicitation modes for it, bound to the server and
+the credential (API token or MCP OAuth grant; ≤10k sessions, 24 h). During a
+`tools/call` from a session that declared elicitation and accepts SSE, an
+upstream's question is sent to that client on the call's SSE response as
+`elicitation/create` (id `at-elicit-<ulid>`, mode the client declared;
+others are answered cancel) and the client's POSTed JSON-RPC response is
+handed back upstream; responses from another session or credential are
+refused. Completion notifications are forwarded, and for clients that
+declared URL mode a -32042 error is returned to them intact (with its data)
+so they open the URL and retry themselves. `ping` and
+`notifications/cancelled` are now answered. Sessions are per replica, so
+the relay needs sticky routing; without a known session nothing changes.
+Regressions: `internal/service/mcp-elicitation_test.go` (HTTP form + URL +
+-32042, stdio), `internal/server/mcp-elicitation_test.go`,
+`internal/server/gateway-mcp-elicitation_test.go`,
+`_ui/tests/mcp-elicitation.test.mjs`.
 
 ## Large images are shrunk before attaching
 

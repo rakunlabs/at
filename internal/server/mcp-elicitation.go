@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,15 +25,25 @@ import (
 const elicitationMaxPending = 16
 
 type pendingElicitation struct {
-	ID          string                    `json:"id"`
-	Scope       string                    `json:"scope"`
-	Server      string                    `json:"server"`
-	Message     string                    `json:"message"`
-	Schema      map[string]any            `json:"requested_schema"`
-	CreatedAt   string                    `json:"created_at"`
-	workspaceID string                    `json:"-"`
-	userID      string                    `json:"-"`
-	answer      chan service.ElicitResult `json:"-"`
+	ID        string         `json:"id"`
+	Scope     string         `json:"scope"`
+	Server    string         `json:"server"`
+	Mode      string         `json:"mode"`
+	Message   string         `json:"message"`
+	Schema    map[string]any `json:"requested_schema,omitempty"`
+	CreatedAt string         `json:"created_at"`
+	// URL mode: the page to open, its host (shown prominently against
+	// look-alike subdomains), and whether the tool call waits for it to be
+	// finished (-32042) rather than only for consent.
+	URL           string `json:"url,omitempty"`
+	Host          string `json:"host,omitempty"`
+	Punycode      bool   `json:"punycode,omitempty"`
+	ElicitationID string `json:"elicitation_id,omitempty"`
+	Required      bool   `json:"required,omitempty"`
+
+	workspaceID string
+	userID      string
+	answer      chan service.ElicitResult
 }
 
 type elicitationBroker struct {
@@ -59,9 +71,17 @@ func (b *elicitationBroker) elicitor(workspaceID, userID, scope string) service.
 			return service.ElicitResult{Action: service.ElicitCancel}, nil
 		}
 		p := &pendingElicitation{
-			ID: ulid.Make().String(), Scope: scope, Server: req.Server, Message: req.Message,
+			ID: ulid.Make().String(), Scope: scope, Server: req.Server, Mode: req.Mode, Message: req.Message,
 			Schema: req.RequestedSchema, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			URL: req.URL, ElicitationID: req.ElicitationID, Required: req.Required,
 			workspaceID: workspaceID, userID: userID, answer: make(chan service.ElicitResult, 1),
+		}
+		if p.Mode == "" {
+			p.Mode = service.ElicitModeForm
+		}
+		if u, err := url.Parse(p.URL); err == nil && p.URL != "" {
+			p.Host = u.Hostname()
+			p.Punycode = strings.Contains(strings.ToLower(p.Host), "xn--")
 		}
 		b.mu.Lock()
 		count := 0
@@ -90,6 +110,21 @@ func (b *elicitationBroker) elicitor(workspaceID, userID, scope string) service.
 			return res, nil
 		case <-ctx.Done():
 			return service.ElicitResult{}, ctx.Err()
+		}
+	}
+}
+
+// complete handles notifications/elicitation/complete: a URL elicitation the
+// tool call is waiting on was finished, so it continues as if the person had
+// confirmed. Unknown IDs are ignored, as the protocol requires.
+func (b *elicitationBroker) complete(workspaceID, userID, elicitationID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, p := range b.pending {
+		if p.userID == userID && p.workspaceID == workspaceID && p.Mode == service.ElicitModeURL && p.ElicitationID == elicitationID {
+			delete(b.pending, id)
+			b.notifyLocked()
+			p.answer <- service.ElicitResult{Action: service.ElicitAccept}
 		}
 	}
 }
@@ -155,6 +190,9 @@ func (s *Server) contextWithElicitation(ctx context.Context, scope string) conte
 	if userID == "" {
 		return ctx
 	}
+	ctx = service.ContextWithElicitationComplete(ctx, func(elicitationID string) {
+		s.elicitations.complete(workspaceID, userID, elicitationID)
+	})
 	return service.ContextWithElicitor(ctx, s.elicitations.elicitor(workspaceID, userID, scope))
 }
 

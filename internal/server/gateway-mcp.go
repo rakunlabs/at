@@ -87,8 +87,17 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse the JSON-RPC request.
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 32<<20))
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+	// A JSON-RPC response from the client answers a forwarded elicitation.
+	if s.gatewayMCPClientResponse(w, r, mcpSrv, raw) {
+		return
+	}
 	var req service.MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(raw, &req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -96,10 +105,15 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	// Route by method.
 	switch req.Method {
 	case "initialize":
+		if s.gatewayMCP != nil {
+			w.Header().Set("Mcp-Session-Id", s.gatewayMCP.open(mcpSrv.ID, gatewayMCPCredential(r), req.Params))
+		}
 		s.gwGenMCPInitialize(w, req, mcpSrv)
-	case "notifications/initialized":
+	case "notifications/initialized", "notifications/cancelled":
 		// Per MCP Streamable HTTP, notifications are acknowledged with 202.
 		w.WriteHeader(http.StatusAccepted)
+	case "ping":
+		mcpResult(w, req.ID, map[string]any{})
 	case "tools/list":
 		s.gwGenMCPListTools(r.Context(), w, req, mcpSrv)
 	case "tools/call":
@@ -243,6 +257,7 @@ func negotiateMCPProtocolVersion(params any) string {
 		"2024-11-05": true,
 		"2025-03-26": true,
 		"2025-06-18": true,
+		"2025-11-25": true,
 	}
 	if m, ok := params.(map[string]any); ok {
 		if v, ok := m["protocolVersion"].(string); ok && supported[v] {
@@ -307,7 +322,10 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 
 	baseURL := s.publicBaseURL(r)
 	protocolVersion := r.Header.Get("MCP-Protocol-Version")
+	elicitCtx, events := s.gatewayMCPElicitationContext(r.Context(), r, srv)
+	relaying := events != nil
 	call := func(ctx context.Context) (any, *service.MCPError) {
+		ctx = mergeElicitation(ctx, elicitCtx)
 		runtime, err := s.gatewayMCPRuntime(ctx, srv)
 		if err != nil {
 			return nil, &service.MCPError{Code: -32000, Message: err.Error()}
@@ -318,6 +336,10 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		ctx = contextWithMCPProtocolVersion(ctx, protocolVersion)
 		result, err := runtime.CallTool(ctx, params.Name, params.Arguments)
 		if err != nil {
+			// The client opens the URLs and retries the call.
+			if required := service.URLElicitationRequiredError(err); required != nil && relaying {
+				return nil, required
+			}
 			var notFound *mcpToolNotFoundError
 			if errors.As(err, &notFound) {
 				return nil, &service.MCPError{Code: -32602, Message: err.Error()}
@@ -328,7 +350,17 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		content = append(content, collector.Content()...)
 		return map[string]any{"content": content}, nil
 	}
-	serveMCPCall(w, r, req.ID, params.Meta.ProgressToken, call)
+	serveMCPCallEvents(w, r, req.ID, params.Meta.ProgressToken, events, call)
+}
+
+// mergeElicitation carries the relay values of from onto ctx (the call's
+// context is r.Context(); from was derived from it before the call).
+func mergeElicitation(ctx, from context.Context) context.Context {
+	if e := service.ElicitorFromContext(from); e != nil {
+		ctx = service.ContextWithElicitor(ctx, e)
+		ctx = service.CopyElicitationContext(ctx, from)
+	}
+	return ctx
 }
 
 // mcpCallKeepAlive is how long a tools/call may run silently before the
@@ -345,6 +377,14 @@ var mcpCallKeepAlive = 10 * time.Second
 // that reset their timeout on progress then wait indefinitely), and delivers
 // the JSON-RPC response as the final event.
 func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken any, call func(context.Context) (any, *service.MCPError)) {
+	serveMCPCallEvents(w, r, id, progressToken, nil, call)
+}
+
+// serveMCPCallEvents is serveMCPCall with server-to-client messages: each
+// value received from events (an elicitation request, a completion
+// notification) switches the response to SSE at once and is written to it.
+// Callers only send events when the client accepts SSE.
+func serveMCPCallEvents(w http.ResponseWriter, r *http.Request, id int, progressToken any, events <-chan any, call func(context.Context) (any, *service.MCPError)) {
 	type reply struct {
 		result any
 		err    *service.MCPError
@@ -357,7 +397,7 @@ func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken 
 	}()
 	writePlain := func(out reply) {
 		if out.err != nil {
-			mcpError(w, id, out.err.Code, out.err.Message)
+			mcpErrorFull(w, id, out.err)
 			return
 		}
 		mcpResult(w, id, out.result)
@@ -377,10 +417,23 @@ func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken 
 	defer ticker.Stop()
 	started := time.Now()
 	streaming := false
+	startStream := func() {
+		if !streaming {
+			streaming = true
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("X-Accel-Buffering", "no")
+			w.WriteHeader(http.StatusOK)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case event := <-events:
+			startStream()
+			writeMCPEvent(w, event)
+			flusher.Flush()
 		case out := <-done:
 			if !streaming {
 				writePlain(out)
@@ -399,13 +452,7 @@ func serveMCPCall(w http.ResponseWriter, r *http.Request, id int, progressToken 
 			flusher.Flush()
 			return
 		case <-ticker.C:
-			if !streaming {
-				streaming = true
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("X-Accel-Buffering", "no")
-				w.WriteHeader(http.StatusOK)
-			}
+			startStream()
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 			if progressToken != nil {
 				elapsed := int(time.Since(started).Seconds())
@@ -688,6 +735,14 @@ func mcpResult(w http.ResponseWriter, id int, result any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// mcpErrorFull writes an error including its data (e.g. the elicitations of
+// a -32042 URLElicitationRequiredError).
+func mcpErrorFull(w http.ResponseWriter, id int, e *service.MCPError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(service.MCPResponse{Jsonrpc: "2.0", ID: id, Error: e})
 }
 
 func mcpError(w http.ResponseWriter, id int, code int, message string) {

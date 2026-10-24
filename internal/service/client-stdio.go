@@ -134,6 +134,10 @@ func (c *StdioMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPR
 			return nil, fmt.Errorf("read from stdout: %w", err)
 		}
 		var msg mcpServerMessage
+		if json.Unmarshal(raw, &msg) == nil && msg.isNotification() {
+			handleServerNotification(ctx, msg)
+			continue
+		}
 		if json.Unmarshal(raw, &msg) == nil && msg.isRequest() {
 			// The server asks us something (elicitation, ping) before it
 			// answers; reply on stdin and keep waiting.
@@ -148,7 +152,7 @@ func (c *StdioMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPR
 			continue
 		}
 		if resp.Error != nil {
-			return nil, fmt.Errorf("MCP error [%d]: %s", resp.Error.Code, resp.Error.Message)
+			return nil, resp.Error
 		}
 		return &resp, nil
 	}
@@ -216,6 +220,10 @@ func (c *StdioMCPClient) ListTools(ctx context.Context) ([]Tool, error) {
 }
 
 func (c *StdioMCPClient) CallTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
+	return callToolWithURLElicitation(ctx, c.serverName, func() (string, error) { return c.callTool(ctx, name, arguments) })
+}
+
+func (c *StdioMCPClient) callTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
 	if arguments == nil {
 		arguments = map[string]any{}
 	}

@@ -259,6 +259,8 @@ type Server struct {
 	steering *runSteering
 	// Questions MCP servers asked the person (elicitation), waiting for answers.
 	elicitations *elicitationBroker
+	// MCP client sessions of the gateway endpoint, for elicitation relay.
+	gatewayMCP *gatewayMCPSessions
 
 	// Ephemeral background subagents are process-local by design. They create
 	// no durable organization task and disappear after a short terminal TTL.
@@ -618,6 +620,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		loopGov:          loopgov.New(loopgovConfigFromYAML(cfg.Workspace), nil),
 		steering:         newRunSteering(),
 		elicitations:     newElicitationBroker(),
+		gatewayMCP:       newGatewayMCPSessions(),
 		cluster:          cl,
 		version:          version,
 		commit:           commit,

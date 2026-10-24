@@ -19,7 +19,7 @@ import (
 // requests during initialize. Servers negotiate down to the version they
 // support; the negotiated value is echoed back via the
 // MCP-Protocol-Version header on subsequent requests (2025-06-18 spec).
-const mcpProtocolVersion = "2025-06-18"
+const mcpProtocolVersion = "2025-11-25"
 
 // MCPClient is the interface implemented by both HTTP and stdio MCP clients.
 type MCPClient interface {
@@ -50,8 +50,15 @@ type MCPResponse struct {
 }
 
 type MCPError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// Error makes a JSON-RPC error returned by an MCP server a Go error, so
+// callers can inspect its code and data with errors.As.
+func (e *MCPError) Error() string {
+	return fmt.Sprintf("MCP error [%d]: %s", e.Code, e.Message)
 }
 
 type ListToolsResult struct {
@@ -251,6 +258,10 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	}
 
 	mcpResp, err := decodeMCPResponseBody(resp, req.ID, func(msg mcpServerMessage) {
+		if msg.isNotification() {
+			handleServerNotification(ctx, msg)
+			return
+		}
 		// A request from the server on this stream (elicitation, ping): the
 		// answer is POSTed back while the stream stays open.
 		c.postServerResponse(ctx, answerServerRequest(ctx, c.serverName, msg))
@@ -264,7 +275,7 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	}
 
 	if mcpResp.Error != nil {
-		return nil, fmt.Errorf("MCP error [%d]: %s", mcpResp.Error.Code, mcpResp.Error.Message)
+		return nil, mcpResp.Error
 	}
 
 	return mcpResp, nil
@@ -313,7 +324,7 @@ func decodeMCPResponseSSE(r io.Reader, wantID int, onRequest func(mcpServerMessa
 		data.Reset()
 
 		var msg mcpServerMessage
-		if json.Unmarshal([]byte(payload), &msg) == nil && msg.isRequest() {
+		if json.Unmarshal([]byte(payload), &msg) == nil && (msg.isRequest() || msg.isNotification()) {
 			if onRequest != nil {
 				onRequest(msg)
 			}
@@ -437,6 +448,10 @@ func (c *HTTPMCPClient) ListTools(ctx context.Context) ([]Tool, error) {
 }
 
 func (c *HTTPMCPClient) CallTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
+	return callToolWithURLElicitation(ctx, c.serverName, func() (string, error) { return c.callTool(ctx, name, arguments) })
+}
+
+func (c *HTTPMCPClient) callTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
 	if arguments == nil {
 		arguments = map[string]any{}
 	}

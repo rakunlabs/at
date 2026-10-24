@@ -176,3 +176,109 @@ done
 		t.Fatalf("result = %q %v", got, err)
 	}
 }
+
+// URL mode: a -32042 error asks the person to open the URL, then the call is
+// retried once; a URL elicitation request mid-call is passed to the elicitor
+// and the completion notification reaches its listener.
+func TestHTTPMCPClientURLElicitation(t *testing.T) {
+	var calls int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var msg map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&msg)
+		method, _ := msg["method"].(string)
+		id := msg["id"]
+		switch {
+		case method == "initialize":
+			params, _ := msg["params"].(map[string]any)
+			caps, _ := params["capabilities"].(map[string]any)
+			e, _ := caps["elicitation"].(map[string]any)
+			if _, ok := e["url"]; !ok {
+				t.Errorf("client did not declare url mode: %v", caps)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"pay","version":"1"}}}`, id)
+		case strings.HasPrefix(method, "notifications/"), method == "":
+			w.WriteHeader(http.StatusAccepted)
+		case method == "tools/call":
+			mu.Lock()
+			calls++
+			n := calls
+			mu.Unlock()
+			params, _ := msg["params"].(map[string]any)
+			if params["name"] == "connect" {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"id\":\"u1\",\"method\":\"elicitation/create\",\"params\":{\"mode\":\"url\",\"elicitationId\":\"e-1\",\"url\":\"https://pay.example.com/connect?e=1\",\"message\":\"Connect\"}}\n\n")
+				w.(http.Flusher).Flush()
+				time.Sleep(50 * time.Millisecond)
+				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/elicitation/complete\",\"params\":{\"elicitationId\":\"e-1\"}}\n\n")
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%v,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"connected\"}]}}\n\n", id)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32042,"message":"auth needed","data":{"elicitations":[{"mode":"url","elicitationId":"e-2","url":"https://pay.example.com/auth","message":"Authorize"}]}}}`, id)
+				return
+			}
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"content":[{"type":"text","text":"paid"}]}}`, id)
+		}
+	}))
+	defer srv.Close()
+	client, err := NewHTTPMCPClient(t.Context(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []ElicitRequest
+	var completed []string
+	ctx := ContextWithElicitor(t.Context(), func(_ context.Context, req ElicitRequest) (ElicitResult, error) {
+		asked = append(asked, req)
+		return ElicitResult{Action: ElicitAccept}, nil
+	})
+	ctx = ContextWithElicitationComplete(ctx, func(id string) { completed = append(completed, id) })
+
+	got, err := client.CallTool(ctx, "pay", nil)
+	if err != nil || got != "paid" || calls != 2 {
+		t.Fatalf("retry after -32042: %q %v calls=%d", got, err, calls)
+	}
+	if len(asked) != 1 || asked[0].URL != "https://pay.example.com/auth" || !asked[0].Required || asked[0].Server != "pay" {
+		t.Fatalf("asked = %+v", asked)
+	}
+
+	got, err = client.CallTool(ctx, "connect", nil)
+	if err != nil || got != "connected" {
+		t.Fatalf("url request: %q %v", got, err)
+	}
+	if asked[1].Mode != ElicitModeURL || asked[1].ElicitationID != "e-1" || asked[1].Required {
+		t.Fatalf("url elicitation = %+v", asked[1])
+	}
+	if strings.Join(completed, ",") != "e-1" {
+		t.Fatalf("completed = %v", completed)
+	}
+
+	// Declining a required URL returns the original error, no retry.
+	calls = 0
+	decline := ContextWithElicitor(t.Context(), func(context.Context, ElicitRequest) (ElicitResult, error) {
+		return ElicitResult{Action: ElicitDecline}, nil
+	})
+	if _, err := client.CallTool(decline, "pay", nil); URLElicitationRequiredError(err) == nil || calls != 1 {
+		t.Fatalf("decline: %v calls=%d", err, calls)
+	}
+	// Passthrough leaves the error to the caller.
+	calls = 0
+	if _, err := client.CallTool(ContextWithURLElicitationPassthrough(ctx), "pay", nil); URLElicitationRequiredError(err) == nil || calls != 1 {
+		t.Fatalf("passthrough: %v calls=%d", err, calls)
+	}
+}
+
+func TestValidateElicitURL(t *testing.T) {
+	for _, ok := range []string{"https://a.example/x", "http://localhost:3000/cb"} {
+		if err := ValidateElicitURL(ok); err != nil {
+			t.Errorf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "javascript:alert(1)", "file:///etc/passwd", "https://user:pw@a.example/", "/relative"} {
+		if ValidateElicitURL(bad) == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

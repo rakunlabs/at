@@ -113,3 +113,23 @@ export function watchElicitations<T>(list: (wait: number, signal: AbortSignal) =
     },
   };
 }
+
+/**
+ * Splits a URL around its host so the page can highlight the domain, which
+ * is what tells a person whose site they are about to open.
+ */
+export function urlParts(raw: string): { before: string; host: string; after: string } | null {
+  let u: URL;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const at = raw.indexOf(u.host);
+  if (at < 0) return { before: `${u.protocol}//`, host: u.host, after: raw.slice(`${u.protocol}//`.length + u.host.length) };
+  return { before: raw.slice(0, at), host: u.host, after: raw.slice(at + u.host.length) };
+}
+
+/** Opens an elicitation URL in a separate tab that cannot reach this page. */
+export function openElicitationURL(raw: string): boolean {
+  if (!urlParts(raw)) return false;
+  const tab = window.open(raw, '_blank', 'noopener,noreferrer');
+  return tab !== undefined;
+}
