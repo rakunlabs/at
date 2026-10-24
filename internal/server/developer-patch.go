@@ -70,7 +70,7 @@ func parsePatch(text string) ([]patchOp, error) {
 			var body []string
 			for i < len(lines) && !strings.HasPrefix(lines[i], "*** ") {
 				if !strings.HasPrefix(lines[i], "+") {
-					return nil, fmt.Errorf("Add File %s: every line must start with +, got %q", op.path, lines[i])
+					return nil, fmt.Errorf("Add File %s: every line must start with +, got %q", op.path, lines[i]) //nolint:staticcheck // mirrors the patch header
 				}
 				body = append(body, lines[i][1:])
 				i++
@@ -124,13 +124,13 @@ func parsePatch(text string) ([]patchOp, error) {
 					case l[0] == '+':
 						hunk.new = append(hunk.new, l[1:])
 					default:
-						return nil, fmt.Errorf("Update File %s: line must start with ' ', '-' or '+', got %q", op.path, l)
+						return nil, fmt.Errorf("Update File %s: line must start with ' ', '-' or '+', got %q", op.path, l) //nolint:staticcheck // mirrors the patch header
 					}
 				}
 			}
 			flush()
 			if len(op.hunks) == 0 && op.moveTo == "" {
-				return nil, fmt.Errorf("Update File %s has no changes", op.path)
+				return nil, fmt.Errorf("Update File %s has no changes", op.path) //nolint:staticcheck // mirrors the patch header
 			}
 			ops = append(ops, op)
 		case strings.TrimSpace(line) == "":

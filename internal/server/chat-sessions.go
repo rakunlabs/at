@@ -1339,14 +1339,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				case "builtin":
 					var toolCtx context.Context
 					var cancel context.CancelFunc
-					if tc.Name == "agent_run" {
+					switch tc.Name {
+					case "agent_run":
 						// A subagent is a whole agentic loop, not one tool call;
 						// the per-tool deadline would cut it off mid-run. It is
 						// still bounded by the turn and its own iteration budget.
 						toolCtx, cancel = context.WithCancel(contextWithSubagentProgress(ctx, subagentProgress(tc.ID)))
-					} else if tc.Name == codeModeToolName {
+					case codeModeToolName:
 						toolCtx, cancel = context.WithTimeout(ctx, codeModeTimeout(toolTimeout))
-					} else {
+					default:
 						toolCtx, cancel = context.WithTimeout(ctx, toolTimeout)
 					}
 					if tc.Name == codeModeToolName {

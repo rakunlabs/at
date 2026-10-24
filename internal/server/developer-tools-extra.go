@@ -44,7 +44,7 @@ func (s *Server) applyDeveloperPatch(ctx context.Context, h *developerRuntimeHan
 		switch op.kind {
 		case patchAdd:
 			if _, err := s.runDeveloperFS(ctx, h, nil, "read", project, rel); err == nil {
-				return "", nil, fmt.Errorf("Add File %s: the file already exists; use Update File", rel)
+				return "", nil, fmt.Errorf("Add File %s: the file already exists; use Update File", rel) //nolint:staticcheck // mirrors the patch header
 			}
 			if len(op.content) > developerWriteMaxBytes {
 				return "", nil, fmt.Errorf("%s exceeds 2 MiB", rel)
@@ -53,14 +53,14 @@ func (s *Server) applyDeveloperPatch(ctx context.Context, h *developerRuntimeHan
 			summary = append(summary, "A "+rel)
 		case patchDelete:
 			if _, err := s.runDeveloperFS(ctx, h, nil, "read", project, rel); err != nil {
-				return "", nil, fmt.Errorf("Delete File %s: %w", rel, err)
+				return "", nil, fmt.Errorf("Delete File %s: %w", rel, err) //nolint:staticcheck // mirrors the patch header
 			}
 			deletes = append(deletes, rel)
 			summary = append(summary, "D "+rel)
 		case patchUpdate:
 			raw, err := s.runDeveloperFS(ctx, h, nil, "read", project, rel)
 			if err != nil {
-				return "", nil, fmt.Errorf("Update File %s: %w", rel, err)
+				return "", nil, fmt.Errorf("Update File %s: %w", rel, err) //nolint:staticcheck // mirrors the patch header
 			}
 			var file struct {
 				Content  string `json:"content"`
@@ -84,7 +84,7 @@ func (s *Server) applyDeveloperPatch(ctx context.Context, h *developerRuntimeHan
 			if op.moveTo != "" {
 				dest, err := developerProjectFilePath(op.moveTo)
 				if err != nil {
-					return "", nil, fmt.Errorf("Move to %s: %w", op.moveTo, err)
+					return "", nil, fmt.Errorf("Move to %s: %w", op.moveTo, err) //nolint:staticcheck // mirrors the patch header
 				}
 				moves = append(moves, [2]string{rel, dest})
 				summary = append(summary, "R "+rel+" -> "+dest)

@@ -67,7 +67,6 @@ type mdConverter struct {
 	// prefix is prepended to every line (blockquotes, list continuation).
 	prefix []string
 	lists  []mdList
-	inPre  bool
 }
 
 type mdList struct {

@@ -32,13 +32,13 @@ func fakeElicitingMCP(t *testing.T) (*httptest.Server, *map[string]any) {
 			initCaps, _ = params["capabilities"].(map[string]any)
 			mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"asker","version":"1"}}}`, id)
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"asker","version":"1"}}}`, id) //nolint:errcheck
 		case strings.HasPrefix(method, "notifications/"):
 			w.WriteHeader(http.StatusAccepted)
 		case method == "tools/call":
 			w.Header().Set("Content-Type", "text/event-stream")
 			flusher := w.(http.Flusher)
-			fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"q1\",\"method\":\"elicitation/create\",\"params\":{\"message\":\"Which user?\",\"requestedSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"admin\":{\"type\":\"boolean\"}},\"required\":[\"name\"]}}}\n\n")
+			fmt.Fprint(w, "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":\"q1\",\"method\":\"elicitation/create\",\"params\":{\"message\":\"Which user?\",\"requestedSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"admin\":{\"type\":\"boolean\"}},\"required\":[\"name\"]}}}\n\n") //nolint:errcheck
 			flusher.Flush()
 			var answer map[string]any
 			select {
@@ -48,7 +48,7 @@ func fakeElicitingMCP(t *testing.T) (*httptest.Server, *map[string]any) {
 			}
 			text, _ := json.Marshal(answer)
 			resp, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}}})
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", resp)
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", resp) //nolint:errcheck
 			flusher.Flush()
 		case method == "" && msg["id"] == "q1":
 			// The client's answer to our question.
@@ -197,7 +197,7 @@ func TestHTTPMCPClientURLElicitation(t *testing.T) {
 				t.Errorf("client did not declare url mode: %v", caps)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"pay","version":"1"}}}`, id)
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"pay","version":"1"}}}`, id) //nolint:errcheck
 		case strings.HasPrefix(method, "notifications/"), method == "":
 			w.WriteHeader(http.StatusAccepted)
 		case method == "tools/call":
@@ -208,19 +208,19 @@ func TestHTTPMCPClientURLElicitation(t *testing.T) {
 			params, _ := msg["params"].(map[string]any)
 			if params["name"] == "connect" {
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"id\":\"u1\",\"method\":\"elicitation/create\",\"params\":{\"mode\":\"url\",\"elicitationId\":\"e-1\",\"url\":\"https://pay.example.com/connect?e=1\",\"message\":\"Connect\"}}\n\n")
+				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"id\":\"u1\",\"method\":\"elicitation/create\",\"params\":{\"mode\":\"url\",\"elicitationId\":\"e-1\",\"url\":\"https://pay.example.com/connect?e=1\",\"message\":\"Connect\"}}\n\n") //nolint:errcheck
 				w.(http.Flusher).Flush()
 				time.Sleep(50 * time.Millisecond)
-				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/elicitation/complete\",\"params\":{\"elicitationId\":\"e-1\"}}\n\n")
-				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%v,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"connected\"}]}}\n\n", id)
+				fmt.Fprint(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/elicitation/complete\",\"params\":{\"elicitationId\":\"e-1\"}}\n\n") //nolint:errcheck
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":%v,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"connected\"}]}}\n\n", id)     //nolint:errcheck
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			if n == 1 {
-				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32042,"message":"auth needed","data":{"elicitations":[{"mode":"url","elicitationId":"e-2","url":"https://pay.example.com/auth","message":"Authorize"}]}}}`, id)
+				fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"error":{"code":-32042,"message":"auth needed","data":{"elicitations":[{"mode":"url","elicitationId":"e-2","url":"https://pay.example.com/auth","message":"Authorize"}]}}}`, id) //nolint:errcheck
 				return
 			}
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"content":[{"type":"text","text":"paid"}]}}`, id)
+			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%v,"result":{"content":[{"type":"text","text":"paid"}]}}`, id) //nolint:errcheck
 		}
 	}))
 	defer srv.Close()
