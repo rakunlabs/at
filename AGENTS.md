@@ -3408,8 +3408,38 @@ servers):
   the last taking the rest; missing required ones are reported. The rendered
   text is sent as a normal user message.
 
-Elicitation is not supported. Regression: `internal/server/mcp-resources_test.go`,
-the MCP prompt case in `_ui/tests/chat-commands.test.mjs`.
+Regression: `internal/server/mcp-resources_test.go`, the MCP prompt case in
+`_ui/tests/chat-commands.test.mjs`.
+
+**Elicitation** (protocol `2025-06-18`, now the clients' requested version).
+Both clients declare `capabilities.elicitation` and handle server-initiated
+requests that arrive while one of their requests is open
+(`internal/service/mcp-elicitation.go`): over Streamable HTTP a request on
+the response's SSE stream is answered with a separate POST (same session
+headers), over stdio by writing to stdin before reading on. `ping` is
+answered; other methods get -32601. `elicitation/create` validates the
+restricted schema (an object of string/number/integer/boolean/string-enum
+properties) and calls the `service.Elicitor` on the call's context. With none
+installed the answer is `cancel`, so a server never waits on nobody; an answer
+that does not fit the schema, a 10-minute timeout or a stopped run also become
+`cancel`.
+
+People are reached through `elicitationBroker` (`internal/server/
+mcp-elicitation.go`): questions wait in memory on the replica running the
+call, owned by the run's account and workspace (≤16 open per account) and
+tagged with a scope — `chats`, `session:<id>`, `developer:<id>`. It is
+installed for Chats MCP-set and built-in (`code_execute`) calls, Sessions
+turns and Developer Spaces runs; org delegation clears it, and workflows,
+schedules and background runs never have one. `GET /api/v1/mcp/elicitations
+?wait=` (≤25 s long-poll) lists the caller's questions and `POST
+/api/v1/mcp/elicitations/{id}` answers `{action, content?}`; both
+`models.use`, owner-checked, foreign IDs read as 404, content is validated
+against the schema. `McpElicitation.svelte` polls while a turn runs and
+renders the form (`helper/mcp-elicitation.ts`) above the composer in Chats,
+Sessions and Developer Spaces, with Send / Decline / Cancel and a warning not
+to type secrets. URL-mode elicitation is not implemented. Regressions:
+`internal/service/mcp-elicitation_test.go` (HTTP SSE and stdio),
+`internal/server/mcp-elicitation_test.go`, `_ui/tests/mcp-elicitation.test.mjs`.
 
 ## Large images are shrunk before attaching
 

@@ -19,7 +19,7 @@ import (
 // requests during initialize. Servers negotiate down to the version they
 // support; the negotiated value is echoed back via the
 // MCP-Protocol-Version header on subsequent requests (2025-06-18 spec).
-const mcpProtocolVersion = "2025-03-26"
+const mcpProtocolVersion = "2025-06-18"
 
 // MCPClient is the interface implemented by both HTTP and stdio MCP clients.
 type MCPClient interface {
@@ -250,7 +250,11 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 		c.responseMode = "json"
 	}
 
-	mcpResp, err := decodeMCPResponseBody(resp, req.ID)
+	mcpResp, err := decodeMCPResponseBody(resp, req.ID, func(msg mcpServerMessage) {
+		// A request from the server on this stream (elicitation, ping): the
+		// answer is POSTed back while the stream stays open.
+		c.postServerResponse(ctx, answerServerRequest(ctx, c.serverName, msg))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -268,14 +272,14 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 
 // decodeMCPResponseBody decodes a Streamable HTTP response body, which may
 // be a plain JSON-RPC message or an SSE stream carrying one.
-func decodeMCPResponseBody(resp *http.Response, wantID int) (*MCPResponse, error) {
+func decodeMCPResponseBody(resp *http.Response, wantID int, onRequest func(mcpServerMessage)) (*MCPResponse, error) {
 	mediaType := resp.Header.Get("Content-Type")
 	if mt, _, err := mime.ParseMediaType(mediaType); err == nil {
 		mediaType = mt
 	}
 
 	if mediaType == "text/event-stream" {
-		return decodeMCPResponseSSE(resp.Body, wantID)
+		return decodeMCPResponseSSE(resp.Body, wantID, onRequest)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -296,7 +300,7 @@ func decodeMCPResponseBody(resp *http.Response, wantID int) (*MCPResponse, error
 // decodeMCPResponseSSE scans an SSE stream for the JSON-RPC response that
 // answers request wantID. Server-initiated notifications and unrelated
 // messages on the stream are skipped.
-func decodeMCPResponseSSE(r io.Reader, wantID int) (*MCPResponse, error) {
+func decodeMCPResponseSSE(r io.Reader, wantID int, onRequest func(mcpServerMessage)) (*MCPResponse, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 
@@ -307,6 +311,14 @@ func decodeMCPResponseSSE(r io.Reader, wantID int) (*MCPResponse, error) {
 		}
 		payload := data.String()
 		data.Reset()
+
+		var msg mcpServerMessage
+		if json.Unmarshal([]byte(payload), &msg) == nil && msg.isRequest() {
+			if onRequest != nil {
+				onRequest(msg)
+			}
+			return nil, false
+		}
 
 		var mcpResp MCPResponse
 		if err := json.Unmarshal([]byte(payload), &mcpResp); err != nil {
@@ -357,7 +369,7 @@ func (c *HTTPMCPClient) initialize(ctx context.Context) error {
 		Method:  "initialize",
 		Params: map[string]any{
 			"protocolVersion": mcpProtocolVersion,
-			"capabilities":    map[string]any{},
+			"capabilities":    mcpClientCapabilities(),
 			"clientInfo": map[string]string{
 				"name":    "at-mcp-client",
 				"version": "1.0.0",
@@ -452,6 +464,35 @@ func (c *HTTPMCPClient) CallTool(ctx context.Context, name string, arguments map
 	}
 
 	return toolResultText(ctx, result), nil
+}
+
+// postServerResponse sends the answer to a server-initiated request. Per
+// Streamable HTTP it is a POST carrying only the response, answered 202.
+func (c *HTTPMCPClient) postServerResponse(ctx context.Context, body []byte) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpointURL, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
+	}
+	if c.sessionID != "" {
+		req.Header.Set("Mcp-Session-Id", c.sessionID)
+	}
+	if c.protocolVersion != "" {
+		req.Header.Set("MCP-Protocol-Version", c.protocolVersion)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		slog.Warn("mcp: answering server request failed", "error", err)
+		return
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	_ = resp.Body.Close()
 }
 
 const httpMCPClientCloseTimeout = time.Second

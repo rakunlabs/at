@@ -360,6 +360,8 @@ func (s *Server) developerPromptContent(ctx context.Context, h *developerRuntime
 // or fails. Every outcome ends the stream with exactly one terminal event:
 // "done" (with the session's new status) or "error".
 func (s *Server) runDeveloperSession(r *http.Request, stream *runEventStream, h *developerRuntimeHandle, session *service.DeveloperSession, traceID string) {
+	// MCP servers of agent sessions may ask the person for input.
+	r = r.WithContext(s.contextWithElicitation(r.Context(), "developer:"+session.ID))
 	store := h.store
 	finish := func(status, message string) {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)

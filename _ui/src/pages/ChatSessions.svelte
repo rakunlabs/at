@@ -7,6 +7,7 @@
   import { router } from 'svelte-spa-router';
   import { updateRouteQuery } from '@/lib/helper/route-query';
   import { storeNavbar } from '@/lib/store/store.svelte';
+  import McpElicitation from '@/lib/components/McpElicitation.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
@@ -1448,6 +1449,10 @@
                 {/each}
               </div>
             </div>
+          {/if}
+
+          {#if selectedSessionId}
+            <div class="my-1"><McpElicitation active={sending} scope={`session:${selectedSessionId}`} /></div>
           {/if}
 
           <!-- Tool confirmation prompt -->

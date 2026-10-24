@@ -8,6 +8,7 @@
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
   import ToolActivity from '@/lib/components/ToolActivity.svelte';
+  import McpElicitation from '@/lib/components/McpElicitation.svelte';
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -679,6 +680,8 @@
           {/if}
         </div>
       {/if}
+
+      <McpElicitation active={working} scope={`developer:${session.id}`} />
 
       {#if pending && !working}
         {#if pending.kind === 'permission'}

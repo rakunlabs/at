@@ -65,6 +65,9 @@ func (s *Server) taskWorkspaceBase() string {
 // where the agent can delegate work to its direct reports. Each delegation
 // creates a child Task and recursively invokes the same function.
 func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization, task *service.Task, agentID string, depth int) (runErr error) {
+	// Task runs have nobody watching: MCP servers' questions are cancelled,
+	// even when a chat that started the task carried an elicitor.
+	ctx = service.ContextWithElicitor(ctx, nil)
 	var bindErr error
 	ctx, bindErr = s.bindRuntimePrincipal(ctx, "task")
 	if bindErr != nil {

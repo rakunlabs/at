@@ -129,11 +129,22 @@ func (c *StdioMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPR
 	// Read responses, skipping any that don't match our request ID
 	// (server notifications, log messages, or stale replies).
 	for {
-		var resp MCPResponse
-		if err := c.dec.Decode(&resp); err != nil {
+		var raw json.RawMessage
+		if err := c.dec.Decode(&raw); err != nil {
 			return nil, fmt.Errorf("read from stdout: %w", err)
 		}
-		if resp.ID != req.ID {
+		var msg mcpServerMessage
+		if json.Unmarshal(raw, &msg) == nil && msg.isRequest() {
+			// The server asks us something (elicitation, ping) before it
+			// answers; reply on stdin and keep waiting.
+			reply := append(answerServerRequest(ctx, c.serverName, msg), '\n')
+			if _, err := c.stdin.Write(reply); err != nil {
+				return nil, fmt.Errorf("write to stdin: %w", err)
+			}
+			continue
+		}
+		var resp MCPResponse
+		if json.Unmarshal(raw, &resp) != nil || resp.ID != req.ID {
 			continue
 		}
 		if resp.Error != nil {
@@ -149,8 +160,8 @@ func (c *StdioMCPClient) initialize(ctx context.Context) error {
 		ID:      c.getNextID(),
 		Method:  "initialize",
 		Params: map[string]any{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]any{},
+			"protocolVersion": mcpProtocolVersion,
+			"capabilities":    mcpClientCapabilities(),
 			"clientInfo": map[string]string{
 				"name":    "go-stdio-mcp-client",
 				"version": "1.0.0",

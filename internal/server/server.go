@@ -257,6 +257,8 @@ type Server struct {
 	activeDeveloperSessions sync.Map
 	// Messages added to running Sessions / Developer Spaces turns ("steer").
 	steering *runSteering
+	// Questions MCP servers asked the person (elicitation), waiting for answers.
+	elicitations *elicitationBroker
 
 	// Ephemeral background subagents are process-local by design. They create
 	// no durable organization task and disappear after a short terminal TTL.
@@ -615,6 +617,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		// move to the database in a follow-up change.
 		loopGov:          loopgov.New(loopgovConfigFromYAML(cfg.Workspace), nil),
 		steering:         newRunSteering(),
+		elicitations:     newElicitationBroker(),
 		cluster:          cl,
 		version:          version,
 		commit:           commit,
@@ -1430,6 +1433,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/mcp/set-tools/{name}", s.ListMCPSetToolsAPI)
 	apiGroup.POST("/v1/mcp/set-tools/{name}/call", s.CallMCPSetToolAPI)
 	apiGroup.POST("/v1/mcp/set-tools/{name}/prompt", s.GetMCPSetPromptAPI)
+	apiGroup.GET("/v1/mcp/elicitations", s.ListMCPElicitationsAPI)
+	apiGroup.POST("/v1/mcp/elicitations/{id}", s.AnswerMCPElicitationAPI)
 
 	// MCP templates (store)
 	apiGroup.GET("/v1/mcp-templates", s.ListMCPTemplatesAPI)

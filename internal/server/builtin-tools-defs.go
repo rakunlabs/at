@@ -234,6 +234,8 @@ func (s *Server) BuiltinToolCallAPI(w http.ResponseWriter, r *http.Request) {
 		ctx = service.ContextWithBuiltinToolScope(ctx, func(name string) bool { return builtins[name] })
 		ctx = service.ContextWithCodeModeTools(ctx, s.codeModeSelectionProvider(*req.CodeMode))
 	}
+	// code_execute can reach MCP tools, whose servers may ask the person.
+	ctx = s.contextWithElicitation(ctx, "chats")
 	result, execErr = s.dispatchBuiltinTool(ctx, req.Name, req.Arguments)
 
 	resp := builtinCallResponse{Result: result}

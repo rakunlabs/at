@@ -335,7 +335,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		switch seg(1) {
 		case "servers", "sets", "binaries", "stdio-processes", "oauth":
 			return service.FeatureMCPServers
-		case "list-tools", "call-tool", "set-tools":
+		case "list-tools", "call-tool", "set-tools", "elicitations":
 			return service.FeatureMCPTools
 		case "builtin-tools", "call-builtin-tool":
 			return service.FeatureBuiltinTools

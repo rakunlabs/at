@@ -1568,7 +1568,9 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.runAgenticLoopMessage(r.Context(), sessionID, service.ChatMessageData{Content: req.Content, Attachments: req.Attachments}, onEvent); err != nil {
+	// A person is watching this turn: MCP servers may ask them for input.
+	loopCtx := s.contextWithElicitation(r.Context(), "session:"+sessionID)
+	if err := s.runAgenticLoopMessage(loopCtx, sessionID, service.ChatMessageData{Content: req.Content, Attachments: req.Attachments}, onEvent); err != nil {
 		slog.Error("send message: agentic loop failed", "session_id", sessionID, "error", err)
 		writeSSE("error", map[string]string{"error": err.Error()})
 	}

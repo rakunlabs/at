@@ -203,6 +203,8 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 	if req.MediaRefs {
 		ctx = contextWithChatMediaRefs(ctx)
 	}
+	// The Chats page polls for questions while an MCP tool runs.
+	ctx = s.contextWithElicitation(ctx, "chats")
 	result, err := s.callMCPSetTool(ctx, name, req.ToolName, req.Arguments)
 	if err != nil {
 		slog.Error("call mcp set tool failed", "set", name, "tool", req.ToolName, "error", err)

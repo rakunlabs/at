@@ -296,6 +296,9 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/mcp/set-tools/{name}", "mcp.use", "", ""},
 		{"POST", "/mcp/set-tools/{name}/call", "mcp.use", "", ""},
 		{"POST", "/mcp/set-tools/{name}/prompt", "mcp.use", "", ""},
+		// Elicitation questions are owner-scoped in the handler.
+		{"GET", "/mcp/elicitations", "models.use", "", ""},
+		{"POST", "/mcp/elicitations/{id}", "models.use", "", ""},
 		// MCP Sets can be personal or workspace-owned. Personal CRUD rides
 		// mcp.read; publishing and workspace-owned writes require mcp.write.
 		// Using the tools remains a separate

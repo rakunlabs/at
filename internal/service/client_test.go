@@ -61,7 +61,7 @@ func TestDecodeMCPResponseSSE(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := decodeMCPResponseSSE(strings.NewReader(tt.stream), tt.wantID)
+			resp, err := decodeMCPResponseSSE(strings.NewReader(tt.stream), tt.wantID, nil)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got response %+v", resp)

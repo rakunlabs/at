@@ -133,6 +133,7 @@
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import MessageContent from '@/lib/components/playground/MessageContent.svelte';
+  import McpElicitation from '@/lib/components/McpElicitation.svelte';
   import { latestTodos, normalizeTodos, type TodoItem } from '@/lib/helper/chat-todos';
   import CommandPalette, { type PaletteGroup } from '@/lib/components/playground/CommandPalette.svelte';
   import ChatCommandsEditor from '@/lib/components/playground/ChatCommandsEditor.svelte';
@@ -5038,6 +5039,9 @@
         <button onclick={() => (mediaHintDismissed = true)} aria-label="Dismiss the media storage notice" class="oc-link shrink-0 focus-visible:outline-1 focus-visible:outline-accent"><X size={13} /></button>
       </div>
     {/if}
+
+    <!-- Questions MCP servers ask while their tool runs (elicitation) -->
+    <div class="mb-0.5"><McpElicitation active={streaming} scope="chats" /></div>
 
     <!-- Messages waiting for the running turn -->
     {#if queuedMessages.length > 0}
