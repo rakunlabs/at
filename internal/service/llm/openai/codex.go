@@ -227,7 +227,9 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 	}
 	releaseOnce := sync.OnceFunc(release)
 
-	body, err := json.Marshal(buildCodexRequest(model, messages, tools, opts))
+	request := buildCodexRequest(model, messages, tools, opts)
+	session := codexPromptCacheKey(ctx, request)
+	body, err := json.Marshal(request)
 	if err != nil {
 		releaseOnce()
 		return nil, nil, fmt.Errorf("marshal Codex request: %w", err)
@@ -239,6 +241,9 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "text/event-stream")
+		if session != "" {
+			req.Header.Set("session_id", session)
+		}
 		if err := p.authorize(ctx, req); err != nil {
 			return nil, err
 		}
@@ -734,6 +739,22 @@ func buildCodexRequest(model string, messages []service.Message, tools []service
 	request["store"] = false
 	request["include"] = []string{"reasoning.encrypted_content"}
 	return request
+}
+
+// codexPromptCacheKey sets prompt_cache_key to the conversation identity, as
+// the Codex CLI does. OpenAI routes requests to the machine holding the cached
+// prefix by this key; without it consecutive turns land on different machines
+// and most of a growing prompt is billed uncached. An explicit key (ExtraBody)
+// wins. Returns the key in effect, also sent as the session_id header.
+func codexPromptCacheKey(ctx context.Context, request map[string]any) string {
+	if key, _ := request["prompt_cache_key"].(string); key != "" {
+		return key
+	}
+	key := service.UpstreamSessionFromContext(ctx)
+	if key != "" {
+		request["prompt_cache_key"] = key
+	}
+	return key
 }
 
 func codexToolChoice(choice any) any {

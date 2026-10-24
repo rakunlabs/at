@@ -445,6 +445,40 @@ func TestCodexProviderReturnsTyped429(t *testing.T) {
 	}
 }
 
+func TestCodexProviderSendsPromptCacheKey(t *testing.T) {
+	var gotKey any
+	var gotHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotKey = body["prompt_cache_key"]
+		gotHeader = r.Header.Get("session_id")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"stop"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewCodexProvider("codex", "account", NewCodexTokenSource("token", "", "account", time.Time{}, nil),
+		WithCodexBaseURL(server.URL),
+		WithCodexHTTPClient(server.Client()),
+	)
+	ctx := service.ContextWithUpstreamSession(context.Background(), "ses_1")
+	_, _ = provider.Chat(ctx, "", nil, nil, nil)
+	if gotKey != "ses_1" || gotHeader != "ses_1" {
+		t.Fatalf("prompt_cache_key = %#v, session_id = %q", gotKey, gotHeader)
+	}
+
+	_, _ = provider.Chat(ctx, "", nil, nil, &service.ChatOptions{ExtraBody: map[string]any{"prompt_cache_key": "mine"}})
+	if gotKey != "mine" || gotHeader != "mine" {
+		t.Fatalf("explicit prompt_cache_key = %#v, session_id = %q", gotKey, gotHeader)
+	}
+
+	_, _ = provider.Chat(context.Background(), "", nil, nil, nil)
+	if gotKey != nil || gotHeader != "" {
+		t.Fatalf("unexpected key without session: %#v, %q", gotKey, gotHeader)
+	}
+}
+
 func TestCodexProviderReturnsUpstreamError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
