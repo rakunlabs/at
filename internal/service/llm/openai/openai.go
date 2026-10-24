@@ -243,6 +243,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	defer release()
 
 	reqBody := p.buildRequestBody(model, messages, tools, opts)
+	cacheHeader := http.Header{}
+	applyPromptCacheKey(ctx, p.BaseURL, reqBody, cacheHeader)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -252,6 +254,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
+	}
+	for key, values := range cacheHeader {
+		req.Header[key] = values
 	}
 
 	// If a token source is configured, get a fresh token and set it on the
@@ -423,6 +428,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	reqBody := p.buildRequestBody(model, messages, tools, opts)
 	reqBody["stream"] = true
 	reqBody["stream_options"] = map[string]any{"include_usage": true}
+	cacheHeader := http.Header{}
+	applyPromptCacheKey(ctx, p.BaseURL, reqBody, cacheHeader)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -434,6 +441,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	if err != nil {
 		releaseOnce()
 		return nil, nil, err
+	}
+	for key, values := range cacheHeader {
+		req.Header[key] = values
 	}
 
 	// Override auth header when a token source is configured (see Chat() comment).
