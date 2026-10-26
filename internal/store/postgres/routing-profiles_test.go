@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 func TestRoutingProfileCRUDAndValidation(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"github.com/rakunlabs/at/internal/gateway/wire"
 	"github.com/rakunlabs/at/internal/nativeauth/nativeauthtest"
 
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"

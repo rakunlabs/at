@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/query"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/service"
 )

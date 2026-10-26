@@ -11,7 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 // ─── Trigger CRUD ───

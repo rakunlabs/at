@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 	str2duration "github.com/xhit/go-str2duration/v2"
 
 	"github.com/rakunlabs/at/internal/service"

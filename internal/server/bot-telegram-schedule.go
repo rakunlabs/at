@@ -12,7 +12,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/worldline-go/hardloop"
+	"github.com/rakunlabs/hardloop"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -38,7 +38,7 @@ func validateBotCommandSchedules(cfg service.BotConfig) error {
 		if cfg.Platform != "telegram" {
 			return fmt.Errorf("command /%s: schedules are only supported on Telegram bots", cmd.Command)
 		}
-		if _, err := hardloop.ParseStandard(telegramCronSpec(cmd)); err != nil {
+		if _, err := hardloop.Parse(telegramCronSpec(cmd)); err != nil {
 			return fmt.Errorf("command /%s: invalid schedule %q: %w", cmd.Command, cmd.Schedule, err)
 		}
 		if cmd.ScheduleTimezone != "" {

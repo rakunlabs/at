@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"

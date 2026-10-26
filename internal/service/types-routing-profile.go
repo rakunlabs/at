@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/rakunlabs/query"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 // RoutingProfile is a named, workspace-scoped model chain. A gateway request

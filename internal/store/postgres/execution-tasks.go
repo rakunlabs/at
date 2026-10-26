@@ -8,7 +8,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/service"
 )

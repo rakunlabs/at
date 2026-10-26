@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/rakunlabs/query"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 // ─── API Token Management ───

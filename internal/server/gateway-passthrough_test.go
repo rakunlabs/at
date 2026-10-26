@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/common"

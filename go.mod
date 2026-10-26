@@ -13,31 +13,31 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/oklog/ulid/v2 v2.1.1
-	github.com/rakunlabs/ada v0.5.3
-	github.com/rakunlabs/ada/handler/folder v0.5.3
-	github.com/rakunlabs/ada/middleware/auth v0.5.3
-	github.com/rakunlabs/ada/middleware/cors v0.5.3
-	github.com/rakunlabs/ada/middleware/log v0.5.3
-	github.com/rakunlabs/ada/middleware/recover v0.5.3
-	github.com/rakunlabs/ada/middleware/requestid v0.5.3
-	github.com/rakunlabs/ada/middleware/server v0.5.3
-	github.com/rakunlabs/ada/middleware/telemetry v0.5.3
+	github.com/rakunlabs/ada v0.5.4
+	github.com/rakunlabs/ada/handler/folder v0.5.4
+	github.com/rakunlabs/ada/middleware/auth v0.5.4
+	github.com/rakunlabs/ada/middleware/cors v0.5.4
+	github.com/rakunlabs/ada/middleware/log v0.5.4
+	github.com/rakunlabs/ada/middleware/recover v0.5.4
+	github.com/rakunlabs/ada/middleware/requestid v0.5.4
+	github.com/rakunlabs/ada/middleware/server v0.5.4
+	github.com/rakunlabs/ada/middleware/telemetry v0.5.4
 	github.com/rakunlabs/alan v0.5.0
 	github.com/rakunlabs/chu v0.5.0
 	github.com/rakunlabs/chu/loader/external/loaderconsul v0.0.0-20260831101252-0c6a77e06f7f
 	github.com/rakunlabs/chu/loader/external/loadervault v0.0.0-20260831101252-0c6a77e06f7f
+	github.com/rakunlabs/hardloop v0.1.0
 	github.com/rakunlabs/into v0.6.0
 	github.com/rakunlabs/logi v0.4.6
 	github.com/rakunlabs/muz v0.2.5
 	github.com/rakunlabs/ok v0.1.0
 	github.com/rakunlabs/query v0.5.1
 	github.com/rakunlabs/tell v0.1.6
+	github.com/rakunlabs/types v0.1.0
 	github.com/rytsh/mugo v0.9.3
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/wneessen/go-mail v0.7.2
-	github.com/worldline-go/hardloop v0.3.2
-	github.com/worldline-go/types v0.6.0
 	github.com/xhit/go-str2duration/v2 v2.1.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
@@ -113,7 +113,7 @@ require (
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/greatcloak/decimal v1.5.0 // indirect
+	github.com/greatcloak/decimal v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/consul/api v1.33.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -170,7 +170,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
 	github.com/rakunlabs/gofret v0.2.1 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.6 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
@@ -186,7 +185,7 @@ require (
 	github.com/twmb/tlscfg v1.3.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.3.0 // indirect
+	go.mongodb.org/mongo-driver/v2 v2.8.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/runtime v0.71.0 // indirect

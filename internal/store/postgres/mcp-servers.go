@@ -12,7 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 type mcpServerRow struct {

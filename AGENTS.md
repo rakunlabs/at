@@ -3889,7 +3889,7 @@ Docker). Other regressions:
 - Run `gofmt` on all files. No extra formatter config.
 - Group imports in order, separated by blank lines:
   1. Standard library (`"fmt"`, `"context"`, `"net/http"`)
-  2. Third-party (`"github.com/worldline-go/types"`, `"github.com/doug-martin/goqu/v9"`)
+  2. Third-party (`"github.com/rakunlabs/types"`, `"github.com/doug-martin/goqu/v9"`)
   3. Internal (`"github.com/rakunlabs/at/internal/..."`)
 
 ### Naming Conventions
@@ -3902,7 +3902,7 @@ Docker). Other regressions:
 - **Config tags**: `cfg:"name"` with flags like `no_prefix`, `default:"value"`
 
 ### Types & Data Structures
-- **Nullables**: `types.Null[T]` from `github.com/worldline-go/types` for optional DB fields
+- **Nullables**: `types.Null[T]` from `github.com/rakunlabs/types` for optional DB fields
 - **Slices**: `types.Slice[T]` when custom JSON marshaling is needed, otherwise `[]T`
 - **IDs**: generated with `ulid.Make().String()`
 - **Timestamps**: `time.Now().UTC().Format(time.RFC3339)`

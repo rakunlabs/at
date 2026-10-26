@@ -14,7 +14,7 @@ import (
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 )
 
 type connectionRow struct {

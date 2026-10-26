@@ -10,7 +10,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/query"
 	"github.com/rakunlabs/query/adapter/adaptergoqu"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	"github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"

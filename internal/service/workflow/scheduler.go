@@ -2,7 +2,7 @@
 // that loads enabled cron triggers from the store and executes their associated
 // workflows on schedule using the hardloop library.
 //
-// Because hardloop's cronJob does not support dynamic add/remove of jobs,
+// Because hardloop's CronJob does not support dynamic add/remove of jobs,
 // the scheduler stops and recreates the internal cron runner whenever triggers
 // are added, updated, or removed.
 package workflow
@@ -17,16 +17,14 @@ import (
 
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/hardloop"
 	"github.com/rakunlabs/logi"
-	"github.com/worldline-go/hardloop"
 )
 
-// cronRunner is satisfied by hardloop's unexported *cronJob type
-// (returned by hardloop.NewCron), allowing us to store it without
-// referencing the unexported struct name directly.
+// cronRunner describes the hardloop cron lifecycle used by the scheduler.
 type cronRunner interface {
 	Start(ctx context.Context) error
-	Stop()
+	Stop() context.Context
 }
 
 // RunRegistrar is a callback that registers a workflow run for tracking and
@@ -451,7 +449,7 @@ func (s *Scheduler) reload() error {
 			cronSpec = "CRON_TZ=" + timezone + " " + cronSpec
 		}
 
-		parsed, err := hardloop.ParseStandard(cronSpec)
+		parsed, err := hardloop.Parse(cronSpec)
 		if err != nil {
 			// One bad spec would otherwise fail NewCron and stop every schedule.
 			logi.Ctx(s.ctx).Warn("scheduler: invalid cron spec, skipping",

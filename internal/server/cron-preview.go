@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worldline-go/hardloop"
+	"github.com/rakunlabs/hardloop"
 )
 
 // PreviewCronAPI calculates occurrences without saving or executing a trigger.
@@ -31,7 +31,7 @@ func (s *Server) PreviewCronAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func cronOccurrences(spec string, after time.Time, count int) ([]string, error) {
-	parsed, err := hardloop.ParseStandard(spec)
+	parsed, err := hardloop.Parse(spec)
 	if err != nil {
 		return nil, fmt.Errorf("parse cron: %w", err)
 	}

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	"github.com/worldline-go/types"
+	"github.com/rakunlabs/types"
 
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
