@@ -440,6 +440,7 @@ func isProviderOutage(err error) bool {
 		errors.Is(err, service.ErrProviderUserLimit) ||
 		errors.Is(err, service.ErrProviderUserBlocked) ||
 		errors.Is(err, service.ErrProviderPricingRequired) ||
+		errors.Is(err, service.ErrGuardrailBlocked) ||
 		errors.Is(err, service.ErrAccessDenied) {
 		return false
 	}

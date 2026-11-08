@@ -193,6 +193,10 @@ func (p *budgetedProvider) admitQuotaOverrides(ctx context.Context, r *providerC
 
 func (p *budgetedProvider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	model = p.resolvedModel(model)
+	guard, messages, err := p.guardChatRequest(ctx, model, messages)
+	if err != nil {
+		return nil, err
+	}
 	maxOutput := providerOutputAllowance(opts)
 	estimated := service.Usage{PromptTokens: common.EstimateInputTokens("", messages, tools), CompletionTokens: maxOutput}
 	reservation, err := p.reserve(ctx, model, estimated)
@@ -208,6 +212,9 @@ func (p *budgetedProvider) Chat(ctx context.Context, model string, messages []se
 		return nil, err
 	}
 	p.settle(ctx, reservation, model, resp.Usage)
+	if err := guard.guardChatResponse(ctx, resp); err != nil {
+		return nil, err
+	}
 	return resp, nil
 }
 
@@ -217,6 +224,10 @@ func (p *budgetedProvider) ChatStream(ctx context.Context, model string, message
 		return nil, nil, service.ErrUnsupportedOperation
 	}
 	model = p.resolvedModel(model)
+	guard, messages, err := p.guardChatRequest(ctx, model, messages)
+	if err != nil {
+		return nil, nil, err
+	}
 	maxOutput := providerOutputAllowance(opts)
 	estimated := service.Usage{PromptTokens: common.EstimateInputTokens("", messages, tools), CompletionTokens: maxOutput}
 	reservation, err := p.reserve(ctx, model, estimated)
@@ -262,6 +273,9 @@ func (p *budgetedProvider) ChatStream(ctx context.Context, model string, message
 		}
 		finish()
 	}()
+	if guard != nil {
+		return guard.guardStream(ctx, out), headers, nil
+	}
 	return out, headers, nil
 }
 
@@ -269,6 +283,9 @@ func (p *budgetedProvider) Proxy(w http.ResponseWriter, r *http.Request, path st
 	streamer, ok := p.inner.(service.LLMStreamProvider)
 	if !ok {
 		return service.ErrUnsupportedOperation
+	}
+	if err := p.guardPassthrough(r.Context()); err != nil {
+		return err
 	}
 	reservation, err := p.reserve(r.Context(), p.actualModel, service.Usage{})
 	if err != nil {

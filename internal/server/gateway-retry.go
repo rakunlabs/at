@@ -175,6 +175,10 @@ func callWithGatewayRetry[T any](
 //
 // Returns (httpStatus, errorBody).
 func classifyGatewayError(err error) (int, map[string]any) {
+	var guard *service.GuardrailError
+	if errors.As(err, &guard) {
+		return http.StatusBadRequest, map[string]any{"error": map[string]any{"message": guard.Error(), "type": "invalid_request_error", "code": "guardrail_blocked", "guardrail": guard.PolicyName, "check": guard.Check}}
+	}
 	var quota *service.ProviderQuotaError
 	if errors.As(err, &quota) {
 		return http.StatusTooManyRequests, map[string]any{"error": map[string]any{"message": quota.Error(), "type": "rate_limit_error", "code": "provider_quota_exceeded", "reset_at": quota.ResetAt}}

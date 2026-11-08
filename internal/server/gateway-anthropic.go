@@ -51,6 +51,7 @@ func (s *Server) AnthropicMessages(w http.ResponseWriter, r *http.Request) {
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 	r = withUpstreamSession(r, traceID, sessionID)
+	r = r.WithContext(contextWithGuardrailToken(r.Context(), auth))
 
 	chain, routingProfile := s.chatCallChain(withRoutingAffinity(r.Context(), sessionID), auth, req.Model, req.AtFallbacks)
 	if routingProfile != "" {

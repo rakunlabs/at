@@ -148,6 +148,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 	r = withUpstreamSession(r, traceID, sessionID)
+	r = r.WithContext(contextWithGuardrailToken(r.Context(), auth))
 
 	// B3: mock_response short-circuit. No provider lookup, no auth model
 	// access checks beyond the basic token guard — the whole point of
@@ -643,6 +644,7 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusNotFound)
 		return
 	}
+	r = r.WithContext(contextWithGuardrailToken(r.Context(), auth))
 	if info.providerID != "" {
 		ownerUserID := ""
 		if auth != nil && auth.token != nil {

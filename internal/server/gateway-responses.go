@@ -203,6 +203,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 	traceID = gatewayTurnTrace(traceID, sessionID, auth, rawBody)
 	r = withUpstreamSession(r, traceID, sessionID)
+	r = r.WithContext(contextWithGuardrailToken(r.Context(), auth))
 
 	if req.PreviousResponseID != "" {
 		httpResponseJSON(w, map[string]any{
