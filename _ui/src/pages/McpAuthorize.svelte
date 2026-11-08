@@ -8,6 +8,7 @@
   import { workspaceState } from '@/lib/store/workspace.svelte';
   import { connectMCPAccount } from '@/lib/api/connections';
   import {
+    checkRememberedMCPAuth,
     decideMCPAuthRequest,
     getMCPAuthRequest,
     mcpAuthParams,
@@ -29,6 +30,7 @@
   let pending = $state<MCPAuthPendingAccount[]>([]);
   let connected = $state<string[]>([]);
   let connecting = $state('');
+  let remember = $state(false);
   let workspaceName = $derived(workspaceState.items.find(w => w.id === info?.workspace_id)?.name || '');
 
   function fail(error: unknown) {
@@ -43,9 +45,23 @@
   onMount(() => {
     // Asked in the workspace that owns the server, without changing the
     // tab's own selection.
-    getMCPAuthRequest(params, targetWorkspace).then(data => {
+    getMCPAuthRequest(params, targetWorkspace).then(async data => {
       info = data;
       if (!data.valid) { phase = 'error'; message = data.message || 'This sign-in request is not valid.'; return; }
+      if (!data.workspace_mismatch && data.allowed !== false) {
+        // A consent the account remembered for this exact app and redirect
+        // continues without asking; anything else falls through to the page.
+        try {
+          const decision = await checkRememberedMCPAuth(params, targetWorkspace);
+          if (decision.remembered && decision.redirect) {
+            redirect = decision.redirect;
+            pending = decision.pending_accounts ?? [];
+            if (pending.length) { phase = 'chaining'; return; }
+            leave(redirect);
+            return;
+          }
+        } catch { /* ask instead */ }
+      }
       phase = 'ready';
     }).catch(fail);
   });
@@ -61,7 +77,7 @@
     if (phase !== 'ready') return;
     phase = 'sending';
     try {
-      const decision = await decideMCPAuthRequest(params, approve, targetWorkspace);
+      const decision = await decideMCPAuthRequest(params, approve, targetWorkspace, approve && remember);
       redirect = decision.redirect;
       pending = approve ? decision.pending_accounts ?? [] : [];
       if (pending.length) { phase = 'chaining'; return; }
@@ -125,7 +141,12 @@
     <dl class="settings-list">
       <div class="px-4 py-3"><dt class="settings-note">Signed in as</dt><dd class="mt-0.5 text-sm font-medium break-all"><bdi>{storeAuth.identity?.name || storeAuth.identity?.subject}</bdi></dd></div>
       <div class="px-4 py-3"><dt class="settings-note">MCP server</dt><dd class="mt-0.5 text-sm break-all">{info.server_name}{workspaceName ? ` · ${workspaceName}` : ''}{#if info.description}<span class="block settings-note">{info.description}</span>{/if}</dd></div>
-      <div class="px-4 py-3"><dt class="settings-note">Application{info.client_dynamic ? ' (name chosen by the app, unverified)' : ''}</dt><dd class="mt-0.5 text-sm break-all"><bdi>{info.client_name}</bdi></dd></div>
+      <div class="px-4 py-3">
+        <dt class="settings-note">Application{info.client_dynamic ? ' (name chosen by the app, unverified)' : ''}</dt>
+        <dd class="mt-0.5 text-sm break-all"><bdi>{info.client_name}</bdi>
+          {#if info.client_verified_host}<span class="block settings-note">Published by <span class="font-mono text-dark-text">{info.client_verified_host}</span> (verified from its metadata document)</span>{/if}
+        </dd>
+      </div>
       <div class="px-4 py-3"><dt class="settings-note">Returns to</dt><dd class="mt-0.5 text-sm font-mono break-all">{info.redirect_host}</dd></div>
     </dl>
     {#if info.workspace_mismatch}
@@ -133,6 +154,10 @@
     {:else if info.allowed === false}
       <p role="alert" class="settings-error">Your account does not have access to this MCP server. Ask a workspace administrator.</p>
     {/if}
+    <label class="flex items-start gap-2 text-sm">
+      <input type="checkbox" class="mt-0.5" bind:checked={remember} disabled={phase !== 'ready'} />
+      <span>Don't ask again for this app<span class="settings-note block">For 90 days, sign-ins from {info.redirect_host} to this server are approved without this page. Undo under Connections.</span></span>
+    </label>
     <p class="settings-note leading-relaxed">Approve only if you just started this sign-in in that app. You can revoke access at any time under Connections.</p>
     <div class="flex flex-col gap-2 sm:flex-row" aria-busy={phase === 'sending'}>
       <button type="button" onclick={() => decide(false)} disabled={phase !== 'ready'} class="settings-button flex-1 min-h-11 sm:min-h-0">Deny</button>

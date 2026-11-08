@@ -27,3 +27,16 @@ test('only http(s) redirects are followed', () => {
   assert.equal(safeMCPAuthRedirect('javascript:alert(1)'), null);
   assert.equal(safeMCPAuthRedirect('not a url'), null);
 });
+
+test('discovery prefixes follow the deployment base path', async () => {
+  const { oauthDiscoveryPrefixes } = await load('../src/lib/helper/deployment-url.ts');
+  globalThis.document = { baseURI: 'https://example.com/at/' };
+  assert.deepEqual(oauthDiscoveryPrefixes(), [
+    '/.well-known/oauth-authorization-server/at',
+    '/.well-known/openid-configuration/at',
+    '/.well-known/oauth-protected-resource/at',
+  ]);
+  globalThis.document = { baseURI: 'https://example.com/' };
+  assert.deepEqual(oauthDiscoveryPrefixes(), []);
+  delete globalThis.document;
+});

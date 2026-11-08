@@ -28,9 +28,12 @@ type mcpAuthClientRow struct {
 	CreatedBy    string         `db:"created_by"`
 	CreatedAt    time.Time      `db:"created_at"`
 	LastUsedAt   sql.NullTime   `db:"last_used_at"`
+	Metadata     bool           `db:"metadata_document"`
+	MetadataExp  sql.NullTime   `db:"metadata_expires_at"`
+	ClientURI    string         `db:"client_uri"`
 }
 
-var mcpAuthClientColumns = []any{"id", "client_id", "workspace_id", "mcp_server_id", "name", "redirect_uris", "secret_hash", "dynamic", "created_by", "created_at", "last_used_at"}
+var mcpAuthClientColumns = []any{"id", "client_id", "workspace_id", "mcp_server_id", "name", "redirect_uris", "secret_hash", "dynamic", "created_by", "created_at", "last_used_at", "metadata_document", "metadata_expires_at", "client_uri"}
 
 func mcpAuthClientRowToRecord(row mcpAuthClientRow) service.MCPAuthClient {
 	c := service.MCPAuthClient{
@@ -44,6 +47,10 @@ func mcpAuthClientRowToRecord(row mcpAuthClientRow) service.MCPAuthClient {
 	}
 	if row.LastUsedAt.Valid {
 		c.LastUsedAt = row.LastUsedAt.Time.UTC().Format(time.RFC3339)
+	}
+	c.MetadataDocument, c.ClientURI = row.Metadata, row.ClientURI
+	if row.MetadataExp.Valid {
+		c.MetadataExpiresAt = row.MetadataExp.Time.UTC().Format(time.RFC3339)
 	}
 	return c
 }
@@ -59,9 +66,11 @@ type mcpAuthGrantRow struct {
 	Revoked     bool         `db:"revoked"`
 	CreatedAt   time.Time    `db:"created_at"`
 	LastUsedAt  sql.NullTime `db:"last_used_at"`
+	RemRedirect string       `db:"remembered_redirect"`
+	RemUntil    sql.NullTime `db:"remembered_until"`
 }
 
-var mcpAuthGrantColumns = []any{"id", "workspace_id", "user_id", "mcp_server_id", "client_id", "client_name", "resource", "revoked", "created_at", "last_used_at"}
+var mcpAuthGrantColumns = []any{"id", "workspace_id", "user_id", "mcp_server_id", "client_id", "client_name", "resource", "revoked", "created_at", "last_used_at", "remembered_redirect", "remembered_until"}
 
 func mcpAuthGrantRowToRecord(row mcpAuthGrantRow) service.MCPAuthGrant {
 	g := service.MCPAuthGrant{
@@ -71,6 +80,9 @@ func mcpAuthGrantRowToRecord(row mcpAuthGrantRow) service.MCPAuthGrant {
 	}
 	if row.LastUsedAt.Valid {
 		g.LastUsedAt = row.LastUsedAt.Time.UTC().Format(time.RFC3339)
+	}
+	if row.RemUntil.Valid && time.Now().Before(row.RemUntil.Time) {
+		g.RememberedUntil = row.RemUntil.Time.UTC().Format(time.RFC3339)
 	}
 	return g
 }
@@ -285,6 +297,13 @@ func (p *Postgres) IssueMCPAuthCode(ctx context.Context, client service.MCPAuthC
 		}).Executor().ExecContext(ctx); err != nil {
 			return nil, fmt.Errorf("create MCP grant: %w", err)
 		}
+	}
+	if !code.RememberUntil.IsZero() {
+		if _, err := tx.Update(grants).Set(goqu.Record{"remembered_redirect": code.RedirectURI, "remembered_until": code.RememberUntil.UTC()}).
+			Where(goqu.Ex{"id": row.ID}).Executor().ExecContext(ctx); err != nil {
+			return nil, fmt.Errorf("remember MCP consent: %w", err)
+		}
+		row.RemRedirect, row.RemUntil = code.RedirectURI, sql.NullTime{Time: code.RememberUntil.UTC(), Valid: true}
 	}
 	codes := p.workspaceTable("mcp_auth_codes")
 	if _, err := tx.Delete(codes).Where(goqu.C("expires_at").Lte(goqu.L("clock_timestamp()"))).Executor().ExecContext(ctx); err != nil {
@@ -527,4 +546,246 @@ func (p *Postgres) GetOAuthMCPRoute(ctx context.Context, name string) (*service.
 		return nil, service.ErrWorkspaceConflict
 	}
 	return mcpServerRowToRecord(rows[0])
+}
+
+// FindDynamicMCPAuthClient finds a reusable public dynamic client: same
+// name and the same set of redirect URIs. Confidential registrations are
+// never reused, because their secret is returned only once.
+func (p *Postgres) FindDynamicMCPAuthClient(ctx context.Context, name string, redirectURIs []string) (*service.MCPAuthClient, error) {
+	var rows []mcpAuthClientRow
+	if err := p.goqu.From(p.workspaceTable("mcp_auth_clients")).Select(mcpAuthClientColumns...).
+		Where(goqu.Ex{"dynamic": true, "metadata_document": false, "name": name, "secret_hash": ""}).
+		Order(goqu.C("created_at").Asc()).Limit(20).ScanStructsContext(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("find dynamic MCP client: %w", err)
+	}
+	for _, row := range rows {
+		c := mcpAuthClientRowToRecord(row)
+		if sameRedirectSet(c.RedirectURIs, redirectURIs) {
+			return &c, nil
+		}
+	}
+	return nil, nil
+}
+
+func sameRedirectSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, v := range a {
+		seen[v]++
+	}
+	for _, v := range b {
+		if seen[v] == 0 {
+			return false
+		}
+		seen[v]--
+	}
+	return true
+}
+
+// UpsertMetadataMCPAuthClient stores or refreshes a fetched Client ID
+// Metadata Document. The client_id is the document URL, so concurrent
+// fetches of one document converge on one row.
+func (p *Postgres) UpsertMetadataMCPAuthClient(ctx context.Context, c service.MCPAuthClient) (*service.MCPAuthClient, error) {
+	uris, err := json.Marshal(c.RedirectURIs)
+	if err != nil {
+		return nil, err
+	}
+	expires, err := time.Parse(time.RFC3339, c.MetadataExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("metadata expiry: %w", err)
+	}
+	table := p.workspaceTable("mcp_auth_clients")
+	update := goqu.Record{
+		"name": c.Name, "redirect_uris": goqu.L("?::jsonb", string(uris)), "client_uri": c.ClientURI, "metadata_expires_at": expires,
+	}
+	if _, err := p.goqu.Insert(table).Rows(goqu.Record{
+		"id": ulid.Make().String(), "client_id": c.ClientID, "workspace_id": nil, "mcp_server_id": "", "name": c.Name,
+		"redirect_uris": goqu.L("?::jsonb", string(uris)), "secret_hash": "", "dynamic": true, "metadata_document": true,
+		"metadata_expires_at": expires, "client_uri": c.ClientURI,
+	}).OnConflict(goqu.DoUpdate("client_id", update).Where(goqu.L("EXCLUDED.metadata_document"))).Executor().ExecContext(ctx); err != nil {
+		return nil, fmt.Errorf("store MCP client metadata: %w", err)
+	}
+	stored, err := p.GetMCPAuthClient(ctx, c.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	if stored == nil || !stored.MetadataDocument {
+		return nil, errors.New("client_id is already used by another client")
+	}
+	return stored, nil
+}
+
+// mcpAuthAdmin requires an installation administrator.
+func (p *Postgres) mcpAuthAdmin(ctx context.Context) error {
+	a, ok := service.AccessPrincipalFromContext(ctx)
+	if !ok {
+		return service.ErrWorkspaceRequired
+	}
+	if !a.PlatformAdmin {
+		return service.ErrAccessDenied
+	}
+	return nil
+}
+
+// ListAllMCPAuthClients lists every registered client with its usage.
+// Installation administrators only.
+func (p *Postgres) ListAllMCPAuthClients(ctx context.Context) ([]service.MCPAuthClientUsage, error) {
+	if err := p.mcpAuthAdmin(ctx); err != nil {
+		return nil, err
+	}
+	var rows []mcpAuthClientRow
+	if err := p.goqu.From(p.workspaceTable("mcp_auth_clients")).Select(mcpAuthClientColumns...).
+		Order(goqu.C("created_at").Desc()).Limit(5000).ScanStructsContext(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("list MCP auth clients: %w", err)
+	}
+	grants := p.workspaceTable("mcp_auth_grants")
+	gt, st, ut := goqu.T(grants.GetTable()), goqu.T(p.tableMCPServers.GetTable()), goqu.T(p.tableAuthUsers.GetTable())
+	var usage []struct {
+		ClientID    string         `db:"client_id"`
+		UserID      string         `db:"user_id"`
+		WorkspaceID string         `db:"workspace_id"`
+		CreatedAt   time.Time      `db:"created_at"`
+		LastUsedAt  sql.NullTime   `db:"last_used_at"`
+		ServerName  sql.NullString `db:"server_name"`
+		Username    sql.NullString `db:"username"`
+	}
+	if err := p.goqu.From(grants).Select(
+		gt.Col("client_id"), gt.Col("user_id"), gt.Col("workspace_id"), gt.Col("created_at"), gt.Col("last_used_at"),
+		st.Col("name").As("server_name"), ut.Col("username"),
+	).LeftJoin(p.tableMCPServers, goqu.On(st.Col("id").Eq(gt.Col("mcp_server_id")))).
+		LeftJoin(p.tableAuthUsers, goqu.On(ut.Col("id").Eq(gt.Col("user_id")))).
+		Where(gt.Col("revoked").Eq(false)).Order(gt.Col("last_used_at").Desc().NullsLast()).
+		ScanStructsContext(ctx, &usage); err != nil {
+		return nil, fmt.Errorf("list MCP client usage: %w", err)
+	}
+	byClient := map[string][]service.MCPAuthClientUsageEntry{}
+	for _, u := range usage {
+		e := service.MCPAuthClientUsageEntry{UserID: u.UserID, Username: u.Username.String, WorkspaceID: u.WorkspaceID, ServerName: u.ServerName.String, CreatedAt: u.CreatedAt.UTC().Format(time.RFC3339)}
+		if u.LastUsedAt.Valid {
+			e.LastUsedAt = u.LastUsedAt.Time.UTC().Format(time.RFC3339)
+		}
+		byClient[u.ClientID] = append(byClient[u.ClientID], e)
+	}
+	var servers []struct {
+		ID   string `db:"id"`
+		Name string `db:"name"`
+	}
+	_ = p.goqu.From(p.tableMCPServers).Select("id", "name").ScanStructsContext(ctx, &servers)
+	serverNames := make(map[string]string, len(servers))
+	for _, s := range servers {
+		serverNames[s.ID] = s.Name
+	}
+	out := make([]service.MCPAuthClientUsage, 0, len(rows))
+	for _, row := range rows {
+		c := mcpAuthClientRowToRecord(row)
+		entries := byClient[c.ClientID]
+		if entries == nil {
+			entries = []service.MCPAuthClientUsageEntry{}
+		}
+		users := map[string]bool{}
+		for _, e := range entries {
+			users[e.UserID] = true
+			if e.LastUsedAt > c.LastUsedAt {
+				c.LastUsedAt = e.LastUsedAt
+			}
+		}
+		out = append(out, service.MCPAuthClientUsage{MCPAuthClient: c, ServerName: serverNames[c.MCPServerID], Grants: len(entries), ActiveUsers: len(users), Users: entries})
+	}
+	return out, nil
+}
+
+// AdminDeleteMCPAuthClient deletes any client and every grant issued to it
+// (codes and tokens cascade). Installation administrators only.
+func (p *Postgres) AdminDeleteMCPAuthClient(ctx context.Context, id string) error {
+	if err := p.mcpAuthAdmin(ctx); err != nil {
+		return err
+	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin MCP client delete: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var clientID string
+	found, err := tx.From(p.workspaceTable("mcp_auth_clients")).Select("client_id").Where(goqu.Ex{"id": id}).ForUpdate(goqu.Wait).ScanValContext(ctx, &clientID)
+	if err != nil {
+		return fmt.Errorf("lock MCP client: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	if _, err := tx.Delete(p.workspaceTable("mcp_auth_grants")).Where(goqu.Ex{"client_id": clientID}).Executor().ExecContext(ctx); err != nil {
+		return fmt.Errorf("revoke MCP client grants: %w", err)
+	}
+	if _, err := tx.Delete(p.workspaceTable("mcp_auth_clients")).Where(goqu.Ex{"id": id}).Executor().ExecContext(ctx); err != nil {
+		return fmt.Errorf("delete MCP client: %w", err)
+	}
+	return tx.Commit()
+}
+
+// SweepMCPAuthClients removes expired codes and tokens, and dynamic or
+// metadata-document clients registered before the cutoff that have no
+// grant at all. Pre-registered clients are never swept.
+func (p *Postgres) SweepMCPAuthClients(ctx context.Context, unusedBefore time.Time) (int64, error) {
+	now := goqu.L("clock_timestamp()")
+	if _, err := p.goqu.Delete(p.workspaceTable("mcp_auth_codes")).Where(goqu.C("expires_at").Lte(now)).Executor().ExecContext(ctx); err != nil {
+		return 0, fmt.Errorf("sweep MCP codes: %w", err)
+	}
+	if _, err := p.goqu.Delete(p.workspaceTable("mcp_auth_tokens")).Where(goqu.C("expires_at").Lte(now)).Executor().ExecContext(ctx); err != nil {
+		return 0, fmt.Errorf("sweep MCP tokens: %w", err)
+	}
+	grants := p.workspaceTable("mcp_auth_grants")
+	res, err := p.goqu.Delete(p.workspaceTable("mcp_auth_clients")).Where(
+		goqu.Ex{"dynamic": true},
+		goqu.C("created_at").Lt(unusedBefore.UTC()),
+		goqu.C("client_id").NotIn(p.goqu.From(grants).Select("client_id")),
+	).Executor().ExecContext(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("sweep MCP clients: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// RememberedMCPAuthGrant returns the caller's remembered, live consent.
+func (p *Postgres) RememberedMCPAuthGrant(ctx context.Context, clientID, mcpServerID, resource, redirectURI string) (*service.MCPAuthGrant, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if a.UserID == "" {
+		return nil, nil
+	}
+	var row mcpAuthGrantRow
+	found, err := p.goqu.From(p.workspaceTable("mcp_auth_grants")).Select(mcpAuthGrantColumns...).Where(
+		goqu.Ex{"workspace_id": a.WorkspaceID, "user_id": a.UserID, "mcp_server_id": mcpServerID, "client_id": clientID,
+			"resource": resource, "revoked": false, "remembered_redirect": redirectURI},
+		goqu.C("remembered_until").Gt(goqu.L("clock_timestamp()")),
+	).ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("load remembered MCP consent: %w", err)
+	}
+	if !found {
+		return nil, nil
+	}
+	g := mcpAuthGrantRowToRecord(row)
+	return &g, nil
+}
+
+// ForgetMCPAuthConsent clears one of the caller's remembered consents.
+func (p *Postgres) ForgetMCPAuthConsent(ctx context.Context, grantID string) error {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return err
+	}
+	res, err := p.goqu.Update(p.workspaceTable("mcp_auth_grants")).Set(goqu.Record{"remembered_redirect": "", "remembered_until": nil}).
+		Where(goqu.Ex{"id": grantID, "workspace_id": a.WorkspaceID, "user_id": a.UserID}).Executor().ExecContext(ctx)
+	if err != nil {
+		return fmt.Errorf("forget MCP consent: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
 }

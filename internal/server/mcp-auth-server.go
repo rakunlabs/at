@@ -134,21 +134,44 @@ func (s *Server) MCPAuthProtectedResourceAPI(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (s *Server) mcpAuthServerMetadata(r *http.Request) map[string]any {
+	issuer := s.mcpAuthIssuer(r)
+	return map[string]any{
+		"issuer":                                         issuer,
+		"authorization_endpoint":                         issuer + mcpAuthPrefix + "/authorize",
+		"token_endpoint":                                 issuer + mcpAuthPrefix + "/token",
+		"registration_endpoint":                          issuer + mcpAuthPrefix + "/register",
+		"revocation_endpoint":                            issuer + mcpAuthPrefix + "/revoke",
+		"response_types_supported":                       []string{"code"},
+		"grant_types_supported":                          []string{"authorization_code", "refresh_token"},
+		"code_challenge_methods_supported":               []string{"S256"},
+		"token_endpoint_auth_methods_supported":          []string{"none", "client_secret_post", "client_secret_basic"},
+		"scopes_supported":                               []string{"mcp"},
+		"client_id_metadata_document_supported":          true,
+		"authorization_response_iss_parameter_supported": true,
+	}
+}
+
 // MCPAuthServerMetadataAPI answers RFC 8414 authorization server metadata.
 func (s *Server) MCPAuthServerMetadataAPI(w http.ResponseWriter, r *http.Request) {
+	mcpAuthJSON(w, http.StatusOK, s.mcpAuthServerMetadata(r))
+}
+
+// MCPAuthOpenIDMetadataAPI answers /.well-known/openid-configuration for
+// clients that look only there. AT issues no ID tokens: the extra fields only
+// satisfy schema validation in such clients, and the key set is empty.
+func (s *Server) MCPAuthOpenIDMetadataAPI(w http.ResponseWriter, r *http.Request) {
+	meta := s.mcpAuthServerMetadata(r)
 	issuer := s.mcpAuthIssuer(r)
-	mcpAuthJSON(w, http.StatusOK, map[string]any{
-		"issuer":                                issuer,
-		"authorization_endpoint":                issuer + mcpAuthPrefix + "/authorize",
-		"token_endpoint":                        issuer + mcpAuthPrefix + "/token",
-		"registration_endpoint":                 issuer + mcpAuthPrefix + "/register",
-		"revocation_endpoint":                   issuer + mcpAuthPrefix + "/revoke",
-		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"code_challenge_methods_supported":      []string{"S256"},
-		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post", "client_secret_basic"},
-		"scopes_supported":                      []string{"mcp"},
-	})
+	meta["jwks_uri"] = issuer + mcpAuthPrefix + "/jwks"
+	meta["subject_types_supported"] = []string{"public"}
+	meta["id_token_signing_alg_values_supported"] = []string{"RS256"}
+	mcpAuthJSON(w, http.StatusOK, meta)
+}
+
+// MCPAuthJWKSAPI answers an empty key set: AT signs no tokens.
+func (s *Server) MCPAuthJWKSAPI(w http.ResponseWriter, _ *http.Request) {
+	mcpAuthJSON(w, http.StatusOK, map[string]any{"keys": []any{}})
 }
 
 // ─── Registration (RFC 7591) ───
@@ -203,6 +226,19 @@ func (s *Server) MCPAuthRegisterAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := cleanMCPAuthClientName(req.ClientName)
+	// Clients that register on every start (most CLI clients) reuse one
+	// public record instead of filling the table. Confidential ones never
+	// reuse, because the secret is shown only at creation.
+	if method == "none" {
+		if existing, err := store.FindDynamicMCPAuthClient(r.Context(), name, req.RedirectURIs); err == nil && existing != nil {
+			mcpAuthJSON(w, http.StatusCreated, map[string]any{
+				"client_id": existing.ClientID, "client_id_issued_at": mcpAuthUnix(existing.CreatedAt), "client_name": existing.Name,
+				"redirect_uris": existing.RedirectURIs, "grant_types": []string{"authorization_code", "refresh_token"},
+				"response_types": []string{"code"}, "token_endpoint_auth_method": "none",
+			})
+			return
+		}
+	}
 	clientID, err := mcpAuthSecret(mcpAuthClientIDPrefix)
 	if err != nil {
 		mcpAuthError(w, http.StatusInternalServerError, "server_error", "registration failed")
@@ -237,6 +273,14 @@ func (s *Server) MCPAuthRegisterAPI(w http.ResponseWriter, r *http.Request) {
 		resp["client_secret_expires_at"] = 0
 	}
 	mcpAuthJSON(w, http.StatusCreated, resp)
+}
+
+func mcpAuthUnix(ts string) int64 {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return time.Now().Unix()
+	}
+	return t.Unix()
 }
 
 func cleanMCPAuthClientName(name string) string {
@@ -280,7 +324,11 @@ func (s *Server) validateMCPAuthRequest(r *http.Request, q url.Values) (*mcpAuth
 	if store == nil {
 		return nil, &mcpAuthorizeError{Code: "temporarily_unavailable", Description: "authorization server unavailable"}
 	}
-	client, err := store.GetMCPAuthClient(r.Context(), q.Get("client_id"))
+	client, err := s.resolveMCPAuthClient(r, q.Get("client_id"))
+	var metaErr *mcpAuthMetadataError
+	if errors.As(err, &metaErr) {
+		return nil, &mcpAuthorizeError{Code: "invalid_client", Description: metaErr.Error()}
+	}
 	if err != nil {
 		return nil, &mcpAuthorizeError{Code: "server_error", Description: "authorization unavailable"}
 	}
@@ -402,6 +450,12 @@ func (s *Server) MCPAuthAuthorizeAPI(w http.ResponseWriter, r *http.Request) {
 type mcpAuthConsentRequest struct {
 	Params  map[string]string `json:"params"`
 	Approve bool              `json:"approve"`
+	// Remember skips the consent page for this client, server and redirect
+	// URI until MCPAuthConsentLifetime passes or the person forgets it.
+	Remember bool `json:"remember"`
+	// Check only asks whether a remembered consent applies; when it does the
+	// response carries the redirect, otherwise "remembered": false.
+	Check bool `json:"check"`
 }
 
 // MCPAuthConsentInfoAPI handles GET /api/v1/mcp-auth/authorize: it describes
@@ -418,13 +472,20 @@ func (s *Server) MCPAuthConsentInfoAPI(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"valid":          true,
 		"client_name":    req.Client.Name,
-		"client_dynamic": req.Client.Dynamic,
-		"server_name":    req.Server.Name,
-		"server_id":      req.Server.ID,
-		"description":    req.Server.Config.Description,
-		"workspace_id":   req.Server.WorkspaceID,
-		"redirect_host":  redirect.Host,
-		"resource":       req.Resource,
+		"client_dynamic": req.Client.Dynamic && !req.Client.MetadataDocument,
+		"client_verified_host": func() string {
+			if req.Client.MetadataDocument {
+				return service.MCPAuthClientHost(req.Client.ClientID)
+			}
+			return ""
+		}(),
+		"client_uri":    req.Client.ClientURI,
+		"server_name":   req.Server.Name,
+		"server_id":     req.Server.ID,
+		"description":   req.Server.Config.Description,
+		"workspace_id":  req.Server.WorkspaceID,
+		"redirect_host": redirect.Host,
+		"resource":      req.Resource,
 	}
 	if principal.WorkspaceID != req.Server.WorkspaceID {
 		out["workspace_mismatch"] = true
@@ -475,8 +536,25 @@ func (s *Server) MCPAuthConsentAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	principal, _ := service.AccessPrincipalFromContext(r.Context())
 	if principal.WorkspaceID != req.Server.WorkspaceID {
+		if body.Check {
+			httpResponseJSON(w, map[string]any{"remembered": false}, http.StatusOK)
+			return
+		}
 		httpResponse(w, "switch to the workspace that owns this MCP server, then approve again", http.StatusConflict)
 		return
+	}
+	var rememberUntil time.Time
+	if body.Check {
+		// A remembered consent is honoured only for the exact redirect URI it
+		// was given for, so a loopback client on another port asks again.
+		remembered, err := s.mcpAuthStore().RememberedMCPAuthGrant(r.Context(), req.Client.ClientID, req.Server.ID, req.Resource, req.RedirectURI)
+		if err != nil || remembered == nil || !principal.Allows("mcp.read", service.AccessResource{WorkspaceID: principal.WorkspaceID, ID: req.Server.ID}) {
+			httpResponseJSON(w, map[string]any{"remembered": false}, http.StatusOK)
+			return
+		}
+		rememberUntil, _ = time.Parse(time.RFC3339, remembered.RememberedUntil)
+	} else if body.Remember {
+		rememberUntil = time.Now().Add(service.MCPAuthConsentLifetime)
 	}
 	code, err := mcpAuthSecret(mcpAuthCodePrefix)
 	if err != nil {
@@ -485,6 +563,7 @@ func (s *Server) MCPAuthConsentAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	grant, err := s.mcpAuthStore().IssueMCPAuthCode(r.Context(), *req.Client, req.Server.ID, req.Resource, mcpAuthHash(code), service.MCPAuthCode{
 		RedirectURI: req.RedirectURI, CodeChallenge: req.CodeChallenge, ExpiresAt: time.Now().Add(service.MCPAuthCodeLifetime),
+		RememberUntil: rememberUntil,
 	})
 	if err != nil {
 		if mcpAuthManagementError(w, err) {
@@ -493,9 +572,12 @@ func (s *Server) MCPAuthConsentAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "authorization failed", http.StatusInternalServerError)
 		return
 	}
-	slog.Info("MCP authorization granted", "workspace_id", grant.WorkspaceID, "user_id", grant.UserID, "mcp_server_id", grant.MCPServerID, "client_id", grant.ClientID, "dynamic", req.Client.Dynamic)
+	slog.Info("MCP authorization granted", "workspace_id", grant.WorkspaceID, "user_id", grant.UserID, "mcp_server_id", grant.MCPServerID, "client_id", grant.ClientID, "dynamic", req.Client.Dynamic, "remembered", body.Check)
 	params.Set("code", code)
 	resp := map[string]any{"redirect": mcpAuthRedirect(req.RedirectURI, params)}
+	if body.Check {
+		resp["remembered"] = true
+	}
 	if req.Server.Config.OAuth.ChainUpstreams {
 		resp["pending_accounts"] = s.mcpAuthPendingUpstreams(r.Context(), req.Server)
 	}
@@ -574,7 +656,7 @@ func (s *Server) mcpAuthClientCredentials(r *http.Request) (*service.MCPAuthClie
 	if id == "" {
 		return nil, "client authentication required"
 	}
-	client, err := s.mcpAuthStore().GetMCPAuthClient(r.Context(), id)
+	client, err := s.resolveMCPAuthClient(r, id)
 	if err != nil || client == nil {
 		return nil, "unknown client"
 	}
@@ -863,11 +945,23 @@ func (s *Server) registerMCPAuthServerRoutes(mux interface {
 	if base != "" {
 		// Some clients look up the issuer's metadata at the bare root.
 		mux.HandleWithMethod(http.MethodGet, "/.well-known/oauth-authorization-server", gate(s.MCPAuthServerMetadataAPI))
+		mux.HandleWithMethod(http.MethodGet, "/.well-known/openid-configuration", gate(s.MCPAuthOpenIDMetadataAPI))
 	}
-	mux.HandleWithMethod(http.MethodPost, base+mcpAuthPrefix+"/register", gate(s.MCPAuthRegisterAPI))
-	mux.HandleWithMethod(http.MethodGet, base+mcpAuthPrefix+"/authorize", gate(s.MCPAuthAuthorizeAPI))
-	mux.HandleWithMethod(http.MethodPost, base+mcpAuthPrefix+"/token", gate(s.MCPAuthTokenAPI))
-	mux.HandleWithMethod(http.MethodPost, base+mcpAuthPrefix+"/revoke", gate(s.MCPAuthRevokeAPI))
+	mux.HandleWithMethod(http.MethodGet, "/.well-known/openid-configuration"+base, gate(s.MCPAuthOpenIDMetadataAPI))
+	if base != "" {
+		mux.HandleWithMethod(http.MethodGet, base+"/.well-known/openid-configuration", gate(s.MCPAuthOpenIDMetadataAPI))
+		mux.HandleWithMethod(http.MethodGet, base+"/.well-known/oauth-authorization-server", gate(s.MCPAuthServerMetadataAPI))
+	}
+	mux.HandleWithMethod(http.MethodGet, base+mcpAuthPrefix+"/jwks", gate(s.MCPAuthJWKSAPI))
+	// Clients that find no metadata fall back to /register, /token and
+	// /authorize at the issuer root (MCP 2025-03-26 §2.3.3). The deployment
+	// root serves the SPA, so these exact paths are free.
+	for _, prefix := range []string{base + mcpAuthPrefix, base} {
+		mux.HandleWithMethod(http.MethodPost, prefix+"/register", gate(s.MCPAuthRegisterAPI))
+		mux.HandleWithMethod(http.MethodGet, prefix+"/authorize", gate(s.MCPAuthAuthorizeAPI))
+		mux.HandleWithMethod(http.MethodPost, prefix+"/token", gate(s.MCPAuthTokenAPI))
+		mux.HandleWithMethod(http.MethodPost, prefix+"/revoke", gate(s.MCPAuthRevokeAPI))
+	}
 }
 
 // ─── Management API (browser session) ───
@@ -1010,4 +1104,60 @@ func mcpAuthManagementError(w http.ResponseWriter, err error) bool {
 		return true
 	}
 	return workspaceBusinessError(w, err)
+}
+
+// ForgetMCPAuthConsentAPI handles DELETE /api/v1/mcp-auth/grants/{id}/consent:
+// the next sign-in through that client asks again. Tokens stay valid.
+func (s *Server) ForgetMCPAuthConsentAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.mcpAuthStore()
+	if store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := store.ForgetMCPAuthConsent(r.Context(), r.PathValue("id")); err != nil {
+		if mcpAuthManagementError(w, err) {
+			return
+		}
+		httpResponse(w, "failed to forget the consent", http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, map[string]string{"status": "forgotten"}, http.StatusOK)
+}
+
+// ListAllMCPAuthClientsAPI handles GET /api/v1/mcp-auth/clients: every
+// registered client with its usage. Installation administrators only.
+func (s *Server) ListAllMCPAuthClientsAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.mcpAuthStore()
+	if store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	clients, err := store.ListAllMCPAuthClients(r.Context())
+	if err != nil {
+		if mcpAuthManagementError(w, err) {
+			return
+		}
+		httpResponse(w, "failed to list OAuth clients", http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, clients, http.StatusOK)
+}
+
+// AdminDeleteMCPAuthClientAPI handles DELETE /api/v1/mcp-auth/clients/{id}:
+// deletes any client and signs out everyone who used it.
+func (s *Server) AdminDeleteMCPAuthClientAPI(w http.ResponseWriter, r *http.Request) {
+	store := s.mcpAuthStore()
+	if store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if err := store.AdminDeleteMCPAuthClient(r.Context(), r.PathValue("id")); err != nil {
+		if mcpAuthManagementError(w, err) {
+			return
+		}
+		httpResponse(w, "failed to delete the client", http.StatusInternalServerError)
+		return
+	}
+	mcpAuthGrantCache.Range(func(k, _ any) bool { mcpAuthGrantCache.Delete(k); return true })
+	httpResponseJSON(w, map[string]string{"status": "deleted"}, http.StatusOK)
 }

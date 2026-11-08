@@ -2722,6 +2722,69 @@ subject). It is ignored while the installation setting is off. Regressions:
 `internal/server/trace-privacy_test.go`,
 `internal/store/postgres/trace-privacy_test.go`.
 
+### Guardrails
+
+Settings → Guardrails (`/settings/guardrails`, migration 111
+`guardrail_policies`) applies input filters, prompt-injection detection,
+sensitive-value masking and output filters to model calls. Enforcement sits
+in `budgetedProvider` (`internal/server/guardrails.go`), the wrapper every
+resolved route already passes through, so the gateway (chat, Messages,
+Responses), Chats, Sessions, org delegation, Developer Spaces and workflow
+nodes are covered by one implementation. Policies match on server-stamped
+attributes exactly like trace privacy rules (workspace, user, API token,
+provider, model glob, source; empty = all, set = AND) and every matching
+policy applies. Pure detection lives in `internal/service/guardrail`.
+
+- **Mode**: `monitor` records findings and never blocks or modifies;
+  `enforce` blocks, masks and withholds. New policies default to monitor
+  in the UI.
+- **Input filter** (`max_chars`, RE2 `deny` patterns) and **injection** on
+  user text check only the newest turn (the last message carrying user
+  text), so a refused message left in history does not block the rest of
+  the conversation. Injection heuristics are English and Turkish, run on
+  NFKC-folded text with zero-width/bidi/tag characters stripped, and return
+  only rule names, never matched text. An optional classifier
+  (`provider/model`) is asked only when patterns find nothing, under the
+  caller's identity and budgets (`guardrailBypassKey` prevents recursion);
+  `fail_closed` blocks when it is unreachable.
+- **Tool results** (`tool_results`: withhold | block | warn | off) are
+  checked only after the last assistant message, i.e. once, on the call
+  that first carries them. *Withhold* replaces the result with
+  `guardrailWithheldNotice` and lets the turn continue; this is the default
+  because Jira/Confluence/web content is where injections arrive.
+- **Masking** replaces built-in entities (`email`, `phone`, `credit_card`
+  with Luhn, `iban` with mod-97, `tr_id` with TCKN checksum, `ipv4`,
+  `api_key`, `jwt`) and custom patterns with `[ENTITY_<hmac>]` in every
+  message (history, system, tool results, tool-call arguments, OpenAI wire
+  maps). Placeholders are HMACs under a per-process key, so the same value
+  keeps its placeholder across calls. With `restore`, response text,
+  reasoning and tool-call arguments get the real values back: the caller and
+  tools see them, the provider never does. The caller's message slice is
+  never modified (copies are edited).
+- **Output filter** blocks or redacts matches. With output patterns a stream
+  is held until it finishes, because text already sent cannot be withdrawn;
+  without them a stream only holds back a possible partial placeholder
+  (`guardrail.MaxHolderLen`).
+- **Native passthrough** is refused while an *enforcing* policy matches,
+  since its body cannot be inspected.
+
+A block is `service.GuardrailError` (wraps `ErrGuardrailBlocked`): HTTP 400
+`code: guardrail_blocked` with the policy name and check, never the matched
+content. It is not fallback-eligible and never counts toward the circuit
+breaker. Every finding is one `guardrail` event observation with
+`metadata.findings` (level error on block, warning otherwise).
+
+Gateway handlers place the API token on the context for matching only
+(`contextWithGuardrailToken`), deliberately not through
+`contextWithGatewayToken`, which would change pricing and media scoping.
+Policies are cached 10s per replica and invalidated on local writes; a failed
+refresh keeps the last known set. Admission and scope follow trace privacy:
+workspace policies need `workspace.write`, installation policies a platform
+administrator (store-enforced, foreign IDs 404). `POST /api/v1/guardrails/test`
+evaluates an unsaved policy on sample text without any model call (the
+classifier is skipped). Regressions: `internal/service/guardrail/guardrail_test.go`,
+`internal/server/guardrails_test.go`, `internal/store/postgres/guardrails_test.go`.
+
 ### Workspace trace export
 
 Settings → Trace export (`/settings/trace-export`) configures a separate OTLP
@@ -3011,6 +3074,76 @@ registration, foreign redirect, deny, PKCE, code replay, account identity,
 audience binding, refresh rotation, revocation, disabled account, dynamic
 clients off; pre-registered confidential client; chaining),
 `internal/service/types-mcp-auth-server_test.go`, `_ui/tests/mcp-auth.test.mjs`.
+
+### Client registration, remembered consent and client administration
+
+Migration 112 extends the authorization server
+(`internal/server/mcp-auth-metadata.go`, the rest in `mcp-auth-server.go`):
+
+- **Client ID Metadata Documents** (draft-ietf-oauth-client-id-metadata-document,
+  the MCP 2025-11-25 default). A `client_id` that passes
+  `service.MCPAuthMetadataClientID` (https, non-root path, no query, fragment,
+  credentials or dot segments) is the URL of a JSON document describing the
+  client. `resolveMCPAuthClient` fetches it through `publicImageClient`
+  (https only; private, loopback, link-local and CGNAT addresses refused at
+  connect time, so redirects and DNS rebinding are covered), requires
+  `application/json`, ≤16 KiB, 5s, and validates it with
+  `ValidateMCPAuthClientMetadata`: `client_id` must equal the URL, no
+  `client_secret` and only `token_endpoint_auth_method: none` (the document
+  is public), 1–10 redirect URIs under the usual rules. The row is cached
+  (`metadata_document`, `metadata_expires_at` from `Cache-Control: max-age`,
+  bounded 5m–24h); fetches are singleflighted, failures are cached for a
+  minute and new URLs are rate-limited per client address, so a `client_id`
+  cannot make AT fetch on every request. A failed refresh keeps serving a
+  copy that expired less than a day ago. Errors are shown to the person and
+  never redirected, because the redirect URIs come from the failed document.
+  Metadata clients are dynamic clients for server policy
+  (`dynamic_clients`, `redirect_patterns`); the consent page shows their host
+  as the verified publisher. Advertised as
+  `client_id_metadata_document_supported: true`.
+- **Registration reuse.** A public RFC 7591 registration with the same name
+  and the same set of redirect URIs returns the existing client
+  (`FindDynamicMCPAuthClient`), because CLI clients register on every start.
+  Confidential registrations are never reused: their secret is shown once.
+- **Remembered consent** lives on the grant (`remembered_redirect`,
+  `remembered_until`, 90 days). The consent page first POSTs `check: true`;
+  the server issues a code without asking only for the same account, client,
+  server, resource and *exact* redirect URI (a loopback client on another
+  port asks again) while the account still has `mcp.read` on the server.
+  Otherwise the page asks, offering *Don't ask again for this app*.
+  Connections → *Apps with MCP access* shows it and offers *Ask again*
+  (`DELETE /api/v1/mcp-auth/grants/{id}/consent`, tokens stay valid);
+  revoking the grant ends it too.
+- **Client administration.** Settings → *MCP OAuth clients*
+  (`/settings/mcp-clients`, installation administrators, store-enforced)
+  lists every client (dynamic, metadata document, pre-registered) with
+  sign-ins, accounts, server and last use (`GET /api/v1/mcp-auth/clients`)
+  and deletes any client with all grants issued to it
+  (`DELETE /api/v1/mcp-auth/clients/{id}`).
+- **Cleanup.** `startMCPAuthJanitor` runs hourly: expired codes and tokens,
+  and dynamic or metadata clients older than a day that never obtained a
+  grant (`SweepMCPAuthClients`). Pre-registered clients are never swept.
+- **Discovery compatibility.** `/.well-known/openid-configuration` answers
+  the RFC 8414 document plus `jwks_uri` (`/oauth/mcp/jwks`, an empty key
+  set; no ID tokens are issued) and the fields some clients' schema
+  validation requires. Under `server.base_path: /at` both documents answer
+  at all three locations clients use: `/.well-known/<doc>/at` (RFC 8414
+  §3.1 path insertion, what MCP clients derive from the issuer),
+  `/at/.well-known/<doc>` (OIDC Discovery appending) and the bare
+  `/.well-known/<doc>`. The first and third sit outside the base path, so a
+  reverse proxy that forwards only `/at/*` must also route
+  `/.well-known/oauth-authorization-server/at`,
+  `/.well-known/openid-configuration/at` and
+  `/.well-known/oauth-protected-resource/at` (operator guide with Traefik and
+  nginx examples: `docs/reverse-proxy.md`).
+  `TestMCPAuthDiscoveryUnderBasePath` pins this.
+  `/register`, `/authorize`, `/token` and `/revoke` are also served at the
+  issuer root for clients that skip discovery (MCP 2025-03-26 fallback).
+
+Regressions: `internal/server/mcp-auth-clients_test.go` (metadata document
+end to end with cache and stale-if-error, validation, private-address
+refusal, remembered consent per redirect, registration reuse, root
+fallbacks, admin list and deletion, sweep).
 
 ## Persistent Assets & Avatar Studio
 

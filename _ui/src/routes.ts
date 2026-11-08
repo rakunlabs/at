@@ -36,6 +36,8 @@ const ExecutionSettings = () => import('@/pages/ExecutionSettings.svelte');
 const StorageSettings = () => import('@/pages/StorageSettings.svelte');
 const TraceExportSettings = () => import('@/pages/TraceExportSettings.svelte');
 const TracePrivacySettings = () => import('@/pages/TracePrivacySettings.svelte');
+const GuardrailSettings = () => import('@/pages/GuardrailSettings.svelte');
+const McpAuthClientsSettings = () => import('@/pages/McpAuthClientsSettings.svelte');
 const GitCredentials = () => import('@/pages/GitCredentials.svelte');
 const Organizations = () => import('@/pages/Organizations.svelte');
 const OrganizationDetail = () => import('@/pages/OrganizationDetail.svelte');
@@ -139,6 +141,8 @@ export default {
   '/settings/storage': lazy(StorageSettings),
   '/settings/trace-export': lazy(TraceExportSettings),
   '/settings/trace-privacy': lazy(TracePrivacySettings),
+  '/settings/guardrails': lazy(GuardrailSettings),
+  '/settings/mcp-clients': lazy(McpAuthClientsSettings),
   '/settings/git-credentials': lazy(GitCredentials),
   '/settings/users': lazy(Users),
   '/settings/features': lazy(Features),

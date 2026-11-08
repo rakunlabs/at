@@ -57,7 +57,7 @@
     User,
   } from 'lucide-svelte';
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
-  import { listMCPAuthGrants, revokeMCPAuthGrant, type MCPAuthGrant } from '@/lib/api/mcp-auth';
+  import { listMCPAuthGrants, revokeMCPAuthGrant, forgetMCPAuthConsent, type MCPAuthGrant } from '@/lib/api/mcp-auth';
 
   storeNavbar.title = 'Connections';
 
@@ -181,6 +181,16 @@
       addToast('Access revoked');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to revoke access', 'alert');
+    }
+  }
+
+  async function forgetConsent(g: MCPAuthGrant) {
+    try {
+      await forgetMCPAuthConsent(g.id);
+      mcpGrants = mcpGrants.map((x) => (x.id === g.id ? { ...x, remembered_until: undefined } : x));
+      addToast('The next sign-in asks again');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update the sign-in', 'alert');
     }
   }
 
@@ -809,11 +819,17 @@
               </div>
               <p class="text-xs text-dark-text-muted mt-0.5">
                 Approved {new Date(g.created_at).toLocaleString()}{g.last_used_at ? ` · last used ${new Date(g.last_used_at).toLocaleString()}` : ''}
+                {#if g.remembered_until} · approved automatically until {new Date(g.remembered_until).toLocaleDateString()}{/if}
               </p>
             </div>
-            <button onclick={() => revokeGrant(g)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-900/20">
-              <Trash2 size={12} /> Revoke
-            </button>
+            <div class="flex items-center gap-1">
+              {#if g.remembered_until}
+                <button onclick={() => forgetConsent(g)} class="px-2.5 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated">Ask again</button>
+              {/if}
+              <button onclick={() => revokeGrant(g)} class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-900/20">
+                <Trash2 size={12} /> Revoke
+              </button>
+            </div>
           </div>
         {/each}
       </div>

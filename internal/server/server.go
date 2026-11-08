@@ -347,6 +347,8 @@ type Server struct {
 	// tracePrivacy caches trace privacy rules and the traces suppressed by
 	// them on this replica.
 	tracePrivacy tracePrivacyRuntime
+	// guardrails caches compiled guardrail policies.
+	guardrails guardrailRuntime
 
 	// builtinConnectors holds the embedded connector definitions loaded at
 	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
@@ -698,6 +700,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// TTL is loopgov.Config.WorkspaceTTL (default 24h, < 0 disables).
 	s.startWorkspaceJanitor(ctx)
 	s.startAuthJanitor(ctx)
+	s.startMCPAuthJanitor(ctx)
 
 	// Start the LLM audit janitor: prunes llm_calls rows and spilled
 	// request/response bodies older than LLMCallRetention (default 7d).
@@ -1289,6 +1292,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/trace-export", s.TraceExportSettingsAPI)
 	apiGroup.PUT("/v1/trace-export", s.TraceExportSettingsAPI)
 	apiGroup.POST("/v1/trace-export/test", s.TraceExportSettingsAPI)
+	apiGroup.GET("/v1/guardrails", s.ListGuardrailPoliciesAPI)
+	apiGroup.POST("/v1/guardrails", s.CreateGuardrailPolicyAPI)
+	apiGroup.POST("/v1/guardrails/test", s.TestGuardrailPolicyAPI)
+	apiGroup.PUT("/v1/guardrails/{id}", s.UpdateGuardrailPolicyAPI)
+	apiGroup.DELETE("/v1/guardrails/{id}", s.DeleteGuardrailPolicyAPI)
 	apiGroup.GET("/v1/trace-privacy/rules", s.ListTracePrivacyRulesAPI)
 	apiGroup.POST("/v1/trace-privacy/rules", s.CreateTracePrivacyRuleAPI)
 	apiGroup.PUT("/v1/trace-privacy/rules/{id}", s.UpdateTracePrivacyRuleAPI)
@@ -1408,6 +1416,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/mcp-auth/authorize", s.MCPAuthConsentAPI)
 	apiGroup.GET("/v1/mcp-auth/grants", s.ListMCPAuthGrantsAPI)
 	apiGroup.DELETE("/v1/mcp-auth/grants/{id}", s.RevokeMCPAuthGrantAPI)
+	apiGroup.DELETE("/v1/mcp-auth/grants/{id}/consent", s.ForgetMCPAuthConsentAPI)
+	apiGroup.GET("/v1/mcp-auth/clients", s.ListAllMCPAuthClientsAPI)
+	apiGroup.DELETE("/v1/mcp-auth/clients/{id}", s.AdminDeleteMCPAuthClientAPI)
 	apiGroup.GET("/v1/mcp/servers/{id}/oauth-clients", s.ListMCPAuthClientsAPI)
 	apiGroup.POST("/v1/mcp/servers/{id}/oauth-clients", s.CreateMCPAuthClientAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}/oauth-clients/{client}", s.DeleteMCPAuthClientAPI)

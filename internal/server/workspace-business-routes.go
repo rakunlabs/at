@@ -78,6 +78,13 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/trace-export", "workspace.write", "", ""},
 		{"PUT", "/trace-export", "workspace.write", "", ""},
 		{"POST", "/trace-export/test", "workspace.write", "", ""},
+		// Guardrails: workspace policies need workspace.write; installation
+		// policies additionally need a platform administrator (store).
+		{"GET", "/guardrails", "workspace.write", "", ""},
+		{"POST", "/guardrails", "workspace.write", "", ""},
+		{"POST", "/guardrails/test", "workspace.write", "", ""},
+		{"PUT", "/guardrails/{id}", "workspace.write", "", ""},
+		{"DELETE", "/guardrails/{id}", "workspace.write", "", ""},
 		// Trace privacy: workspace rules need workspace.write; installation
 		// rules and settings additionally need a platform administrator,
 		// enforced by the store. Opt-out is per account.
@@ -382,6 +389,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/mcp-auth/authorize", "mcp.use", "", ""},
 		{"GET", "/mcp-auth/grants", "mcp.use", "", ""},
 		{"DELETE", "/mcp-auth/grants/{id}", "mcp.use", "", ""},
+		{"DELETE", "/mcp-auth/grants/{id}/consent", "mcp.use", "", ""},
 		{"GET", "/mcp/servers/{id}/oauth-clients", "mcp.write", "", ""},
 		{"POST", "/mcp/servers/{id}/oauth-clients", "mcp.write", "", ""},
 		{"DELETE", "/mcp/servers/{id}/oauth-clients/{client}", "mcp.write", "", ""},

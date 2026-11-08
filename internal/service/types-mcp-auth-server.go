@@ -42,12 +42,17 @@ type MCPAuthClient struct {
 	Name         string   `json:"name"`
 	RedirectURIs []string `json:"redirect_uris"`
 	Dynamic      bool     `json:"dynamic"`
-	Confidential bool     `json:"confidential"`
-	SecretHash   string   `json:"-"`
-	Secret       string   `json:"client_secret,omitempty"`
-	CreatedBy    string   `json:"created_by,omitempty"`
-	CreatedAt    string   `json:"created_at"`
-	LastUsedAt   string   `json:"last_used_at,omitempty"`
+	// MetadataDocument marks a client whose client_id is the https URL of
+	// its Client ID Metadata Document. Its row caches the fetched document.
+	MetadataDocument  bool   `json:"metadata_document,omitempty"`
+	MetadataExpiresAt string `json:"metadata_expires_at,omitempty"`
+	ClientURI         string `json:"client_uri,omitempty"`
+	Confidential      bool   `json:"confidential"`
+	SecretHash        string `json:"-"`
+	Secret            string `json:"client_secret,omitempty"`
+	CreatedBy         string `json:"created_by,omitempty"`
+	CreatedAt         string `json:"created_at"`
+	LastUsedAt        string `json:"last_used_at,omitempty"`
 }
 
 // MCPAuthGrant is one account's consent for one client on one MCP server.
@@ -61,6 +66,29 @@ type MCPAuthGrant struct {
 	ClientName  string `json:"client_name"`
 	Resource    string `json:"resource"`
 	Revoked     bool   `json:"revoked,omitempty"`
+	// RememberedUntil is set while the consent is remembered: a new
+	// authorization for the same redirect URI is then issued without asking.
+	RememberedUntil string `json:"remembered_until,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	LastUsedAt      string `json:"last_used_at,omitempty"`
+}
+
+// MCPAuthClientUsage is an installation-wide view of one registered client
+// for administrators: who signed in through it and when it was last used.
+type MCPAuthClientUsage struct {
+	MCPAuthClient
+	ServerName  string                    `json:"server_name,omitempty"`
+	Grants      int                       `json:"grants"`
+	ActiveUsers int                       `json:"active_users"`
+	Users       []MCPAuthClientUsageEntry `json:"users"`
+}
+
+// MCPAuthClientUsageEntry is one account's sign-in through a client.
+type MCPAuthClientUsageEntry struct {
+	UserID      string `json:"user_id"`
+	Username    string `json:"username,omitempty"`
+	WorkspaceID string `json:"workspace_id"`
+	ServerName  string `json:"server_name,omitempty"`
 	CreatedAt   string `json:"created_at"`
 	LastUsedAt  string `json:"last_used_at,omitempty"`
 }
@@ -72,6 +100,8 @@ type MCPAuthCode struct {
 	RedirectURI   string
 	CodeChallenge string
 	ExpiresAt     time.Time
+	// RememberUntil, when non-zero, remembers the consent until then.
+	RememberUntil time.Time
 }
 
 // MCPAuthAccess is what a presented access token resolves to.
@@ -84,6 +114,11 @@ const (
 	MCPAuthCodeLifetime    = 10 * time.Minute
 	MCPAuthAccessLifetime  = time.Hour
 	MCPAuthRefreshLifetime = 30 * 24 * time.Hour
+	// MCPAuthConsentLifetime is how long a remembered consent is honoured.
+	MCPAuthConsentLifetime = 90 * 24 * time.Hour
+	// MCPAuthUnusedClientAge is how long a dynamic or metadata-document
+	// client may sit without ever obtaining a grant before it is swept.
+	MCPAuthUnusedClientAge = 24 * time.Hour
 	// MCPAuthDynamicClientLimit bounds unauthenticated registrations so the
 	// table cannot be filled; the oldest unused ones are pruned first.
 	MCPAuthDynamicClientLimit = 5000
@@ -106,9 +141,33 @@ type MCPAuthServerStorer interface {
 	DeleteMCPAuthClient(ctx context.Context, id string) error
 	// GetMCPAuthClient is unauthenticated metadata for the protocol handlers.
 	GetMCPAuthClient(ctx context.Context, clientID string) (*MCPAuthClient, error)
+	// FindDynamicMCPAuthClient returns an existing dynamic client with the
+	// same name, redirect URIs and authentication method, so a client that
+	// registers on every start reuses one record (public clients only).
+	FindDynamicMCPAuthClient(ctx context.Context, name string, redirectURIs []string) (*MCPAuthClient, error)
+	// UpsertMetadataMCPAuthClient caches a fetched Client ID Metadata
+	// Document under its URL client_id.
+	UpsertMetadataMCPAuthClient(ctx context.Context, c MCPAuthClient) (*MCPAuthClient, error)
+
+	// Installation administration: every client with its usage, and
+	// deletion of any client (which ends every grant issued to it).
+	ListAllMCPAuthClients(ctx context.Context) ([]MCPAuthClientUsage, error)
+	AdminDeleteMCPAuthClient(ctx context.Context, id string) error
+	// SweepMCPAuthClients removes dynamic and metadata-document clients
+	// older than the cutoff that never obtained a grant, plus expired codes
+	// and tokens. It is internal maintenance and performs no authorization.
+	SweepMCPAuthClients(ctx context.Context, unusedBefore time.Time) (int64, error)
+
+	// RememberedMCPAuthGrant returns the caller's live remembered consent for
+	// the client, server, resource and exact redirect URI, if any.
+	RememberedMCPAuthGrant(ctx context.Context, clientID, mcpServerID, resource, redirectURI string) (*MCPAuthGrant, error)
+	// ForgetMCPAuthConsent clears a remembered consent of the caller; the
+	// grant and its tokens stay valid.
+	ForgetMCPAuthConsent(ctx context.Context, grantID string) error
 
 	// IssueMCPAuthCode creates (or reuses) the caller's grant for the client
 	// on the server and stores a code. The account is the context principal.
+	// A non-zero code.RememberUntil records the consent for code.RedirectURI.
 	IssueMCPAuthCode(ctx context.Context, client MCPAuthClient, mcpServerID, resource, codeHash string, code MCPAuthCode) (*MCPAuthGrant, error)
 	// ExchangeMCPAuthCode consumes a code and issues the token pair.
 	ExchangeMCPAuthCode(ctx context.Context, codeHash, clientID, redirectURI string, verify func(challenge string) bool, accessHash, refreshHash string) (*MCPAuthGrant, error)
@@ -225,4 +284,91 @@ func NormalizeMCPServerOAuth(o *MCPServerOAuth) error {
 	}
 	o.RedirectPatterns = patterns
 	return nil
+}
+
+// ─── Client ID Metadata Documents ───
+
+// MCPAuthMetadataClientID reports whether a client_id is a Client ID
+// Metadata Document URL: https, a host, a non-root path, no fragment,
+// credentials, dot segments or query (draft-ietf-oauth-client-id-metadata-document §3).
+func MCPAuthMetadataClientID(clientID string) bool {
+	if !strings.HasPrefix(clientID, "https://") || len(clientID) > 2048 {
+		return false
+	}
+	u, err := url.Parse(clientID)
+	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Path == "" || u.Path == "/" {
+		return false
+	}
+	for _, seg := range strings.Split(u.Path, "/") {
+		if seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return u.String() == clientID
+}
+
+// MCPAuthClientMetadata is the subset of a Client ID Metadata Document AT
+// reads. Unknown fields are ignored.
+type MCPAuthClientMetadata struct {
+	ClientID                string   `json:"client_id"`
+	ClientName              string   `json:"client_name"`
+	ClientURI               string   `json:"client_uri"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	ClientSecret            string   `json:"client_secret"`
+}
+
+// ValidateMCPAuthClientMetadata checks a fetched document against the URL it
+// was fetched from. Metadata clients are public: a document claiming a
+// symmetric secret or a secret-based auth method is refused, because the
+// document is public and anyone could read the secret.
+func ValidateMCPAuthClientMetadata(clientID string, m MCPAuthClientMetadata) error {
+	if m.ClientID != clientID {
+		return fmt.Errorf("the document's client_id does not match its URL")
+	}
+	if m.ClientSecret != "" {
+		return fmt.Errorf("a client metadata document must not contain a client_secret")
+	}
+	switch m.TokenEndpointAuthMethod {
+	case "", "none":
+	default:
+		return fmt.Errorf("token_endpoint_auth_method %q is not supported for metadata documents; use none", m.TokenEndpointAuthMethod)
+	}
+	if len(m.RedirectURIs) == 0 || len(m.RedirectURIs) > 10 {
+		return fmt.Errorf("the document must list between one and ten redirect_uris")
+	}
+	for _, uri := range m.RedirectURIs {
+		if err := ValidMCPAuthRedirectURI(uri); err != nil || len(uri) > 2048 {
+			return fmt.Errorf("redirect URI %q must use https or a loopback address", uri)
+		}
+	}
+	for _, g := range m.GrantTypes {
+		if g != "authorization_code" && g != "refresh_token" {
+			return fmt.Errorf("unsupported grant type %q", g)
+		}
+	}
+	for _, r := range m.ResponseTypes {
+		if r != "code" {
+			return fmt.Errorf("unsupported response type %q", r)
+		}
+	}
+	if m.ClientURI != "" {
+		u, err := url.Parse(m.ClientURI)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("client_uri must be an https URL")
+		}
+	}
+	return nil
+}
+
+// MCPAuthClientHost is the host a metadata-document client is identified by;
+// the consent page shows it as the verified origin of the application.
+func MCPAuthClientHost(clientID string) string {
+	u, err := url.Parse(clientID)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }

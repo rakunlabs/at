@@ -36,3 +36,15 @@ export function deploymentWsUrl(path: string): string {
 export function deploymentOrigin(): string {
   return deploymentUrl('').replace(/\/+$/, '');
 }
+
+/**
+ * The OAuth discovery prefixes MCP clients derive from a sub-path issuer
+ * (RFC 8414 §3.1 / RFC 9728 §3.1 insert `.well-known` before the path), so a
+ * reverse proxy that forwards only the base path must route them too. Empty
+ * when the deployment is served at the root.
+ */
+export function oauthDiscoveryPrefixes(): string[] {
+  const path = deploymentBase().pathname.replace(/\/+$/, '');
+  if (!path) return [];
+  return ['oauth-authorization-server', 'openid-configuration', 'oauth-protected-resource'].map(doc => `/.well-known/${doc}${path}`);
+}

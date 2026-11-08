@@ -63,6 +63,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/settings/tokens":        {"GET", "/api-tokens"},
 	"/settings/trace-export":  {"GET", "/trace-export"},
 	"/settings/trace-privacy": {"GET", "/trace-privacy/rules"},
+	"/settings/guardrails":    {"GET", "/guardrails"},
 	"/mcps":                   {"POST", "/mcp/sets"},
 	"/connections":            {"POST", "/connections"},
 	// Installation administration.
@@ -80,6 +81,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/webhooks":                 {"GET", "/triggers"},
 	"/crons":                    {"GET", "/triggers"},
 	"/mcp-servers":              {"GET", "/mcp/servers"},
+	"/settings/mcp-clients":     {"GET", "/mcp-auth/clients"},
 	"/usage":                    {"GET", "/usage/summary"},
 	"/traces":                   {"GET", "/traces"},
 }

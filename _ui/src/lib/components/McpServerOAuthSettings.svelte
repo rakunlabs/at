@@ -1,7 +1,7 @@
 <script lang="ts">
   import { KeyRound, Plus, Trash2, Copy } from 'lucide-svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { deploymentUrl } from '@/lib/helper/deployment-url';
+  import { deploymentUrl, oauthDiscoveryPrefixes } from '@/lib/helper/deployment-url';
   import {
     createMCPAuthClient,
     deleteMCPAuthClient,
@@ -70,6 +70,7 @@
     navigator.clipboard?.writeText(text).then(() => addToast('Copied')).catch(() => addToast('Copy failed', 'alert'));
   }
 
+  const discoveryPrefixes = oauthDiscoveryPrefixes();
   let endpoint = $derived(serverName ? deploymentUrl(`gateway/v1/mcp/${encodeURIComponent(serverName)}`) : '');
   const input = 'w-full border border-dark-border-subtle px-2 py-1 text-xs font-mono bg-dark-elevated text-dark-text placeholder:text-dark-text-muted';
 </script>
@@ -93,6 +94,13 @@
           <span class="text-dark-text-muted shrink-0">Client URL</span>
           <code class="min-w-0 truncate px-1 py-0.5 bg-dark-elevated">{endpoint}</code>
           <button type="button" class="p-1 text-dark-text-muted hover:text-dark-text" title="Copy" onclick={() => copy(endpoint)}><Copy size={12} /></button>
+        </div>
+      {/if}
+
+      {#if discoveryPrefixes.length}
+        <div class="border border-dark-border-subtle px-2 py-1.5 text-xs text-dark-text-secondary space-y-1">
+          <p>AT runs under a base path. If a reverse proxy forwards only that path, also route these prefixes to AT, unchanged, or MCP clients cannot find where to sign in:</p>
+          {#each discoveryPrefixes as p}<code class="block px-1 py-0.5 bg-dark-elevated font-mono">PathPrefix({p})</code>{/each}
         </div>
       {/if}
 

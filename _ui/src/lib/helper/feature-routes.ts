@@ -71,6 +71,7 @@ export const routeFeatures: Record<string, string> = {
   '/connections': FEATURE_EXTERNAL_CONNECTIONS,
   '/integrations': FEATURE_INTEGRATION_PACKS,
   '/mcp-servers': FEATURE_MCP_SERVERS,
+  '/settings/mcp-clients': FEATURE_MCP_SERVERS,
   '/mcps': FEATURE_MCP_SERVERS,
   '/terminal': FEATURE_TERMINAL,
   '/files': FEATURE_FILES,

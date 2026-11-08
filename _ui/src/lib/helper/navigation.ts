@@ -26,6 +26,7 @@ const capabilityRoutes: Record<string, string> = {
   '/usage': 'usage.read', '/traces': 'traces.read',
   '/settings/trace-export': 'workspace.write',
   '/settings/trace-privacy': 'workspace.write',
+  '/settings/guardrails': 'workspace.write',
   '/mcps': 'mcp.read', '/skills': 'skills.read',
   // Members manage their own personal connections (MCP OAuth accounts
   // included); workspace connections stay behind connections.write.
@@ -46,7 +47,7 @@ const platformRoutes = [
   '/settings/execution',
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/storage', '/settings/system', '/settings/git-credentials',
   '/marketplaces', '/integrations', '/variables',
-  '/node-configs', '/webhooks', '/crons', '/mcp-servers',
+  '/node-configs', '/webhooks', '/crons', '/mcp-servers', '/settings/mcp-clients',
 ];
 // An account with no membership anywhere resolves nothing: every workspace
 // route answers 403, including Documentation, whose guide API is workspace
@@ -85,6 +86,8 @@ export const configurationLinks = [
   { path: '/settings/storage', label: 'Storage', description: 'Durable backend for media, files, assets and space snapshots' },
   { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
   { path: '/settings/trace-privacy', label: 'Trace privacy', description: 'Keep users, keys, providers or models out of traces' },
+  { path: '/settings/mcp-clients', label: 'MCP OAuth clients', description: 'Apps that sign in to MCP servers, with usage and removal' },
+  { path: '/settings/guardrails', label: 'Guardrails', description: 'Input filters, prompt-injection detection, masking and output filters' },
   { path: '/settings/git-credentials', label: 'Git credentials', description: 'Deploy keys for private skill repositories' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/virtual-providers', label: 'Provider governance', description: 'Provider budgets and account allowances' },
