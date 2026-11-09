@@ -3,7 +3,7 @@
   import { createPageLoader } from '@/lib/helper/page-load.svelte';
   const references = createPageLoader();
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { push } from 'svelte-spa-router';
@@ -102,9 +102,11 @@
 
   async function loadCost() {
     if (!task) return;
+    const taskId = task.id;
     costLoading = true;
     try {
-      costRollup = await getCostByTask(task.id);
+      const rollup = await getCostByTask(taskId);
+      if (task?.id === taskId) costRollup = rollup;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load cost rollup', 'alert');
     } finally {
@@ -147,10 +149,11 @@
 
   async function loadEvents() {
     if (!task) return;
+    const taskId = task.id;
     eventsLoading = true;
     try {
       const ids = collectTreeTaskIds(taskTree);
-      if (!ids.includes(task.id)) ids.push(task.id);
+      if (!ids.includes(taskId)) ids.push(taskId);
       // Fetch the most recent N observations for the whole tree. The
       // store accepts `task_id[in]=A,B,C` via the query.Parse syntax;
       // the endpoint defaults to newest-first.
@@ -159,9 +162,10 @@
         'task_id[in]': ids.join(','),
       };
       const res = await listLLMCalls(params as any);
+      if (task?.id !== taskId) return;
       events = res.data || [];
     } catch {
-      events = [];
+      if (task?.id === taskId) events = [];
     } finally {
       eventsLoading = false;
     }
@@ -304,62 +308,124 @@
 
   // ─── Load ───
 
+  // Only the very first load replaces the page with the loading screen.
+  // Navigating to another task (sub-task, parent, event links) keeps the
+  // current page on screen and swaps the content in when it arrives.
+  let refreshing = $state(false);
+
   async function loadTask() {
-    loading = true;
+    const id = params.id;
+    if (!task) loading = true;
+    refreshing = true;
     try {
-      task = await getTask(params.id);
-      storeNavbar.title = task.title || 'Task Detail';
+      const next = await getTask(id);
+      if (id !== params.id) return;
+      task = next;
+      storeNavbar.title = next.title || 'Task Detail';
     } catch (e: any) {
+      if (id !== params.id) return;
       addToast(e?.response?.data?.message || 'Failed to load task', 'alert');
       push('/tasks');
     } finally {
-      loading = false;
+      if (id === params.id) {
+        loading = false;
+        refreshing = false;
+      }
     }
   }
 
   async function loadLabels() {
+    const id = params.id;
     labelsLoading = true;
     try {
       const [tl, al] = await Promise.all([
-        listLabelsForTask(params.id),
+        listLabelsForTask(id),
         listLabels({ _limit: 200 }),
       ]);
+      if (id !== params.id) return;
       taskLabels = tl || [];
       allLabels = al.data || [];
     } catch {
       // Labels may not be supported; silently ignore
     } finally {
-      labelsLoading = false;
+      if (id === params.id) labelsLoading = false;
     }
   }
 
   async function loadSubTasks() {
-    subTasksLoading = true;
+    const id = params.id;
+    subTasksLoading = !taskTree || taskTree.id !== id;
     try {
-      taskTree = await getTaskWithSubtasks(params.id);
-      // Auto-expand root's direct children
-      if (taskTree?.sub_tasks?.length) {
-        expandedNodes = new Set([params.id]);
+      const tree = await getTaskWithSubtasks(id);
+      if (id !== params.id) return;
+      const firstLoad = !taskTree || taskTree.id !== id;
+      taskTree = tree;
+      // Auto-expand root's direct children on first load only, so the
+      // periodic refresh does not collapse what the user expanded.
+      if (firstLoad && tree?.sub_tasks?.length) {
+        expandedNodes = new Set([id]);
       }
     } catch {
-      taskTree = null;
+      if (id === params.id) taskTree = null;
     } finally {
-      subTasksLoading = false;
+      if (id === params.id) subTasksLoading = false;
     }
   }
 
   // Reference data is independent of the task id — fetch once
   loadReferenceData();
 
+  // Clear everything that belongs to the previously shown task so it can
+  // never leak into the next one (chat session, cost, events, edits).
+  function resetTaskState() {
+    chatAbortController?.abort();
+    chatAbortController = null;
+    chatSessionId = null;
+    chatMessages = [];
+    chatHasOlder = false;
+    chatSending = false;
+    chatStreamContent = '';
+    chatToolEvents = [];
+    chatExpandedTools = {};
+    costRollup = null;
+    events = [];
+    expandedEvents = {};
+    editingTitle = false;
+    editingDescription = false;
+    deleteConfirm = false;
+    showLabelPicker = false;
+    delegationActive = false;
+    delegationRootActive = false;
+    activeDeepest = null;
+    activeTaskIds = new Set();
+    subtaskRefreshTick = 0;
+  }
+
+  let scrollContainer = $state<HTMLDivElement | undefined>(undefined);
+  let shownTaskId = '';
+
   // Load (and reload when params change so navigating between tasks without
   // remounting still works)
   $effect(() => {
-    if (params.id) {
+    const id = params.id;
+    if (!id || id === shownTaskId) return;
+    const switching = shownTaskId !== '';
+    shownTaskId = id;
+    untrack(() => {
+      if (switching) {
+        resetTaskState();
+        scrollContainer?.scrollTo({ top: 0 });
+      }
       loadTask();
       loadLabels();
       loadSubTasks();
-    }
+    });
   });
+
+  // Keep the selected tab when following a link to another task.
+  function taskHref(id: string): string {
+    return activeTab === 'activity' ? `#/tasks/${id}` : `#/tasks/${id}?tab=${activeTab}`;
+  }
 
   // ─── Status & Priority helpers ───
 
@@ -746,14 +812,16 @@
 
   async function loadChatSession() {
     if (!task || chatLoading) return;
+    const taskId = task.id;
     chatLoading = true;
     try {
-      const session = await createTaskChat(task.id);
+      const session = await createTaskChat(taskId);
+      if (task?.id !== taskId) return;
       chatSessionId = session.id;
       await loadChatMessages();
     } catch {
       // Chat not available (no org or no agent assigned)
-      chatSessionId = null;
+      if (task?.id === taskId) chatSessionId = null;
     } finally {
       chatLoading = false;
     }
@@ -762,7 +830,9 @@
   async function loadChatMessages(limit: number = CHAT_PAGE) {
     if (!chatSessionId) return;
     try {
-      const fetched = await listChatMessages(chatSessionId, { limit });
+      const sessionId = chatSessionId;
+      const fetched = await listChatMessages(sessionId, { limit });
+      if (chatSessionId !== sessionId) return;
       chatMessages = fetched;
       chatHasOlder = fetched.length >= limit;
       await anchorChatToBottom();
@@ -966,7 +1036,7 @@
 
       <!-- Title (clickable link) -->
       <a
-        href="#/tasks/{node.id}"
+        href={taskHref(node.id)}
         class="text-sm text-dark-text hover:text-blue-400 truncate flex-1 {isLive ? 'font-medium' : ''}"
       >
         {node.title}
@@ -1002,7 +1072,7 @@
     <div class="text-sm text-dark-text-muted">Loading task...</div>
   </div>
 {:else if task}
-  <div class="h-full overflow-y-auto">
+  <div class="h-full overflow-y-auto" bind:this={scrollContainer}>
     <LoadIssues issues={references.issues} retry={loadReferenceData} />
     <div class="max-w-6xl mx-auto p-6">
       <!-- Back navigation + Refresh -->
@@ -1016,11 +1086,11 @@
         </button>
         <button
           onclick={() => { loadTask(); loadLabels(); loadSubTasks(); }}
-          disabled={loading}
+          disabled={refreshing}
           class="flex items-center gap-1.5 px-2 py-1 text-xs text-dark-text-muted hover:text-dark-text-secondary hover:bg-dark-elevated disabled:opacity-50"
           title="Refresh task"
         >
-          <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={13} class={refreshing ? 'animate-spin' : ''} />
           Refresh
         </button>
       </div>
@@ -1443,7 +1513,7 @@
                           {/if}
                           {#if e.task_id && e.task_id !== task.id}
                             <a
-                              href="#/tasks/{e.task_id}"
+                              href={taskHref(e.task_id)}
                               class="text-blue-400 hover:underline truncate flex-1 min-w-0"
                               title={eventTaskTitle(e) || e.task_id}
                             >
@@ -1687,7 +1757,7 @@
                 <div class="px-3 py-2 flex items-center gap-2">
                   <ListTree size={12} class="text-dark-text-muted shrink-0" />
                   <span class="text-xs text-dark-text-muted w-20 shrink-0">Parent</span>
-                  <a href="#/tasks/{task.parent_id}" class="text-xs font-mono text-blue-400 hover:underline truncate">
+                  <a href={taskHref(task.parent_id)} class="text-xs font-mono text-blue-400 hover:underline truncate">
                     {task.parent_id}
                   </a>
                 </div>
