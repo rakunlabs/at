@@ -19,6 +19,7 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/cookie"
+	"github.com/rakunlabs/ada/middleware/auth/identity"
 	"github.com/rakunlabs/ada/middleware/auth/strategy"
 	"github.com/rakunlabs/ada/middleware/auth/strategy/oauth2"
 
@@ -277,6 +278,24 @@ func validateExternalProvider(p service.AuthIdentityProvider, loopback bool) err
 		if raw != "" {
 			if err := validateExternalURL(raw, loopback); err != nil {
 				return err
+			}
+		}
+	}
+	if p.TokenExchange {
+		// An exchanged token is verified locally, so every check a browser
+		// sign-in gets from the code flow must be explicit here.
+		if p.JWKSURL == "" {
+			return fmt.Errorf("token exchange needs a JWKS endpoint to verify tokens")
+		}
+		if strings.TrimSpace(p.Issuer) == "" || p.Issuer != strings.TrimSpace(p.Issuer) || len(p.Issuer) > 1024 {
+			return fmt.Errorf("token exchange needs the exact issuer (iss) of the tokens")
+		}
+		if len(p.Audiences) == 0 || len(p.Audiences) > 16 {
+			return fmt.Errorf("token exchange needs between one and sixteen accepted audiences")
+		}
+		for _, aud := range p.Audiences {
+			if strings.TrimSpace(aud) == "" || len(aud) > 1024 {
+				return fmt.Errorf("invalid token exchange audience")
 			}
 		}
 	}
@@ -620,23 +639,7 @@ func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Reque
 		externalError(w, service.ErrAuthConflict)
 		return
 	}
-	namespace := service.AuthIdentityNamespace(p.ID)
-	// Do not carry upstream Identity.Roles or Claims into the local identity.
-	rawAssertions := make(map[string]any)
-	for _, key := range []string{"roles", "groups", "permissions", "scope"} {
-		if value, ok := id.Claims[key]; ok {
-			rawAssertions[key] = value
-		}
-	}
-	// Configured claim paths reach nested role sets (Keycloak realm_access.roles,
-	// resource_access.*.roles) that a flat claim read cannot see. They join the
-	// roles assertion under the same bounds, never the local identity's roles.
-	roles := service.MergeClaimValues(id.Roles, service.HarvestClaimValues(id.Claims, p.RolesClaims))
-	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": roles, "scopes": id.Scopes, "claims": rawAssertions})
-	verifiedEmail, _ := id.Claims["email_verified"].(bool)
-	// The provider username seeds new accounts and remains refreshable display
-	// metadata on the link. Identity is always provider ID plus subject.
-	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), DisplayName: service.ClaimDisplayName(id.Claims), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
+	link := ExternalIdentityLink(*p, id)
 	// Admission runs here, before any account is created or any link is
 	// refreshed, and for link and reauth as well as login. Gating provisioning
 	// alone would leave every identity that already signed in — precisely the
@@ -718,4 +721,28 @@ func (e *nativeExternalAuth) unlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(204)
+}
+
+// ExternalIdentityLink turns a verified identity into the link a store writes.
+// The browser callback and token exchange share it, so permission mappings
+// match the same assertions however the person arrived. Upstream roles and
+// claims never become the local identity's roles: they are recorded only as
+// the link's asserted permissions.
+func ExternalIdentityLink(p service.AuthIdentityProvider, id *identity.Identity) service.AuthIdentityLink {
+	namespace := service.AuthIdentityNamespace(p.ID)
+	rawAssertions := make(map[string]any)
+	for _, key := range []string{"roles", "groups", "permissions", "scope"} {
+		if value, ok := id.Claims[key]; ok {
+			rawAssertions[key] = value
+		}
+	}
+	// Configured claim paths reach nested role sets (Keycloak realm_access.roles,
+	// resource_access.*.roles) that a flat claim read cannot see. They join the
+	// roles assertion under the same bounds, never the local identity's roles.
+	roles := service.MergeClaimValues(id.Roles, service.HarvestClaimValues(id.Claims, p.RolesClaims))
+	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": roles, "scopes": id.Scopes, "claims": rawAssertions})
+	verifiedEmail, _ := id.Claims["email_verified"].(bool)
+	// The provider username seeds new accounts and remains refreshable display
+	// metadata on the link. Identity is always provider ID plus subject.
+	return service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), DisplayName: service.ClaimDisplayName(id.Claims), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
 }

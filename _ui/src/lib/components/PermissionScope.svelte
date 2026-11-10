@@ -12,6 +12,10 @@
     onpatterns: (value: string[] | undefined) => void;
   }
   let { capability, ids, patterns, onids, onpatterns }: Props = $props();
+  // Initial state only: binding `open` to the patterns would collapse the
+  // section the moment the last pattern is deleted while typing.
+  // svelte-ignore state_referenced_locally
+  let advancedOpen = $state(!!patterns?.length);
   // Only catalogs with record-ID admission. Connections return an unpaged array.
   const catalogs: Record<string, string> = {
     agents: 'agents', organizations: 'organizations', projects: 'projects',
@@ -87,7 +91,7 @@
     <p class="settings-note">Applies throughout this workspace.{capability.startsWith('files.') ? ' Use advanced path restrictions to limit file access.' : ' Resource selection is not available for this permission.'}</p>
   {/if}
   {#if capability.startsWith('files.') || patterns?.length}
-    <details open={!!patterns?.length}>
+    <details bind:open={advancedOpen}>
       <summary class="cursor-pointer text-xs font-medium">Advanced: restrict file paths{patterns?.length ? ` · ${patterns.length} patterns` : ''}</summary>
       <div class="space-y-2 mt-3">
         <label>Allowed path patterns<textarea rows="3" value={patterns?.join('\n') || ''} placeholder="media/*.png" spellcheck="false" oninput={e => { const values = lines(e.currentTarget.value); onpatterns(values.length ? values : undefined); }}></textarea></label>

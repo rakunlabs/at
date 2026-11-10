@@ -438,3 +438,20 @@ func agentRowToRecord(row agentRow) (*service.Agent, error) {
 	agent.Scope = service.DeriveAgentScope(agent)
 	return &agent, nil
 }
+
+// GetAgentByName resolves an agent visible to the caller by name. A name
+// shared by several visible agents is ambiguous and resolves to none.
+func (p *Postgres) GetAgentByName(ctx context.Context, name string) (*service.Agent, error) {
+	scope, err := p.agentVisibilityScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err := p.goqu.From(p.tableAgents).Select("id").Where(scope, goqu.I("name").Eq(name)).Limit(2).ScanValsContext(ctx, &ids); err != nil {
+		return nil, fmt.Errorf("get agent by name: %w", err)
+	}
+	if len(ids) != 1 {
+		return nil, nil
+	}
+	return p.GetAgent(ctx, ids[0])
+}

@@ -631,3 +631,17 @@ func (p *Postgres) admitExternalSource(ctx context.Context, tx *goqu.TxDatabase,
 	}
 	return nil
 }
+
+// HasAuthIdentityLink reports whether a provider subject is linked to an
+// enabled account. Internal lookup for token exchange.
+func (p *Postgres) HasAuthIdentityLink(ctx context.Context, providerID, issuer, subject string) (bool, error) {
+	links, users := p.externalTable("auth_identity_links"), p.tableAuthUsers
+	lt, ut := goqu.T(links.GetTable()), goqu.T(users.GetTable())
+	n, err := p.goqu.From(links).Join(users, goqu.On(ut.Col("id").Eq(lt.Col("user_id")))).
+		Where(lt.Col("provider_id").Eq(providerID), lt.Col("issuer").Eq(issuer), lt.Col("subject").Eq(subject), ut.Col("disabled").Eq(false)).
+		CountContext(ctx)
+	if err != nil {
+		return false, fmt.Errorf("find identity link: %w", err)
+	}
+	return n > 0, nil
+}

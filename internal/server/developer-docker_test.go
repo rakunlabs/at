@@ -10,11 +10,9 @@ import (
 	"github.com/rakunlabs/at/internal/service/container"
 )
 
-// TestDeveloperBashAndUndoInDocker runs the bash tool and the undo snapshots
-// against a real container: shell syntax works, timeouts kill the command,
-// and restoring a snapshot brings back edited and deleted files and removes
-// created ones, without touching the project's own Git history.
-func TestDeveloperBashAndUndoInDocker(t *testing.T) {
+// TestDeveloperBashInDocker runs the bash tool against a real container:
+// shell syntax works and timeouts kill the command.
+func TestDeveloperBashInDocker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
 	}
@@ -25,7 +23,7 @@ func TestDeveloperBashAndUndoInDocker(t *testing.T) {
 	ctx := context.Background()
 	s := &Server{containerManager: container.New()}
 	h := &developerRuntimeHandle{
-		scope: "test-developer-bash-undo",
+		scope: "test-developer-bash",
 		cfg:   container.Config{Enabled: true, Image: image, Network: true, KeepAlive: true, PersistentVolume: true, PidsLimit: 128, CapAdd: container.PackageManagerCapabilities},
 	}
 	t.Cleanup(func() { _ = s.containerManager.RemoveScope(context.Background(), h.scope) })
@@ -36,8 +34,8 @@ func TestDeveloperBashAndUndoInDocker(t *testing.T) {
 		}
 		return s.runDeveloperBash(ctx, h, "proj", args)
 	}
-	if _, _, code, err := s.containerManager.ExecArgs(ctx, h.scope, h.cfg, "/workspace", nil, "sh", "-c", "apk add --no-cache -q git && mkdir -p /workspace/proj"); err != nil || code != 0 {
-		t.Skipf("cannot prepare the container (network?): code %d %v", code, err)
+	if _, _, code, err := s.containerManager.ExecArgs(ctx, h.scope, h.cfg, "/workspace", nil, "sh", "-c", "mkdir -p /workspace/proj"); err != nil || code != 0 {
+		t.Skipf("cannot prepare the container: code %d %v", code, err)
 	}
 
 	// Without bash in the image the tool falls back to sh; pipes, && and
@@ -52,37 +50,10 @@ func TestDeveloperBashAndUndoInDocker(t *testing.T) {
 	if _, err := bash("sleep 30", 1000); err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("timeout not enforced: %v", err)
 	}
-
-	// The project has its own repository; undo must not touch it.
-	if _, err := bash("git init -q && git -c user.email=a@b -c user.name=a commit -q --allow-empty -m init && printf 'node_modules/\\n' > .gitignore && mkdir -p node_modules && echo dep > node_modules/x && echo keep > kept.txt && echo gone > deleted.txt", 0); err != nil {
-		t.Fatal(err)
-	}
-	before := s.takeDeveloperSnapshot(ctx, h, "proj")
-	if !developerTreeHash.MatchString(before) {
-		t.Fatalf("snapshot = %q", before)
-	}
-	if _, err := bash("echo changed > kept.txt && rm deleted.txt && echo new > created.txt && echo dep2 > node_modules/x", 0); err != nil {
-		t.Fatal(err)
-	}
-	changed, err := s.restoreDeveloperSnapshot(ctx, h, "proj", before)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(changed, ",") == "" {
-		t.Fatal("restore reported no changed files")
-	}
-	out, _ = bash("cat kept.txt deleted.txt; ls created.txt 2>/dev/null || echo no-created; cat node_modules/x; git log --oneline | wc -l; git status --porcelain", 0)
-	want := "keep\ngone\nno-created\ndep2\n1\n?? .gitignore\n?? a.txt\n?? deleted.txt\n?? kept.txt\n"
-	if out != want {
-		t.Fatalf("after undo:\n%s\nwant:\n%s", out, want)
-	}
-	if _, err := s.restoreDeveloperSnapshot(ctx, h, "proj", "not-a-hash"); err == nil {
-		t.Fatal("an invalid snapshot was accepted")
-	}
 }
 
-// Patch, background jobs, formatting and nested instructions against a real
-// container (alpine, no bash, so the sh fallbacks are exercised).
+// Patch, background jobs and formatting against a real container (alpine, no
+// bash, so the sh fallbacks are exercised).
 func TestDeveloperPatchJobsAndFormatInDocker(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short mode")
@@ -105,7 +76,7 @@ func TestDeveloperPatchJobsAndFormatInDocker(t *testing.T) {
 		}
 		return out
 	}
-	if _, _, code, err := s.containerManager.ExecArgs(ctx, h.scope, h.cfg, "/workspace", nil, "sh", "-c", "mkdir -p /workspace/proj/sub && printf 'a\\nb\\nc\\n' > /workspace/proj/x.txt && echo bye > /workspace/proj/old.txt && echo 'Use tabs here.' > /workspace/proj/sub/AGENTS.md && echo hi > /workspace/proj/sub/f.txt"); err != nil || code != 0 {
+	if _, _, code, err := s.containerManager.ExecArgs(ctx, h.scope, h.cfg, "/workspace", nil, "sh", "-c", "mkdir -p /workspace/proj/sub && printf 'a\\nb\\nc\\n' > /workspace/proj/x.txt && echo bye > /workspace/proj/old.txt"); err != nil || code != 0 {
 		t.Skipf("cannot prepare the container: code %d %v", code, err)
 	}
 
@@ -174,15 +145,5 @@ func TestDeveloperPatchJobsAndFormatInDocker(t *testing.T) {
 	}
 	if out := sh("cat main.go"); out != "formatted\n" {
 		t.Fatalf("main.go = %q", out)
-	}
-
-	// Nested AGENTS.md is added once, on the first read inside the folder.
-	tracker := &developerNestedInstructions{seen: map[string]bool{}}
-	first := s.nestedDeveloperInstructions(ctx, h, "proj", "sub/f.txt", tracker, false)
-	if !strings.Contains(first, "Use tabs here.") || !strings.Contains(first, "sub/AGENTS.md") {
-		t.Fatalf("nested instructions: %q", first)
-	}
-	if again := s.nestedDeveloperInstructions(ctx, h, "proj", "sub/f.txt", tracker, false); again != "" {
-		t.Fatalf("nested instructions repeated: %q", again)
 	}
 }

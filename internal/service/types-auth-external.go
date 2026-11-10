@@ -51,6 +51,23 @@ type AuthIdentityProvider struct {
 	// removes access instead of leaving the already-linked accounts (the ones
 	// an administrator is trying to cut off) untouched.
 	AllowedEmails []string `json:"allowed_emails,omitempty"`
+
+	// TokenExchange lets a trusted backend (an API token with act_for_users)
+	// run AT on behalf of a person by presenting a token this provider issued
+	// to them, instead of a browser sign-in. The token is verified locally:
+	// signature against JWKSURL, exact Issuer, one of Audiences, exp/nbf.
+	TokenExchange bool `json:"token_exchange,omitempty"`
+	// Issuer is the exact `iss` of tokens accepted for exchange. The browser
+	// sign-in does not use it.
+	Issuer string `json:"issuer,omitempty"`
+	// Audiences are accepted `aud` values for exchanged tokens: usually the
+	// website's client ID, or a dedicated API audience. Required, because a
+	// token minted for another service must not be spendable here.
+	Audiences []string `json:"audiences,omitempty"`
+	// ExchangeProvisioning creates an account for an unknown subject on first
+	// exchange (like a first browser sign-in). Off: only people who already
+	// signed in to AT through this provider can be acted for.
+	ExchangeProvisioning bool `json:"exchange_provisioning,omitempty"`
 }
 
 // AuthIdentityNamespace is the identity space a provider's subjects live in.
@@ -127,4 +144,10 @@ type AuthExternalStorer interface {
 	CompleteAuthExternalIdentity(context.Context, AuthIdentityLink, int64, *AuthExternalAccount, time.Time) (*AuthUser, *AuthIdentityLink, error)
 	ListAuthIdentityLinks(context.Context, string) ([]AuthIdentityLink, error)
 	UnlinkAuthIdentity(context.Context, string, AuthExternalAccount) error
+}
+
+// AuthIdentityLinkFinder answers whether a provider subject is already
+// linked to an account (internal lookup, no principal required).
+type AuthIdentityLinkFinder interface {
+	HasAuthIdentityLink(ctx context.Context, providerID, issuer, subject string) (bool, error)
 }

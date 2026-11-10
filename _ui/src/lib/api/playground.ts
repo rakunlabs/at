@@ -253,6 +253,8 @@ export interface PlaygroundDefaults {
   frontend_tools?: string[];
   /** Offer MCP-set tools through code_execute instead of listing each one. */
   mcp_code_mode?: boolean;
+  /** Offer the dev_* tools that work in the reader's Developer Space. */
+  developer_tools?: boolean;
 }
 
 /** An account that never saved a preset reads the shipped defaults, not a 404. */
@@ -261,7 +263,7 @@ export async function getPlaygroundDefaults(): Promise<PlaygroundDefaults> {
   return res.data || {};
 }
 
-const DEFAULTS_FIELDS = ['model', 'reasoning_effort', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
+const DEFAULTS_FIELDS = ['model', 'reasoning_effort', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools', 'mcp_code_mode', 'developer_tools'] as const;
 
 /** Bodies are rebuilt from the allowlist: the endpoint rejects unknown fields. */
 export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise<PlaygroundDefaults> {

@@ -165,12 +165,12 @@ To override, edit the constants in `internal/service/loopgov/config.go` or add U
 
 Tool discovery and the policy-neutral pieces of the loops are shared rather than
 copied per loop, so a tool an agent can use in Sessions is usable through org
-delegation and Developer Spaces too:
+delegation too:
 
 - `internal/server/agent-tools.go` — `agentMCPTools` connects an agent's MCP sets
   (gateway loopback for MCP servers, set URLs, upstreams, server-side set tools)
   plus legacy `mcp_urls`, and dispatches them (`Owns` / `SetName` / `Call`).
-  An optional `accept` hook lets Developer Spaces keep container tool names.
+  An optional `accept` hook may refuse tools (for example on a name collision).
   `agentBuiltinTools` / `forkStatusBuiltinTools` build the admitted built-in
   definitions; `executionSkillLookup` (admission-checked) and
   `storeSkillLookup` (workflow registries) resolve skills by ID, then name.
@@ -258,6 +258,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | Endpoint | Notes |
 |---|---|
 | `POST /gateway/v1/chat/completions` | Full OpenAI shape. Supports `tool_choice`, `parallel_tool_calls`, `n`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `user`, `logprobs`, `top_logprobs`, `store`, `metadata`, `service_tier`, `seed`, `response_format`, streaming with `stream_options.include_usage`, `system_fingerprint`, full `finish_reason` vocabulary (`stop` / `length` / `content_filter` / `tool_calls` / `function_call`), `usage.completion_tokens_details.reasoning_tokens`. AT extensions: `at_fallbacks`, `extra_body`, `mock_response`, `timeout_ms`, and `Idempotency-Key` header. |
+| `POST /gateway/v1/agents/{agent}/chat` | Agent gateway: runs an agent as a person proven by an identity-provider token, for an `act_for_users` API token. SSE with client tools. See *Agent gateway* below and `docs/agent-gateway.md`. |
 | `POST /gateway/v1/messages` | Native Anthropic Messages API, sync and streaming. Lets an unmodified Anthropic-native client (Claude Code, Cline, Roo, Kilo) point its base URL at `<base>/gateway` and get routing, fallback, budgets and tracing. Accepts `x-api-key` as well as `Authorization`. Bare model names resolve through routing profiles. Errors use the Anthropic envelope, not the OpenAI one. |
 | `POST /gateway/v1/embeddings` | OpenAI-shape embeddings. Accepts string or `[]string` `input`. Backed by `service.EmbeddingProvider` (OpenAI, Cohere, Gemini). Providers can declare `embedding_models` (Provider UI: "Embedding Models" + discovery via `POST /api/v1/providers/discover-embedding-models`); these are advertised alongside chat models by `/gateway/v1/models` (advisory — unlisted models are still forwarded). |
 | `POST /gateway/v1/responses` | OpenAI Responses API with streaming. Supports `input` (string or array of items), `instructions`, `tools` (function only), `tool_choice`, `reasoning.effort`, `text.format`, `parallel_tool_calls`, `metadata`. SSE event types: `response.created`, `response.output_item.added`, `response.output_text.delta`, `response.output_text.done`, `response.output_item.done`, `response.completed`, `response.failed`. Does NOT support `previous_response_id` (no server-side state). |
@@ -396,6 +397,85 @@ upstream OpenAI when none of them are present.
 | `mock_response: "..."` | `""` (off) | When non-empty, returns a synthesized response immediately with no upstream call. Works for both sync and streaming. Streaming emits `role` → `content` → `finish=stop` chunks. Response carries `x-at-mock-response: true`. |
 | `timeout_ms: <int>` | `0` (off) | Per-call deadline applied via `context.WithTimeout` across the entire fallback chain. `0` inherits the request context (no extra cap). |
 | `Idempotency-Key: <string>` (header) | unset (off) | When present, the gateway caches the response (status + body + headers) for 5 minutes scoped to `(token_id, path, key)`. Subsequent requests with the same key replay the cached response and add `x-at-idempotent-replay: true`. 5xx responses are not cached. |
+
+### Agent gateway (embedding agents in a website)
+
+Migration 113. `POST /gateway/v1/agents/{agent}/chat` (`internal/server/agent-gateway.go`)
+runs an agent **as a person** for a website backend. Operator guide:
+`docs/agent-gateway.md`. It needs two credentials; neither alone is enough:
+
+- The Bearer API token must have `act_for_users` (`tokens.act_for_users`,
+  with `allowed_agents_mode` / `allowed_agents` by ID or name). Only workspace
+  administrators may create such a token or toggle the flag
+  (`mayGrantActForUsers`, store-enforced on create and on update). Update
+  requests that omit all three fields keep them (`APIToken.KeepAgentGateway`);
+  sending only some of them is a 400.
+- `subject_token` is a token the person's IdP issued. `nativeauth.TokenExchanger`
+  (`internal/nativeauth/exchange.go`) verifies it locally with ada's bearer
+  strategy: signature against the provider's JWKS, exact `issuer`, one of
+  `audiences`, required `exp`, `nbf`. The provider must have
+  `token_exchange` on; `validateExternalProvider` then requires a JWKS URL,
+  an issuer and 1–16 audiences. Strategies are cached per provider version.
+  The token itself is never stored.
+
+The verified identity goes through `nativeauth.ExternalIdentityLink`, shared
+with the browser callback, so the asserted roles/claims (and `roles_claims`)
+are identical, and `AllowedEmails` is checked the same way. The account then
+comes from `CompleteAuthExternalIdentity(..., account=nil, ...)`: no session
+is created. Without `exchange_provisioning` an unknown subject is
+`ErrExchangeUnknownUser`, checked through `HasAuthIdentityLink`.
+
+`bindAgentGatewayUser` binds the run in the **token's workspace** as that
+account: `ResolveWorkspaceAccess(…, "")`, which also runs claim admission,
+so a mapped SSO group makes a first-time person a member. The provenance has
+`ActorTokenID`, and `revalidateRuntimeExecution` gained a branch
+(`revalidateAgentGatewayActor`): every action re-checks that the token still
+exists in that workspace, is unpaused and unexpired and keeps
+`act_for_users` (5s cache), and that the person is still a member. The request
+never names the user. Agent lookup (`GetAgent`, then `GetAgentByName`) runs as
+the person, so a personal agent of someone else is not reachable.
+`withUserUsage("agent_gateway")`, `contextWithGuardrailToken` and the token's
+pricing workspace are installed, so the person's allowance, guardrail
+policies naming the token and token limits all apply. Token limits are
+checked up front with `checkTokenLimits`.
+
+Sessions are ordinary chat sessions owned by the person
+(`config.gateway_token_id` records the token); continuing one requires the
+same person, token, agent and workspace, and anything else is 404. They appear
+in the person's own Sessions. The turn is `runAgenticLoopMessage` itself.
+
+**Client tools.** `client_tools` (≤64, `[A-Za-z0-9_-]{1,64}`, schema ≤32 KiB)
+ride the context (`contextWithClientTools`). The loop appends them after
+server tools, and a name already used by a server tool is dropped. A call to
+one is not executed: it emits `client_tool_call`; after the step's other
+calls run and are stored, the loop emits `waiting` and returns. The gateway
+answers `client_tool_calls` plus `done{status: requires_action}`. The next
+request sends `tool_results` for exactly the open calls
+(`openClientToolCalls` on the last assistant step; missing, extra or
+duplicate results are 409). They are stored as tool rows (≤256 KiB each), and
+a request with no new text is a continuation (`isClientToolContinuation`):
+no user message is stored, and history ends with the results. A new
+message while calls are open is 409. Tools listed in
+`confirmation_required_tools` are refused at once in gateway runs
+(`isAgentGatewayRun`), since nobody can approve them.
+
+SSE frames all carry event names: `session`, `message{content, final}`,
+`tool_call`, `tool_progress`, `tool_result`, `client_tool_calls`,
+`tool_confirm`, `error`, `done{status: completed|requires_action|failed}`.
+Pre-stream errors use the OpenAI envelope with codes `act_for_users_required`,
+`invalid_subject_token`, `unknown_user`, `no_workspace_access`,
+`agent_not_found`, `invalid_session`, `tool_results_required`,
+`invalid_tool_results`, `token_limit_exceeded`.
+
+UI: Authentication settings → provider → *Token exchange (agent gateway)*;
+API tokens → *Act for users* (`TokenActForUsers.svelte`). Regressions:
+`internal/nativeauth/exchange_test.go` (signature, issuer, audience, expiry,
+missing exp, disabled provider/exchange, allowed emails, provisioning),
+`internal/server/agent-gateway_test.go` (end to end against a JWKS IdP and
+Postgres: refusals, claim admission, run as the person, client tool round
+trip, session isolation, pause; revalidation after the flag is turned off),
+`internal/store/postgres/agent-gateway-token_test.go` (administration and
+field preservation).
 
 ### Routing profiles
 
@@ -1517,18 +1597,16 @@ Feature key `chat_background_runs` (sibling of `playground`). Regressions:
 `internal/store/postgres/playground-runs_test.go`,
 `_ui/tests/chat-background.test.mjs`.
 
-**Shared durable-run runtime.** Developer Spaces sessions and Chats background
-runs share `internal/server/agent-runs.go` — `runEventStream` (SSE writer and
+**Shared durable-run runtime.** Chats background runs use
+`internal/server/agent-runs.go` — `runEventStream` (SSE writer and
 keep-alive), `holdRunReceipt` (renewal, optional cancellation polling,
 idempotent release before the terminal event) and the scoped replay helpers
 (`activeReplayStream`, `cancelReplayStreams`, `replayRunStream`) — and the UI
 client `_ui/src/lib/helper/run-events.ts` (`followRunStream`,
-`consumeRunEvents`). Each surface keeps its own records, admission and stale
-policy: Developer Spaces never takes over a stale receipt and stops on any
-renewal error (a crashed owner may still run commands in the container);
-Chats takes over after 60s because its writes are fenced by run ID. Add a new
-durable surface by supplying a `runReceipt` and a `replayKind`, not by copying
-either loop. Regressions: `internal/server/agent-runs_test.go`,
+`consumeRunEvents`). A surface keeps its own records, admission and stale
+policy; Chats takes over a stale receipt after 60s because its writes are
+fenced by run ID. Add a new durable surface by supplying a `runReceipt` and a
+`replayKind`, not by copying a loop. Regressions: `internal/server/agent-runs_test.go`,
 `_ui/tests/run-events.test.mjs`.
 
 **Agent-bound skills in Chats.** A selected skill with `context: fork` is not
@@ -2022,7 +2100,7 @@ Workspace while editing a personal provider instead calls POST
 (`MovePersonalProviderToWorkspace`), which converts the row in place (same ID,
 config and OAuth state; `owner_user_id` cleared, `workspace_id` set), drops its
 personal grants, and rewrites that workspace's `provider:<id>` references in
-agents, workflow graphs/versions and developer sessions to the bare key in one
+agents and workflow graphs/versions to the bare key in one
 transaction. It needs `personal_providers.manage`, `providers.write` and
 `credentials.manage`; only the owner can move it, and an existing workspace
 provider with the same key is a 409 with nothing moved. References in other
@@ -2112,10 +2190,9 @@ and persists final/interruption text before sending `done`. A persistence failur
 emits an error so the UI retains the received answer. Task-chat imports expose the
 task result as an assistant message, including task_complete-only delegation runs.
 
-**Steering a running turn.** While a Sessions or Developer Spaces turn runs,
+**Steering a running turn.** While a Sessions turn runs,
 the composer stays open: sending calls `POST /api/v1/chat/sessions/{id}/steer`
-(`{content}`) or `POST /api/v1/developer-sessions/{id}/steer` (`{prompt}`),
-both `agents.execute` with the usual ownership check. `runSteering`
+(`{content}`), `agents.execute` with the usual ownership check. `runSteering`
 (`run-steering.go`) queues the text in memory for the run registered on that
 replica (≤20 messages, 64 KiB each); 409 means no run of that session is
 active here (finished, or another replica), and the page asks to resend. The
@@ -2729,7 +2806,7 @@ Settings → Guardrails (`/settings/guardrails`, migration 111
 sensitive-value masking and output filters to model calls. Enforcement sits
 in `budgetedProvider` (`internal/server/guardrails.go`), the wrapper every
 resolved route already passes through, so the gateway (chat, Messages,
-Responses), Chats, Sessions, org delegation, Developer Spaces and workflow
+Responses), Chats, Sessions, org delegation and workflow
 nodes are covered by one implementation. Policies match on server-stamped
 attributes exactly like trace privacy rules (workspace, user, API token,
 provider, model glob, source; empty = all, set = AND) and every matching
@@ -3481,7 +3558,7 @@ through its context. Modelled on OpenCode V2's `execute`.
 
 The toolset is the calling surface's own (`service.ContextWithCodeModeTools`,
 built by `codeModeProvider` in `builtin-tools-code-mode.go`): Sessions, org
-delegation, Developer Spaces agent sessions and Chats background runs pass
+delegation and Chats background runs pass
 their built-ins and `agentMCPTools`; the Chats page sends its selected
 built-ins and MCP sets (`code_mode` on `/mcp/call-builtin-tool`), and
 browser-side tools (local MCP, extensions, Chat tools) are not reachable.
@@ -3523,7 +3600,7 @@ result's `instructions` and `resources` / `prompts` capabilities and implement
 `prompts/list`, `prompts/get`); the execution-bound client re-checks
 `mcp.use` on each call. `mcpFeatureSet` (`internal/server/mcp-resources.go`)
 collects them per tool surface — `agentMCPTools` (Sessions, org delegation,
-Developer Spaces, Chats background runs) and `mcpRuntime` (Chats, gateway MCP
+Chats background runs) and `mcpRuntime` (Chats, gateway MCP
 servers):
 
 - **Instructions** are appended to the system prompt as
@@ -3575,15 +3652,15 @@ stopped run also become `cancel`.
 People are reached through `elicitationBroker` (`internal/server/
 mcp-elicitation.go`): questions wait in memory on the replica running the
 call, owned by the run's account and workspace (≤16 open per account) and
-tagged with a scope — `chats`, `session:<id>`, `developer:<id>`. It is
+tagged with a scope — `chats`, `session:<id>`. It is
 installed for Chats MCP-set and built-in (`code_execute`) calls, Sessions
-turns and Developer Spaces runs; org delegation clears it, and workflows,
+turns; org delegation clears it, and workflows,
 schedules and background runs never have one. `GET /api/v1/mcp/elicitations
 ?wait=` (≤25 s long-poll) lists the caller's questions and `POST
 /api/v1/mcp/elicitations/{id}` answers `{action, content?}`; both
 `models.use`, owner-checked, foreign IDs read as 404, content is validated
 against the schema. `McpElicitation.svelte` polls while a turn runs and
-renders above the composer in Chats, Sessions and Developer Spaces: a form
+renders above the composer in Chats and Sessions: a form
 (`helper/mcp-elicitation.ts`) with Send / Decline / Cancel and a warning not
 to type secrets, or for URL mode the full URL with the host highlighted, a
 Punycode warning, and an explicit *Open <host>* button that opens a
@@ -3611,7 +3688,7 @@ Regressions: `internal/service/mcp-elicitation_test.go` (HTTP form + URL +
 
 ## Large images are shrunk before attaching
 
-Chats, Sessions and Developer Spaces composers pass PNG/JPEG/WebP attachments
+Chats and Sessions composers pass PNG/JPEG/WebP attachments
 through `attachableFile` (`_ui/src/lib/helper/image-resize.ts`): an image
 whose longest edge exceeds 2000 px or that is over ~3.75 MiB (~5 MiB base64)
 is redrawn on a canvas at the largest size that fits (aspect ratio kept) and
@@ -3622,7 +3699,7 @@ Regression: `_ui/tests/image-resize.test.mjs`.
 
 ## Collapsed pastes in composers
 
-Chats, Sessions and Developer Spaces composers show a multi-line (≥3 lines)
+Chats and Sessions composers show a multi-line (≥3 lines)
 or long (≥400 chars) text paste as `[Pasted ~N lines]`
 (`_ui/src/lib/helper/paste-collapse.ts`, `PastedText`). One Backspace after
 it (or Delete before it) removes the whole placeholder; the stored text is
@@ -3688,31 +3765,31 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 A Developer Space is **one persistent coding environment per account and
 workspace** (`/api/v1/developer-space*`, UI `#/developer-spaces`). There is no
 space ID in any path: every handler resolves the caller's own space through
-`EnsureDeveloperSpace`, which creates it with the default profiles on first use
+`EnsureDeveloperSpace`, which creates it on first use
 (unique `(workspace_id, owner_user_id)` index, so concurrent first visits
 converge). Migration 83 replaced the old space → repository → worktree model:
 each account keeps its oldest space, the repository/worktree tables are dropped,
-and sessions store `project_path` instead. **Upgrade note**: the dropped rows
-and any extra spaces' sessions are gone; files already in the kept volume stay.
+**Upgrade note**: the dropped rows are gone; files already in the kept volume
+stay.
 
 Feature key `developer_spaces` is a child of `agents`. Disabling it hides the
-page and gates every `/api/v1/developer-space*` and `/api/v1/developer-sessions*`
-route without deleting spaces, sessions or volumes; re-enabling restores them.
+page, every `/api/v1/developer-space*` route and the Chats Developer Space
+tools without deleting spaces or volumes; re-enabling restores them.
 
 **Projects are folders**, not records. `/workspace` is a Docker-managed volume;
 each top-level folder is a project (created empty or by `POST .../clone`). The
-page is laid out like an editor: sessions and a lazily-loaded file tree on the
-left, tabs in the middle (chat sessions, CodeMirror files with Ctrl+S and
-version-checked saves, diffs), source control on the right, and one or more
-terminals at the bottom. Layout and the open project persist in localStorage.
+page is laid out like an editor: a lazily-loaded file tree on the left (under
+a *Work on <project> in Chats* link), tabs in the middle (CodeMirror files with
+Ctrl+S and version-checked saves, diffs), source control on the right, and one
+or more terminals at the bottom. Layout and the open project persist in localStorage.
 
 **Every path goes through one containment helper.** `internal/devfs` runs
-inside the container for the browser file API and the agent's file tools alike:
+inside the container for the browser file API and the Chats tools alike:
 paths are resolved (following symlinks) and
 must remain under the project root, delete removes a link rather than its
 target, and content travels on stdin (`ExecArgsInput`) — base64 in argv was
 silently capped by the kernel's 128 KiB per-argument limit. Writes carry the
-version returned by the read, so a save over a file the agent or terminal
+version returned by the read, so a save over a file a Chats tool or the terminal
 changed answers 409 and the page offers reload or overwrite. Server-side,
 `service.CleanDeveloperPath` refuses absolute paths, backslashes and `..`
 before anything reaches the container.
@@ -3738,73 +3815,73 @@ never stops the container. WebSockets cannot send `X-AT-Workspace-ID`, so this
 single endpoint accepts the `workspace_id` query selector
 (`nativeWebSocketPath`), with the same admission as a header.
 
-**Chat streams.** `run`/`confirm`/`answer` answer with SSE: `status`, `delta`
-(text/reasoning), `message` (each stored transcript row), `tool_start`,
-`tool_result` (with `changed` paths so open editors reload), `pending`, and
-exactly one terminal `done` or `error`. Streaming reaches the provider through
-`executionProvider.StreamChat` — deliberately not `ChatStream`, which would also
-expose `Proxy` — and `agentloop.CollectStream` assembles the same response the
-non-streaming path produced (truncated `length`/`content_filter` responses drop
-their partial tool calls). Providers without streaming fall back to one Chat
-call delivered as a single delta. Plan and Review are read-only, Build edits
-and asks before shell commands, and push is never an agent tool. Mode, model
-and reasoning effort are per session and cannot change while a turn is
-running or waiting.
+**No chat here: the coding agent is Chats** (migration 114). Developer
+Spaces used to carry its own agent loop (sessions, profiles, run receipts,
+undo snapshots, steering). It duplicated Chats, so it was removed: the page is
+an editor (files, terminal, source control, settings, home), and AI work in a
+space is an ordinary Chats turn with the **Developer Space** tool source on.
+Migration 114 drops `developer_sessions`, `developer_session_messages`,
+`developer_session_snapshots` and `developer_pending_tools`, deletes the
+`snapshots`-namespace catalog rows under `developer-sessions/`, and keeps only
+`disable_formatter` in `developer_spaces.config`. **Upgrade note**: old
+transcripts are gone; snapshot blobs stay in the storage backend under
+`workspaces/<ws>/snapshots/developer-sessions/` (SQL cannot reach it), and
+`/workspace/.at-snapshots` remains in volumes until removed by hand. Files and
+spaces are untouched. Drain old processes first: a run started by an older
+version writes to the dropped tables.
 
-A session can instead **run as one of the workspace's agents** (migration 84,
-`developer_sessions.agent_id`; the composer's agent picker lists the built-in
-profiles and every agent the caller can see). `buildDeveloperToolkit`
-(`developer-toolkit.go`) then uses the agent's system prompt, skills (lazy
-`load_skill`), MCP sets and built-in tools, layered on top of the container
-tools, which keep their names on collision. Permissions come from the agent's
-`confirmation_required_tools`: listed tools pause for approval and everything
-else runs, so a read-only agent is expressed by giving it no editing tools or
-listing them. The model stays per session: choosing an agent adopts its model
-once, and changing the model afterwards never changes what the agent may do.
-The agent's built-in tools run on the AT host, not in the container, and the
-system prompt says so. Every resource passes the same execution admission as
-Sessions (`agents.run`, `skills.use`, `mcp.use`, tool class). A deleted agent
-fails the run with an explicit message rather than silently falling back.
+**Developer Space tools** (`developer-chat-tools.go`) are `dev_projects`,
+`dev_clone`, `dev_read_file`, `dev_glob`, `dev_search`, `dev_write_file`,
+`dev_edit_file`, `dev_patch`, `dev_git_status`, `dev_git_diff`,
+`dev_git_commit`, `dev_bash`, `dev_bash_output` and `dev_bash_kill`. The
+`dev_` prefix keeps them from shadowing host built-ins (`file_read`,
+`bash_execute`), and they are not registered as built-ins. `GET
+/api/v1/developer-space/tools` (`agents.read`) lists them with the space state,
+and `POST /api/v1/developer-space/tools/call` (`agents.execute`) runs one call.
+Both use `openDeveloperRuntime`, the context-only admission the page handlers
+also use: the caller's own space, live execution identity, `execution.run`.
+Tools never start a stopped space. A space that is not running is a tool error
+the model reads. `project` (a top-level folder) defaults to the conversation's
+project (`config.developer_project`). Each call is recorded as a `tool`
+observation on the turn's trace (`origin: developer_space`).
 
-**Background chat runs.** Developer `run`/`confirm`/`answer` use the bounded
-replay transport (`developer-streams.go`, `chat-streams.go`): the initiating
-identity is retained, HTTP disconnects do not cancel execution, and server
-shutdown or the 30-minute run deadline still does. Closing a chat tab or the
-page detaches only; explicit **Stop**, session deletion and space stop/reset
-cancel local execution. Owner-scoped `GET .../{id}/active-stream` discovers a
-live run and `GET .../{id}/streams/{stream}?offset=` replays it; neither starts
-work. Streams are replica-local and restart-volatile, so multiple replicas
-need sticky routing. Missing replay never triggers an automatic POST retry.
-Pending approvals/questions and completed messages remain in the database.
-Migration 100 adds durable Developer session run receipts (`developer-runs.go`):
-server-generated IDs exclude concurrent handlers across replicas, 15s renewals
-(5s call deadline, 60s database-clock stale threshold) observe cancellation flags,
-and tool dispatch rechecks the receipt. History/pending/snapshot writes hold the
-session row while checking run ownership. Active-stream discovery reports the
-receipt separately from local replay and marks expired running jobs failed, never
-clearing their receipt or replaying tools. The UI blocks new work while unresolved.
-Normal exit releases only its own receipt and keeps waiting approvals. A crashed
-owner's receipt stays held: verify the former process/remote tools stopped before
-using a new session. This is exclusion/cancellation reporting, not remote fencing,
-automatic failover or durable replay. Drain older processes before upgrading.
-The page restores the last owned chat per space, polls session metadata and
-reconnects to live work. The transcript uses Chats' blue-ruled user blocks,
-plain assistant text, shared compact `ToolActivity` and searchable model/agent
-palettes while preserving file/diff actions and the editor shell. Regressions:
-`internal/server/developer-streams_test.go`, `_ui/tests/resumable-stream.test.mjs`.
+- **Edits** (write, edit, patch) run without asking, are formatted
+  (`disable_formatter`), and return `changed` plus a diff against HEAD, or
+  `--no-index` for new files. The diff is bounded at 32 KiB. Chats stores the
+  diff in the tool result as a marked `<at-developer-diff>` block
+  (`helper/chat-developer.ts`) and renders it under the tool row, with file
+  links into the Developer Spaces editor (`?project=&file=`).
+- **Commands** (`dev_bash`, `dev_bash_kill`) ask in the page first: an inline
+  Allow / *Always allow `<cmd> *` in this chat* / Deny card
+  (`developerCallNeedsApproval`). Grants live in `config.developer_approvals`
+  of that conversation, never in presets. A prefix grant never covers a
+  command containing `| ; & $ \` ( ) < >` or a newline. Background runs
+  (`chat-background-runs.go`, kind `developer`) offer every tool except
+  these, because nobody can approve them.
+- **Commits** use the repository's `user.name`/`user.email` when set.
+  Otherwise they use the run account's name and verified email from `whoami`,
+  passed as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`. The identity always comes from
+  the bound execution identity, never from arguments. **Push is not a tool**:
+  the model is told to ask the user to push from Developer Spaces, where the
+  branch is confirmed.
+- **Clone** uses the same remote validation as the page, and SSH keys and
+  credentials from the persistent home. A successful clone switches the
+  conversation's project.
 
-Migration 101 adds durable Developer space Start/Stop/Reset control receipts and
-execution suspension. Control and run acquisition share the parent row lock;
-Stop/Reset cancel persisted runs and close admission, while explicit Start refuses
-unresolved run receipts. Reset retains records until receipts are released and
-runtime purge succeeds. Session/space deletion and reconfiguration cannot erase
-receipts. Manager command/file/terminal activity registers atomically with local
-provisioning; Stop/Reset cancel and drain before removal, retaining failed drains
-for explicit cleanup retry. Untracked scope Stop checks the backend. These are
-not distributed activity leases or remote fencing: pre-admitted remote requests,
-idle cleanup, account cleanup and home reset still need distributed coordination.
-Kubernetes remains single-replica; no automatic orphan-control recovery exists.
-Regressions: `developer-control_test.go`, `container/activity_test.go`.
+Chats: workbench tab *Developer Space* (`developer_tools` in
+`ChatWorkbenchSetup`, so presets and defaults carry the switch; project and
+grants are per conversation). Developer Spaces links to
+`#/chats?developer=1&project=<p>` (a new chat with the tools on). Opening the
+page attaches to an already-running space without starting it. Regressions:
+`developer-chat-tools_test.go` (project resolution, names, no push,
+`TestDeveloperCommitUsesAccountIdentityInDocker`),
+`TestDeveloperSpaceChatRemovalMigration`, `_ui/tests/chat-developer.test.mjs`.
+
+Migration 101's Start/Stop/Reset control receipts and execution suspension
+remain (`developer-control.go`): one control owner per space across replicas,
+and Stop/Reset close admission before runtime effects. Update and Delete refuse
+while another control is open (`ErrDeveloperSpaceBusy`). Regressions:
+`developer-control_test.go`, `container/activity_test.go`.
 
 **Source control** works on the selected project: NUL-separated
 `git status --porcelain=v2` (paths with spaces are safe), per-file diff (untracked
@@ -3813,99 +3890,22 @@ switch/create, `pull --ff-only`, and push of the *current* branch only after the
 caller confirms that exact name. Pull and push re-validate the origin remote
 (no credentials in the URL, no private/loopback hosts), as clone does.
 
-The chat composer shows an "N files changed in <project> +A -D" strip above
-the input, from `git/status?numstat=true`. Counts cover staged, unstaged and
-untracked changes against HEAD, computed on a throwaway `GIT_INDEX_FILE`
-(untracked files added intent-to-add) so the real index is never touched.
-Each entry opens a `git/diff?head=true` tab (or the untracked diff).
-
-**OpenCode-style workbench** (migration 105). Container tools are `read_file`
-(`cat -n` numbering, `offset`/`limit`, 2000 lines per read), `glob`
-(doublestar; a slash-less pattern matches the base name at any depth,
-`developerGlobRegexp`), `search` (RE2 + `include` base-name patterns, passed
-to `at-devfs search` as a third argument; the python fallback matches with
-`fnmatch`), `edit_file` (`replace_all`), `write_file`, `bash`, `todo_write` /
-`todo_read`, `git_status`/`git_diff` and `ask_user`. `bash` runs
-`bash -c` (or `sh` when the image has no bash) with stderr merged, its own
-timeout argument (default 2 min, max 10 min, `timeout -s KILL` in the
-container) instead of the profile's tool timeout, and head+tail clipping at
-30 KB. The command travels in an env var, never as shell-interpolated argv.
-Profiles map `bash` to the existing `shell` action, so Build still asks first;
-the legacy argv `run_command` still executes stored calls but is no longer
-advertised. File tools may now address `.git` (bash could change it anyway).
-Todo tools are always allowed and stored in `developer_sessions.todos`; the
-list renders above the composer and `tool_result` events carry updates.
-
-Project instruction files (`AGENTS.md`, else `CLAUDE.md`, plus `CONTEXT.md`,
-32 KiB each) are read from the project root each run and appended to the
-system prompt (`developerInstructions`). A per-session `reasoning_effort`
-(empty = the agent's effort or provider default) is validated and sent with
-every call; the composer offers the model's efforts from `/api/v1/info`.
-Prompts may carry attachments (Sessions' limits and `chatMessageContent`
-mapping) and `@path` mentions, whose numbered contents are added as text
-blocks. Slash commands in the composer: `/compact [focus]`, `/undo`, `/redo`,
-`/new`, `/model`, `/agent`, `/effort [level]`, `/todos`.
-
-**More container tools.** `patch` applies a multi-file `*** Begin Patch`
-document (Add/Update/Move/Delete; hunks located by context and removed lines,
-tolerant of trailing/surrounding whitespace, `@@ line` anchors and
-`*** End of File`; `developer-patch.go`). Every operation is read and checked
-before anything is written, so a hunk that does not apply changes nothing.
-It is an `edit` action for profiles. `bash` with `background: true` starts the
-command detached (`setsid`/`nohup`) with combined output in
-`/tmp/at-jobs/<ulid>.log` and returns a job ID; `bash_output` (`job_id`,
-`offset`; no ID lists jobs) reads it and reports running/finished (the
-`[exit N]` line written on completion, zombies count as finished), and
-`bash_kill` stops the process group. Jobs live as long as the container.
-After `write_file` / `edit_file` / `patch` the changed files are formatted by
-the first installed formatter for their extension (gofmt, rustfmt, ruff,
-project-local prettier or biome, shfmt, terraform, clang-format with a
-`.clang-format`); a missing or failing formatter is skipped, and a rewrite is
-reported in the tool result. `DeveloperSpaceConfig.disable_formatter`
-(settings → *Format after edits*) turns it off without a restart. A
-sub-folder `AGENTS.md` (else `CLAUDE.md`) is appended as a `<system-reminder>`
-to the result of the first `read_file`/`list_files`/`glob`/`search` inside
-that folder, once per run, nearest first. Regressions:
-`developer-patch_test.go`, `TestDeveloperPatchJobsAndFormatInDocker`.
-
-**Always allow.** The permission prompt offers *Always allow* next to Allow
-(`POST .../confirm` with `always: true`). It approves the call and records a
-grant in the session's `config.always_allow` (`AddDeveloperSessionApprovals`,
-under the run receipt, ≤100 deduplicated; an optional store interface, no
-migration): `shell "<first word> *"` for a bash command, the action with `*`
-for file tools, `tool <name>` for agent tools. Later calls a grant covers run
-without asking. A shell grant never matches a command containing `| ; & $ \`
-( ) < >` or a newline, so `go *` does not allow `go test && rm -rf /`. Grants
-only lift an *ask*; a profile *deny* stays final. They belong to the session
-and cannot be set by the browser directly. Regression:
-`TestDeveloperAlwaysAllowGrants`, `TestDeveloperSessionWorkbench`.
-
-`/compact` is `run` with `compact: true`: the model (tools off, tool blocks
-flattened to text) summarizes, and the result is stored as an assistant
-message with `kind = 'compaction'`. `developerMessages` starts at the latest
-one and replays it as a user message; nothing is deleted.
-
-**Undo/redo** uses a shadow Git repository per project at
-`/workspace/.at-snapshots/<project>.git` (`GIT_DIR` + `GIT_WORK_TREE`), so the
-project's own repository, index and history are never touched and untracked
-files are covered; `.gitignore` still applies, so ignored output is neither
-recorded nor deleted. Each prompt stores the tree hash taken before it ran
-(`developer_session_messages.snapshot`; empty when the image has no git).
-`POST .../revert` restores that tree (`read-tree --reset -u`, which also
-removes files created since) and records `revert_message_id` plus the redo
-tree; the transcript hides that message onward. `POST .../unrevert` restores
-the redo tree. Both acquire the session's run receipt, so they cannot race a
-turn on any replica. The next prompt makes the undo permanent
-(`CommitDeveloperSessionRevert` deletes the hidden rows). The walk, search
-and the UI tree skip `.at-snapshots`. Regressions:
-`developer-tools_test.go`, `TestDeveloperBashAndUndoInDocker` (real Docker,
-alpine without bash), `TestDeveloperSessionWorkbench` (postgres), and the
-workbench cases in `_ui/tests/developer-space.test.mjs`.
+`dev_bash` runs `bash -c` (or `sh` when the image has no bash) with stderr
+merged, its own timeout (default 2 min, max 10 min, `timeout -s KILL`) and
+head+tail clipping at 30 KB; the command travels in an env var. With
+`background: true` it starts detached (`setsid`/`nohup`), logging to
+`/tmp/at-jobs/<ulid>.log`, and `dev_bash_output`/`dev_bash_kill` read and stop
+it. `dev_patch` applies a multi-file `*** Begin Patch` document
+(`developer-patch.go`). It checks every operation first, so a hunk that does
+not apply changes nothing. Formatters: gofmt, rustfmt, ruff, project-local
+prettier or biome, shfmt, terraform, and clang-format when a `.clang-format`
+exists. A missing formatter is skipped. Regressions: `developer-patch_test.go`,
+`TestDeveloperPatchJobsAndFormatInDocker`, `TestDeveloperBashInDocker`.
 
 Every `/developer-space/*` route — including reads, because they start the
 container — requires `agents.execute`, rebinds the live execution identity and
-checks `execution.run`; `GET /developer-space` and the session list/history only
-need `agents.read`. Containers keep their existing limits (capabilities dropped,
+checks `execution.run`; `GET /developer-space` and the tool list only need
+`agents.read`. Containers keep their existing limits (capabilities dropped,
 `no-new-privileges`, PID/CPU/RAM/disk quotas). Developer spaces re-add only
 `container.PackageManagerCapabilities` (CHOWN, DAC_OVERRIDE, FOWNER, FSETID,
 KILL, SETGID, SETUID — a subset of Docker's defaults). With none of them, apt
@@ -3915,14 +3915,13 @@ Stop, the container is **stopped, not deleted** (`RetainWhenIdle`), so what
 the user installed in it survives. Rootless Docker is recommended but not
 required: a rootful daemon only logs a warning at container creation, because
 AT often runs as a host binary talking to the system daemon. **Reset** deletes
-the space, its sessions and its volume after an explicit confirmation.
+the space and its volume after an explicit confirmation.
 
 The toolbar's settings button edits the space's base image, CPU, memory and
-disk limit (`PUT /developer-space`; the page resends the stored `config`
-because PUT replaces the record). An empty image means
+disk limit and the formatter switch (`PUT /developer-space`). An empty image means
 `service.DefaultDeveloperImage` (`debian:13.7-slim`). **AT installs nothing
 into a space and checks for no tools.** The image and anything added from the
-terminal are the user's responsibility. File explorer and agent file tools
+terminal are the user's responsibility. File explorer and Chats file tools
 need nothing in the image (the embedded `at-devfs` helper is copied in; only a
 build without helpers falls back to `python3`), while without
 `git` source control fails and reports the plain command error. AT does three
@@ -3955,7 +3954,7 @@ so existing containers keep their `at.config` label. `POST
 exec-based file tools are confined to `/workspace`. `POST .../home/reset`
 removes the volume and every managed container mounting it. Deleting an account
 does the same (`nativeauth.Auth.OnUserDeleted`). Storage is **not encrypted by AT**:
-it relies on the host disk. Agent commands run as the same user and can read
+it relies on the host disk. Chats commands run as the same user and can read
 the home, which the UI states. Regression: `internal/service/container/home_test.go`
 (including `TestDockerPersistentHome` against real Docker).
 
@@ -4013,8 +4012,7 @@ Docker with network: no tools preinstalled, apt install works, install survives
 stop, config change starts fresh but keeps `/workspace`; skipped without
 Docker). Other regressions:
 `developer-spaces_test.go` (store + HTTP, including the migration),
-`developer-git_test.go`, `agentloop` `TestCollectStream`,
-`_ui/tests/developer-space.test.mjs`.
+`developer-git_test.go`, `_ui/tests/developer-space.test.mjs`.
 
 ## Go Code Style
 

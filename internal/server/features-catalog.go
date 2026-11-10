@@ -200,7 +200,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureDeveloperSpaces,
 		Name:        "Developer Spaces",
-		Description: "Per-account coding environments, projects, developer sessions, terminals and source-control operations.",
+		Description: "Per-account coding environments: projects, files, terminals and source control, plus the Developer Space tools Chats uses to work in them.",
 		Group:       "workspace",
 		Parent:      service.FeatureAgents,
 	},

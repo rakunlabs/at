@@ -92,8 +92,8 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 			want:   service.FeatureDeveloperSpaces,
 		},
 		{
-			name:   "developer sessions use the developer spaces feature",
-			path:   "/api/v1/developer-sessions/session-id/run",
+			name:   "developer space tools for Chats use the developer spaces feature",
+			path:   "/api/v1/developer-space/tools/call",
 			method: http.MethodPost,
 			want:   service.FeatureDeveloperSpaces,
 		},

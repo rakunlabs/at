@@ -50,7 +50,7 @@ func (s *Server) lookupSkill(ctx context.Context, nameOrID string) (*service.Ski
 // dispatched in process, and tools served by connected MCP clients (gateway
 // loopback for MCP servers, set URLs, legacy mcp_urls and set upstreams).
 // Every loop builds it the same way so a tool an agent can use in Sessions is
-// also usable through org delegation and Developer Spaces.
+// also usable through org delegation.
 type agentMCPTools struct {
 	server    *Server
 	logPrefix string

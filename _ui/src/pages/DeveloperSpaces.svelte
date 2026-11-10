@@ -1,51 +1,42 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import {
     ChevronDown, Download, FilePlus, FolderGit2, FolderPlus, GitBranch, LoaderCircle, MessageSquare,
-    PanelBottom, PanelLeft, PanelRight, Plus, Power, RefreshCw, Search, Settings, Trash2, Upload, X, FileText, GitCompare,
+    PanelBottom, PanelLeft, PanelRight, Power, RefreshCw, Search, Settings, Trash2, Upload, X, FileText, GitCompare,
   } from 'lucide-svelte';
   import SquareAlert from '@/lib/components/icons/SquareAlert.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { getInfo } from '@/lib/api/gateway';
   import {
-    cloneDeveloperProject, createDeveloperFile, createDeveloperSession, deleteDeveloperFile, deleteDeveloperSession,
-    fetchDeveloperFileBlob, getDeveloperGitDiff, getDeveloperGitStatus, getDeveloperSpace, listDeveloperFiles, listDeveloperSessions,
+    cloneDeveloperProject, createDeveloperFile, deleteDeveloperFile,
+    fetchDeveloperFileBlob, getDeveloperGitDiff, getDeveloperGitStatus, getDeveloperSpace, listDeveloperFiles,
     readDeveloperFile, renameDeveloperFile, resetDeveloperSpace, searchDeveloperFiles, startDeveloperSpace, stopDeveloperSpace,
     updateDeveloperSpace, uploadDeveloperFile, writeDeveloperFile, DEFAULT_DEVELOPER_IMAGE,
-    type DeveloperFileEntry, type DeveloperSearchMatch, type DeveloperSession, type DeveloperSpace,
+    type DeveloperFileEntry, type DeveloperSearchMatch, type DeveloperSpace,
   } from '@/lib/api/developer-spaces';
   import FileTree from '@/lib/components/developer/FileTree.svelte';
   import CodeEditor from '@/lib/components/developer/CodeEditor.svelte';
-  import SessionChat from '@/lib/components/developer/SessionChat.svelte';
   import GitPanel from '@/lib/components/developer/GitPanel.svelte';
   import TerminalPanel from '@/lib/components/developer/TerminalPanel.svelte';
   import HomeSettings from '@/lib/components/developer/HomeSettings.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
   import {
     baseName, isImagePath, isMarkdownFile, isWithin, joinPath, parentPath, renamedPath, validEntryName,
-    STATUS_LABELS, BUILTIN_AGENT_PREFIX, SNAPSHOT_DIR, developerAgentChoices, developerAgentSettings, developerAgentValue,
-    type DeveloperAgentChoice, type DeveloperTerminalTab,
+    SNAPSHOT_DIR, chatProjectLink, type DeveloperTerminalTab,
   } from '@/lib/helper/developer-space';
-  import { listAgents } from '@/lib/api/agents';
-  import { FEATURE_AGENTS } from '@/lib/api/features';
-  import { isFeatureEnabled } from '@/lib/store/features.svelte';
-  import { createAdaptivePoll } from '@/lib/helper/adaptive-poll';
-  import { modelReasoningEfforts } from '@/lib/helper/reasoning';
+  import { router } from 'svelte-spa-router';
 
   storeNavbar.title = 'Developer Space';
 
   // ─── Tabs in the main area ───
-  type ChatTab = { kind: 'chat'; key: string; sessionId: string };
   type FileTab = { kind: 'file'; key: string; path: string; content: string; saved: string; version: string; loading: boolean; binary: boolean; tooLarge: boolean; preview: boolean; imageURL: string; error: string; stale: boolean };
   type DiffTab = { kind: 'diff'; key: string; project: string; file: string; staged: boolean; untracked: boolean; head: boolean; diff: string; loading: boolean };
-  type Tab = ChatTab | FileTab | DiffTab;
+  type Tab = FileTab | DiffTab;
 
   const LAYOUT_KEY = 'at.developer-space.layout';
 
   let space = $state<DeveloperSpace | null>(null);
   let loadError = $state('');
-  let sessions = $state<DeveloperSession[]>([]);
   let project = $state('');
   let projects = $state<DeveloperFileEntry[]>([]);
   let listings = $state<Record<string, DeveloperFileEntry[] | undefined>>({});
@@ -53,12 +44,6 @@
   let folderLoading = $state<Record<string, boolean>>({});
   let tabs = $state<Tab[]>([]);
   let activeKey = $state('');
-  let modelGroups = $state<Array<{ label: string; models: string[] }>>([]);
-  let modelEfforts = $state<Record<string, string[]>>({});
-  let defaultModel = $state('');
-  let agentChoices = $state<DeveloperAgentChoice[]>(developerAgentChoices([]));
-  const AGENT_KEY = 'at.developer-space.agent';
-  const EFFORT_KEY = 'at.developer-space.effort';
   let gitChanged = $state<Set<string>>(new Set());
   let gitRevision = $state(0);
   let sidebarView = $state<'files' | 'search'>('files');
@@ -89,12 +74,12 @@
   let settingsForm = $state({ image: '', cpu: '', memory: '', diskGiB: '', format: true });
   let uploadInput: HTMLInputElement;
   let uploadFolder = '';
+  /** A file Chats asked to open; opened once the runtime is attached. */
+  let pendingFile = '';
 
   const activeTab = $derived(tabs.find(t => t.key === activeKey));
   const runtimeAvailable = $derived(runtimeConnected && space?.status === 'ready' && !space.execution_suspended && !space.active_control_id);
   const dirty = $derived(new Set(tabs.filter((t): t is FileTab => t.kind === 'file' && t.content !== t.saved).map(t => t.path)));
-  const projectSessions = $derived(sessions.filter(s => s.project_path === project || (project === '' && !s.project_path)));
-  const otherSessions = $derived(sessions.filter(s => !projectSessions.includes(s)));
 
   // ─── Load ───
 
@@ -111,27 +96,15 @@
       if (typeof saved.project === 'string') project = saved.project;
     } catch { /* defaults */ }
     if (window.matchMedia('(max-width: 767px)').matches) { showLeft = false; rightView = 'none'; showTerminal = false; }
+    // Chats links here with ?project=&file= after an edit.
+    const query = new URLSearchParams(router.querystring || '');
+    const linkedProject = query.get('project');
+    if (linkedProject !== null) project = linkedProject;
+    pendingFile = query.get('file') || '';
     void boot();
-    const poll = createAdaptivePoll({
-      active: () => !!space && !document.hidden && navigator.onLine,
-      poll: async () => {
-        const records = await listDeveloperSessions();
-        const changed = JSON.stringify(records) !== JSON.stringify(sessions);
-        if (changed) sessions = records;
-        return changed;
-      },
-    });
-    const wake = () => poll.wake();
-    window.addEventListener('online', wake);
-    document.addEventListener('visibilitychange', wake);
     const beforeUnload = (event: BeforeUnloadEvent) => { if (dirty.size) event.preventDefault(); };
     window.addEventListener('beforeunload', beforeUnload);
-    return () => {
-      poll.stop();
-      window.removeEventListener('beforeunload', beforeUnload);
-      window.removeEventListener('online', wake);
-      document.removeEventListener('visibilitychange', wake);
-    };
+    return () => window.removeEventListener('beforeunload', beforeUnload);
   });
 
   $effect(() => {
@@ -139,7 +112,7 @@
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   });
 
-  // Keep the active tab visible when the strip overflows (e.g. a new chat opened at the end).
+  // Keep the active tab visible when the strip overflows.
   $effect(() => {
     const key = activeKey;
     if (!key) return;
@@ -154,33 +127,27 @@
       loadError = e?.response?.data?.message || 'Could not open your developer space';
       return;
     }
-    void loadModels();
-    void loadAgents();
     // Opening the page loads metadata only; starting the container is explicit.
-    await loadSessions();
-    // Restore only an owned session returned by the API. This is a metadata
-    // operation: reconnecting chat must not start a container or a terminal.
-    const key = `at.developer-space.session:${space.id}`;
-    let saved = '';
-    try { saved = localStorage.getItem(key) || ''; } catch { /* optional */ }
-    const restore = sessions.find(s => s.id === saved) ?? sessions.find(s => s.status === 'running' || s.status.startsWith('waiting'));
-    if (restore) { project = restore.project_path; openSession(restore.id); }
+    // A space that is already running (started earlier, or used from Chats)
+    // is attached to without starting anything.
+    if (space.status === 'ready' && !space.execution_suspended && !space.active_control_id) await attach();
   }
 
-  $effect(() => {
-    if (!space || !activeKey.startsWith('chat:')) return;
-    try { localStorage.setItem(`at.developer-space.session:${space.id}`, activeKey.slice(5)); } catch { /* optional */ }
-  });
+  /** Connects the page to a container that is already running. */
+  async function attach() {
+    runtimeConnected = true;
+    await loadRoot();
+    if (project && !projects.some(p => p.path === project)) project = '';
+    if (project) await openProject(project);
+    if (pendingFile) { const file = pendingFile; pendingFile = ''; await openFile(file); }
+  }
 
   async function start() {
     if (starting || space?.active_control_id) return;
     starting = true;
     try {
       space = await startDeveloperSpace();
-      runtimeConnected = true;
-      await loadRoot();
-      if (project && !projects.some(p => p.path === project)) project = '';
-      if (project) await openProject(project, false);
+      await attach();
       if (!terminals.length) newTerminal();
     } catch (e: any) {
       const message = e?.response?.data?.message || 'The space could not start';
@@ -234,7 +201,6 @@
     if (running && dirty.size && !confirm('Applying these settings restarts the container. You have unsaved files; continue? Unsaved edits stay in the editor.')) return;
     settingsSaving = true;
     try {
-      // PUT replaces the record, so the stored profiles are sent back unchanged.
       space = await updateDeveloperSpace({
         image: settingsForm.image.trim(), cpu_limit: settingsForm.cpu.trim(), memory_limit: settingsForm.memory.trim(),
         disk_limit_bytes: diskBytes, config: { ...space.config, disable_formatter: !settingsForm.format },
@@ -263,12 +229,12 @@
   }
 
   async function reset() {
-    const answer = prompt('This permanently deletes every file, project and session in your developer space. Type "delete" to confirm.');
+    const answer = prompt('This permanently deletes every file and project in your developer space. Type "delete" to confirm.');
     if (answer !== 'delete') return;
     try {
       const result = await resetDeveloperSpace();
       if (result.cleanup_warning) addToast(result.cleanup_warning, 'alert');
-      tabs = []; activeKey = ''; terminals = []; listings = {}; expanded = {}; project = ''; sessions = [];
+      tabs = []; activeKey = ''; terminals = []; listings = {}; expanded = {}; project = ''; runtimeConnected = false;
       await boot();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not reset the space', 'alert');
@@ -277,39 +243,6 @@
         if (space.execution_suspended) { runtimeConnected = false; terminals = []; }
       } catch { /* keep the last known space and edits */ }
     }
-  }
-
-  async function loadModels() {
-    try {
-      const info = await getInfo();
-      const groups: Array<{ label: string; models: string[] }> = [];
-      const efforts: Record<string, string[]> = {};
-      for (const p of info.providers ?? []) {
-        const reference = p.reference || p.key;
-        const models = (p.models?.length ? p.models : p.default_model ? [p.default_model] : []).map(m => `${reference}/${m}`);
-        for (const m of p.models?.length ? p.models : p.default_model ? [p.default_model] : []) {
-          efforts[`${reference}/${m}`] = modelReasoningEfforts(p.type, m, p.reasoning_efforts).efforts;
-        }
-        if (models.length) groups.push({ label: p.key, models });
-      }
-      modelGroups = groups.sort((a, b) => a.label.localeCompare(b.label));
-      modelEfforts = efforts;
-      defaultModel = localStorage.getItem('at.developer-space.model') || modelGroups[0]?.models[0] || '';
-    } catch { modelGroups = []; }
-  }
-
-  // Agents the caller may run. A failure keeps the built-in profiles usable.
-  async function loadAgents() {
-    if (!isFeatureEnabled(FEATURE_AGENTS)) return;
-    try {
-      const result = await listAgents({ _limit: 1000 });
-      agentChoices = developerAgentChoices(result.data ?? []);
-    } catch { /* built-in profiles only */ }
-  }
-
-  async function loadSessions() {
-    try { sessions = await listDeveloperSessions(); }
-    catch (e: any) { addToast(e?.response?.data?.message || 'Could not load sessions', 'alert'); }
   }
 
   // ─── Files ───
@@ -349,18 +282,14 @@
     if (next && !listings[path]) await loadFolder(path);
   }
 
-  async function openProject(path: string, focusChat = true) {
+  async function openProject(path: string) {
     project = path;
     projectMenu = false;
-    // History selection is metadata-only until the user explicitly starts.
+    // Selection is metadata-only until the user explicitly starts.
     if (!runtimeAvailable) return;
     expanded = { ...expanded, [path]: true };
     if (!listings[path]) await loadFolder(path);
     await refreshGitMarks();
-    if (focusChat) {
-      const latest = sessions.find(s => s.project_path === path);
-      if (latest) openSession(latest.id);
-    }
   }
 
   async function refreshGitMarks() {
@@ -450,22 +379,6 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Could not save the file', 'alert');
     }
-  }
-
-  // Files the agent wrote: clean tabs reload silently, edited ones get a banner.
-  async function filesChanged(paths: string[], tree: boolean) {
-    if (!runtimeAvailable) return;
-    for (const path of paths) {
-      const tab = fileTab(`file:${path}`);
-      if (!tab) continue;
-      if (tab.content === tab.saved) await loadFileTab(tab.key);
-      else patchTab(tab.key, { stale: true });
-    }
-    const folders = new Set(paths.map(parentPath));
-    if (tree) await refreshTree();
-    else await Promise.all([...folders].filter(f => f === '' || listings[f]).map(loadFolder));
-    gitRevision++;
-    void refreshGitMarks();
   }
 
   function closeTab(key: string) {
@@ -600,52 +513,6 @@
     }
   }
 
-  // ─── Sessions ───
-
-  function openSession(id: string) {
-    const key = `chat:${id}`;
-    if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'chat', key, sessionId: id }];
-    activeKey = key;
-  }
-
-  async function newSession() {
-    const model = defaultModel;
-    const slash = model.indexOf('/');
-    let saved = localStorage.getItem(AGENT_KEY) || '';
-    if (!agentChoices.some(c => c.value === saved)) saved = `${BUILTIN_AGENT_PREFIX}build`;
-    const choice = developerAgentSettings(saved);
-    try {
-      // An agent session starts on the agent's own model; the server fills it in.
-      const session = await createDeveloperSession({
-        project_path: project, mode: choice.mode ?? 'build', agent_id: choice.agent_id,
-        reasoning_effort: localStorage.getItem(EFFORT_KEY) || '',
-        ...(choice.agent_id ? {} : { provider: slash > 0 ? model.slice(0, slash) : '', model: slash > 0 ? model.slice(slash + 1) : '' }),
-      });
-      sessions = [session, ...sessions];
-      openSession(session.id);
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || (modelGroups.length ? 'Could not start a session' : 'Add a model provider before starting a session'), 'alert');
-    }
-  }
-
-  async function removeSession(session: DeveloperSession) {
-    if (!confirm(`Delete the session "${session.title || 'Untitled'}" and its history?`)) return;
-    try {
-      await deleteDeveloperSession(session.id);
-      sessions = sessions.filter(s => s.id !== session.id);
-      closeTab(`chat:${session.id}`);
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Could not delete the session', 'alert');
-    }
-  }
-
-  function sessionUpdated(updated: DeveloperSession) {
-    sessions = sessions.map(s => (s.id === updated.id ? updated : s)).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    if (updated.provider && !updated.agent_id) localStorage.setItem('at.developer-space.model', `${updated.provider}/${updated.model ?? ''}`);
-    localStorage.setItem(AGENT_KEY, developerAgentValue(updated));
-    localStorage.setItem(EFFORT_KEY, updated.reasoning_effort ?? '');
-  }
-
   // ─── Diff tabs ───
 
   async function openDiff(file: string, opts: { staged?: boolean; untracked?: boolean; head?: boolean }) {
@@ -654,13 +521,6 @@
     if (!tabs.some(t => t.key === key)) tabs = [...tabs, { kind: 'diff', key, project, file, staged: !!opts.staged, untracked: !!opts.untracked, head: !!opts.head, diff: '', loading: true }];
     activeKey = key;
     await loadDiff(key);
-  }
-
-  // Chat sessions are bound to their own project, which may differ from the
-  // one selected in the explorer.
-  async function openDiffIn(folder: string, file: string, opts: { untracked?: boolean; head?: boolean }) {
-    if (project !== folder) await openProject(folder, false);
-    await openDiff(file, opts);
   }
 
   async function loadDiff(key: string) {
@@ -750,27 +610,10 @@
     if (event.key === 'Escape') { menu = null; projectMenu = false; }
   }
 
-  function sessionTitle(s: DeveloperSession) { return s.title || 'New session'; }
   function tabLabel(tab: Tab) {
-    if (tab.kind === 'chat') return sessionTitle(sessions.find(s => s.id === tab.sessionId) ?? ({ title: 'Session' } as DeveloperSession));
     if (tab.kind === 'file') return baseName(tab.path);
     return `${baseName(tab.file)} (${tab.staged ? 'staged' : 'changes'})`;
   }
-  function statusDot(status: string) {
-    if (status === 'running') return 'bg-blue-500 animate-pulse motion-reduce:animate-none';
-    if (status.startsWith('waiting')) return 'bg-amber-500';
-    if (status === 'failed') return 'bg-red-500';
-    if (status === 'completed') return 'bg-green-500';
-    return 'bg-dark-border';
-  }
-
-  // Keep the default model for new sessions valid once the catalogue loads.
-  $effect(() => {
-    const groups = modelGroups;
-    untrack(() => {
-      if (defaultModel && !groups.some(g => g.models.includes(defaultModel))) defaultModel = groups[0]?.models[0] ?? '';
-    });
-  });
 </script>
 
 <svelte:head><title>AT | Developer Space</title></svelte:head>
@@ -832,7 +675,7 @@
   {#if space?.execution_suspended && !starting}
     <p role="status" class="flex items-start gap-2 border-b border-dark-border px-3 py-2 text-xs text-dark-text-secondary">
       <SquareAlert size={14} class="mt-0.5 shrink-0" />
-      <span>{space.active_control_id ? 'Space control is pending. If its owner stopped, an operator must verify runtime termination before recovery.' : 'Runtime access is suspended. Use Start after cancelled runs release ownership; Reset can be retried once they finish.'} Saved history remains available. Work is never restarted automatically.</span>
+      <span>{space.active_control_id ? 'Space control is pending. If its owner stopped, an operator must verify runtime termination before recovery.' : 'Runtime access is suspended. Use Start to reopen it.'} Files are kept. Work is never restarted automatically.</span>
     </p>
   {/if}
 
@@ -849,7 +692,7 @@
         <label class="w-24">CPU cores<input bind:value={settingsForm.cpu} placeholder="2" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
         <label class="w-24">Memory<input bind:value={settingsForm.memory} placeholder="4g" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
         <label class="w-24">Disk (GiB)<input bind:value={settingsForm.diskGiB} placeholder="20" inputmode="decimal" class="mt-1 block w-full border border-dark-border bg-dark-base px-2 py-1.5 font-mono text-sm text-dark-text" /></label>
-        <label class="flex items-center gap-1.5 py-1.5" title="After the agent edits a file, run gofmt, prettier, ruff, rustfmt, shfmt… when installed in the space"><input type="checkbox" bind:checked={settingsForm.format} />Format after edits</label>
+        <label class="flex items-center gap-1.5 py-1.5" title="After a Chats tool edits a file, run gofmt, prettier, ruff, rustfmt, shfmt… when installed in the space"><input type="checkbox" bind:checked={settingsForm.format} />Format after edits</label>
         <button type="submit" disabled={settingsSaving || starting} class="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-dark-base disabled:opacity-50 bg-accent">{#if settingsSaving}<LoaderCircle size={13} class="animate-spin motion-reduce:animate-none" />{/if}{space.status === 'ready' ? 'Save & restart' : 'Save'}</button>
         <button type="button" onclick={() => (settingsOpen = false)} class="px-2 py-1.5 text-dark-text-secondary hover:bg-dark-elevated">Cancel</button>
       </div>
@@ -878,42 +721,13 @@
   {/if}
 
   <div class="flex min-h-0 flex-1">
-    <!-- Left: sessions + explorer -->
+    <!-- Left: explorer -->
     {#if showLeft}
       <aside class="grain-background flex min-h-0 shrink-0 flex-col border-r border-dark-border bg-dark-base max-md:absolute max-md:inset-y-10 max-md:left-0 max-md:z-20 max-md:w-[85vw] max-md:shadow-xl" style={`width:${leftWidth}px`}>
-        <section class="flex max-h-[40%] min-h-0 flex-col border-b border-dark-border">
-          <div class="flex items-center gap-1 px-2 py-1.5">
-            <h3 class="flex-1 text-[11px] font-semibold text-dark-text-muted">Sessions</h3>
-            <button type="button" onclick={newSession} class="p-1 text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text" title={`New session in ${project || 'the space'}`} aria-label="New session"><Plus size={14} /></button>
-          </div>
-          <ul class="min-h-0 overflow-y-auto pb-1">
-            {#each projectSessions as s (s.id)}
-              <li class="group flex items-center">
-                <button type="button" onclick={() => openSession(s.id)} class={['flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']} title={STATUS_LABELS[s.status]}>
-                  <span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>
-                  <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
-                </button>
-                <button type="button" onclick={() => removeSession(s)} class="mr-1 p-1 text-dark-text-muted opacity-0 hover:text-red-300 group-hover:opacity-100 focus:opacity-100 [@media(pointer:coarse)]:opacity-100" aria-label={`Delete ${sessionTitle(s)}`}><Trash2 size={12} /></button>
-              </li>
-            {:else}
-              <li class="px-3 py-1.5 text-xs text-dark-text-muted">
-                <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 hover:text-dark-text"><MessageSquare size={12} /> Start a session in {project || 'the space'}</button>
-              </li>
-            {/each}
-            {#if otherSessions.length}
-              <li class="px-3 pt-2 pb-0.5 text-[11px] text-dark-text-muted">Other projects</li>
-              {#each otherSessions as s (s.id)}
-                <li>
-                  <button type="button" onclick={() => { if (s.project_path !== project) void openProject(s.project_path, false); openSession(s.id); }} class={['flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left text-xs text-dark-text-secondary hover:bg-dark-elevated', activeKey === `chat:${s.id}` ? 'bg-dark-elevated' : '']}>
-                    <span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>
-                    <span class="min-w-0 flex-1 truncate">{sessionTitle(s)}</span>
-                    <span class="shrink-0 truncate text-[10px] text-dark-text-muted">{s.project_path || '/'}</span>
-                  </button>
-                </li>
-              {/each}
-            {/if}
-          </ul>
-        </section>
+        <a href={chatProjectLink(project)} class="flex items-center gap-2 border-b border-dark-border px-3 py-2 text-xs text-dark-text-secondary hover:bg-dark-elevated hover:text-dark-text" title="Chats can read, edit and commit in this space with the Developer Space tools">
+          <MessageSquare size={13} class="shrink-0" />
+          <span class="min-w-0 flex-1 truncate">Work on {project || 'the space'} in Chats</span>
+        </a>
 
         <div class="flex items-center gap-0.5 border-b border-dark-border px-1 py-1">
           <button type="button" onclick={() => (sidebarView = 'files')} class={['px-2 py-0.5 text-[11px] font-semibold', sidebarView === 'files' ? 'text-dark-text' : 'text-dark-text-muted hover:text-dark-text-secondary']}>Files</button>
@@ -980,11 +794,7 @@
         {#each tabs as tab (tab.key)}
           <div data-tab-key={tab.key} class={['group flex h-9 shrink-0 items-center gap-1.5 border-r border-dark-border pl-3 pr-1.5 text-xs', tab.key === activeKey ? 'bg-dark-base text-dark-text' : 'text-dark-text-muted hover:bg-dark-elevated']}>
             <button type="button" onclick={() => (activeKey = tab.key)} class="inline-flex max-w-52 items-center gap-1.5" title={tab.kind === 'file' ? tab.path : tab.kind === 'diff' ? tab.file : ''}>
-              {#if tab.kind === 'chat'}
-                {@const s = sessions.find(x => x.id === tab.sessionId)}
-                <MessageSquare size={13} class="shrink-0" />
-                {#if s}<span class={['size-1.5 shrink-0', statusDot(s.status)]}></span>{/if}
-              {:else if tab.kind === 'diff'}
+              {#if tab.kind === 'diff'}
                 <GitCompare size={13} class="shrink-0" />
               {:else}
                 <FileText size={13} class="shrink-0" />
@@ -1001,20 +811,12 @@
             </button>
           </div>
         {/each}
-        <button type="button" onclick={newSession} class="flex h-9 shrink-0 items-center gap-1 px-3 text-xs text-dark-text-muted hover:bg-dark-elevated hover:text-dark-text" title="New chat session"><Plus size={13} /> Chat</button>
       </div>
 
       <div class="relative min-h-0 flex-1">
         {#each tabs as tab (tab.key)}
           <div class={['absolute inset-0 flex flex-col', tab.key === activeKey ? '' : 'invisible']}>
-            {#if tab.kind === 'chat'}
-              {@const s = sessions.find(x => x.id === tab.sessionId)}
-              {#if s}
-                <SessionChat session={s} {modelGroups} {modelEfforts} {agentChoices} revision={gitRevision} {runtimeAvailable} onsession={sessionUpdated} onfileschanged={filesChanged} onopenfile={openFile} ondiff={(file, opts) => openDiffIn(s.project_path, file, opts)} onnewsession={newSession} />
-              {:else}
-                <p class="p-4 text-sm text-dark-text-muted">This session no longer exists.</p>
-              {/if}
-            {:else if !runtimeAvailable}
+            {#if !runtimeAvailable}
               <p role="status" class="p-4 text-xs text-dark-text-muted">Start the space to access this file. Unsaved edits are kept.</p>
             {:else if tab.kind === 'file'}
               <div class="flex h-8 shrink-0 items-center gap-2 border-b border-dark-border px-3 text-xs text-dark-text-muted">
@@ -1073,9 +875,9 @@
         {:else}
           <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-dark-text-muted">
             <FolderGit2 size={32} class="text-dark-border" />
-            <p class="max-w-md">Pick a project from the top bar, open a file from the side bar, or start a chat with the coding agent.</p>
+            <p class="max-w-md">Pick a project from the top bar or open a file from the side bar. To have an AI read, edit or commit here, open Chats and turn on the Developer Space tools.</p>
             <div class="flex flex-wrap justify-center gap-2">
-              <button type="button" onclick={newSession} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base hover:bg-dark-highest bg-accent"><MessageSquare size={13} /> New chat{project ? ` in ${project}` : ''}</button>
+              <a href={chatProjectLink(project)} class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-dark-base hover:bg-dark-highest bg-accent"><MessageSquare size={13} /> Work on {project || 'the space'} in Chats</a>
               <button type="button" disabled={!runtimeAvailable} onclick={() => (newProjectMode = 'clone')} class="inline-flex items-center gap-1.5 border border-dark-border px-3 py-1.5 text-xs hover:bg-dark-elevated disabled:opacity-50"><GitBranch size={13} /> Clone a repository</button>
             </div>
           </div>

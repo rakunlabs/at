@@ -53,6 +53,10 @@ type chatRunSetup struct {
 	MCPCodeMode     bool     `json:"mcp_code_mode"`
 	FrontendTools   []string `json:"frontend_tools"`
 	ReasoningEffort string   `json:"reasoning_effort"`
+	// DeveloperTools offers the dev_* tools; DeveloperProject is the
+	// conversation's project.
+	DeveloperTools   bool   `json:"developer_tools"`
+	DeveloperProject string `json:"developer_project"`
 }
 
 func chatRunSetupFromConfig(config map[string]any) chatRunSetup {
@@ -200,7 +204,7 @@ func (s *Server) runChatConversation(w http.ResponseWriter, r *http.Request) {
 var errChatRunWaiting = errors.New("background run is waiting for an answer")
 
 type chatRunTool struct {
-	kind    string // mcp, builtin, skill, todo, question
+	kind    string // mcp, builtin, skill, todo, question, developer
 	setName string
 }
 
@@ -222,6 +226,7 @@ type chatRun struct {
 	reportedRuns       map[string]bool
 	artifacts          []chatArtifact
 	todos              any
+	developerProject   string
 }
 
 func (c *chatRun) execute(ctx context.Context) error {
@@ -737,6 +742,20 @@ func (c *chatRun) discoverTools(ctx context.Context, setup chatRunSetup) []strin
 		}
 	}
 
+	// Developer Space tools, except the ones the reader approves per call:
+	// nobody is on the page to approve them.
+	c.developerProject = setup.DeveloperProject
+	if setup.DeveloperTools {
+		if enabled, _ := s.isFeatureEnabled(ctx, service.FeatureDeveloperSpaces); enabled {
+			for _, tool := range developerToolDefs {
+				if !developerToolShell[tool.Name] {
+					add(tool, chatRunTool{kind: "developer"})
+				}
+			}
+			prompts = append(prompts, developerToolsPrompt(setup.DeveloperProject, false))
+		}
+	}
+
 	for _, name := range setup.FrontendTools {
 		switch name {
 		case chatRunTodoWrite:
@@ -935,6 +954,12 @@ func (c *chatRun) callTool(ctx context.Context, call service.ToolCall) (string, 
 			}
 		}
 		return resp.Result, nil
+	case "developer":
+		result, err := s.executeDeveloperTool(ctx, call.Name, args, c.developerProject)
+		if err != nil {
+			return "", err
+		}
+		return developerToolResultText(result), nil
 	case "todo":
 		if call.Name == chatRunTodoRead {
 			data, _ := json.Marshal(map[string]any{"todos": c.todos})

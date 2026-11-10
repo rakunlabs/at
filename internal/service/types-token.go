@@ -20,29 +20,38 @@ const (
 
 // APIToken represents a bearer token stored in the database for gateway auth.
 type APIToken struct {
-	OwnerUserID          string                 `json:"owner_user_id"`
-	Paused               bool                   `json:"paused"`
-	WorkspaceID          string                 `json:"workspace_id"`
-	ID                   string                 `json:"id"`
-	Name                 string                 `json:"name"`
-	TokenPrefix          string                 `json:"token_prefix"`           // first 8 chars for display (e.g. "at_xxxx…")
-	AllowedProvidersMode string                 `json:"allowed_providers_mode"` // "all" (default/""), "none", or "list"
-	AllowedProviders     types.Slice[string]    `json:"allowed_providers"`      // used when mode = "list"
-	AllowedModelsMode    string                 `json:"allowed_models_mode"`    // "all" (default/""), "none", or "list"
-	AllowedModels        types.Slice[string]    `json:"allowed_models"`         // used when mode = "list" ("provider/model" format)
-	AllowedWebhooksMode  string                 `json:"allowed_webhooks_mode"`  // "all" (default/""), "none", or "list"
-	AllowedWebhooks      types.Slice[string]    `json:"allowed_webhooks"`       // used when mode = "list" (trigger IDs or aliases)
-	AllowedMCPsMode      string                 `json:"allowed_mcps_mode"`      // "all" (default/""), "none", or "list"
-	AllowedMCPs          types.Slice[string]    `json:"allowed_mcps"`           // used when mode = "list" (gateway MCP server names)
-	ExpiresAt            types.Null[types.Time] `json:"expires_at"`             // zero value = no expiry
-	TotalTokenLimit      types.Null[int64]      `json:"total_token_limit"`      // max total tokens allowed (across all models); nil = unlimited
-	SpendLimitCents      types.Null[float64]    `json:"spend_limit_cents"`      // max spend in cents for the current reset window; nil = unlimited
-	LimitResetInterval   types.Null[string]     `json:"limit_reset_interval"`   // "daily", "weekly", "monthly", or nil = manual only
-	LastResetAt          types.Null[types.Time] `json:"last_reset_at"`          // last time usage counters were reset
-	CreatedAt            types.Time             `json:"created_at"`
-	LastUsedAt           types.Null[types.Time] `json:"last_used_at"`
-	CreatedBy            string                 `json:"created_by"`
-	UpdatedBy            string                 `json:"updated_by"`
+	OwnerUserID          string              `json:"owner_user_id"`
+	Paused               bool                `json:"paused"`
+	WorkspaceID          string              `json:"workspace_id"`
+	ID                   string              `json:"id"`
+	Name                 string              `json:"name"`
+	TokenPrefix          string              `json:"token_prefix"`           // first 8 chars for display (e.g. "at_xxxx…")
+	AllowedProvidersMode string              `json:"allowed_providers_mode"` // "all" (default/""), "none", or "list"
+	AllowedProviders     types.Slice[string] `json:"allowed_providers"`      // used when mode = "list"
+	AllowedModelsMode    string              `json:"allowed_models_mode"`    // "all" (default/""), "none", or "list"
+	AllowedModels        types.Slice[string] `json:"allowed_models"`         // used when mode = "list" ("provider/model" format)
+	AllowedWebhooksMode  string              `json:"allowed_webhooks_mode"`  // "all" (default/""), "none", or "list"
+	AllowedWebhooks      types.Slice[string] `json:"allowed_webhooks"`       // used when mode = "list" (trigger IDs or aliases)
+	AllowedMCPsMode      string              `json:"allowed_mcps_mode"`      // "all" (default/""), "none", or "list"
+	AllowedMCPs          types.Slice[string] `json:"allowed_mcps"`           // used when mode = "list" (gateway MCP server names)
+	// ActForUsers lets the token run agents on behalf of a person proven by
+	// an identity-provider token (POST /gateway/v1/agents/{agent}/chat).
+	// The person's own workspace access applies, never the token creator's.
+	ActForUsers       bool                `json:"act_for_users"`
+	AllowedAgentsMode string              `json:"allowed_agents_mode"` // "all" (default/""), "none", or "list"
+	AllowedAgents     types.Slice[string] `json:"allowed_agents"`      // agent IDs or names when mode = "list"
+	// KeepAgentGateway asks UpdateAPIToken to keep the stored agent-gateway
+	// fields because an older client omitted them. Never serialized.
+	KeepAgentGateway   bool                   `json:"-"`
+	ExpiresAt          types.Null[types.Time] `json:"expires_at"`           // zero value = no expiry
+	TotalTokenLimit    types.Null[int64]      `json:"total_token_limit"`    // max total tokens allowed (across all models); nil = unlimited
+	SpendLimitCents    types.Null[float64]    `json:"spend_limit_cents"`    // max spend in cents for the current reset window; nil = unlimited
+	LimitResetInterval types.Null[string]     `json:"limit_reset_interval"` // "daily", "weekly", "monthly", or nil = manual only
+	LastResetAt        types.Null[types.Time] `json:"last_reset_at"`        // last time usage counters were reset
+	CreatedAt          types.Time             `json:"created_at"`
+	LastUsedAt         types.Null[types.Time] `json:"last_used_at"`
+	CreatedBy          string                 `json:"created_by"`
+	UpdatedBy          string                 `json:"updated_by"`
 }
 
 // ResolveAccessMode returns the effective mode for a restriction field.
@@ -67,6 +76,12 @@ type APITokenStorer interface {
 	UpdateAPIToken(ctx context.Context, id string, token APIToken) (*APIToken, error)
 	DeleteAPIToken(ctx context.Context, id string) error
 	UpdateLastUsed(ctx context.Context, id string) error
+}
+
+// APITokenByIDStorer is an internal lookup (no principal) used to revalidate
+// runs an act_for_users token started.
+type APITokenByIDStorer interface {
+	GetAPITokenByID(ctx context.Context, id string) (*APIToken, error)
 }
 
 // ─── Token Usage Tracking ───

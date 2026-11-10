@@ -130,7 +130,11 @@
   import ShareDialog from '@/lib/components/playground/ShareDialog.svelte';
   import { X, Wrench, Loader2, MessageCircleQuestion, ArrowDown, GitBranch, FileText, FileAudio, FileVideo } from 'lucide-svelte';
   import { onDestroy, untrack, tick } from 'svelte';
-  import { push } from 'svelte-spa-router';
+  import { push, router } from 'svelte-spa-router';
+  import { callDeveloperTool, listDeveloperTools, type DeveloperToolDef } from '@/lib/api/developer-spaces';
+  import { developerApprovalFor, developerCallNeedsApproval, developerResultText, developerSystemPrompt, diffLineClass, parseDeveloperResult } from '@/lib/helper/chat-developer';
+  import { developerFileLink } from '@/lib/helper/developer-space';
+  import { FEATURE_DEVELOPER_SPACES } from '@/lib/api/features';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import MessageContent from '@/lib/components/playground/MessageContent.svelte';
   import McpElicitation from '@/lib/components/McpElicitation.svelte';
@@ -150,7 +154,7 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension' | 'skill';
+    type: 'mcp' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension' | 'skill' | 'developer';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** MCP Set name (when type === 'mcpset') */
@@ -197,7 +201,16 @@
     resolve: (answer: string) => void;
   }
 
-  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat' | 'providers' | 'commands';
+  /** A Developer Space command waiting for the reader's yes. */
+  interface PendingDeveloperApproval {
+    callId: string;
+    name: string;
+    command: string;
+    project: string;
+    resolve: (answer: 'once' | 'always' | 'deny') => void;
+  }
+
+  type WorkbenchTab = 'prompt' | 'skills' | 'tools' | 'chat' | 'developer' | 'providers' | 'commands';
 
   /**
    * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
@@ -424,10 +437,11 @@
     { id: 'skills', label: 'Skills' },
     { id: 'tools', label: 'Server tools' },
     { id: 'chat', label: 'Chat tools' },
+    { id: 'developer', label: 'Developer Space' },
     { id: 'providers', label: 'Local providers' },
     { id: 'commands', label: 'Commands' },
   ];
-  let workbenchTabs = $derived(allWorkbenchTabs.filter(tab => tab.id !== 'providers' || localProvidersAvailable));
+  let workbenchTabs = $derived(allWorkbenchTabs.filter(tab => (tab.id !== 'providers' || localProvidersAvailable) && (tab.id !== 'developer' || developerAvailable)));
 
   function handleWorkbenchBackdropPointerDown(e: PointerEvent) {
     workbenchBackdropPressStarted = e.target === e.currentTarget;
@@ -450,6 +464,20 @@
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
   let mcpCodeMode = $state(false);
+
+  // ─── Developer Space tools ───
+  //
+  // dev_* tools run in the reader's own Developer Space container. Whether
+  // they are offered is part of the setup (presets, defaults); the project
+  // they address and the commands the reader allowed are per conversation.
+  const developerAvailable = $derived(isFeatureEnabled(FEATURE_DEVELOPER_SPACES));
+  let developerTools = $state(false);
+  let developerProject = $state('');
+  let developerApprovals = $state<string[]>([]);
+  let developerToolDefs = $state<DeveloperToolDef[]>([]);
+  let developerSpaceStatus = $state<{ status: string; execution_suspended: boolean } | null>(null);
+  let developerToolsError = $state('');
+  let pendingDeveloperApproval = $state<PendingDeveloperApproval | null>(null);
   /** Prompts of the selected MCP sets, offered as /server:name commands. */
   let mcpPromptCommands = $state<MCPPromptCommand[]>([]);
   let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
@@ -1115,7 +1143,7 @@
   // ─── Workbench config round-trip ───
 
   function currentConfig(): Record<string, unknown> {
-    const { model, system_prompt, reasoning_effort, mcp_code_mode, ...setup } = currentSetup();
+    const { model, system_prompt, reasoning_effort, mcp_code_mode, developer_tools, ...setup } = currentSetup();
     return {
       // Preserved, not offered: a conversation saved before direct MCP URLs
       // were removed keeps its record instead of having it rewritten away.
@@ -1124,7 +1152,10 @@
       ...setup,
       ...(reasoning_effort ? { reasoning_effort } : {}),
       ...(mcp_code_mode ? { mcp_code_mode } : {}),
-      // Per conversation: presets and account defaults never carry it.
+      ...(developer_tools ? { developer_tools } : {}),
+      // Per conversation: presets and account defaults never carry these.
+      ...(developerProject ? { developer_project: developerProject } : {}),
+      ...(developerApprovals.length ? { developer_approvals: [...developerApprovals] } : {}),
       ...(backgroundMode ? { background: true } : {}),
       ...(warmCache ? { warm_cache: true } : {}),
     };
@@ -1136,6 +1167,8 @@
     legacyMcpUrls = names(c.mcp_urls);
     backgroundMode = isBackgroundConfig(c);
     warmCache = c.warm_cache === true;
+    developerProject = typeof c.developer_project === 'string' ? c.developer_project : '';
+    developerApprovals = names(c.developer_approvals);
     cacheWarmer.reset();
     applySetup(normalizeWorkbenchSetup({ ...c, model: selectedModel, system_prompt: systemPrompt }));
     const headers = c.mcp_headers;
@@ -1150,6 +1183,7 @@
     reasoningEffort = setup.reasoning_effort;
     selectedMCPSetNames = [...setup.mcp_sets];
     mcpCodeMode = setup.mcp_code_mode;
+    developerTools = setup.developer_tools;
     selectedSkillNames = [...setup.skills];
     enabledBuiltinTools = [...setup.builtin_tools];
     enabledFrontendTools = [...setup.frontend_tools];
@@ -1269,6 +1303,9 @@
     queuedMessages = [];
     todos = [];
     pendingQuestion = null;
+    pendingDeveloperApproval = null;
+    developerProject = '';
+    developerApprovals = [];
     storedQuestionCallId = '';
     contextTokens = 0;
     completionTokens = 0;
@@ -1620,6 +1657,7 @@
       accountDefaults = normalizeWorkbenchSetup(prefs, FRONTEND_TOOL_NAMES);
       if (conversationId || params.id) return;
       applySetup(accountDefaults);
+      applyDeveloperLink();
     } catch {
       // A deployment without preference storage simply has no preset.
     } finally {
@@ -1679,6 +1717,7 @@
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
       mcp_code_mode: mcpCodeMode,
+      developer_tools: developerTools,
     });
   }
 
@@ -1820,6 +1859,18 @@
     } finally {
       presetSaving = false;
     }
+  }
+
+  /**
+   * Developer Spaces links here as #/chats?developer=1&project=<folder>: a new
+   * chat with the Developer Space tools on and that project selected. Only a
+   * new chat takes it; an opened conversation keeps its own setup.
+   */
+  function applyDeveloperLink() {
+    const query = new URLSearchParams(router.querystring || '');
+    if (query.get('developer') !== '1' || !developerAvailable) return;
+    developerTools = true;
+    developerProject = query.get('project') ?? '';
   }
 
   // Defaults are applied after the model list so a saved model can be matched
@@ -1998,6 +2049,7 @@
   function clearAllToolSelections() {
     selectedMCPSetNames = [];
     mcpCodeMode = false;
+    developerTools = false;
     selectedSkillNames = [];
     enabledBuiltinTools = [];
     enabledFrontendTools = [];
@@ -2234,6 +2286,27 @@
         newSourceMap[def.function.name] = { type: 'frontend' };
       }
 
+      // 5b. Developer Space tools. Their names carry a dev_ prefix, so they
+      // never take a name from the sources above.
+      if (developerTools && developerAvailable) {
+        try {
+          const info = await listDeveloperTools();
+          if (version !== toolDiscoveryVersion) return;
+          developerToolDefs = info.tools;
+          developerSpaceStatus = info.space;
+          developerToolsError = '';
+          for (const tool of info.tools) {
+            if (newSourceMap[tool.name]) continue;
+            newTools.push({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.input_schema } });
+            newSourceMap[tool.name] = { type: 'developer' };
+          }
+          newSkillPrompts.push(developerSystemPrompt(developerProject));
+        } catch (e: any) {
+          if (version !== toolDiscoveryVersion) return;
+          developerToolsError = e?.response?.data?.message || e?.message || 'Developer Space tools are unavailable';
+        }
+      }
+
       // 6. Local MCP servers, dialled from this browser.
       //
       // Registered last on purpose: a program on somebody's laptop must not be
@@ -2332,7 +2405,64 @@
       local: (source, args) => executeLocalTool(source, tc.function.name, args, turn),
       extension: (source, args) => executeExtensionTool(source, tc.function.name, args, turn),
       frontend: (_, args) => executeFrontendTool(tc.function.name, args),
+      developer: (_, args) => executeDeveloperTool(tc, args, turn),
     });
+  }
+
+  /**
+   * One Developer Space call. Commands wait for the reader's yes (unless an
+   * approval for this conversation covers them); file edits run at once and
+   * report a diff, which is what the reader reviews.
+   */
+  async function executeDeveloperTool(tc: ToolCall, args: Record<string, any>, turn: TurnContext): Promise<string> {
+    const name = tc.function.name;
+    const project = typeof args.project === 'string' ? args.project : developerProject;
+    if (developerCallNeedsApproval(name, args, developerApprovals)) {
+      const command = name === 'dev_bash_kill' ? `stop background job ${String(args.job_id ?? '')}` : String(args.command ?? '');
+      const signal = turn.controller.signal;
+      const answer = await new Promise<'once' | 'always' | 'deny'>((resolve, reject) => {
+        const cancel = () => { pendingDeveloperApproval = null; reject(new DOMException('Approval cancelled', 'AbortError')); };
+        if (signal.aborted) { cancel(); return; }
+        signal.addEventListener('abort', cancel, { once: true });
+        pendingDeveloperApproval = {
+          callId: tc.id, name, command, project,
+          resolve: value => { signal.removeEventListener('abort', cancel); pendingDeveloperApproval = null; resolve(value); },
+        };
+        scrollToBottom();
+      });
+      turnLifecycle.assert(turn);
+      if (answer === 'deny') return 'Error: the user did not allow this command. Ask what to do instead, or continue without it.';
+      if (answer === 'always' && name === 'dev_bash') {
+        const grant = developerApprovalFor(command);
+        if (!developerApprovals.includes(grant)) developerApprovals = [...developerApprovals, grant];
+        scheduleSettingsSave();
+      }
+    }
+    const result = await callDeveloperTool({ name, arguments: args, project: developerProject, trace_id: turn.traceId, session_id: turn.sessionId }, turn.controller.signal);
+    turnLifecycle.assert(turn);
+    // A clone makes that project the conversation's, so later calls need no argument.
+    if (name === 'dev_clone' && !result.error && result.project && result.project !== developerProject) {
+      developerProject = result.project;
+      scheduleSettingsSave();
+    }
+    if (result.project === undefined && project) result.project = project;
+    return developerResultText(result);
+  }
+
+  function setDeveloperTools(on: boolean) {
+    developerTools = on;
+    refreshTools();
+  }
+
+  function setDeveloperProject(value: string) {
+    developerProject = value.trim();
+    scheduleSettingsSave();
+    void discoverTools();
+  }
+
+  function forgetDeveloperApproval(grant: string) {
+    developerApprovals = developerApprovals.filter(g => g !== grant);
+    scheduleSettingsSave();
   }
 
   /**
@@ -3566,7 +3696,7 @@
   let backgroundBlockedBy = $derived(backgroundBlocker({ model: selectedModel, frontend_tools: enabledFrontendTools }, isLocalModelRef));
   let backgroundLosses = $derived(backgroundOmissions(
     { model: selectedModel, frontend_tools: enabledFrontendTools },
-    { localServers: activeLocalServers.map(s => s.name), extensions: webConnectionEnabled ? activeExtensions.map(e => e.name) : [] },
+    { localServers: activeLocalServers.map(s => s.name), extensions: webConnectionEnabled ? activeExtensions.map(e => e.name) : [], developerTools: developerTools && developerAvailable },
   ));
 
   function setBackgroundMode(on: boolean) {
@@ -4556,6 +4686,46 @@
           {/if}
           {/if}
 
+          {#if workbenchTab === 'developer'}
+          <div role="group" aria-label="Developer Space tools" class="block max-w-2xl space-y-3">
+            <label class="flex items-start gap-2 text-xs text-dark-text">
+              <input type="checkbox" class="mt-0.5" checked={developerTools} onchange={e => setDeveloperTools(e.currentTarget.checked)} />
+              <span>Work in my Developer Space <span class="text-dark-text-muted">— the model gets dev_* tools that clone, read, search, edit and commit files in your own persistent container. File edits run directly and show a diff; each shell command asks you first. Pushing stays on the Developer Spaces page.</span></span>
+            </label>
+            {#if developerTools}
+              <label class="block text-xs text-dark-text-muted">Project for this chat
+                <input
+                  value={developerProject}
+                  onchange={e => setDeveloperProject(e.currentTarget.value)}
+                  placeholder="folder in /workspace, e.g. notes"
+                  spellcheck="false"
+                  class="mt-1 block w-full border border-dark-border-subtle bg-dark-elevated px-3 py-1.5 font-mono text-sm text-dark-text"
+                />
+                <span class="mt-1 block">Empty means the whole space. The model can address another project, and a clone switches to the new one.</span>
+              </label>
+              {#if developerToolsError}
+                <p role="alert" class="text-xs text-red-400">{developerToolsError}</p>
+              {:else if developerSpaceStatus && (developerSpaceStatus.status !== 'ready' || developerSpaceStatus.execution_suspended)}
+                <p role="status" class="text-xs text-[var(--oc-peach)]">Your Developer Space is not running, so these tools will fail until you <a href="#/developer-spaces" class="underline underline-offset-2">start it</a>.</p>
+              {/if}
+              {#if developerApprovals.length}
+                <div class="text-xs">
+                  <p class="text-dark-text-muted">Commands allowed without asking in this chat:</p>
+                  <ul class="mt-1 flex flex-wrap gap-1.5">
+                    {#each developerApprovals as grant}
+                      <li class="inline-flex items-center gap-1 border border-dark-border-subtle px-2 py-0.5 font-mono text-dark-text-secondary">
+                        {grant}
+                        <button type="button" onclick={() => forgetDeveloperApproval(grant)} class="text-dark-text-muted hover:text-red-400" aria-label={`Ask again for ${grant}`}><X size={11} /></button>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              <p class="text-xs text-dark-text-muted">Background runs offer the file and Git tools but not shell commands, because nobody is there to approve them. <a href="#/developer-spaces" class="underline underline-offset-2 hover:text-dark-text">Open Developer Spaces</a> to browse files, run a terminal or push.</p>
+            {/if}
+          </div>
+          {/if}
+
           <!-- Chat Tools (frontend-only) -->
           {#if workbenchTab === 'chat'}
           <div role="group" aria-label="Chat Tools" class="block">
@@ -4799,13 +4969,13 @@
               <span class="shrink-0">{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
               <span class="text-dark-border">|</span>
               <span class="truncate" title={discoveredTools.map(t => t.function.name).join(', ')}>{discoveredTools.map(t => t.function.name).join(', ')}</span>
-            {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+            {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || developerTools}
               <span>No tools discovered</span>
             {:else}
               <span>Select skills, MCP sets, or tools above</span>
             {/if}
           </div>
-          {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+          {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || developerTools}
             <button
               onclick={clearAllToolSelections}
               class="shrink-0 px-2 py-1 border border-dark-border-subtle text-dark-text-muted hover:text-red-400 hover:border-red-800 focus-visible:outline-2 focus-visible:outline-accent"
@@ -4947,6 +5117,8 @@
                   {@const source = toolSourceMap[tc.function.name]}
                   {#if pendingQuestion && ((activeTool?.messageIndex === i && activeTool?.callID === tc.id) || storedQuestionCallId === tc.id) && tc.function.name === 'question'}
                     {@render questionPrompt()}
+                  {:else if pendingDeveloperApproval?.callId === tc.id}
+                    {@render developerApprovalPrompt(pendingDeveloperApproval)}
                   {:else}
                     <ToolActivity
                       compact
@@ -4954,9 +5126,12 @@
                       result={toolResults.get(i)?.get(tc.id)}
                       running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                       queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                      source={source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
+                      source={source?.type === 'developer' ? 'Developer Space' : source?.type === 'skill' ? 'Agent skill' : source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
                     />
                     {#if bindingRequestFor(toolResults.get(i)?.get(tc.id))}<BindingApproval request={bindingRequestFor(toolResults.get(i)?.get(tc.id))!} />{/if}
+                    {#if tc.function.name.startsWith('dev_') && toolResults.get(i)?.get(tc.id)}
+                      {@render developerChanges(parseDeveloperResult(messageText(toolResults.get(i)!.get(tc.id)!.content)))}
+                    {/if}
                     {#if skillRunProgress[tc.id] && activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                       <p role="status" class="ml-[2ch] truncate text-[var(--oc-peach)]">~ {skillRunProgress[tc.id]}</p>
                     {/if}
@@ -5247,6 +5422,39 @@
       </div>
     </div>
   </div>
+
+  {#snippet developerApprovalPrompt(request: PendingDeveloperApproval)}
+    <div role="group" aria-label="Command approval" class="my-2 w-full border-l-2 border-[var(--oc-peach)] bg-dark-surface px-4 py-3">
+      <p class="text-sm text-dark-text">Run this command in your Developer Space{request.project ? ` (${request.project})` : ''}?</p>
+      <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words bg-dark-base px-3 py-2 text-xs text-dark-text">{request.command}</pre>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" onclick={() => request.resolve('once')} class="px-3 py-1.5 text-xs bg-accent text-dark-base hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent">Allow</button>
+        {#if request.name === 'dev_bash'}
+          <button type="button" onclick={() => request.resolve('always')} class="border border-dark-border-subtle px-3 py-1.5 text-xs text-dark-text-secondary hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" title="Commands chained with && ; | or $( ) still ask">Always allow {developerApprovalFor(request.command)} in this chat</button>
+        {/if}
+        <button type="button" onclick={() => request.resolve('deny')} class="border border-dark-border-subtle px-3 py-1.5 text-xs text-dark-text-secondary hover:text-red-400 hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">Deny</button>
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet developerChanges(view: ReturnType<typeof parseDeveloperResult>)}
+    {#if view.changed.length || view.diff}
+      <details class="ml-[2ch] my-1 min-w-0 text-xs">
+        <summary class="cursor-pointer text-dark-text-muted hover:text-dark-text-secondary focus-visible:outline-1 focus-visible:outline-accent">
+          {view.changed.length} file{view.changed.length === 1 ? '' : 's'} changed{view.project ? ` in ${view.project}` : ''} · diff
+        </summary>
+        <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+          {#each view.changed as file}
+            <a href={developerFileLink(view.project, file)} class="text-accent underline-offset-2 hover:underline" title="Open in the Developer Spaces editor">{file}</a>
+          {/each}
+        </div>
+        {#if view.diff}
+          <pre class="mt-1 max-h-96 overflow-auto bg-dark-base py-2 font-mono leading-5">{#each view.diff.split('\n') as line}<div class={['px-3', diffLineClass(line)]}>{line || ' '}</div>{/each}</pre>
+        {/if}
+        {#if view.truncated}<p class="mt-1 text-dark-text-muted">The diff is longer than shown; open the file to see all of it.</p>{/if}
+      </details>
+    {/if}
+  {/snippet}
 
   {#snippet questionPrompt()}
     {#if pendingQuestion}

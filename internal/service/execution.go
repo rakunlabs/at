@@ -48,6 +48,10 @@ type ExecutionProvenance struct {
 	// (AT acting as the MCP authorization server). Revalidation re-reads the
 	// grant, so revoking it stops the account's in-flight calls too.
 	GrantID string `json:"grant_id,omitempty"`
+	// ActorTokenID is set when an API token with act_for_users runs as the
+	// account (agent gateway). Revalidation re-reads the token, so pausing,
+	// rotating away or deleting it stops in-flight actions.
+	ActorTokenID string `json:"actor_token_id,omitempty"`
 }
 
 type ExecutionAction struct {

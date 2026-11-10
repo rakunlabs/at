@@ -38,7 +38,7 @@ export function fixture() {
   let turnSkillRuns = [], skillRunProgress = {}, turnArtifacts = [], skillSystemPrompts = [], turnTraceId = '';
   let discoveredTools = [{ type: 'function', function: { name: 'test', parameters: {} } }], toolSourceMap = { test: { type: 'frontend' } };
   let activeTool = null, contextTokens = 0, completionTokens = 0, totalTokens = 0, confirmClear = false;
-  let chatRecording = false, chatTranscribing = false, voiceContext = 0, todos = [], pendingQuestion = null;
+  let chatRecording = false, chatTranscribing = false, voiceContext = 0, todos = [], pendingQuestion = null, pendingDeveloperApproval = null, developerProject = "", developerApprovals = [];
   let createImpl = async input => ({ id: 'created', ...input }), streamImpl, toolImpl, uploadImpl = async data => data;
   const creates = [], appends = [], streams = [], tools = [], toasts = [], routes = [];
   const MAX_TOOL_ITERATIONS = 20, PLAYGROUND_MESSAGE_BATCH_MAX = 200, INLINE_IMAGE_TYPES = [];

@@ -1,12 +1,9 @@
 import axios from 'axios';
 import { authFetch, workspaceTransport } from './transport';
-import { consumeRunEvents, followRunStream } from '../helper/run-events';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
-export interface DeveloperToolRule { action: string; resource: string; effect: 'allow' | 'ask' | 'deny' }
-export interface DeveloperAgentProfile { system_prompt?: string; max_iterations?: number; tool_timeout_seconds?: number; rules?: DeveloperToolRule[] }
-export interface DeveloperSpaceConfig { plan?: DeveloperAgentProfile; build?: DeveloperAgentProfile; review?: DeveloperAgentProfile; disable_formatter?: boolean }
+export interface DeveloperSpaceConfig { disable_formatter?: boolean }
 
 export const DEFAULT_DEVELOPER_IMAGE = 'debian:13.7-slim';
 
@@ -25,39 +22,6 @@ export interface DeveloperSpace {
   execution_suspended?: boolean;
   active_control_id?: string;
 }
-
-export type DeveloperMode = 'plan' | 'build' | 'review';
-export type DeveloperSessionStatus = 'idle' | 'running' | 'waiting_permission' | 'waiting_question' | 'completed' | 'failed' | 'cancelled';
-
-export interface DeveloperTodo { id: string; content: string; status: 'pending' | 'in_progress' | 'completed' | 'cancelled'; priority?: 'high' | 'medium' | 'low' }
-
-export interface DeveloperSession {
-  id: string; space_id: string; project_path: string; title?: string;
-  mode: DeveloperMode; status: DeveloperSessionStatus; provider?: string; model?: string;
-  /** Runs as this workspace agent; empty uses the built-in profile named by `mode`. */
-  agent_id?: string;
-  /** Empty uses the agent's effort or the provider default. */
-  reasoning_effort?: string;
-  /** Set after an undo: this user message and everything after it are hidden until redo or the next prompt. */
-  revert_message_id?: string;
-  todos?: DeveloperTodo[];
-  error?: string; started_at?: string; finished_at?: string; created_at: string; updated_at: string;
-}
-
-export interface DeveloperContentBlock {
-  type: string; text?: string; thinking?: string; id?: string; name?: string;
-  input?: Record<string, unknown>; tool_use_id?: string; content?: unknown;
-  source?: { type: string; media_type?: string; data?: string };
-}
-export interface DeveloperSessionMessage {
-  id: string; session_id: string; role: 'user' | 'assistant' | 'tool' | 'system'; content: string | DeveloperContentBlock[];
-  /** File state before this prompt ran; undo is available when present. */
-  snapshot?: string;
-  kind?: '' | 'compaction';
-  created_at: string;
-}
-export interface DeveloperToolCall { ID: string; Name: string; Arguments: Record<string, unknown> }
-export interface DeveloperPendingTool { session_id: string; kind: 'permission' | 'question'; state: 'pending' | 'executing'; tool_calls: DeveloperToolCall[]; trace_id?: string; step: number; created_at: string }
 
 export interface DeveloperFileEntry { name: string; path: string; type: 'file' | 'dir' | 'symlink'; size: number; mtime: number }
 export interface DeveloperFileContent { path: string; size: number; content?: string; version?: string; binary?: boolean; too_large?: boolean }
@@ -112,8 +76,6 @@ export async function uploadDeveloperFile(folder: string, file: File) {
   return (await api.post<{ path: string }>('/developer-space/files/upload', form)).data;
 }
 export async function searchDeveloperFiles(project: string, pattern: string) { return (await api.get<{ matches: DeveloperSearchMatch[]; truncated: boolean }>('/developer-space/search', { params: { path: project, pattern } })).data; }
-/** Every file of a project (walk order, .git/node_modules skipped), for the @ picker. */
-export async function listDeveloperProjectFiles(project: string) { return (await api.get<{ files: string[]; truncated: boolean }>('/developer-space/glob', { params: { project } })).data; }
 export async function cloneDeveloperProject(remote: string, name = '', branch = '') { return (await api.post<{ path: string }>('/developer-space/clone', { remote, name, branch })).data; }
 
 /** Raw bytes for images/downloads. Fetched (not linked) so the workspace header is sent. */
@@ -138,71 +100,30 @@ export async function checkoutDeveloperGit(project: string, branch: string, crea
 export async function pullDeveloperGit(project: string) { return (await api.post<{ output: string }>('/developer-space/git/pull', { project })).data; }
 export async function pushDeveloperGit(project: string, branch: string) { return (await api.post<{ branch: string; output: string }>('/developer-space/git/push', { project, branch, confirm: true })).data; }
 
-// ─── Sessions ───
+// ─── Tools for Chats ───
 
-export async function listDeveloperSessions() { return (await api.get<DeveloperSession[]>('/developer-sessions')).data; }
-export async function createDeveloperSession(body: { project_path: string; mode: DeveloperMode; agent_id?: string; provider?: string; model?: string; reasoning_effort?: string; title?: string }) { return (await api.post<DeveloperSession>('/developer-sessions', body)).data; }
-export async function updateDeveloperSession(id: string, body: { title?: string; mode?: DeveloperMode; agent_id?: string; provider?: string; model?: string; reasoning_effort?: string }) { return (await api.patch<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}`, body)).data; }
-/** Undo: rewinds to before the latest (or the given) prompt and restores the files it changed. */
-export async function revertDeveloperSession(id: string, messageId = '') { return (await api.post<{ session: DeveloperSession; changed?: string[] }>(`/developer-sessions/${encodeURIComponent(id)}/revert`, messageId ? { message_id: messageId } : {})).data; }
-/** Redo: brings back what the last undo hid, files included. */
-export async function unrevertDeveloperSession(id: string) { return (await api.post<{ session: DeveloperSession; changed?: string[] }>(`/developer-sessions/${encodeURIComponent(id)}/unrevert`)).data; }
-export async function deleteDeveloperSession(id: string) { await api.delete(`/developer-sessions/${encodeURIComponent(id)}`); }
-export async function listDeveloperSessionMessages(id: string) { return (await api.get<DeveloperSessionMessage[]>(`/developer-sessions/${encodeURIComponent(id)}/messages`)).data; }
-export interface DeveloperRun {
-  id: string;
-  heartbeat_at: string;
-  cancel_requested: boolean;
-  interrupted: boolean;
-}
-export async function getDeveloperActiveStream(id: string) { return (await api.get<{ stream_id: string; session: DeveloperSession; run?: DeveloperRun | null }>(`/developer-sessions/${encodeURIComponent(id)}/active-stream`)).data; }
-export async function getDeveloperSessionPendingTool(id: string) { return (await api.get<DeveloperPendingTool | null>(`/developer-sessions/${encodeURIComponent(id)}/pending`)).data; }
-/** Add a message to the session's running turn; 409 when nothing is running here. */
-export async function steerDeveloperSession(id: string, prompt: string) { await api.post(`/developer-sessions/${encodeURIComponent(id)}/steer`, { prompt }); }
-export async function cancelDeveloperSession(id: string) { return (await api.post<DeveloperSession>(`/developer-sessions/${encodeURIComponent(id)}/cancel`)).data; }
-
-export type DeveloperStreamEvent =
-  | { type: 'status' | 'done'; session: DeveloperSession }
-  | { type: 'turn_start' }
-  | { type: 'delta'; content?: string; reasoning?: string }
-  | { type: 'message'; message: DeveloperSessionMessage }
-  | { type: 'tool_start'; tool_id: string; tool_name: string }
-  | { type: 'tool_result'; tool_id: string; tool_name: string; error: boolean; changed?: string[]; changed_tree?: boolean; todos?: DeveloperTodo[] }
-  | { type: 'pending'; pending_tool: DeveloperPendingTool }
-  | { type: 'error'; error: string };
-
-/**
- * Reads the run/confirm/answer event stream. Resolves after the terminal
- * `done` event, rejects on `error` or when the connection ends without one:
- * a dropped stream must not look like a finished turn.
- */
-export async function streamDeveloperSession(
-  id: string,
-  action: 'run' | 'confirm' | 'answer',
-  body: Record<string, unknown>,
-  onEvent: (event: DeveloperStreamEvent) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
-  await followRunStream({
-    fetcher: authFetch, start: `${base}/${action}`, replay: `${base}/streams`, body, signal, endedEarly: DEVELOPER_ENDED_EARLY,
-    failed: (status, message) => message || `request failed (${status})`,
-  }, onEvent);
+export interface DeveloperToolDef {
+  name: string; description: string; input_schema: Record<string, unknown>;
+  /** Chats asks the reader before each call. */
+  confirm: boolean;
+  /** The tool changes files and reports a diff. */
+  edits: boolean;
 }
 
-/** Reattach with GET only. Leaving a page detaches; Stop uses the cancel API. */
-export async function resumeDeveloperStream(id: string, streamId: string, onEvent: (event: DeveloperStreamEvent) => void, signal?: AbortSignal) {
-  const base = new URL(`api/v1/developer-sessions/${encodeURIComponent(id)}`, document.baseURI).href;
-  await followRunStream({
-    fetcher: authFetch, start: '', replay: `${base}/streams`, streamId, resume: true, signal, endedEarly: DEVELOPER_ENDED_EARLY,
-    failed: status => `Live run unavailable (${status}). Check saved history; do not resend automatically.`,
-  }, onEvent);
+export interface DeveloperToolsInfo {
+  tools: DeveloperToolDef[];
+  space: { status: DeveloperSpace['status']; execution_suspended: boolean };
 }
 
-const DEVELOPER_ENDED_EARLY = 'Connection ended before the agent finished. Reload the session to see what was saved.';
+export interface DeveloperToolResult {
+  output: string; error?: string; project?: string;
+  changed?: string[]; diff?: string; diff_truncated?: boolean;
+}
 
-export function consumeDeveloperEvents(response: Response, onEvent: (event: DeveloperStreamEvent) => void): Promise<void> {
-  return consumeRunEvents(response, onEvent, DEVELOPER_ENDED_EARLY);
+export async function listDeveloperTools(signal?: AbortSignal) { return (await api.get<DeveloperToolsInfo>('/developer-space/tools', { signal })).data; }
+
+export async function callDeveloperTool(body: { name: string; arguments: Record<string, unknown>; project: string; trace_id?: string; session_id?: string }, signal?: AbortSignal) {
+  return (await api.post<DeveloperToolResult>('/developer-space/tools/call', body, { signal })).data;
 }
 
 /** WebSockets cannot send X-AT-Workspace-ID, so the selection rides the query. */

@@ -32,6 +32,10 @@ type ChatSessionConfig struct {
 	// DisableTaskResultSync prevents a normal chat response from overwriting
 	// the task result or changing its terminal status.
 	DisableTaskResultSync bool `json:"disable_task_result_sync,omitempty"`
+	// GatewayTokenID marks a session created through the agent gateway by
+	// this API token. Only the same token may continue it; the account it
+	// acts for owns it (owner_user_id), so it also appears in their Sessions.
+	GatewayTokenID string `json:"gateway_token_id,omitempty"`
 }
 
 // OrganizationChatTaskCreator atomically selects an existing task or creates

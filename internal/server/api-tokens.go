@@ -36,6 +36,9 @@ type createTokenRequest struct {
 	AllowedMCPs          []string `json:"allowed_mcps,omitempty"`           // used when mode = "list" (gateway MCP server names)
 	LegacyRAGMCPsMode    string   `json:"allowed_rag_mcps_mode,omitempty"`  // deprecated alias for allowed_mcps_mode
 	LegacyRAGMCPs        []string `json:"allowed_rag_mcps,omitempty"`       // deprecated alias for allowed_mcps
+	ActForUsers          bool     `json:"act_for_users,omitempty"`          // run agents on behalf of IdP-proven people
+	AllowedAgentsMode    string   `json:"allowed_agents_mode,omitempty"`    // "all" (default/""), "none", or "list"
+	AllowedAgents        []string `json:"allowed_agents,omitempty"`         // agent IDs or names when mode = "list"
 	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
 	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
 	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
@@ -55,10 +58,15 @@ type updateTokenRequest struct {
 	AllowedMCPs          []string `json:"allowed_mcps,omitempty"`           // used when mode = "list" (gateway MCP server names)
 	LegacyRAGMCPsMode    string   `json:"allowed_rag_mcps_mode,omitempty"`  // deprecated alias for allowed_mcps_mode
 	LegacyRAGMCPs        []string `json:"allowed_rag_mcps,omitempty"`       // deprecated alias for allowed_mcps
-	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
-	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
-	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
-	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
+	// Agent-gateway fields are pointers: a client that predates them omits
+	// them, and an omitted field keeps the stored value instead of erasing it.
+	ActForUsers        *bool     `json:"act_for_users,omitempty"`
+	AllowedAgentsMode  *string   `json:"allowed_agents_mode,omitempty"`
+	AllowedAgents      *[]string `json:"allowed_agents,omitempty"`
+	ExpiresAt          *string   `json:"expires_at,omitempty"`           // RFC3339 timestamp, nil/empty = no expiry
+	TotalTokenLimit    *int64    `json:"total_token_limit,omitempty"`    // max total tokens; nil = unlimited
+	SpendLimitCents    *float64  `json:"spend_limit_cents,omitempty"`    // max spend in cents; nil = unlimited
+	LimitResetInterval *string   `json:"limit_reset_interval,omitempty"` // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
 // createTokenResponse is returned once on creation or rotation (the only times
@@ -194,6 +202,9 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedWebhooks:      req.AllowedWebhooks,
 		AllowedMCPsMode:      req.AllowedMCPsMode,
 		AllowedMCPs:          req.AllowedMCPs,
+		ActForUsers:          req.ActForUsers,
+		AllowedAgentsMode:    req.AllowedAgentsMode,
+		AllowedAgents:        req.AllowedAgents,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
 		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),
@@ -311,6 +322,10 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),
 		LimitResetInterval:   toNullString(req.LimitResetInterval),
 		UpdatedBy:            userEmail,
+	}
+	if err := s.applyAgentGatewayTokenFields(nil, id, &token, req.ActForUsers, req.AllowedAgentsMode, req.AllowedAgents); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)
@@ -512,3 +527,19 @@ func toNullString(v *string) types.Null[string] {
 	}
 	return types.NewNull(*v)
 }
+
+// applyAgentGatewayTokenFields marks which agent-gateway settings the request
+// carries; the store keeps the stored value of any it omitted.
+func (s *Server) applyAgentGatewayTokenFields(_ any, _ string, token *service.APIToken, act *bool, mode *string, agents *[]string) error {
+	token.KeepAgentGateway = act == nil && mode == nil && agents == nil
+	if token.KeepAgentGateway {
+		return nil
+	}
+	if act == nil || mode == nil || agents == nil {
+		return errAgentGatewayFieldsPartial
+	}
+	token.ActForUsers, token.AllowedAgentsMode, token.AllowedAgents = *act, *mode, *agents
+	return nil
+}
+
+var errAgentGatewayFieldsPartial = errors.New("act_for_users, allowed_agents_mode and allowed_agents must be sent together")

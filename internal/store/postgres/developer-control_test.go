@@ -5,37 +5,25 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/doug-martin/goqu/v9"
-
 	"github.com/rakunlabs/at/internal/service"
 )
 
-func TestDeveloperSpaceControlSuspendsAndPreservesReceipts(t *testing.T) {
+func TestDeveloperSpaceControlSuspendsAndBlocksWrites(t *testing.T) {
 	p, ctx, _, _ := workspaceFixture(t)
 	space, err := p.EnsureDeveloperSpace(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := p.CreateDeveloperSession(ctx, service.DeveloperSession{SpaceID: space.ID, Mode: service.DeveloperModeBuild, Provider: "openai", Model: "gpt"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.AcquireDeveloperRun(ctx, session.ID, "remote-run"); err != nil {
-		t.Fatal(err)
-	}
 	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "stop-owner", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.HeartbeatDeveloperRun(ctx, session.ID, "remote-run"); err == nil {
-		t.Fatal("remote owner missed persisted cancellation")
-	}
-	if err := p.DeleteDeveloperSession(ctx, session.ID); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("deleted receipt: %v", err)
-	}
-	if err := p.DeleteDeveloperSpace(ctx, space.ID); !errors.Is(err, service.ErrDeveloperSessionBusy) {
+	if err := p.DeleteDeveloperSpace(ctx, space.ID); !errors.Is(err, service.ErrDeveloperSpaceBusy) {
 		t.Fatalf("foreign reset erased control: %v", err)
 	}
-	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "other-control", "start"); !errors.Is(err, service.ErrDeveloperSessionBusy) {
+	if _, err := p.UpdateDeveloperSpace(ctx, *space); !errors.Is(err, service.ErrDeveloperSpaceBusy) {
+		t.Fatalf("reconfiguration during control: %v", err)
+	}
+	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "other-control", "start"); !errors.Is(err, service.ErrDeveloperSpaceBusy) {
 		t.Fatalf("second controller admitted: %v", err)
 	}
 	if err := p.ReleaseDeveloperSpaceControl(ctx, space.ID, "foreign", false); err != nil {
@@ -45,17 +33,17 @@ func TestDeveloperSpaceControlSuspendsAndPreservesReceipts(t *testing.T) {
 	if stored.ActiveControlID != "stop-owner" || !stored.ExecutionSuspended {
 		t.Fatal("foreign release reopened space")
 	}
+	// The owner of a control may write through it (Reset deletes the row).
+	owned := service.ContextWithDeveloperSpaceControl(ctx, "stop-owner")
+	if _, err := p.UpdateDeveloperSpace(owned, *space); err != nil {
+		t.Fatalf("control owner refused: %v", err)
+	}
 	if err := p.ReleaseDeveloperSpaceControl(ctx, space.ID, "stop-owner", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "start-owner", "start"); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("start ignored unresolved run: %v", err)
-	}
-	if err := p.ReleaseDeveloperRun(ctx, session.ID, "remote-run"); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.AcquireDeveloperRun(ctx, session.ID, "new-run"); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("stopped space admitted work: %v", err)
+	stored, _ = p.GetDeveloperSpace(ctx, space.ID)
+	if stored.ActiveControlID != "" || !stored.ExecutionSuspended {
+		t.Fatalf("stop must leave the space suspended: %+v", stored)
 	}
 	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "start-owner", "start"); err != nil {
 		t.Fatal(err)
@@ -63,18 +51,8 @@ func TestDeveloperSpaceControlSuspendsAndPreservesReceipts(t *testing.T) {
 	if err := p.ReleaseDeveloperSpaceControl(ctx, space.ID, "start-owner", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.AcquireDeveloperRun(ctx, session.ID, "new-run"); err != nil {
-		t.Fatalf("explicit Start did not reopen admission: %v", err)
-	}
-	if _, err := p.UpdateDeveloperSpace(ctx, *space); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("reconfiguration during run: %v", err)
-	}
-	_, err = p.goqu.Update(p.tableDeveloperSessions).Set(goqu.Record{"active_run_heartbeat_at": goqu.L("clock_timestamp() - interval '61 seconds'")}).Where(goqu.Ex{"id": session.ID}).Executor().ExecContext(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.DeleteDeveloperSpace(ctx, space.ID); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("expired receipt erased: %v", err)
+	if stored, _ = p.GetDeveloperSpace(ctx, space.ID); stored.ExecutionSuspended {
+		t.Fatal("explicit Start did not reopen admission")
 	}
 }
 
@@ -95,7 +73,7 @@ func TestDeveloperSpaceControlsHaveOneConcurrentOwner(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			winners++
-		} else if !errors.Is(err, service.ErrDeveloperSessionBusy) {
+		} else if !errors.Is(err, service.ErrDeveloperSpaceBusy) {
 			t.Fatal(err)
 		}
 	}
@@ -103,7 +81,7 @@ func TestDeveloperSpaceControlsHaveOneConcurrentOwner(t *testing.T) {
 		t.Fatalf("%d control owners", winners)
 	}
 	// A restart does not drop the receipt; same ID cannot reacquire (ABA).
-	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "same-id", "reset"); !errors.Is(err, service.ErrDeveloperSessionBusy) {
+	if err := p.AcquireDeveloperSpaceControl(ctx, space.ID, "same-id", "reset"); !errors.Is(err, service.ErrDeveloperSpaceBusy) {
 		t.Fatalf("control stolen: %v", err)
 	}
 }

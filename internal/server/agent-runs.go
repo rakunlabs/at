@@ -12,8 +12,7 @@ import (
 )
 
 // Durable agent runs are the shared runtime of every surface whose turn runs
-// on the server and outlives the page: Developer Spaces sessions and Chats
-// background runs. Each surface keeps its own record, admission and stale
+// on the server and outlives the page: Chats background runs today. Each surface keeps its own record, admission and stale
 // policy; this file owns what is identical between them — the event stream,
 // receipt renewal and cancellation, and replay-scoped stream lookup.
 

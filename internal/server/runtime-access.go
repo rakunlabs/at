@@ -167,6 +167,8 @@ func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance serv
 		ctx = service.WithAccessPrincipal(ctx, live)
 	} else if provenance.GrantID != "" {
 		ctx, err = s.revalidateMCPAuthGrant(ctx, provenance)
+	} else if provenance.ActorTokenID != "" {
+		ctx, err = s.revalidateAgentGatewayActor(ctx, provenance)
 	} else {
 		ctx, err = s.revalidateAccessPrincipal(ctx)
 	}

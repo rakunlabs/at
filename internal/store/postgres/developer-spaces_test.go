@@ -22,11 +22,8 @@ func TestDeveloperSpacesAreUserAndWorkspaceScoped(t *testing.T) {
 	if created.WorkspaceID != workspace.ID || created.OwnerUserID == "" || created.Status != service.DeveloperSpacePending {
 		t.Fatalf("created: %+v", created)
 	}
-	if created.Config.Plan.SystemPrompt == "" || created.Config.Build.SystemPrompt == "" || created.Config.Review.SystemPrompt == "" {
-		t.Fatalf("default profiles missing: %+v", created.Config)
-	}
-	if created.Config.Plan.Rules[len(created.Config.Plan.Rules)-1].Effect != "deny" || created.Config.Build.Rules[len(created.Config.Build.Rules)-1].Resource != "push" {
-		t.Fatalf("unsafe default permissions: %+v", created.Config)
+	if created.Config.DisableFormatter {
+		t.Fatalf("formatter must default on: %+v", created.Config)
 	}
 
 	again, err := p.EnsureDeveloperSpace(ownerCtx)
@@ -67,172 +64,6 @@ func TestDeveloperSpaceRequiresPrincipal(t *testing.T) {
 	}
 }
 
-func TestDeveloperSessionLifecycle(t *testing.T) {
-	p, ctx, _, _ := workspaceFixture(t)
-	space, err := p.EnsureDeveloperSpace(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.CreateDeveloperSession(ctx, service.DeveloperSession{
-		SpaceID: space.ID, ProjectPath: "../escape", Mode: service.DeveloperModeBuild, Provider: "openai",
-	}); err == nil {
-		t.Fatal("session accepted a path outside the space")
-	}
-	session, err := p.CreateDeveloperSession(ctx, service.DeveloperSession{
-		SpaceID: space.ID, ProjectPath: "at/", Mode: service.DeveloperModeBuild,
-		Title: "Implement storage", Provider: "openai", Model: "gpt",
-	})
-	if err != nil || session.Status != service.DeveloperSessionIdle || session.ProjectPath != "at" {
-		t.Fatalf("session: %+v %v", session, err)
-	}
-	if renamed, err := p.RenameDeveloperSession(ctx, session.ID, "  Storage  "); err != nil || renamed.Title != "Storage" {
-		t.Fatalf("rename: %+v %v", renamed, err)
-	}
-	if changed, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModePlan, AgentID: "agent-1", Provider: "anthropic", Model: "claude"}); err != nil || changed.Mode != service.DeveloperModePlan || changed.Provider != "anthropic" || changed.AgentID != "agent-1" {
-		t.Fatalf("settings: %+v %v", changed, err)
-	}
-	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: "Implement it"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Content: []service.ContentBlock{{Type: "text", Text: "Working"}}}); err != nil {
-		t.Fatal(err)
-	}
-	messages, err := p.ListDeveloperSessionMessages(ctx, session.ID)
-	if err != nil || len(messages) != 2 || messages[0].Content != "Implement it" {
-		t.Fatalf("messages: %+v %v", messages, err)
-	}
-	if blocks, ok := messages[1].Content.([]service.ContentBlock); !ok || len(blocks) != 1 || blocks[0].Text != "Working" {
-		t.Fatalf("assistant blocks were not restored canonically: %#v", messages[1].Content)
-	}
-	if _, err := p.BeginDeveloperSessionRun(ctx, session.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.BeginDeveloperSessionRun(ctx, session.ID); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("concurrent run: %v", err)
-	}
-	if _, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", Model: "gpt"}); !errors.Is(err, service.ErrDeveloperSessionBusy) {
-		t.Fatalf("settings changed during a run: %v", err)
-	}
-	if _, err := p.SetDeveloperSessionRuntime(ctx, session.ID, service.DeveloperSessionCompleted, ""); err != nil {
-		t.Fatal(err)
-	}
-	pending, err := p.SaveDeveloperPendingTool(ctx, service.DeveloperPendingTool{SessionID: session.ID, Kind: "permission", TraceID: "trace-1", Step: 4, ToolCalls: []service.ToolCall{{ID: "call-1", Name: "run_command", Arguments: map[string]any{"command": "go"}}}})
-	if err != nil || len(pending.ToolCalls) != 1 || pending.ToolCalls[0].Name != "run_command" || pending.Kind != "permission" || pending.TraceID != "trace-1" || pending.Step != 4 {
-		t.Fatalf("pending tool: %+v %v", pending, err)
-	}
-	claimed, err := p.ClaimDeveloperPendingTool(ctx, session.ID)
-	if err != nil || claimed == nil || len(claimed.ToolCalls) != 1 || claimed.State != "executing" {
-		t.Fatalf("claimed pending tool: %+v %v", claimed, err)
-	}
-	if claimed, err := p.ClaimDeveloperPendingTool(ctx, session.ID); err != nil || claimed != nil {
-		t.Fatalf("double claim: %+v %v", claimed, err)
-	}
-	if _, err := p.ResolveDeveloperPendingTool(ctx, session.ID, []service.ContentBlock{{Type: "tool_result", ToolUseID: "call-1", Content: "ok"}}); err != nil {
-		t.Fatalf("resolve pending tool: %v", err)
-	}
-	if pending, err := p.GetDeveloperPendingTool(ctx, session.ID); err != nil || pending != nil {
-		t.Fatalf("resolved pending tool: %+v %v", pending, err)
-	}
-	snapshot, err := p.SaveDeveloperSessionSnapshot(ctx, service.DeveloperSessionSnapshot{SessionID: session.ID, Step: 1, Phase: "before"})
-	if err != nil || snapshot.Step != 1 || snapshot.Phase != "before" {
-		t.Fatalf("snapshot: %+v %v", snapshot, err)
-	}
-	snapshots, err := p.ListDeveloperSessionSnapshots(ctx, session.ID)
-	if err != nil || len(snapshots) != 1 || snapshots[0].ID != snapshot.ID {
-		t.Fatalf("snapshots: %+v %v", snapshots, err)
-	}
-
-	if records, err := p.ListDeveloperSessions(ctx, space.ID); err != nil || len(records) != 1 || records[0].ID != session.ID {
-		t.Fatalf("session list: %+v %v", records, err)
-	}
-	if err := p.DeleteDeveloperSpace(ctx, space.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.GetDeveloperSession(ctx, session.ID); !errors.Is(err, service.ErrDeveloperSpaceNotFound) {
-		t.Fatalf("session survived space deletion: %v", err)
-	}
-}
-
-func TestDeveloperSessionWorkbench(t *testing.T) {
-	p, ctx, _, _ := workspaceFixture(t)
-	space, err := p.EnsureDeveloperSpace(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	session, err := p.CreateDeveloperSession(ctx, service.DeveloperSession{SpaceID: space.ID, Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "high"})
-	if err != nil || session.ReasoningEffort != "high" || session.Todos == nil || len(session.Todos) != 0 {
-		t.Fatalf("session: %+v %v", session, err)
-	}
-	if _, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "extreme"}); err == nil {
-		t.Fatal("an unknown effort was stored")
-	}
-	if changed, err := p.UpdateDeveloperSessionSettings(ctx, session.ID, service.DeveloperSessionSettings{Mode: service.DeveloperModeBuild, Provider: "openai", ReasoningEffort: "low"}); err != nil || changed.ReasoningEffort != "low" {
-		t.Fatalf("effort: %+v %v", changed, err)
-	}
-
-	todos, err := p.SetDeveloperSessionTodos(ctx, session.ID, []service.DeveloperSessionTodo{{Content: "write tests", Status: "in_progress"}})
-	if err != nil || len(todos.Todos) != 1 || todos.Todos[0].Status != "in_progress" || todos.Todos[0].ID == "" {
-		t.Fatalf("todos: %+v %v", todos, err)
-	}
-
-	approved, err := p.AddDeveloperSessionApprovals(ctx, session.ID, []service.DeveloperApproval{{Action: "shell", Resource: "go *"}, {Action: "shell", Resource: "go *"}, {Action: "", Resource: "x"}})
-	if err != nil || len(service.DeveloperSessionApprovals(approved)) != 1 {
-		t.Fatalf("approvals: %+v %v", approved, err)
-	}
-	approved, err = p.AddDeveloperSessionApprovals(ctx, session.ID, []service.DeveloperApproval{{Action: "edit", Resource: "*"}})
-	if err != nil || len(service.DeveloperSessionApprovals(approved)) != 2 {
-		t.Fatalf("approvals append: %+v %v", approved, err)
-	}
-	if reread, _ := p.GetDeveloperSession(ctx, session.ID); len(service.DeveloperSessionApprovals(reread)) != 2 {
-		t.Fatalf("approvals not persisted: %+v", reread.Config)
-	}
-
-	first, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: "first", Snapshot: "tree-1"})
-	if err != nil || first.Snapshot != "tree-1" {
-		t.Fatalf("first: %+v %v", first, err)
-	}
-	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Content: []service.ContentBlock{{Type: "text", Text: "done"}}}); err != nil {
-		t.Fatal(err)
-	}
-	second, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "user", Content: []service.ContentBlock{{Type: "text", Text: "second"}}, Snapshot: "tree-2"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Kind: "bogus", Content: "x"}); err == nil {
-		t.Fatal("an unknown message kind was stored")
-	}
-	summary, err := p.AppendDeveloperSessionMessage(ctx, service.DeveloperSessionMessage{SessionID: session.ID, Role: "assistant", Kind: service.DeveloperMessageKindCompaction, Content: []service.ContentBlock{{Type: "text", Text: "summary"}}})
-	if err != nil || summary.Kind != service.DeveloperMessageKindCompaction {
-		t.Fatalf("summary: %+v %v", summary, err)
-	}
-	messages, _ := p.ListDeveloperSessionMessages(ctx, session.ID)
-	if blocks, ok := messages[2].Content.([]service.ContentBlock); !ok || blocks[0].Text != "second" {
-		t.Fatalf("user blocks were not restored canonically: %#v", messages[2].Content)
-	}
-
-	if _, err := p.SetDeveloperSessionRevert(ctx, session.ID, "missing", "x"); !errors.Is(err, service.ErrDeveloperSpaceNotFound) {
-		t.Fatalf("revert to an unknown message: %v", err)
-	}
-	reverted, err := p.SetDeveloperSessionRevert(ctx, session.ID, second.ID, "tree-now")
-	if err != nil || reverted.RevertMessageID != second.ID || reverted.RevertSnapshot != "tree-now" {
-		t.Fatalf("revert: %+v %v", reverted, err)
-	}
-	if all, _ := p.ListDeveloperSessionMessages(ctx, session.ID); len(all) != 4 {
-		t.Fatalf("revert must keep hidden messages until committed: %d", len(all))
-	}
-	committed, err := p.CommitDeveloperSessionRevert(ctx, session.ID)
-	if err != nil || committed.RevertMessageID != "" || committed.RevertSnapshot != "" {
-		t.Fatalf("commit: %+v %v", committed, err)
-	}
-	remaining, _ := p.ListDeveloperSessionMessages(ctx, session.ID)
-	if len(remaining) != 2 || remaining[0].ID != first.ID {
-		t.Fatalf("commit should delete the reverted message and everything after it: %+v", remaining)
-	}
-	if cleared, err := p.SetDeveloperSessionRevert(ctx, session.ID, "", "ignored"); err != nil || cleared.RevertSnapshot != "" {
-		t.Fatalf("clearing a revert keeps no snapshot: %+v %v", cleared, err)
-	}
-}
-
 func TestDeveloperPathAndRemoteValidation(t *testing.T) {
 	for _, candidate := range []string{"/etc", "../x", "a/../b", "a//b", "a\\b", "./a"} {
 		if _, err := service.CleanDeveloperPath(candidate); err == nil {
@@ -261,27 +92,12 @@ func TestDeveloperPathAndRemoteValidation(t *testing.T) {
 
 // Migration 83 collapses each account's spaces into its oldest one and drops
 // the repository/worktree records. Sessions in the kept space survive with an
-// empty project path; the rest go with their space.
+// empty project path; the rest go with their space. Migration 114 later
+// drops sessions entirely, so this replays the set only up to 113.
 func TestDeveloperSpaceSingleMigration(t *testing.T) {
 	p := newTestStore(t, nil)
 	prefix := strings.TrimSuffix(fmt.Sprint(p.tableAuthUsers.GetTable()), "auth_users") + "dev83_"
-	files, err := migrationFS.ReadDir("migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	previous := fstest.MapFS{}
-	for _, file := range files {
-		var version int
-		if _, err := fmt.Sscanf(file.Name(), "%d_", &version); err != nil || version >= 83 {
-			continue
-		}
-		body, err := migrationFS.ReadFile("migrations/" + file.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		previous["migrations/"+file.Name()] = &fstest.MapFile{Data: body}
-	}
-	m := muz.Migrate{Path: "migrations", FS: previous, Extension: ".sql", Values: map[string]string{"TABLE_PREFIX": prefix}}
+	m := muz.Migrate{Path: "migrations", FS: migrationsBefore(t, 83), Extension: ".sql", Values: map[string]string{"TABLE_PREFIX": prefix}}
 	driver := muz.NewPostgresDriver(p.db, prefix+"migrations", slog.Default())
 	if err := m.Migrate(t.Context(), driver); err != nil {
 		t.Fatal(err)
@@ -299,7 +115,7 @@ INSERT INTO %[1]sdeveloper_sessions(id,space_id,repository_id,worktree_id,worksp
 	if _, err := p.db.ExecContext(t.Context(), seed); err != nil {
 		t.Fatal(err)
 	}
-	m.FS = migrationFS
+	m.FS = migrationsBefore(t, 114)
 	if err := m.Migrate(t.Context(), driver); err != nil {
 		t.Fatal(err)
 	}
@@ -316,5 +132,66 @@ INSERT INTO %[1]sdeveloper_sessions(id,space_id,repository_id,worktree_id,worksp
 	}
 	if _, err := p.db.ExecContext(t.Context(), fmt.Sprintf("INSERT INTO %sdeveloper_spaces(id,workspace_id,owner_user_id,name) VALUES ('dup','legacy-default','u','x')", prefix)); err == nil {
 		t.Fatal("a second space for the same account was accepted")
+	}
+}
+
+func migrationsBefore(t *testing.T, limit int) fstest.MapFS {
+	t.Helper()
+	files, err := migrationFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := fstest.MapFS{}
+	for _, file := range files {
+		var version int
+		if _, err := fmt.Sscanf(file.Name(), "%d_", &version); err != nil || version >= limit {
+			continue
+		}
+		body, err := migrationFS.ReadFile("migrations/" + file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		out["migrations/"+file.Name()] = &fstest.MapFile{Data: body}
+	}
+	return out
+}
+
+// Migration 114 removes the Developer Space AI chat: session tables and their
+// snapshot catalog rows go, spaces stay, and only the formatter switch
+// survives in the space config.
+func TestDeveloperSpaceChatRemovalMigration(t *testing.T) {
+	p := newTestStore(t, nil)
+	prefix := strings.TrimSuffix(fmt.Sprint(p.tableAuthUsers.GetTable()), "auth_users") + "dev114_"
+	m := muz.Migrate{Path: "migrations", FS: migrationsBefore(t, 114), Extension: ".sql", Values: map[string]string{"TABLE_PREFIX": prefix}}
+	driver := muz.NewPostgresDriver(p.db, prefix+"migrations", slog.Default())
+	if err := m.Migrate(t.Context(), driver); err != nil {
+		t.Fatal(err)
+	}
+	seed := fmt.Sprintf(`
+INSERT INTO %[1]sauth_users(id,username,password_hash) VALUES ('u','user','hash');
+INSERT INTO %[1]sdeveloper_spaces(id,workspace_id,owner_user_id,name,config) VALUES
+  ('a','legacy-default','u','A','{"build":{"system_prompt":"x"},"disable_formatter":true}');
+INSERT INTO %[1]sdeveloper_sessions(id,space_id,workspace_id,owner_user_id,mode) VALUES ('s','a','legacy-default','u','build');
+INSERT INTO %[1]sstorage_objects(id,workspace_id,namespace,path,backend,storage_key,content_type,size_bytes,checksum) VALUES
+  ('o1','legacy-default','snapshots','developer-sessions/s/000001-before.json','filesystem','k1','application/json',1,''),
+  ('o2','legacy-default','media','developer-sessions/keep.png','filesystem','k2','image/png',1,'');`, prefix)
+	if _, err := p.db.ExecContext(t.Context(), seed); err != nil {
+		t.Fatal(err)
+	}
+	m.FS = migrationFS
+	if err := m.Migrate(t.Context(), driver); err != nil {
+		t.Fatal(err)
+	}
+	var exists bool
+	if err := p.db.QueryRowContext(t.Context(), "SELECT to_regclass($1) IS NOT NULL", prefix+"developer_sessions").Scan(&exists); err != nil || exists {
+		t.Fatalf("developer_sessions still exists: %v %v", exists, err)
+	}
+	var config string
+	if err := p.db.QueryRowContext(t.Context(), fmt.Sprintf("SELECT config::text FROM %sdeveloper_spaces WHERE id = 'a'", prefix)).Scan(&config); err != nil || config != `{"disable_formatter": true}` {
+		t.Fatalf("space config = %q %v", config, err)
+	}
+	var objects []string
+	if err := p.goqu.From(prefix+"storage_objects").Select("id").ScanValsContext(t.Context(), &objects); err != nil || len(objects) != 1 || objects[0] != "o2" {
+		t.Fatalf("storage objects after migration: %v %v", objects, err)
 	}
 }

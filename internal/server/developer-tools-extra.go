@@ -124,10 +124,10 @@ func (s *Server) applyDeveloperPatch(ctx context.Context, h *developerRuntimeHan
 
 // ─── Background shell jobs ───
 //
-// `bash` with background: true starts the command detached inside the
+// `dev_bash` with background: true starts the command detached inside the
 // container, writing combined output to a log under /tmp/at-jobs. The job
-// survives the tool call (and the turn); bash_output reads it and bash_kill
-// stops it. Jobs live as long as the container: a stopped space ends them.
+// survives the tool call (and the turn); dev_bash_output reads it and
+// dev_bash_kill stops it. Jobs live as long as the container.
 
 const developerJobDir = "/tmp/at-jobs"
 
@@ -158,7 +158,7 @@ printf '%s' "$AT_COMMAND" > "$AT_JOB_DIR/$AT_JOB_ID.cmd"`
 	if code != 0 {
 		return "", developerCommandFailure("start background job", stderr, nil)
 	}
-	return fmt.Sprintf("Started background job %s. Use bash_output with job_id %q to read its output and see whether it finished, and bash_kill to stop it.", id, id), nil
+	return fmt.Sprintf("Started background job %s. Use dev_bash_output with job_id %q to read its output and see whether it finished, and dev_bash_kill to stop it.", id, id), nil
 }
 
 func (s *Server) developerJobOutput(ctx context.Context, h *developerRuntimeHandle, args map[string]any) (string, error) {
@@ -261,10 +261,10 @@ echo stopped`
 
 // ─── Formatters ───
 //
-// After write_file / edit_file / patch the changed file is formatted with the
-// first matching formatter that exists in the container (OpenCode's built-in
-// list, trimmed to the common ones). A formatter that is missing, or fails, is
-// skipped silently: formatting must never fail an edit.
+// After dev_write_file / dev_edit_file / dev_patch the changed file is
+// formatted with the first matching formatter that exists in the container
+// (OpenCode's built-in list, trimmed to the common ones). A formatter that is
+// missing, or fails, is skipped silently: formatting must never fail an edit.
 
 type developerFormatter struct {
 	extensions []string
@@ -329,57 +329,4 @@ func containsString(list []string, v string) bool {
 // explicitly disabled).
 func developerFormatterEnabled(space *service.DeveloperSpace) bool {
 	return space == nil || !space.Config.DisableFormatter
-}
-
-// ─── Nested instruction files ───
-//
-// The project-root AGENTS.md goes into the system prompt. Like OpenCode, an
-// AGENTS.md (or CLAUDE.md) in a sub-folder is added the first time the agent
-// reads or lists inside that folder, nearest first, once per session run.
-
-type developerNestedInstructions struct {
-	seen map[string]bool
-}
-
-// collect returns the instruction files between rel's folder and the project
-// root (exclusive) that were not added yet, nearest first.
-func (s *Server) nestedDeveloperInstructions(ctx context.Context, h *developerRuntimeHandle, project, rel string, tracker *developerNestedInstructions, isDir bool) string {
-	if tracker == nil {
-		return ""
-	}
-	dir := rel
-	if !isDir {
-		dir = path.Dir(rel)
-	}
-	var parts []string
-	for dir != "." && dir != "" && dir != "/" {
-		if !tracker.seen[dir] {
-			tracker.seen[dir] = true
-			for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-				raw, err := s.runDeveloperFS(ctx, h, nil, "read", project, dir+"/"+name)
-				if err != nil {
-					continue
-				}
-				var file struct {
-					Content  string `json:"content"`
-					Binary   bool   `json:"binary"`
-					TooLarge bool   `json:"too_large"`
-				}
-				if json.Unmarshal(raw, &file) != nil || file.Binary || file.TooLarge || strings.TrimSpace(file.Content) == "" {
-					continue
-				}
-				content := file.Content
-				if len(content) > developerInstructionMaxBytes {
-					content = strings.ToValidUTF8(content[:developerInstructionMaxBytes], "") + "\n… [truncated; read the file for the rest]"
-				}
-				parts = append(parts, fmt.Sprintf("Instructions from %s/%s (they apply to files under %s/):\n%s", dir, name, dir, content))
-				break
-			}
-		}
-		dir = path.Dir(dir)
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "\n\n<system-reminder>\n" + strings.Join(parts, "\n\n") + "\n</system-reminder>"
 }

@@ -536,13 +536,16 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	// This prevents "tool call result does not follow tool call" errors from LLM providers.
 	dbMessages = agentloop.SanitizeChatHistory(dbMessages)
 
-	// 5. Persist user message.
+	// 5. Persist user message. A continuation that only answers client tool
+	// calls carries no new user text: the stored results already follow the
+	// waiting call, so history ends with them.
+	continuation := isClientToolContinuation(ctx) && agentloop.MessageText(data.Content) == "" && len(data.Attachments) == 0
 	userMsg := service.ChatMessage{
 		SessionID: sessionID,
 		Role:      "user",
 		Data:      data,
 	}
-	if !transient {
+	if !transient && !continuation {
 		if _, err := s.chatSessionStore.CreateChatMessage(ctx, userMsg); err != nil {
 			return fmt.Errorf("persist user message: %w", err)
 		}
@@ -807,10 +810,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 
 	// Add current user message.
-	llmMessages = append(llmMessages, service.Message{
-		Role:    "user",
-		Content: chatMessageContent(data),
-	})
+	if !continuation {
+		llmMessages = append(llmMessages, service.Message{
+			Role:    "user",
+			Content: chatMessageContent(data),
+		})
+	}
 
 	// Strip handlers from executable tools sent to the LLM.
 	baseLLMTools := make([]service.Tool, 0, len(allTools)+1)
@@ -826,6 +831,32 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		if skillRuntime.HasResources() {
 			baseLLMTools = append(baseLLMTools, skillRuntime.ReadSkillResourceToolDef())
 		}
+	}
+	// Tools the caller runs itself (agent gateway): offered to the model,
+	// never executed here. Server tools keep their names on collision.
+	clientTools := clientToolsFromContext(ctx)
+	if len(clientTools) > 0 {
+		taken := make(map[string]bool, len(baseLLMTools))
+		for _, t := range baseLLMTools {
+			taken[t.Name] = true
+		}
+		kept := clientTools[:0:0]
+		for _, t := range clientTools {
+			if !taken[t.Name] {
+				baseLLMTools = append(baseLLMTools, t)
+				kept = append(kept, t)
+				taken[t.Name] = true
+			}
+		}
+		clientTools = kept
+	}
+	isClientTool := func(name string) bool {
+		for _, t := range clientTools {
+			if t.Name == name {
+				return true
+			}
+		}
+		return false
 	}
 
 	// Resolve max iterations and tool timeout.
@@ -1237,9 +1268,18 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 		// Execute tool calls.
 		var toolResults []service.ContentBlock
+		var waitingClient []service.ToolCall
 		turnCtx := ctx
 		for _, tc := range resp.ToolCalls {
 			ctx = turnCtx
+			if isClientTool(tc.Name) {
+				// Answered by the caller on the next request; the call stays
+				// open in the transcript until its result arrives.
+				waitingClient = append(waitingClient, tc)
+				argsJSON, _ := json.Marshal(tc.Arguments)
+				onEvent(AgenticEvent{Type: "client_tool_call", ToolName: tc.Name, ToolID: tc.ID, Arguments: string(argsJSON)})
+				continue
+			}
 			// Check if this tool requires human confirmation.
 			if slices.Contains(agent.Config.ConfirmationRequiredTools, tc.Name) {
 				// Serialize arguments for the UI.
@@ -1253,7 +1293,15 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 					Arguments: string(argsJSON),
 				})
 
-				// Wait for human approval.
+				// Wait for human approval. An agent-gateway run has nobody
+				// watching AT who could approve, so it is refused at once.
+				if isAgentGatewayRun(ctx) {
+					result := "Error: This tool needs confirmation, which is not available in this channel. Do not retry it; tell the user it requires approval in AT."
+					onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
+					_, block := agentloop.ToolResult(nil, "", tc, result)
+					toolResults = append(toolResults, block)
+					continue
+				}
 				confirmKey := sessionID + ":" + tc.ID
 				ch := make(chan confirmationResult, 1)
 				s.pendingConfirmations.Store(confirmKey, ch)
@@ -1447,6 +1495,12 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 
 		// Persist tool results and continue loop.
 		s.persistToolResults(ctx, sessionID, toolResults)
+		if len(waitingClient) > 0 {
+			// The turn pauses: results of the calls that ran are stored, and
+			// the caller answers the client calls with the next request.
+			onEvent(AgenticEvent{Type: "waiting"})
+			return nil
+		}
 		llmMessages = append(llmMessages, service.Message{
 			Role:    "user",
 			Content: toolResults,

@@ -12,6 +12,17 @@
   } = $props();
 
   let search = $state('');
+  // Open state is owned here: a declarative `open={...}` is re-applied on every
+  // re-render (each selection changes the count) and would collapse the section.
+  let openFamilies = $state<Record<string, boolean>>({});
+  function familyOpen(key: string): boolean {
+    if (search.length > 0) return true;
+    return openFamilies[key] ?? (!collapsed && key !== 'builtin_other');
+  }
+  function onFamilyToggle(key: string, e: Event) {
+    if (search.length > 0) return;
+    openFamilies[key] = (e.currentTarget as HTMLDetailsElement).open;
+  }
   let missing = $derived([...new Set([...selected, ...inherited])].filter(name => !tools.some(t => t.name === name)));
   function toggle(tool: BuiltinToolDef) {
     if (builtinDisabledBy(tool, isFeatureEnabled)) return;
@@ -29,7 +40,7 @@
   {#each builtinFamilies as family}
     {@const entries = tools.filter(t => builtinFamily(t) === family.key && `${t.name} ${t.description}`.toLowerCase().includes(search.toLowerCase()))}
     {#if entries.length > 0}
-      <details open={search.length > 0 || (!collapsed && family.key !== 'builtin_other')} class="border border-dark-border">
+      <details open={familyOpen(family.key)} ontoggle={e => onFamilyToggle(family.key, e)} class="border border-dark-border">
         <summary class="cursor-pointer bg-dark-base px-3 py-2 text-xs font-medium text-dark-text-secondary">
           {family.label} · {entries.filter(t => selected.includes(t.name) || inherited.includes(t.name)).length} selected
           {#if !isFeatureEnabled('builtin_tools') || !isFeatureEnabled(family.key)} · Disabled by administrator{/if}

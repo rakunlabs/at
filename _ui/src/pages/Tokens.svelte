@@ -10,6 +10,10 @@
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
+  import { listAgents } from '@/lib/api/agents';
+  import TokenActForUsers from '@/lib/components/TokenActForUsers.svelte';
+  import { workspaceState } from '@/lib/store/workspace.svelte';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { Key, KeyRound, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play, AlertTriangle } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime, formatDateTimeInput, formatUTCDateTime } from '@/lib/helper/format';
@@ -54,6 +58,9 @@
   let formWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedWebhooks = $state<string[]>([]);
   let formMcpServersMode = $state<'all' | 'none' | 'list'>('all');
+  let formActForUsers = $state(false);
+  let formAgentsMode = $state<'all' | 'none' | 'list'>('list');
+  let formAgents = $state<string[]>([]);
   let formSelectedMcpServers = $state<string[]>([]);
   let formTotalTokenLimit = $state('');
   let formSpendLimitCents = $state('');
@@ -87,6 +94,11 @@
   let editWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedWebhooks = $state<string[]>([]);
   let editMcpServersMode = $state<'all' | 'none' | 'list'>('all');
+  let editActForUsers = $state(false);
+  let editAgentsMode = $state<'all' | 'none' | 'list'>('list');
+  let editAgents = $state<string[]>([]);
+  let agentNames = $state<string[]>([]);
+  let canManageActing = $derived(isNativeAdmin() || ['admin', 'owner'].includes(workspaceState.access?.role || ''));
   let editSelectedMcpServers = $state<string[]>([]);
   let editTotalTokenLimit = $state('');
   let editSpendLimitCents = $state('');
@@ -163,10 +175,15 @@
     await references.load('MCP servers', () => listMCPServers({ _limit: 100 }), res => { mcpServers = res.data || []; }, 'mcp_servers');
   }
 
+  async function loadAgentNames() {
+    await references.load('Agents', () => listAgents({ _limit: 500 }), res => { agentNames = (res.data || []).map(a => a.name).sort(); }, 'agents');
+  }
+
   loadTokens();
   loadProviders();
   loadWebhooks();
   loadMcpServers();
+  loadAgentNames();
 
   // ─── Computed ───
   let allModels = $derived(
@@ -204,6 +221,9 @@
     formSelectedWebhooks = [];
     formMcpServersMode = 'all';
     formSelectedMcpServers = [];
+    formActForUsers = false;
+    formAgentsMode = 'list';
+    formAgents = [];
     formTotalTokenLimit = '';
     formSpendLimitCents = '';
     formLimitResetInterval = '';
@@ -243,6 +263,11 @@
       }
       if (formMcpServersMode === 'list' && formSelectedMcpServers.length > 0) {
         req.allowed_mcps = formSelectedMcpServers;
+      }
+      if (formActForUsers) {
+        req.act_for_users = true;
+        req.allowed_agents_mode = formAgentsMode;
+        req.allowed_agents = formAgentsMode === 'list' ? formAgents : [];
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
@@ -392,6 +417,9 @@
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
     editMcpServersMode = resolveMode(token.allowed_mcps_mode, token.allowed_mcps);
     editSelectedMcpServers = token.allowed_mcps ? [...token.allowed_mcps] : [];
+    editActForUsers = !!token.act_for_users;
+    editAgentsMode = resolveMode(token.allowed_agents_mode || '', token.allowed_agents || null) as 'all' | 'none' | 'list';
+    editAgents = token.allowed_agents ? [...token.allowed_agents] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
     editSpendLimitCents = token.spend_limit_cents != null ? String(token.spend_limit_cents) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
@@ -487,6 +515,9 @@
       if (editMcpServersMode === 'list' && editSelectedMcpServers.length > 0) {
         req.allowed_mcps = editSelectedMcpServers;
       }
+      req.act_for_users = editActForUsers;
+      req.allowed_agents_mode = editActForUsers ? editAgentsMode : '';
+      req.allowed_agents = editActForUsers && editAgentsMode === 'list' ? editAgents : [];
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
       }
@@ -946,6 +977,8 @@
         </div>
       </div>
 
+      <TokenActForUsers bind:actForUsers={formActForUsers} bind:agentsMode={formAgentsMode} bind:agents={formAgents} available={agentNames} canManage={canManageActing} />
+
       <!-- Token limit -->
       <div class="grid grid-cols-4 gap-3 mb-3">
         <label for="create-token-limit" class="text-xs text-dark-text-secondary py-2">Token Limit</label>
@@ -1265,6 +1298,8 @@
             </div>
           </div>
 
+          <TokenActForUsers bind:actForUsers={editActForUsers} bind:agentsMode={editAgentsMode} bind:agents={editAgents} available={agentNames} canManage={canManageActing} />
+
           <!-- Token limit -->
           <div class="grid grid-cols-4 gap-3">
             <label for="edit-token-limit" class="text-xs text-dark-text-secondary py-2">Token Limit</label>
@@ -1400,6 +1435,9 @@
               {@const mMode = resolveMode(token.allowed_models_mode, token.allowed_models)}
               {@const wMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks)}
               {@const rMode = resolveMode(token.allowed_mcps_mode, token.allowed_mcps)}
+              {#if token.act_for_users}
+                <div class="text-oc-peach">Acts for users{token.allowed_agents?.length ? `: ${token.allowed_agents.join(', ')}` : ''}</div>
+              {/if}
               {#if pMode === 'all' && mMode === 'all' && wMode === 'all' && rMode === 'all'}
                 <span class="text-dark-text-muted">All access</span>
               {:else}

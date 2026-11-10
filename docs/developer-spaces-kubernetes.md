@@ -22,8 +22,8 @@ images still require separate cluster testing.
 
 **Not production-complete:** durable multi-replica sandbox ownership, activity
 fencing, automatic owner-death recovery and replay coordination remain unfinished.
-Developer session run exclusion and cancellation now have PostgreSQL receipts,
-but these do not fence remote tool side effects or coordinate sandbox lifecycle. Enabling
+Start/Stop/Reset have PostgreSQL control receipts, but these do not fence
+remote tool side effects or coordinate sandbox lifecycle. Enabling
 `single_replica` acknowledges this deployment restriction; it does not enforce
 the Deployment replica count. A namespace-wide controller Lease now rejects a
 second process at sandbox admission, rather than trusting that declaration alone.
@@ -348,59 +348,23 @@ records a desired transition and reaches all affected owners; it cannot cancel
 only the replica handling the HTTP request. Shutdown relinquishes ownership,
 not other replicas' sandboxes.
 
-Developer sessions now have durable single-run exclusion (migration 100). SSE buffers currently
-live in one replica: either route replay to the owning replica and return an
-explicit unavailable result after restart, or persist bounded replay events.
-Never retry POST automatically on a lost replay stream. Pending approvals and
-completed messages remain in PostgreSQL. Failure recovery must mark interrupted
-runs terminal rather than leave sessions busy forever. The current implementation
-reports expired owners but does not steal their receipts or restart their work.
-
-### Durable Developer session run receipts
-
-Every run, confirmation and answer acquires an account/workspace-scoped receipt
-on `developer_sessions` before executing its handler. Its ID is server-generated
-and independent of the client-selected SSE replay ID. Atomic acquisition excludes
-another process from the same session. The owner renews every 15 seconds, with a
-five-second database-call deadline and a 60-second stale threshold measured by
-PostgreSQL. Cancellation on any replica sets the persisted cancellation flag;
-the owner observes it on renewal or before its next tool dispatch. Database errors
-also cancel local execution. Session history, pending tools and snapshots lock
-the session row while checking ownership and writing; stale/cancelled runtime
-writes cannot overwrite the recorded outcome.
-
-Active-stream discovery returns a `run` receipt separately from `stream_id`.
-A missing local SSE stream never means the job may be restarted. Discovery marks
-a running session with an expired receipt as failed with an interruption message;
-it keeps the receipt. The UI disables sending/approval/settings while any receipt
-is unresolved and explains cancellation and recovery. Normal handler exit releases
-its own receipt; stored waiting approvals survive a normal release.
-
-**This is not remote fencing or automatic failover.** An already-dispatched tool
-may have taken effect, and cancellation of remote work can fail during outages.
-A dead owner cannot release its receipt. Stop records a cancellation request, not
-proof that the old process is gone; it never clears an expired receipt. Before
-using a new session, stop/verify the former process and any remote work, recover
-the controller Lease as described above, and inspect saved history/files. There
-is intentionally no automatic tool replay or API to force-clear the receipt.
-Existing pre-migration running rows have no receipt; drain/stop older AT processes
-before upgrading. Durable replay, lifecycle/activity fencing, safe receipt repair
-and cross-replica activity/account cleanup remain separate work.
+Developer Spaces have no agent runs of their own (migration 114 removed the
+sessions and their run receipts). AI work in a space is a Chats turn calling the
+Developer Space tools, one HTTP request per call: Chats background runs carry
+their own receipts (see AGENTS.md), and each tool call is admitted against the
+space like any other runtime request.
 
 ### Durable Start/Stop/Reset control receipts
 
 Migration 101 adds `execution_suspended` and `active_control_id` to Developer
 spaces. Start, Stop and Reset acquire a server-generated control receipt under
-the parent row lock; run acquisition uses the same lock. Stop/Reset atomically
-suspend new runtime admission and request cancellation of every active session.
-Only an explicit successful Start reopens admission, and Start is refused while
-any run receipt remains unresolved. Control receipts never expire or transfer
-automatically after a crash. A database failure leaves admission closed.
+the parent row lock. Stop/Reset atomically suspend new runtime admission. Only an
+explicit successful Start reopens admission. Control receipts never expire or
+transfer automatically after a crash. A database failure leaves admission closed.
 
-Session deletion and space deletion/reconfiguration cannot erase live or expired
-run receipts. Reset requests cancellation first and returns 409 while a receipt
-remains; retry after owners finish. It drains local commands/terminals and purges
-the runtime before deleting records, retaining the space on cleanup failure.
+Space deletion and reconfiguration refuse while another control is open. Reset
+drains local commands/terminals and purges the runtime before deleting records,
+retaining the space on cleanup failure.
 Start/Stop resolve an untracked workload by stable scope, so a fresh Manager does
 not confuse an empty local handle cache with proof that the sandbox is stopped.
 The Kubernetes backend still requires its controller Lease for that operation.

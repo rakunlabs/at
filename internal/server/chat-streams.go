@@ -53,7 +53,6 @@ type replayKind int
 
 const (
 	replayChat replayKind = iota
-	replayDeveloper
 	replayChatRun
 )
 

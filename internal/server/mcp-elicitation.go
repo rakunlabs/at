@@ -17,8 +17,8 @@ import (
 
 // MCP elicitation: an upstream MCP server asks the person for input in the
 // middle of a tool call. The question waits in elicitationBroker, owned by the
-// account and workspace that runs the call; the page shows it (Sessions and
-// Developer Spaces get a stream event, Chats polls while an MCP tool runs) and
+// account and workspace that runs the call; the page shows it (Sessions get a
+// stream event, Chats polls while an MCP tool runs) and
 // answers through POST /api/v1/mcp/elicitations/{id}. Questions are in
 // memory on the replica running the call, like confirmations and steering.
 
@@ -64,7 +64,7 @@ func (b *elicitationBroker) notifyLocked() {
 }
 
 // elicitor returns the Elicitor for a run of userID in workspaceID. scope
-// names the surface ("chats", "session:<id>", "developer:<id>").
+// names the surface ("chats", "session:<id>").
 func (b *elicitationBroker) elicitor(workspaceID, userID, scope string) service.Elicitor {
 	return func(ctx context.Context, req service.ElicitRequest) (service.ElicitResult, error) {
 		if b == nil || userID == "" {

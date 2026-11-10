@@ -254,8 +254,7 @@ type Server struct {
 	// Active chat turns can be cancelled when their workspace is deleted.
 	activeChatTurns sync.Map
 	// Active native coding-session requests, keyed by session ID.
-	activeDeveloperSessions sync.Map
-	// Messages added to running Sessions / Developer Spaces turns ("steer").
+	// Messages added to running Sessions turns ("steer").
 	steering *runSteering
 	// Questions MCP servers asked the person (elicitation), waiting for answers.
 	elicitations *elicitationBroker
@@ -349,6 +348,9 @@ type Server struct {
 	tracePrivacy tracePrivacyRuntime
 	// guardrails caches compiled guardrail policies.
 	guardrails guardrailRuntime
+	// exchanger verifies identity-provider tokens for the agent gateway.
+	exchangerOnce sync.Once
+	exchanger     *nativeauth.TokenExchanger
 
 	// builtinConnectors holds the embedded connector definitions loaded at
 	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
@@ -811,6 +813,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		})
 	})
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
+	// Run an agent on behalf of a person proven by an identity-provider token.
+	gatewayGroup.POST("/v1/agents/{agent}/chat", s.AgentGatewayChatAPI)
 	// Native Anthropic Messages. A client with its Anthropic base URL set to
 	// <base>/gateway resolves /v1/messages here, so Claude Code, Cline, Roo and
 	// Kilo reach routing, fallback, budgets and tracing unmodified.
@@ -1197,25 +1201,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/developer-space/git/checkout", s.DeveloperGitCheckoutAPI)
 	apiGroup.POST("/v1/developer-space/git/pull", s.DeveloperGitPullAPI)
 	apiGroup.POST("/v1/developer-space/git/push", s.DeveloperGitPushAPI)
-	apiGroup.GET("/v1/developer-sessions", s.ListDeveloperSessionsAPI)
-	apiGroup.POST("/v1/developer-sessions", s.CreateDeveloperSessionAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}", s.GetDeveloperSessionAPI)
-	apiGroup.PATCH("/v1/developer-sessions/{id}", s.UpdateDeveloperSessionAPI)
-	apiGroup.DELETE("/v1/developer-sessions/{id}", s.DeleteDeveloperSessionAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/messages", s.ListDeveloperSessionMessagesAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/snapshots", s.ListDeveloperSessionSnapshotsAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/snapshots/{snapshotID}", s.GetDeveloperSessionSnapshotAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/pending", s.GetDeveloperSessionPendingToolAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/active-stream", s.GetDeveloperActiveStreamAPI)
-	apiGroup.GET("/v1/developer-sessions/{id}/streams/{stream}", s.DeveloperStreamAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/run", s.RunDeveloperSessionAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/confirm", s.ConfirmDeveloperSessionToolAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/answer", s.AnswerDeveloperSessionQuestionAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/cancel", s.CancelDeveloperSessionAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/steer", s.SteerDeveloperSessionAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/revert", s.RevertDeveloperSessionAPI)
-	apiGroup.POST("/v1/developer-sessions/{id}/unrevert", s.UnrevertDeveloperSessionAPI)
-	apiGroup.GET("/v1/developer-space/glob", s.GlobDeveloperFilesAPI)
+	// The coding agent runs in Chats; these are its Developer Space tools.
+	apiGroup.GET("/v1/developer-space/tools", s.DeveloperToolListAPI)
+	apiGroup.POST("/v1/developer-space/tools/call", s.DeveloperToolCallAPI)
 
 	// Issue comments
 	apiGroup.GET("/v1/tasks/{id}/comments", s.ListCommentsByTaskAPI)

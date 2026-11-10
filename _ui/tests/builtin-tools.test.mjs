@@ -28,6 +28,9 @@ test('Chats starts server tool families collapsed while search reveals matches',
   const chat = await readFile(new URL('../src/pages/Chat.svelte', import.meta.url), 'utf8');
   assert.match(picker, /collapsed = false/);
   assert.match(picker, /collapsed\?: boolean/);
-  assert.match(picker, /<details open=\{search\.length > 0 \|\| \(!collapsed && family\.key !== 'builtin_other'\)\}/);
+  assert.match(picker, /search\.length > 0\) return true;\s*return openFamilies\[key\] \?\? \(!collapsed && key !== 'builtin_other'\)/);
+  // The reader's own toggle is kept: a selection re-renders the summary
+  // count and must not re-apply the default open state.
+  assert.match(picker, /<details open=\{familyOpen\(family\.key\)\} ontoggle=\{e => onFamilyToggle\(family\.key, e\)\}/);
   assert.match(chat, /<BuiltinToolPicker[^\n]*\bcollapsed\b[^\n]*\/>/);
 });

@@ -12,6 +12,8 @@
     onunpin: () => void;
   } = $props();
   let pinReason = $derived(pinUnavailableReason(nodeState));
+  // null = follow the default; once the reader toggles it, run updates keep their choice.
+  let attemptsOpen = $state<boolean | null>(null);
 </script>
 
 <div class="space-y-3">
@@ -25,7 +27,7 @@
   {#if nodeState?.error}<p role="alert" class="break-words border p-3 text-xs border-red-900 bg-red-950 text-red-300">{nodeState.error}</p>{/if}
   {#if nodeState?.error_policy}<p class="text-xs text-amber-300">{nodeState.error_policy === 'error_output' ? 'Failure handled: sent to the failure output.' : 'Failure handled: skipped this branch; independent branches continue.'}</p>{/if}
   {#if nodeState?.attempt_history?.length}
-    <details class="border p-2 text-xs border-dark-border" open={(nodeState.max_attempts ?? 1) > 1}>
+    <details class="border p-2 text-xs border-dark-border" open={attemptsOpen ?? (nodeState.max_attempts ?? 1) > 1} ontoggle={e => { attemptsOpen = e.currentTarget.open; }}>
       <summary class="cursor-pointer text-dark-text-secondary">Attempts ({nodeState.attempt_history.length}/{nodeState.max_attempts ?? 1})</summary>
       <ol class="mt-2 space-y-2">
         {#each nodeState.attempt_history as attempt (attempt.attempt)}

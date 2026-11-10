@@ -33,6 +33,10 @@ type ChatWorkbenchSetup struct {
 	// MCPCodeMode offers the selected MCP sets' tools through code_execute
 	// instead of listing each one (AgentConfig.MCPCodeMode).
 	MCPCodeMode bool `json:"mcp_code_mode,omitempty"`
+	// DeveloperTools offers the dev_* tools, which work in the caller's own
+	// Developer Space container. Which project they address is per
+	// conversation and not part of a setup.
+	DeveloperTools bool `json:"developer_tools,omitempty"`
 	// FrontendTools are browser-only helpers (todo bookkeeping, the question
 	// prompt). They have no server-side equivalent and are stored purely so a
 	// restored setup keeps the same switches.

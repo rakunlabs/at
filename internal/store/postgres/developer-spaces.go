@@ -94,13 +94,9 @@ func (p *Postgres) EnsureDeveloperSpace(ctx context.Context) (*service.Developer
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := json.Marshal(service.DefaultDeveloperSpaceConfig())
-	if err != nil {
-		return nil, fmt.Errorf("encode developer space config: %w", err)
-	}
 	if _, err := p.goqu.Insert(p.tableDeveloperSpaces).Rows(goqu.Record{
 		"id": ulid.Make().String(), "workspace_id": actor.WorkspaceID, "owner_user_id": actor.UserID,
-		"name": "Workspace", "status": service.DeveloperSpacePending, "config": string(encoded),
+		"name": "Workspace", "status": service.DeveloperSpacePending,
 	}).OnConflict(goqu.DoNothing()).Executor().ExecContext(ctx); err != nil {
 		return nil, fmt.Errorf("create developer space: %w", err)
 	}
@@ -140,7 +136,7 @@ func (p *Postgres) UpdateDeveloperSpace(ctx context.Context, space service.Devel
 	if err := p.lockDeveloperSpace(ctx, tx, actor, space.ID); err != nil {
 		return nil, err
 	}
-	if err := p.checkDeveloperSpaceRuns(ctx, tx, actor, space.ID); err != nil {
+	if err := p.checkDeveloperSpaceControl(ctx, tx, actor, space.ID); err != nil {
 		return nil, err
 	}
 	var row developerSpaceRow
@@ -175,7 +171,7 @@ func (p *Postgres) DeleteDeveloperSpace(ctx context.Context, id string) error {
 	if err := p.lockDeveloperSpace(ctx, tx, actor, id); err != nil {
 		return err
 	}
-	if err := p.checkDeveloperSpaceRuns(ctx, tx, actor, id); err != nil {
+	if err := p.checkDeveloperSpaceControl(ctx, tx, actor, id); err != nil {
 		return err
 	}
 	result, err := tx.Delete(p.tableDeveloperSpaces).

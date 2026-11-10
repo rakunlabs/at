@@ -108,39 +108,6 @@ const (
 	errSteerFull     = steerError("too many queued messages; wait for the run to take them")
 )
 
-// SteerDeveloperSessionAPI handles POST /api/v1/developer-sessions/{id}/steer:
-// add a message to the session's running turn. 409 means no run of this
-// session is active on this server (send it as a normal prompt instead).
-func (s *Server) SteerDeveloperSessionAPI(w http.ResponseWriter, r *http.Request) {
-	store := s.developerSpaceStore(w)
-	if store == nil {
-		return
-	}
-	// Resolving the session is the ownership check: foreign sessions are 404.
-	session, err := store.GetDeveloperSession(r.Context(), r.PathValue("id"))
-	if err != nil {
-		developerSpaceError(w, err)
-		return
-	}
-	var req struct {
-		Prompt string `json:"prompt"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, steerMaxBytes+1024)).Decode(&req); err != nil {
-		httpResponse(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	queued, err := s.steering.Push("developer:"+session.ID, req.Prompt)
-	if err != nil {
-		httpResponse(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if !queued {
-		httpResponse(w, "no running turn to add the message to", http.StatusConflict)
-		return
-	}
-	httpResponseJSON(w, map[string]any{"queued": true}, http.StatusAccepted)
-}
-
 // SteerChatSessionAPI handles POST /api/v1/chat/sessions/{id}/steer: add a
 // message to the Sessions turn that is running. Ownership is checked like
 // every session route; 409 means no turn of it runs on this server.

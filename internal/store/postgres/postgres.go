@@ -107,10 +107,6 @@ type Postgres struct {
 	tableMediaObjects               exp.IdentifierExpression
 	tableStorageObjects             exp.IdentifierExpression
 	tableDeveloperSpaces            exp.IdentifierExpression
-	tableDeveloperSessions          exp.IdentifierExpression
-	tableDeveloperSessionMessages   exp.IdentifierExpression
-	tableDeveloperSessionSnapshots  exp.IdentifierExpression
-	tableDeveloperPendingTools      exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -222,10 +218,6 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableMediaObjects:               goqu.T(tablePrefix + "storage_objects"),
 		tableStorageObjects:             goqu.T(tablePrefix + "storage_objects"),
 		tableDeveloperSpaces:            goqu.T(tablePrefix + "developer_spaces"),
-		tableDeveloperSessions:          goqu.T(tablePrefix + "developer_sessions"),
-		tableDeveloperSessionMessages:   goqu.T(tablePrefix + "developer_session_messages"),
-		tableDeveloperSessionSnapshots:  goqu.T(tablePrefix + "developer_session_snapshots"),
-		tableDeveloperPendingTools:      goqu.T(tablePrefix + "developer_pending_tools"),
 		tableProviders:                  goqu.T(tablePrefix + "providers"),
 		tableAPITokens:                  goqu.T(tablePrefix + "tokens"),
 		tableWorkflows:                  goqu.T(tablePrefix + "workflows"),

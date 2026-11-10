@@ -12,6 +12,8 @@ export interface BackgroundBrowserSources {
   localServers: string[];
   /** Approved browser extensions while the web connection is on. */
   extensions: string[];
+  /** Developer Space tools are on; their shell commands need the reader. */
+  developerTools?: boolean;
 }
 
 /** Browser-only helper tools a background run cannot offer. */
@@ -90,5 +92,6 @@ export function backgroundOmissions(setup: BackgroundSetup, sources: BackgroundB
   if (frontend.length) out.push(`browser tools: ${frontend.join(', ')}`);
   if (sources.localServers.length) out.push(`local MCP servers: ${sources.localServers.join(', ')}`);
   if (sources.extensions.length) out.push(`browser extensions: ${sources.extensions.join(', ')}`);
+  if (sources.developerTools) out.push('Developer Space shell commands (they need your approval)');
   return out;
 }

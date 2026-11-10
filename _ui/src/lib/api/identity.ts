@@ -23,6 +23,14 @@ export interface IdentityProvider {
   token_url: string; userinfo_url: string; jwks_url: string; scopes: string[];
   subject_claim: string; auth_header_style: string; roles_claims?: string[];
   allowed_emails?: string[];
+  /** Accept this provider's tokens from act_for_users API tokens (agent gateway). */
+  token_exchange?: boolean;
+  /** Exact `iss` of exchanged tokens. */
+  issuer?: string;
+  /** Accepted `aud` values of exchanged tokens. */
+  audiences?: string[];
+  /** Create an account for a person on their first exchange. */
+  exchange_provisioning?: boolean;
 }
 export interface IdentityLink { id: string; provider_id: string; issuer: string; subject: string; email?: string; email_verified: boolean }
 export interface RecentProof { proof: string; expires_in: number }

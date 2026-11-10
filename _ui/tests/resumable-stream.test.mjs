@@ -53,7 +53,7 @@ test('explicit abort sends cancellation while a network failure does not', async
   assert.deepEqual(calls, ['POST', 'DELETE']);
 });
 
-test('developer page abort detaches without DELETE or repeating the POST', async () => {
+test('a detaching follower aborts without DELETE or repeating the POST', async () => {
   const calls = [], controller = new AbortController();
   const response = await resumableStream(async (_, init) => {
     calls.push(init.method || 'GET');
@@ -64,18 +64,18 @@ test('developer page abort detaches without DELETE or repeating the POST', async
   assert.deepEqual(calls, ['POST']);
 });
 
-test('returning to a developer session attaches to the discovered ID using GET only', async () => {
+test('returning to a run attaches to the discovered ID using GET only', async () => {
   const calls = [];
   const text = 'data: {"type":"done"}\n\n: at-stream-complete\n\n';
   const response = await resumableStream(async (url, init) => {
     calls.push([url, init.method || 'GET']);
     return new Response(text, { headers });
-  }, '', {}, '/developer-sessions/s/streams', { id: 'existing-run', resume: true, cancelOnAbort: false });
+  }, '', {}, '/chats/conversations/s/streams', { id: 'existing-run', resume: true, cancelOnAbort: false });
   assert.equal(await response.text(), text);
-  assert.deepEqual(calls, [['/developer-sessions/s/streams/existing-run?offset=0', 'GET']]);
+  assert.deepEqual(calls, [['/chats/conversations/s/streams/existing-run?offset=0', 'GET']]);
 });
 
-test('missing discovered developer run is not relaunched', async () => {
+test('a missing discovered run is not relaunched', async () => {
   const calls = [];
   const response = await resumableStream(async (_, init) => {
     calls.push(init.method || 'GET');

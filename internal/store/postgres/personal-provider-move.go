@@ -23,8 +23,8 @@ import (
 // here, since the row is no longer personal.
 //
 // Callers reference a personal provider as "provider:<id>" and a workspace
-// provider by its key. The stored references this workspace owns (agents,
-// workflow graphs and developer sessions) are rewritten in the same
+// provider by its key. The stored references this workspace owns (agents and
+// workflow graphs) are rewritten in the same
 // transaction so the move does not leave them pointing at a reference that no
 // longer resolves.
 func (p *Postgres) MovePersonalProviderToWorkspace(ctx context.Context, id, updatedBy string) (*service.ProviderRecord, error) {
@@ -106,11 +106,6 @@ func (p *Postgres) rewriteProviderReferences(ctx context.Context, tx *goqu.TxDat
 		"config": goqu.L("jsonb_set(config, '{provider}', to_jsonb(?::text))", to),
 	}).Where(inWorkspace, goqu.L("config->>'provider' = ?", from)).Executor().ExecContext(ctx); err != nil {
 		return fmt.Errorf("rewrite agent provider reference: %w", err)
-	}
-
-	if _, err := tx.Update(p.tableDeveloperSessions).Set(goqu.Record{"provider": to}).
-		Where(inWorkspace, goqu.Ex{"provider": from}).Executor().ExecContext(ctx); err != nil {
-		return fmt.Errorf("rewrite developer session provider: %w", err)
 	}
 
 	// Workflow nodes store it at data.provider. Only graphs that mention the

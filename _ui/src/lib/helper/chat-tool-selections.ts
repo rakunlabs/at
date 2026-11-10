@@ -32,6 +32,7 @@ export function normalizeWorkbenchSetup(input: PlaygroundDefaults | Record<strin
     skills: names(input.skills),
     ...tools,
     mcp_code_mode: input.mcp_code_mode === true,
+    developer_tools: input.developer_tools === true,
   };
 }
 
@@ -59,5 +60,6 @@ export function workbenchSetupsEqual(left: WorkbenchSetup, right: WorkbenchSetup
     && sameSelection(left.skills, right.skills)
     && sameSelection(left.builtin_tools, right.builtin_tools)
     && sameSelection(left.frontend_tools, right.frontend_tools)
-    && left.mcp_code_mode === right.mcp_code_mode;
+    && left.mcp_code_mode === right.mcp_code_mode
+    && left.developer_tools === right.developer_tools;
 }

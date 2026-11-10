@@ -55,6 +55,7 @@ Changing `encryption_key` requires rotating it first in Settings → System → 
 
 - [Native authentication](NATIVE_AUTH.md)
 - [Reverse proxy and base path](docs/reverse-proxy.md)
+- [Embedding an AT agent in a website](docs/agent-gateway.md)
 - [Chat sharing](docs/chat-sharing.md)
 - [Developer Spaces on Kubernetes](docs/developer-spaces-kubernetes.md)
 - [Mobile app (PWA)](_ui/README.md)

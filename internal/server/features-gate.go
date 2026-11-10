@@ -315,7 +315,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureAgents
-	case "developer-space", "developer-sessions":
+	case "developer-space":
 		return service.FeatureDeveloperSpaces
 	case "heartbeats", "heartbeat-runs", "wakeup-requests":
 		return service.FeatureAgentHeartbeats
