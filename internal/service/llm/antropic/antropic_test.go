@@ -126,6 +126,65 @@ func TestProxyOAuthPreservesQueryAndAddsBeta(t *testing.T) {
 	}
 }
 
+func TestOAuthRetriesWithRequiredClaudeCodeVersion(t *testing.T) {
+	t.Cleanup(func() { learnedClaudeCodeVersion.Store("") })
+	learnedClaudeCodeVersion.Store("")
+
+	for _, stream := range []bool{false, true} {
+		learnedClaudeCodeVersion.Store("")
+		var agents []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			agents = append(agents, r.Header.Get("User-Agent"))
+			w.Header().Set("Content-Type", "application/json")
+			if !strings.Contains(r.Header.Get("User-Agent"), "9.0.0") {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"Claude Code ` + claudeCodeCLIVersion + ` does not support this model; version 9.0.0 or newer is required. Run 'claude update', or update the Claude desktop app, then try again."}}`))
+				return
+			}
+			if stream {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte("data: {\"type\":\"content_block_start\",\"content_block\":{\"type\":\"text\"}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n"))
+				return
+			}
+			_, _ = w.Write([]byte(`{"type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+		}))
+
+		p, err := New("", "claude-fable-9", srv.URL, "", false, WithTokenSource(NewStaticTokenSource("oauth-token")))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		msgs := []service.Message{{Role: "user", Content: "hi"}}
+		var content string
+		if stream {
+			ch, _, err := p.ChatStream(context.Background(), "", msgs, nil, nil)
+			if err != nil {
+				t.Fatalf("ChatStream() error = %v", err)
+			}
+			for chunk := range ch {
+				if chunk.Error != nil {
+					t.Fatalf("stream chunk error = %v", chunk.Error)
+				}
+				content += chunk.Content
+			}
+		} else {
+			resp, err := p.Chat(context.Background(), "", msgs, nil, nil)
+			if err != nil {
+				t.Fatalf("Chat() error = %v", err)
+			}
+			content = resp.Content
+		}
+		srv.Close()
+
+		if content != "ok" || len(agents) != 2 {
+			t.Fatalf("stream=%v: content=%q requests=%v", stream, content, agents)
+		}
+		if !strings.Contains(agents[1], "claude-cli/9.0.0 ") {
+			t.Fatalf("stream=%v: retry User-Agent = %q", stream, agents[1])
+		}
+	}
+}
+
 func TestThinkingToolUseRoundTripOAuth(t *testing.T) {
 	var requestBodies [][]byte
 	call := 0

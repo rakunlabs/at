@@ -2319,6 +2319,15 @@ browser logout, identity revocation, bot message persistence/reply, binding UI
 APIs and credential redaction. Set `AT_TEST_POSTGRES_DSN` or run `make env` so
 these tests execute rather than skip. Migration 48 adds the `mcp` binding kind.
 
+Claude Code OAuth requests advertise a Claude CLI version (`claudeCodeCLIVersion`
+in `antropic.go`, User-Agent and billing block); Anthropic refuses models newer
+than it ("Claude Code X does not support this model; version Y or newer is
+required"). Such a refusal is parsed, Y is adopted process-wide and the request
+is retried once (`adoptRequiredClaudeCodeVersion`), so a new model works before
+the constant is bumped; `ANTHROPIC_CLI_VERSION` still overrides. Keep the constant
+at the latest `@anthropic-ai/claude-code` release. Regression:
+`TestOAuthRetriesWithRequiredClaudeCodeVersion`.
+
 Claude Code OAuth refreshes use `ClaudeOAuthTokenStorer.WithClaudeOAuthTokens`: a
 workspace-owned provider row lock covers credential reload, the single-use OAuth
 exchange and encrypted save. Anthropic invalidates the previous refresh token on

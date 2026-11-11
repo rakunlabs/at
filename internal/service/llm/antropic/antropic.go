@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -279,6 +280,28 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 }
 
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	resp, err := p.chatOnce(ctx, model, messages, tools, opts)
+	if p.retryWithRequiredCLIVersion(err) {
+		return p.chatOnce(ctx, model, messages, tools, opts)
+	}
+	return resp, err
+}
+
+// retryWithRequiredCLIVersion reports whether an OAuth request was refused
+// only because the advertised Claude Code version is too old for the model,
+// after adopting the version the refusal names.
+func (p *Provider) retryWithRequiredCLIVersion(err error) bool {
+	if err == nil || p.tokenSource == nil {
+		return false
+	}
+	var upstream *service.UpstreamError
+	if !errors.As(err, &upstream) {
+		return false
+	}
+	return adoptRequiredClaudeCodeVersion(upstream.Message)
+}
+
+func (p *Provider) chatOnce(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	if err := common.ValidateSingleChoice(opts); err != nil {
 		return nil, err
 	}
@@ -494,6 +517,14 @@ type messageStartMessage struct {
 
 // ChatStream implements service.LLMStreamProvider for Anthropic's SSE format.
 func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
+	ch, header, err := p.chatStreamOnce(ctx, model, messages, tools, opts)
+	if p.retryWithRequiredCLIVersion(err) {
+		return p.chatStreamOnce(ctx, model, messages, tools, opts)
+	}
+	return ch, header, err
+}
+
+func (p *Provider) chatStreamOnce(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
 	if err := common.ValidateSingleChoice(opts); err != nil {
 		return nil, nil, err
 	}
@@ -1578,8 +1609,10 @@ func oauthBetaHeader(model string, _ map[string]any) string {
 // see signing.go) to identify legitimate Claude Code traffic.
 //
 // Override at runtime via the ANTHROPIC_CLI_VERSION env var if
-// Anthropic bumps the CLI before we publish a new release.
-const claudeCodeCLIVersion = "2.1.280"
+// Anthropic bumps the CLI before we publish a new release. A refusal naming
+// a newer required version is also adopted automatically and the request
+// retried once (adoptRequiredClaudeCodeVersion).
+const claudeCodeCLIVersion = "2.1.322"
 
 // claudeCodeEntrypoint is the cc_entrypoint value embedded in the
 // billing system text block. Plugin uses "sdk-cli" (not "cli") so we

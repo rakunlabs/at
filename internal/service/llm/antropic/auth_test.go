@@ -57,6 +57,45 @@ func TestClaudeCodeVersionOverride(t *testing.T) {
 	}
 }
 
+func TestAdoptRequiredClaudeCodeVersion(t *testing.T) {
+	t.Cleanup(func() { learnedClaudeCodeVersion.Store("") })
+	learnedClaudeCodeVersion.Store("")
+
+	if adoptRequiredClaudeCodeVersion("model: claude-x not found") {
+		t.Fatal("unrelated error adopted a version")
+	}
+	if adoptRequiredClaudeCodeVersion("Claude Code 2.1.280 does not support this model; version 2.1.100 or newer is required.") {
+		t.Fatal("older required version must not be adopted")
+	}
+	msg := "Claude Code 2.1.322 does not support this model; version 2.1.400 or newer is required. Run 'claude update'"
+	if !adoptRequiredClaudeCodeVersion(msg) {
+		t.Fatal("newer required version was not adopted")
+	}
+	if got := claudeCodeVersion(); got != "2.1.400" {
+		t.Fatalf("claudeCodeVersion() = %q, want 2.1.400", got)
+	}
+	if adoptRequiredClaudeCodeVersion(msg) {
+		t.Fatal("same version adopted twice; a retry loop would not terminate")
+	}
+}
+
+func TestCompareCLIVersions(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		{"2.1.290", "2.1.280", 1},
+		{"2.1.280", "2.1.290", -1},
+		{"2.1.9", "2.1.10", -1},
+		{"2.1", "2.1.0", 0},
+	}
+	for _, tt := range tests {
+		if got := compareCLIVersions(tt.a, tt.b); got != tt.want {
+			t.Errorf("compareCLIVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func TestOAuthBetaHeaderMatchesCurrentClaudeCode(t *testing.T) {
 	got := strings.Split(oauthBetaHeader("claude-sonnet-4-6", nil), ",")
 	want := []string{

@@ -14,8 +14,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -437,11 +440,68 @@ func BuildAuthURL(pkceChallenge, state string) string {
 	return ClaudeAuthURL + "?" + raw
 }
 
+// learnedClaudeCodeVersion holds a newer CLI version the API asked for in a
+// "does not support this model" refusal. It is process-wide because the
+// requirement belongs to Anthropic's API, not to one provider row.
+var learnedClaudeCodeVersion atomic.Value // string
+
+// claudeCodeMinVersionRe matches Anthropic's refusal for a model newer than
+// the advertised CLI, e.g. "Claude Code 2.1.280 does not support this model;
+// version 2.1.290 or newer is required."
+var claudeCodeMinVersionRe = regexp.MustCompile(`Claude Code \S+ does not support this model; version (\d+\.\d+\.\d+) or newer is required`)
+
 func claudeCodeVersion() string {
-	if version := strings.TrimSpace(os.Getenv("ANTHROPIC_CLI_VERSION")); version != "" {
-		return version
+	version := strings.TrimSpace(os.Getenv("ANTHROPIC_CLI_VERSION"))
+	if version == "" {
+		version = claudeCodeCLIVersion
 	}
-	return claudeCodeCLIVersion
+	if learned, _ := learnedClaudeCodeVersion.Load().(string); learned != "" && compareCLIVersions(learned, version) > 0 {
+		return learned
+	}
+	return version
+}
+
+// adoptRequiredClaudeCodeVersion records the minimum CLI version named in an
+// upstream refusal and reports whether the advertised version changed, i.e.
+// whether retrying the request can succeed.
+func adoptRequiredClaudeCodeVersion(message string) bool {
+	m := claudeCodeMinVersionRe.FindStringSubmatch(message)
+	if m == nil {
+		return false
+	}
+	required := m[1]
+	current := claudeCodeVersion()
+	if compareCLIVersions(required, current) <= 0 {
+		return false
+	}
+	learnedClaudeCodeVersion.Store(required)
+	slog.Warn("anthropic requires a newer Claude Code version; adopting it",
+		"previous", current,
+		"required", required,
+	)
+	return true
+}
+
+// compareCLIVersions compares dotted numeric versions; non-numeric parts
+// compare as zero.
+func compareCLIVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < max(len(as), len(bs)); i++ {
+		var x, y int
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
 }
 
 // ─── Helpers ───
