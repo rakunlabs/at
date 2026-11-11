@@ -169,6 +169,9 @@ type ThinkingConfig struct {
 	// BudgetTokens is the token budget for the thinking phase.
 	// 0 means the provider should use its own default.
 	BudgetTokens int
+	// Display is Anthropic's thinking display ("summarized", "omitted",
+	// "updates"). Empty lets the adapter choose.
+	Display string
 }
 
 // ─── LLM Message & Response Types ───

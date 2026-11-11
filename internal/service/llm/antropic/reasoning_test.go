@@ -6,6 +6,41 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
+// Claude 5+ hides thinking unless display is "summarized"; AT asks for the
+// summary so streams are not silent while the model thinks.
+func TestClaude5ThinkingDisplaySummarized(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		opts  *service.ChatOptions
+		want  any // thinking.display, nil = no display field
+		noThk bool
+	}{
+		{name: "fable default", model: "claude-fable-5-2", want: "summarized"},
+		{name: "opus 5.5 with effort", model: "claude-opus-5-5", opts: &service.ChatOptions{ReasoningEffort: "medium"}, want: "summarized"},
+		{name: "explicit display wins", model: "claude-fable-5-2", opts: &service.ChatOptions{Thinking: &service.ThinkingConfig{Display: "omitted"}}, want: "omitted"},
+		{name: "disabled untouched", model: "claude-sonnet-5", opts: &service.ChatOptions{Thinking: &service.ThinkingConfig{Type: "disabled"}}, want: nil},
+		{name: "claude 4 untouched", model: "claude-opus-4-7", want: nil, noThk: true},
+		{name: "haiku 4.5 untouched", model: "claude-haiku-4-5", want: nil, noThk: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{MaxTokens: 32768}
+			body := p.buildRequestBody(tt.model, nil, nil, tt.opts)
+			thinking, _ := body["thinking"].(map[string]any)
+			if tt.noThk {
+				if thinking != nil {
+					t.Fatalf("thinking = %+v, want none", thinking)
+				}
+				return
+			}
+			if thinking["display"] != tt.want {
+				t.Fatalf("thinking = %+v, want display %v", thinking, tt.want)
+			}
+		})
+	}
+}
+
 func TestReasoningEffortBudget(t *testing.T) {
 	p := &Provider{MaxTokens: 32768}
 	body := p.buildRequestBody("claude-sonnet-4-5", nil, nil, &service.ChatOptions{ReasoningEffort: "medium"})

@@ -1251,6 +1251,29 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
+	// Claude 5+ omits thinking text unless display is "summarized", so a
+	// stream shows nothing for minutes while the model thinks. Ask for the
+	// summary (no extra cost) unless the caller chose a display or turned
+	// thinking off. Kept constant per model: changing display breaks the
+	// prompt cache.
+	thinkingBlock, _ := reqBody["thinking"].(map[string]any)
+	if opts != nil && opts.Thinking != nil && opts.Thinking.Display != "" {
+		if thinkingBlock == nil && service.AnthropicThinkingMode(model) == "adaptive" {
+			thinkingBlock = map[string]any{"type": "adaptive"}
+			reqBody["thinking"] = thinkingBlock
+		}
+		if thinkingBlock != nil && thinkingBlock["type"] != "disabled" {
+			thinkingBlock["display"] = opts.Thinking.Display
+		}
+	} else if service.AnthropicHidesThinkingByDefault(model) {
+		switch {
+		case thinkingBlock == nil:
+			reqBody["thinking"] = map[string]any{"type": "adaptive", "display": "summarized"}
+		case thinkingBlock["type"] != "disabled":
+			thinkingBlock["display"] = "summarized"
+		}
+	}
+
 	// OAuth path: rewrite the body to match Claude Code's wire format
 	// exactly (billing-text system block, identity-prefix-as-its-own-
 	// entry, third-party system relocated to first user message,

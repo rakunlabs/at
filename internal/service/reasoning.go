@@ -212,8 +212,29 @@ func AnthropicThinkingMode(model string) string {
 	return ""
 }
 
+// AnthropicHidesThinkingByDefault reports whether the API omits thinking text
+// unless `thinking.display: "summarized"` is requested: Claude 5 and later
+// models and Mythos Preview. Streams then show nothing while the model thinks.
+func AnthropicHidesThinkingByDefault(model string) bool {
+	if AnthropicThinkingMode(model) != "adaptive" {
+		return false
+	}
+	id := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(model)), ".", "-")
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	m := claudeRe.FindStringSubmatch(id)
+	if m == nil {
+		return false
+	}
+	if m[2] == "preview" {
+		return true
+	}
+	major, _ := strconv.Atoi(m[2])
+	return major >= 5
+}
+
 var (
-	// claude-<family>-<major>[-<minor>] where minor has at most two digits,
 	// so a trailing 8-digit date snapshot is never read as a version.
 	claudeRe       = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable|mythos)-(\d+|preview)(?:-(\d{1,2}))?(?:$|[^0-9])`)
 	legacyClaudeRe = regexp.MustCompile(`claude-(?:3|3-5|2|2-1|instant)(?:-|$)`)

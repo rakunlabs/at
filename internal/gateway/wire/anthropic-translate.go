@@ -477,6 +477,9 @@ func anthropicThinkingConfig(raw map[string]any) *service.ThinkingConfig {
 	if t, ok := raw["type"].(string); ok && t != "" {
 		cfg.Type = t
 	}
+	if d, ok := raw["display"].(string); ok {
+		cfg.Display = d
+	}
 	switch v := raw["budget_tokens"].(type) {
 	case float64:
 		cfg.BudgetTokens = int(v)

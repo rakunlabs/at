@@ -80,6 +80,7 @@ type ChatCompletionRequest struct {
 type ThinkingReq struct {
 	Type         string `json:"type"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
 }
 
 // StreamOptions controls optional streaming behaviour.
@@ -500,6 +501,7 @@ func BuildChatOptions(req *ChatCompletionRequest) *service.ChatOptions {
 		opts.Thinking = &service.ThinkingConfig{
 			Type:         req.Thinking.Type,
 			BudgetTokens: req.Thinking.BudgetTokens,
+			Display:      req.Thinking.Display,
 		}
 		any = true
 	}
